@@ -35,7 +35,27 @@ class LogsQueryRunner(QueryRunner):
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
 
-        return LogsQueryResponse(results=response.results, **self.paginator.response_params())
+        results = []
+        for result in response.results:
+            results.append(
+                {
+                    "uuid": result[0],
+                    "trace_id": result[1],
+                    "span_id": result[2],
+                    "body": result[3],
+                    "attributes": result[4],
+                    "timestamp": result[5],
+                    "observed_timestamp": result[6],
+                    "severity_text": result[7],
+                    "severity_number": result[8],
+                    "level": result[9],
+                    "resource": result[10],
+                    "instrumentation_scope": result[11],
+                    "event_name": result[12],
+                }
+            )
+
+        return LogsQueryResponse(results=results, **self.paginator.response_params())
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(

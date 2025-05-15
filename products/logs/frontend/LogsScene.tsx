@@ -1,6 +1,6 @@
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Sparkline } from 'lib/components/Sparkline'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
@@ -9,7 +9,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LogMessage } from '~/queries/schema/schema-general'
 
 import { DateRangeFilter } from './filters/DateRangeFilter'
-import { ResourceFilter } from './filters/ResourceFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
@@ -25,45 +24,63 @@ export function LogsScene(): JSX.Element {
     useEffect(() => {
         fetchLogs()
     }, [])
+    const { wrapBody, logs, logsLoading, hasRunQuery } = useValues(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
-            <Sparkline labels={['bucket 1']} data={[1]} className="w-full" />
-            <DisplayOptions />
-            <div className="flex-1">
-                <LemonTable
-                    hideScrollbar
-                    dataSource={logs}
-                    loading={false}
-                    size="small"
-                    columns={[
-                        {
-                            title: 'Level',
-                            key: 'severity_text',
-                            dataIndex: 'severity_text',
-                            width: 0,
-                            render: (_, record) => <LogTag level={record.severity_text} />,
-                        },
-                        {
-                            title: 'Message',
-                            key: 'body',
-                            dataIndex: 'body',
-                            render: (body) => <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>,
-                        },
-                    ]}
-                    expandable={{
-                        noIndent: true,
-                        expandedRowRender: (log) => <ExpandedLog log={log} />,
-                    }}
-                />
-            </div>
+            {hasRunQuery ? (
+                <>
+                    {/* <Sparkline labels={['bucket 1']} data={[1]} className="w-full" /> */}
+                    <DisplayOptions />
+                    <div className="flex-1">
+                        <LemonTable
+                            hideScrollbar
+                            dataSource={logs}
+                            loading={logsLoading}
+                            size="small"
+                            // disableTableWhileLoading={true}
+                            columns={[
+                                {
+                                    title: 'Timestamp',
+                                    key: 'timestamp',
+                                    dataIndex: 'timestamp',
+                                    width: 0,
+                                    render: (timestamp) => <TZLabel time={timestamp as string} />,
+                                },
+                                {
+                                    title: 'Level',
+                                    key: 'severity_text',
+                                    dataIndex: 'severity_text',
+                                    width: 0,
+                                    render: (_, record) => <LogTag level={record.severity_text} />,
+                                },
+                                {
+                                    title: 'Message',
+                                    key: 'body',
+                                    dataIndex: 'body',
+                                    render: (body) => (
+                                        <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>
+                                    ),
+                                },
+                            ]}
+                            expandable={{
+                                noIndent: true,
+                                expandedRowRender: (log) => <ExpandedLog log={log} />,
+                            }}
+                        />
+                    </div>
+                </>
+            ) : (
+                <div>Run your query to start seeing logs</div>
+            )}
         </div>
     )
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const rows = Object.entries(log.attributes).map(([key, value]) => ({ key, value }))
+    const attributes = JSON.parse(log.attributes)
+    const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
     return (
         <LemonTable
@@ -74,6 +91,7 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     title: 'Key',
                     key: 'key',
                     dataIndex: 'key',
+                    width: 0,
                 },
                 {
                     title: 'Value',
@@ -100,19 +118,26 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
+    const { hasRunQuery, logsLoading } = useValues(logsLogic)
     const { fetchLogs } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
             <div className="flex justify-between gap-y-2">
                 <div className="flex gap-x-1">
-                    <ResourceFilter />
+                    {/* <AttributesFilter /> */}
                     <SeverityLevelsFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <DateRangeFilter />
-                    <LemonButton size="small" icon={<IconRefresh />} type="secondary" onClick={fetchLogs}>
-                        Refresh
+                    <LemonButton
+                        size="small"
+                        icon={hasRunQuery ? <IconRefresh /> : <IconRefresh />}
+                        type="secondary"
+                        onClick={fetchLogs}
+                        loading={logsLoading}
+                    >
+                        {hasRunQuery ? 'Refresh' : 'Run'}
                     </LemonButton>
                 </div>
             </div>

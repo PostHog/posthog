@@ -859,6 +859,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    Log = 'log',
 }
 
 /** Sync with plugin-server/src/types.ts */
