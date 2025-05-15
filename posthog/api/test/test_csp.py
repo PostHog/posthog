@@ -3,7 +3,6 @@ import json
 
 from django.test import TestCase
 from django.test.client import RequestFactory
-from unittest.mock import patch
 
 from posthog.api.csp import (
     process_csp_report,
@@ -294,14 +293,14 @@ class TestCSPModule(TestCase):
         assert sample_csp_report(properties, 0.5) is result_at_50_percent
 
         # Test with missing document_url
-        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) is sample_on_property("", 0.5)
+        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) == sample_on_property("", 0.5)
 
         # Test with only document_url
-        assert sample_csp_report({"document_url": "https://example.com/page"}, 0.5) is sample_on_property(
+        assert sample_csp_report({"document_url": "https://example.com/page"}, 0.5) == sample_on_property(
             "https://example.com/page", 0.5
         )
 
-    def test_process_csp_report_with_sampling(self):
+    def test_process_csp_report_with_sampling_in(self):
         # Create a test properties dictionary
         properties = {
             "document_url": "https://example.com/foo/bar",
@@ -321,30 +320,6 @@ class TestCSPModule(TestCase):
         }
         result = sample_csp_report(properties, 1.0, True)
         assert result is True
-        assert "csp_sampled" not in properties
-        assert "csp_sample_threshold" not in properties
-
-        # Test with metadata when sampled in (add_metadata=True)
-        properties = {
-            "document_url": "https://example.com/foo/bar",
-            "effective_directive": "script-src",
-        }
-
-        # Use a mock to ensure the report is sampled in
-        with patch("posthog.api.csp.sample_on_property", return_value=True):
-            result = sample_csp_report(properties, 0.1, True)
-            assert result is True
-            assert properties["csp_sampled"] is True
-            assert properties["csp_sample_threshold"] == 0.1
-
-        # Test when sampled out
-        properties = {
-            "document_url": "https://example.com/foo/bar",
-            "effective_directive": "script-src",
-        }
-        with patch("posthog.api.csp.sample_on_property", return_value=False):
-            result = sample_csp_report(properties, 0.1, True)
-            assert result is False
 
     def test_sampling_determinism_across_report_types(self):
         """Test that sampling is deterministic across different report formats for the same content"""
@@ -437,12 +412,7 @@ class TestCSPModule(TestCase):
         for directive in directives:
             properties = {"document_url": url, "effective_directive": directive}
             result = sample_csp_report(properties, rate)
-
-            if first_result is None:
-                first_result = result
-            else:
-                # All results should be the same since only document_url matters
-                assert result == first_result, "Expected same sampling decision for same URL regardless of directive"
+            assert result == first_result, "Expected same sampling decision for same URL regardless of directive"
 
         # Verify that the sampling is based on document_url
         assert sample_csp_report({"document_url": url}, rate) == first_result

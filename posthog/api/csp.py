@@ -43,15 +43,14 @@ def sample_csp_report(properties: dict, percent: float, add_metadata: bool = Fal
         properties["csp_sampled"] = should_ingest_report
         properties["csp_sample_threshold"] = percent
 
-    if should_ingest_report:
-        return True
-    else:
+    if not should_ingest_report:
         logger.debug(
             "CSP report sampled out",
             document_url=document_url,
             sample_rate=percent,
         )
-        return False
+
+    return should_ingest_report
 
 
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
