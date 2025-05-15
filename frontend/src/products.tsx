@@ -48,6 +48,7 @@ import {
 export const productScenes: Record<string, () => Promise<any>> = {
     ChatList: () => import('../../products/chat/frontend/scenes/ChatList'),
     Chat: () => import('../../products/chat/frontend/scenes/Chat'),
+    ChatSettings: () => import('../../products/chat/frontend/scenes/ChatSettings'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
@@ -64,6 +65,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
 /** This const is auto-generated, as is the whole file */
 export const productRoutes: Record<string, [string, string]> = {
     '/chat': ['ChatList', 'chatList'],
+    '/chat/settings': ['ChatSettings', 'chatSettings'],
     '/chat/:id': ['Chat', 'chat'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -109,6 +111,12 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'Chat',
+    },
+    ChatSettings: {
+        name: 'Chat Settings',
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: 'ChatSettings',
     },
     EarlyAccessFeatures: {
         name: 'Early Access Features',
@@ -166,6 +174,7 @@ export const productUrls = {
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     chatList: (): string => '/chat',
+    chatSettings: (): string => '/chat/settings',
     chat: (id: string): string => `/chat/${id}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',

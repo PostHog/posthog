@@ -20,14 +20,23 @@ export const manifest: ProductManifest = {
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'Chat',
         },
+        ChatSettings: {
+            name: 'Chat Settings',
+            import: () => import('./frontend/scenes/ChatSettings'),
+            projectBased: true,
+            defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+            activityScope: 'ChatSettings',
+        },
     },
     routes: {
         '/chat': ['ChatList', 'chatList'],
+        '/chat/settings': ['ChatSettings', 'chatSettings'],
         '/chat/:id': ['Chat', 'chat'],
     },
     redirects: {},
     urls: {
         chatList: (): string => '/chat',
+        chatSettings: (): string => '/chat/settings',
         chat:
             /** @param id A UUID or 'new'. ':id' for routing. */
             (id: string): string => `/chat/${id}`,
