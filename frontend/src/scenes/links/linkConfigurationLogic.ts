@@ -12,7 +12,7 @@ import { UserBasicType } from '~/types'
 
 import type { linkConfigurationLogicType } from './linkConfigurationLogicType'
 
-export interface LinkType {
+export type LinkType = {
     id: string
     redirect_url: string
     short_link_domain: string
@@ -34,16 +34,18 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
     })),
-    loaders({
+    loaders(() => ({
+        // Cannot include `null` in here because Kea doesn't like it because of the form below
+        // so let's just cast it to `unknown`
         link: [
-            null as LinkType | null,
+            null as unknown as LinkType,
             {
                 loadLink: async ({ id }: { id: string }) => {
                     return await api.links.get(id)
                 },
             },
         ],
-    }),
+    })),
     actions({
         deleteLink: (link: LinkType) => ({ link }),
     }),
@@ -76,12 +78,19 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
                 description: '',
             } as LinkType,
 
-            errors: ({ redirect_url }) => ({
-                redirect_url: !redirect_url ? 'Must have a destination url' : undefined,
+            errors: (link) => ({
+                redirect_url: !link?.redirect_url ? 'Must include a destination url' : undefined,
+                short_code: !link?.short_code ? 'Must include a short code' : undefined,
             }),
 
-            submit: async ({ id, ...link }, breakpoint) => {
-                const updatedLink = id ? await api.links.update(id, link) : await api.links.create(link)
+            submit: async (link, breakpoint) => {
+                if (!link) {
+                    return
+                }
+
+                const { id, ...rest } = link
+
+                const updatedLink = id ? await api.links.update(id, rest) : await api.links.create(rest)
                 breakpoint()
 
                 actions.resetLink(updatedLink)
