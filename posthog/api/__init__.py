@@ -3,6 +3,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
+import products.managed_migrations.backend.api as managed_migrations
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
@@ -178,6 +179,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+projects_router.register(
+    r"managed_migrations",
+    managed_migrations.ManagedMigrationViewSet,
+    "project_managed_migrations",
     ["project_id"],
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
