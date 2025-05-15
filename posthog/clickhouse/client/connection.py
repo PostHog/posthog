@@ -176,6 +176,7 @@ def get_client_from_pool(
                 database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
                 user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
                 password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+                secure=settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
             )
 
         return get_http_client()
@@ -220,6 +221,7 @@ def get_pool(
             database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
             user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
             password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+            secure=settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
         )
 
     return make_ch_pool(user=user, password=password)
