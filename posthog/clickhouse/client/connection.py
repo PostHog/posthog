@@ -173,9 +173,9 @@ def get_client_from_pool(
         if workload == Workload.LOGS:
             return get_http_client(
                 host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+                database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
                 user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
                 password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-                database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
             )
 
         return get_http_client()
@@ -217,6 +217,7 @@ def get_pool(
     if workload == Workload.LOGS:
         return make_ch_pool(
             host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
             user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
             password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
         )
