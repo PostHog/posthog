@@ -28,7 +28,6 @@ class LinkSerializer(serializers.ModelSerializer):
             "origin_key",
             "description",
             "tags",
-            "comments",
             "created_at",
             "updated_at",
             "created_by",
@@ -45,7 +44,6 @@ class LinkSerializer(serializers.ModelSerializer):
             origin_key=validated_data.get("origin_key"),
             description=validated_data.get("description"),
             tags=validated_data.get("tags"),
-            comments=validated_data.get("comments"),
             created_by=self.context["request"].user,
         )
 
