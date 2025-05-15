@@ -27,6 +27,3 @@ class UserInterview(UUIDModel, CreatedMetaFields):
     )
     transcript = models.TextField(blank=True)
     summary = models.TextField(blank=True)
-
-    def __str__(self):
-        return f"Interview {self.id} for team {self.team_id} by {self.interviewer.email if self.interviewer else 'Unknown'}"

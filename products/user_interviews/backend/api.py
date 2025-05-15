@@ -52,7 +52,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
             num_speakers=10,  # Maximum number of speakers, not expected one
             diarize=True,
             tag_audio_events=False,
-            additional_formats=json.dumps(
+            additional_formats=json.dumps(  # type: ignore
                 [
                     {
                         "format": "txt",
@@ -78,7 +78,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
 
     def _attempt_to_map_speaker_names(self, transcript: str, interviewee_emails: list[str]) -> dict[str, str] | None:
         participant_emails_joined = "\n".join(f"- {email}" for email in interviewee_emails)
-        assignment_response = OpenAI(posthog_client=posthoganalytics).responses.create(
+        assignment_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
             posthog_distinct_id=self.context["request"].user.distinct_id,
@@ -155,7 +155,7 @@ Map the speakers in the following transcript:
             return None
 
     def _summarize_transcript(self, transcript: str):
-        summary_response = OpenAI(posthog_client=posthoganalytics).responses.create(
+        summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
             posthog_distinct_id=self.context["request"].user.distinct_id,
@@ -213,7 +213,7 @@ Record the agreed-upon next steps, including any additional actions that need to
 
 
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "user_interview"
+    scope_object = "INTERNAL"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
     parser_classes = [MultiPartParser, JSONParser]
