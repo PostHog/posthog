@@ -4,6 +4,7 @@ from typing import Optional
 import structlog
 
 from posthog.exceptions import generate_exception_response
+from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
 from posthog.models.utils import uuid7
 
@@ -29,6 +30,32 @@ logger = structlog.get_logger(__name__)
 | `user_agent`          | top-level `user_agent`               | not available                      |
 | `report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
+
+
+def sample_csp_report(properties: dict, percent: float) -> bool:
+    """
+    Sample CSP reports based on document_url and effective_directive
+
+    Args:
+        properties: The properties extracted from the CSP report
+        percent: Sampling rate (0-1)
+
+    Returns:
+        bool: True if the report should be included in the sample
+    """
+    document_url = properties.get("document_url", "")
+    effective_directive = properties.get("effective_directive", "")
+
+    # Create a combined sampling key
+    sampling_key = f"{document_url}:{effective_directive}"
+
+    # For cases where we only have one of the properties, use that property directly
+    if document_url and not effective_directive:
+        return sample_on_property(document_url, percent)
+    if effective_directive and not document_url:
+        return sample_on_property(effective_directive, percent)
+
+    return sample_on_property(sampling_key, percent)
 
 
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
