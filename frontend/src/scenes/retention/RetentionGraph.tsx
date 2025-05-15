@@ -32,6 +32,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
         filteredTrendSeries,
         incompletenessOffsetFromEnd,
         aggregationGroupTypeIndex,
+        shouldShowMeanPerBreakdown,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
@@ -60,6 +61,11 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             tooltip={{
                 rowCutoff: 11, // 11 time units is hardcoded into retention insights
                 renderSeries: function _renderCohortPrefix(value) {
+                    // If we're showing mean values per breakdown, show the breakdown value directly
+                    if (shouldShowMeanPerBreakdown) {
+                        return <>{value}</>
+                    }
+                    // Otherwise prefix with "Cohort" for normal cohort view
                     return <>Cohort {value}</>
                 },
                 showHeader: false,
@@ -68,6 +74,11 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                 },
             }}
             onClick={(payload) => {
+                // Only open the modal if we're not showing mean values (which don't map to specific cohorts)
+                if (shouldShowMeanPerBreakdown) {
+                    return
+                }
+
                 const { points } = payload
                 const rowIndex = points.clickedPointNotLine
                     ? points.pointsIntersectingClick[0].dataset.index
