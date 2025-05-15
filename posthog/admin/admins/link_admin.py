@@ -19,17 +19,9 @@ class LinkAdmin(admin.ModelAdmin):
     def redirect_url_display(self, obj: Link):
         return format_html('<a href="{}" target="_blank">{}</a>', obj.redirect_url, obj.redirect_url)
 
-    redirect_url_display.short_description = "Redirect URL"
-
     def team_link(self, obj: Link):
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[obj.team.pk]),
             obj.team.name,
         )
-
-    team_link.short_description = "Team"
-
-
-# Register with admin site
-admin.site.register(Link, LinkAdmin)
