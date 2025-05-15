@@ -29,7 +29,7 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
     
     const title =
         sdkHealth !== 'healthy'
-            ? 'Outdated SDKs Found'
+            ? 'Outdated SDKs found'
             : 'SDK health is good'
 
     return (

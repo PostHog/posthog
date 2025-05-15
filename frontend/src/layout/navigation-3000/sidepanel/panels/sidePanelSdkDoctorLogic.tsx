@@ -352,6 +352,18 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
         console.log(`[SDK Doctor] PHP SDK check: version ${version}, major=${major}, minor=${minor}, isOutdated=${major < 3}`)
     }
     
+    // Hardcoded check for Node.js SDK
+    if (lib === 'posthog-node') {
+        // As requested: 3.2.0 is outdated, 4.17.1 is current
+        if (major < 4) {
+            return true // Outdated if below major version 4
+        } else if (major === 4 && minor < 17) {
+            return true // Outdated if at 4.x.x but minor version < 17
+        } else {
+            return false // Current if >= 4.17.x
+        }
+    }
+    
     // Mock implementation for now - to be replaced with actual minimum version requirements
     // Similar to how Session Recording checks for versions < 1.75
     if (lib === 'web' && (major === 1 && minor < 85)) {
@@ -359,8 +371,6 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
     } else if (lib === 'posthog-ios' && (major === 1 && minor < 4)) {
         return true
     } else if (lib === 'posthog-android' && (major === 1 && minor < 4)) {
-        return true
-    } else if (lib === 'posthog-node' && (major === 1 && minor < 5)) {
         return true
     } else if (lib === 'posthog-php' && major < 3) {
         return true
@@ -379,13 +389,50 @@ function checkVersionAgainstLatest(
     console.log(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
     console.log(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
     
+    // Hardcoded check for Node.js SDK
+    if (type === 'node' as SdkType) {
+        // Hardcoded latest version for Node.js SDK
+        const mockLatestVersion = '4.17.1'
+        
+        try {
+            // Parse version components
+            const components = version.split('.')
+            const major = parseInt(components[0])
+            const minor = parseInt(components[1])
+            
+            // Check if version is outdated based on our hardcoded logic
+            const isOutdated = (major < 4) || (major === 4 && minor < 17)
+            
+            // Calculate releases ahead (mock value)
+            let releasesAhead = 0
+            
+            if (major < 4) {
+                releasesAhead = 10 // Major version behind is significant
+            } else if (major === 4 && minor < 17) {
+                releasesAhead = 17 - minor // Minor versions behind
+            }
+            
+            return {
+                isOutdated,
+                releasesAhead,
+                latestVersion: mockLatestVersion
+            }
+        } catch (e) {
+            // If parsing fails, use the basic check
+            return {
+                isOutdated: checkIfVersionOutdated('posthog-node', version),
+                latestVersion: mockLatestVersion
+            }
+        }
+    }
+    
     // If we don't have data for this SDK type or the SDK type is "other", fall back to hardcoded check
     if (!latestVersionsData[type] || type === 'other') {
         // Convert type to lib name for the hardcoded check
         let lib = 'web'
         if (type === 'ios') lib = 'posthog-ios'
         if (type === 'android') lib = 'posthog-android'
-        if (type === 'node') lib = 'posthog-node'
+        if (type === 'node' as SdkType) lib = 'posthog-node'
         if (type === 'python') lib = 'posthog-python'
         if (type === 'php') lib = 'posthog-php'
         if (type === 'ruby') lib = 'posthog-ruby'
@@ -436,7 +483,7 @@ function checkVersionAgainstLatest(
         let lib = 'web'
         if (type === 'ios') lib = 'posthog-ios'
         if (type === 'android') lib = 'posthog-android'
-        if (type === 'node') lib = 'posthog-node'
+        if (type === 'node' as SdkType) lib = 'posthog-node'
         if (type === 'python') lib = 'posthog-python'
         if (type === 'php') lib = 'posthog-php'
         if (type === 'ruby') lib = 'posthog-ruby'
