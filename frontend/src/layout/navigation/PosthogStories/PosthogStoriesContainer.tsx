@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { storiesLogic } from './storiesLogic'
 import type { storyGroup } from './storiesMap'
@@ -24,7 +25,10 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                     .sort((a: storyGroup, b: storyGroup) => a.order - b.order)
                     .map((storyGroup: storyGroup, index: number) => {
                         const isViewed = storyGroup.stories.every((story) => isStoryViewed(story.id))
-                        const firstStoryViewed = storyGroup.stories[0] ? isStoryViewed(storyGroup.stories[0].id) : false
+
+                        const firstNotViewedIndex = storyGroup.stories.findIndex((story) => !isStoryViewed(story.id))
+                        const firstNotViewedStory =
+                            firstNotViewedIndex >= 0 ? storyGroup.stories[firstNotViewedIndex] : storyGroup.stories[0]
                         return (
                             <div
                                 key={storyGroup.id}
@@ -32,9 +36,11 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                     isViewed ? 'opacity-60' : ''
                                 }`}
                                 onClick={() => {
-                                    const firstNotViewedIndex = storyGroup.stories.findIndex(
-                                        (story) => !isStoryViewed(story.id)
-                                    )
+                                    posthog.capture('posthog_story_group_clicked', {
+                                        story_group_id: storyGroup.id,
+                                        group_title: storyGroup.title,
+                                        group_thumbnail_url: firstNotViewedStory.thumbnailUrl,
+                                    })
                                     setActiveStoryIndex(firstNotViewedIndex >= 0 ? firstNotViewedIndex : 0)
                                     setActiveGroupIndex(index)
                                     setOpenStoriesModal(true)
@@ -49,12 +55,12 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                 >
                                     <div className="w-full h-full rounded-full overflow-hidden bg-white">
                                         <img
-                                            src={storyGroup.stories[0]?.thumbnailUrl}
+                                            src={firstNotViewedStory.thumbnailUrl}
                                             alt={storyGroup.title}
                                             className="w-full h-full object-cover"
                                         />
-                                        {storyGroup.stories[0]?.type === 'video' && (
-                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                        {firstNotViewedStory.type === 'video' && (
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-70">
                                                 <svg
                                                     className="w-6 h-6 text-white"
                                                     fill="currentColor"
@@ -65,14 +71,9 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                                 </svg>
                                             </div>
                                         )}
-                                        {firstStoryViewed && (
-                                            <div className="absolute bottom-0 right-0 bg-primary text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">
-                                                ✓
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
-                                <span className="text-xs line-clamp-2 text-center max-w-[77px]">
+                                <span className="text-xs line-clamp-2 text-center max-w-[64px]">
                                     {storyGroup.title}
                                 </span>
                             </div>
