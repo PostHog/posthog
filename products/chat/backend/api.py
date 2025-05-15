@@ -167,7 +167,13 @@ class ChatMessageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ChatMessageSerializer
 
     def safely_get_queryset(self, queryset):
-        conversation_id = self.request.query_params.get("conversation_id", None)
+        # The parent conversation ID should be accessed via the parents_query_dict
+        conversation_id = (
+            self.parents_query_dict.get("conversation_id") if hasattr(self, "parents_query_dict") else None
+        )
+
+        if not conversation_id:
+            conversation_id = self.request.query_params.get("conversation_id")
 
         if conversation_id:
             queryset = queryset.filter(conversation_id=conversation_id)
@@ -175,8 +181,18 @@ class ChatMessageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("created_at")
 
     def perform_create(self, serializer):
-        conversation_id = self.kwargs.get("conversation_pk")
-        conversation = ChatConversation.objects.get(id=conversation_id, team_id=self.team_id)
+        # The parent conversation ID should be accessed via the parents_query_dict
+        conversation_id = (
+            self.parents_query_dict.get("conversation_id") if hasattr(self, "parents_query_dict") else None
+        )
+
+        if not conversation_id:
+            raise serializers.ValidationError("Conversation ID is required")
+
+        try:
+            conversation = ChatConversation.objects.get(id=conversation_id, team_id=self.team_id)
+        except ChatConversation.DoesNotExist:
+            raise serializers.ValidationError(f"Conversation with ID {conversation_id} not found")
 
         conversation.updated_at = datetime.now(UTC)
         conversation.save(update_fields=["updated_at"])

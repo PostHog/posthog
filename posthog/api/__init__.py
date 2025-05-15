@@ -182,7 +182,8 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
-projects_router.register(r"chat", ChatConversationViewSet, "project_chat", ["project_id"])
+chat_router = projects_router.register(r"chat", ChatConversationViewSet, "project_chat", ["project_id"])
+chat_router.register(r"messages", ChatMessageViewSet, "project_chat_messages", ["project_id", "conversation_id"])
 
 projects_router.register(
     r"dashboard_templates",
