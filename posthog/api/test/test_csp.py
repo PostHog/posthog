@@ -294,9 +294,9 @@ class TestCSPModule(TestCase):
         assert sample_csp_report(properties, 0.5) is result_at_50_percent
 
         # Test with missing document_url
-        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) is sample_on_property("script-src", 0.5)
+        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) is sample_on_property("", 0.5)
 
-        # Test with missing effective_directive
+        # Test with only document_url
         assert sample_csp_report({"document_url": "https://example.com/page"}, 0.5) is sample_on_property(
             "https://example.com/page", 0.5
         )
@@ -345,9 +345,6 @@ class TestCSPModule(TestCase):
         with patch("posthog.api.csp.sample_on_property", return_value=False):
             result = sample_csp_report(properties, 0.1, True)
             assert result is False
-            # Properties should not be modified when sampled out
-            assert "csp_sampled" not in properties
-            assert "csp_sample_threshold" not in properties
 
     def test_sampling_determinism_across_report_types(self):
         """Test that sampling is deterministic across different report formats for the same content"""
@@ -423,7 +420,6 @@ class TestCSPModule(TestCase):
             assert sample_csp_report(properties, rate) == results[url]
 
     def test_sampling_same_url_different_directives(self):
-        """Test sampling behavior for the same URL with different directives"""
         url = "https://example.com/page"
         directives = [
             "script-src",
@@ -438,21 +434,20 @@ class TestCSPModule(TestCase):
 
         rate = 0.5
 
-        # Each directive should have its own sampling decision
-        results = {}
+        # All directives should have the same sampling decision for the same URL (aka: we should receive all reports for the same URL)
+        first_result = None
         for directive in directives:
             properties = {"document_url": url, "effective_directive": directive}
-            results[directive] = sample_csp_report(properties, rate)
+            result = sample_csp_report(properties, rate)
 
-        # Check that the results are a mix of True and False (not all same decision for 0.5 rate)
-        assert (
-            True in results.values() and False in results.values()
-        ), "Expected some directives to be sampled in and some out"
+            if first_result is None:
+                first_result = result
+            else:
+                # All results should be the same since only document_url matters
+                assert result == first_result, "Expected same sampling decision for same URL regardless of directive"
 
-        # Each directive should have a consistent sampling decision
-        for directive in directives:
-            properties = {"document_url": url, "effective_directive": directive}
-            assert sample_csp_report(properties, rate) == results[directive]
+        # Verify that the sampling is based on document_url
+        assert sample_csp_report({"document_url": url}, rate) == first_result
 
     def test_full_csp_sampling_flow_with_different_rates(self):
         """Test the sampling behavior with different sampling rates"""
@@ -495,8 +490,8 @@ class TestCSPModule(TestCase):
                 assert props_with_metadata["csp_sampled"] is True
                 assert props_with_metadata["csp_sample_threshold"] == rate
             else:
-                assert "csp_sampled" not in props_with_metadata
-                assert "csp_sample_threshold" not in props_with_metadata
+                assert props_with_metadata["csp_sampled"] is False
+                assert props_with_metadata["csp_sample_threshold"] == rate
 
     def test_edge_case_urls_and_directives(self):
         """Test sampling with edge case URLs and directives"""
@@ -525,10 +520,10 @@ class TestCSPModule(TestCase):
             result2 = sample_csp_report(case, rate)
             assert result1 == result2, f"Expected consistent sampling decision for {case}"
 
-            # If we're testing an empty URL or directive, make sure the single value case is handled correctly
-            if case["document_url"] == "" and case["effective_directive"] != "":
-                # Should use just the directive
-                assert result1 == sample_on_property(case["effective_directive"], rate)
-            elif case["document_url"] != "" and case["effective_directive"] == "":
-                # Should use just the URL
+            # Check that sampling is only based on document_url
+            if case["document_url"] == "":
+                # Empty document_url should use empty string for sampling
+                assert result1 == sample_on_property("", rate)
+            else:
+                # Non-empty document_url should use it for sampling
                 assert result1 == sample_on_property(case["document_url"], rate)

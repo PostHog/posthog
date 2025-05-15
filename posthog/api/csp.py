@@ -33,43 +33,22 @@ logger = structlog.get_logger(__name__)
 
 
 def sample_csp_report(properties: dict, percent: float, add_metadata: bool = False) -> bool:
-    """
-    Sample CSP reports based on document_url and effective_directive
-
-    Args:
-        properties: The properties of the CSP report
-        percent: The sampling rate as a decimal (0.0 to 1.0)
-        add_metadata: Whether to add sampling metadata to the properties
-
-    Returns:
-        bool: True if the report should be included in the sampled set, False otherwise
-    """
     if percent >= 1.0:
         return True
 
     document_url = properties.get("document_url", "")
-    effective_directive = properties.get("effective_directive", "")
+    should_ingest_report = sample_on_property(document_url, percent)
 
-    sampling_key = f"{document_url}:{effective_directive}"
+    if add_metadata:
+        properties["csp_sampled"] = should_ingest_report
+        properties["csp_sample_threshold"] = percent
 
-    # For cases where we only have one of the properties, use that property directly
-    if document_url and not effective_directive:
-        result = sample_on_property(document_url, percent)
-    elif effective_directive and not document_url:
-        result = sample_on_property(effective_directive, percent)
-    else:
-        result = sample_on_property(sampling_key, percent)
-
-    if result:
-        if add_metadata and percent < 1.0:
-            properties["csp_sampled"] = True
-            properties["csp_sample_threshold"] = percent
+    if should_ingest_report:
         return True
     else:
         logger.debug(
             "CSP report sampled out",
             document_url=document_url,
-            effective_directive=effective_directive,
             sample_rate=percent,
         )
         return False
@@ -181,7 +160,6 @@ def process_csp_report(request):
         if request.content_type == "application/csp-report" and "csp-report" in csp_data:
             properties = parse_report_uri(csp_data)
 
-            # Apply sampling based on document_url and effective_directive
             if not sample_csp_report(properties, sample_rate, add_metadata=True):
                 return None, None
 
