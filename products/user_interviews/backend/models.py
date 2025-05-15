@@ -6,7 +6,7 @@ from posthog.models.utils import UUIDModel, CreatedMetaFields
 
 class UserInterview(UUIDModel, CreatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    interviewees = ArrayField(models.EmailField())
+    interviewee_emails = ArrayField(models.EmailField())
     transcript = models.TextField(blank=True)
     summary = models.TextField(blank=True)
 

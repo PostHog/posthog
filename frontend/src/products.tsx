@@ -57,6 +57,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
+    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -84,6 +86,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/user_interviews': ['UserInterviews', 'userInterviews'],
+    '/user_interviews/:id': ['UserInterview', 'userInterview'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -138,6 +142,8 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
+    UserInterviews: { name: 'User interviews', projectBased: true, activityScope: 'UserInterview' },
+    UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
 }
 
 /** This const is auto-generated, as is the whole file */

@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "interviewees",
+                    "interviewee_emails",
                     django.contrib.postgres.fields.ArrayField(base_field=models.EmailField(max_length=254), size=None),
                 ),
                 ("transcript", models.TextField(blank=True)),
