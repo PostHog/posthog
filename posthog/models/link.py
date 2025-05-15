@@ -49,18 +49,18 @@ class Link(CreatedMetaFields, UpdatedMetaFields, models.Model):
         return f"{self.id} -> {self.redirect_url}"
 
     @classmethod
-    def get_link(cls, link_id=None, short_link_domain=None, short_code=None, team_id=None):
+    def get_link(cls, team_id, link_id=None, short_link_domain=None, short_code=None):
         """
-        Get a link by ID or by short_code + domain.
+        Get a link by ID or by short_code + domain, always filtered by team.
         Returns the link instance or None if not found.
         Args:
+            team_id: The team ID to filter by
             link_id: The ID of the link to get
             short_link_domain: The domain of the short link
             short_code: The short code of the link
-            team_id: Optional team ID to filter by
         """
         try:
-            filters = {}
+            filters = {"team_id": team_id}
 
             if link_id:
                 filters["id"] = link_id
@@ -70,15 +70,13 @@ class Link(CreatedMetaFields, UpdatedMetaFields, models.Model):
             else:
                 return None
 
-            if team_id:
-                filters["team_id"] = team_id
-
             return cls.objects.get(**filters)
         except cls.DoesNotExist:
             return None
         except Exception as e:
             logger.error(
                 "Failed to get link",
+                team_id=team_id,
                 link_id=link_id,
                 short_link_domain=short_link_domain,
                 short_code=short_code,
@@ -86,37 +84,6 @@ class Link(CreatedMetaFields, UpdatedMetaFields, models.Model):
                 exc_info=True,
             )
             return None
-
-    @classmethod
-    def delete_link(cls, link_id=None, short_link_domain=None, short_code=None, team_id=None):
-        """
-        Deletes a link by ID or by short_code + domain.
-        Args:
-            link_id: The ID of the link to delete
-            short_link_domain: The domain of the short link
-            short_code: The short code of the link
-            team_id: Optional team ID to filter by
-        Returns:
-            True if the link was deleted, False otherwise
-        """
-        try:
-            link = cls.get_link(link_id, short_link_domain, short_code, team_id)
-
-            if link:
-                link.delete()
-                return True
-
-            return False
-        except Exception as e:
-            logger.error(
-                "Failed to delete link",
-                link_id=link_id,
-                short_link_domain=short_link_domain,
-                short_code=short_code,
-                error=str(e),
-                exc_info=True,
-            )
-            return False
 
     @classmethod
     def get_links_for_team(cls, team_id, limit=100, offset=0):
@@ -139,11 +106,3 @@ class Link(CreatedMetaFields, UpdatedMetaFields, models.Model):
                 exc_info=True,
             )
             return cls.objects.none()
-
-    def get_short_url(self):
-        """
-        Get the full short URL for this link.
-        Returns:
-            The full short URL as a string
-        """
-        return f"https://{self.short_link_domain}/{self.short_code}"
