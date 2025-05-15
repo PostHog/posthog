@@ -8,7 +8,9 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["actionId"],
+            "required": [
+                "actionId"
+            ],
             "type": "object"
         },
         "ActionsNode": {
@@ -35,7 +37,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -64,7 +72,10 @@
                     "type": "object"
                 }
             },
-            "required": ["id", "kind"],
+            "required": [
+                "id",
+                "kind"
+            ],
             "type": "object"
         },
         "ActorsPropertyTaxonomyQuery": {
@@ -91,7 +102,10 @@
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
                 }
             },
-            "required": ["kind", "property"],
+            "required": [
+                "kind",
+                "property"
+            ],
             "type": "object"
         },
         "ActorsPropertyTaxonomyQueryResponse": {
@@ -125,7 +139,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "ActorsPropertyTaxonomyResponse": {
@@ -154,7 +170,10 @@
                     "type": "array"
                 }
             },
-            "required": ["sample_values", "sample_count"],
+            "required": [
+                "sample_values",
+                "sample_count"
+            ],
             "type": "object"
         },
         "ActorsQuery": {
@@ -233,7 +252,9 @@
                     ]
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "ActorsQueryResponse": {
@@ -292,15 +313,33 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+            "required": [
+                "columns",
+                "hogql",
+                "limit",
+                "offset",
+                "results",
+                "types"
+            ],
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
+            "enum": [
+                "numeric",
+                "duration",
+                "duration_ms",
+                "percentage",
+                "percentage_scaled"
+            ],
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "enum": [
+                "hourly",
+                "daily",
+                "weekly",
+                "monthly"
+            ],
             "type": "string"
         },
         "AlertCondition": {
@@ -310,15 +349,26 @@
                     "$ref": "#/definitions/AlertConditionType"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "AlertConditionType": {
-            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+            "enum": [
+                "absolute_value",
+                "relative_increase",
+                "relative_decrease"
+            ],
             "type": "string"
         },
         "AlertState": {
-            "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
+            "enum": [
+                "Firing",
+                "Not firing",
+                "Errored",
+                "Snoozed"
+            ],
             "type": "string"
         },
         "AnyDataNode": {
@@ -578,11 +628,17 @@
                     "type": "array"
                 }
             },
-            "required": ["operator", "value"],
+            "required": [
+                "operator",
+                "value"
+            ],
             "type": "object"
         },
         "AssistantArrayPropertyFilterOperator": {
-            "enum": ["exact", "is_not"],
+            "enum": [
+                "exact",
+                "is_not"
+            ],
             "type": "string"
         },
         "AssistantBaseMultipleBreakdownFilter": {
@@ -593,7 +649,9 @@
                     "type": "string"
                 }
             },
-            "required": ["property"],
+            "required": [
+                "property"
+            ],
             "type": "object"
         },
         "AssistantBasePropertyFilter": {
@@ -621,7 +679,11 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query"],
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query"
+            ],
             "type": "string"
         },
         "AssistantDateRange": {
@@ -634,10 +696,15 @@
                 },
                 "date_to": {
                     "description": "ISO8601 date string.",
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 }
             },
-            "required": ["date_from"],
+            "required": [
+                "date_from"
+            ],
             "type": "object"
         },
         "AssistantDateRangeFilter": {
@@ -661,11 +728,18 @@
                     "type": "string"
                 }
             },
-            "required": ["operator", "value"],
+            "required": [
+                "operator",
+                "value"
+            ],
             "type": "object"
         },
         "AssistantDateTimePropertyFilterOperator": {
-            "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+            "enum": [
+                "is_date_exact",
+                "is_date_before",
+                "is_date_after"
+            ],
             "type": "string"
         },
         "AssistantDurationRange": {
@@ -677,15 +751,27 @@
                     "type": "string"
                 }
             },
-            "required": ["date_from"],
+            "required": [
+                "date_from"
+            ],
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["person", "event", "event_metadata", "session", "hogql"],
+            "enum": [
+                "person",
+                "event",
+                "event_metadata",
+                "session",
+                "hogql"
+            ],
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation"],
+            "enum": [
+                "status",
+                "message",
+                "conversation"
+            ],
             "type": "string"
         },
         "AssistantForm": {
@@ -698,7 +784,9 @@
                     "type": "array"
                 }
             },
-            "required": ["options"],
+            "required": [
+                "options"
+            ],
             "type": "object"
         },
         "AssistantFormOption": {
@@ -711,7 +799,9 @@
                     "type": "string"
                 }
             },
-            "required": ["value"],
+            "required": [
+                "value"
+            ],
             "type": "object"
         },
         "AssistantFunnelNodeShared": {
@@ -756,7 +846,11 @@
                     "type": "array"
                 }
             },
-            "required": ["id", "kind", "name"],
+            "required": [
+                "id",
+                "kind",
+                "name"
+            ],
             "type": "object"
         },
         "AssistantFunnelsBreakdownFilter": {
@@ -788,11 +882,19 @@
                     "description": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping."
                 }
             },
-            "required": ["breakdown_type", "breakdown"],
+            "required": [
+                "breakdown_type",
+                "breakdown"
+            ],
             "type": "object"
         },
         "AssistantFunnelsBreakdownType": {
-            "enum": ["person", "event", "group", "session"],
+            "enum": [
+                "person",
+                "event",
+                "group",
+                "session"
+            ],
             "type": "string"
         },
         "AssistantFunnelsEventsNode": {
@@ -821,7 +923,10 @@
                     "type": "array"
                 }
             },
-            "required": ["event", "kind"],
+            "required": [
+                "event",
+                "kind"
+            ],
             "type": "object"
         },
         "AssistantFunnelsExclusionEventsNode": {
@@ -842,7 +947,12 @@
                     "type": "string"
                 }
             },
-            "required": ["event", "funnelFromStep", "funnelToStep", "kind"],
+            "required": [
+                "event",
+                "funnelFromStep",
+                "funnelToStep",
+                "kind"
+            ],
             "type": "object"
         },
         "AssistantFunnelsFilter": {
@@ -899,7 +1009,10 @@
             "type": "object"
         },
         "AssistantFunnelsMath": {
-            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "enum": [
+                "first_time_for_user",
+                "first_time_for_user_with_filters"
+            ],
             "type": "string"
         },
         "AssistantFunnelsNode": {
@@ -954,7 +1067,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "series": {
                     "description": "Events or actions to include",
@@ -964,7 +1080,10 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "series"],
+            "required": [
+                "kind",
+                "series"
+            ],
             "type": "object"
         },
         "AssistantGenerationStatusEvent": {
@@ -974,11 +1093,16 @@
                     "$ref": "#/definitions/AssistantGenerationStatusType"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "AssistantGenerationStatusType": {
-            "enum": ["ack", "generation_error"],
+            "enum": [
+                "ack",
+                "generation_error"
+            ],
             "type": "string"
         },
         "AssistantGenericMultipleBreakdownFilter": {
@@ -992,7 +1116,10 @@
                     "$ref": "#/definitions/AssistantEventMultipleBreakdownFilterType"
                 }
             },
-            "required": ["property", "type"],
+            "required": [
+                "property",
+                "type"
+            ],
             "type": "object"
         },
         "AssistantGenericPropertyFilter": {
@@ -1036,7 +1163,12 @@
                             "type": "string"
                         }
                     },
-                    "required": ["key", "operator", "type", "value"],
+                    "required": [
+                        "key",
+                        "operator",
+                        "type",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 {
@@ -1081,7 +1213,12 @@
                             "type": "array"
                         }
                     },
-                    "required": ["key", "operator", "type", "value"],
+                    "required": [
+                        "key",
+                        "operator",
+                        "type",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 {
@@ -1122,7 +1259,12 @@
                             "type": "string"
                         }
                     },
-                    "required": ["key", "operator", "type", "value"],
+                    "required": [
+                        "key",
+                        "operator",
+                        "type",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 {
@@ -1160,7 +1302,11 @@
                             ]
                         }
                     },
-                    "required": ["key", "operator", "type"],
+                    "required": [
+                        "key",
+                        "operator",
+                        "type"
+                    ],
                     "type": "object"
                 }
             ]
@@ -1188,7 +1334,10 @@
                     "type": "string"
                 }
             },
-            "required": ["property", "type"],
+            "required": [
+                "property",
+                "type"
+            ],
             "type": "object"
         },
         "AssistantGroupPropertyFilter": {
@@ -1217,7 +1366,13 @@
                             "type": "string"
                         }
                     },
-                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "required": [
+                        "group_type_index",
+                        "key",
+                        "operator",
+                        "type",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 {
@@ -1247,7 +1402,13 @@
                             "type": "array"
                         }
                     },
-                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "required": [
+                        "group_type_index",
+                        "key",
+                        "operator",
+                        "type",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 {
@@ -1273,7 +1434,13 @@
                             "type": "string"
                         }
                     },
-                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "required": [
+                        "group_type_index",
+                        "key",
+                        "operator",
+                        "type",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 {
@@ -1296,7 +1463,12 @@
                             "type": "string"
                         }
                     },
-                    "required": ["group_type_index", "key", "operator", "type"],
+                    "required": [
+                        "group_type_index",
+                        "key",
+                        "operator",
+                        "type"
+                    ],
                     "type": "object"
                 }
             ]
@@ -1313,7 +1485,10 @@
                     "type": "string"
                 }
             },
-            "required": ["kind", "query"],
+            "required": [
+                "kind",
+                "query"
+            ],
             "type": "object"
         },
         "AssistantInsightsQueryBase": {
@@ -1338,7 +1513,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
             "type": "object"
@@ -1366,7 +1544,10 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": [
+                "type",
+                "content"
+            ],
             "type": "object"
         },
         "AssistantMessageMetadata": {
@@ -1379,7 +1560,14 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
+            "enum": [
+                "human",
+                "tool",
+                "ai",
+                "ai/reasoning",
+                "ai/viz",
+                "ai/failure"
+            ],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -1425,7 +1613,11 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "id", "name"],
+            "required": [
+                "type",
+                "id",
+                "name"
+            ],
             "type": "object"
         },
         "AssistantRetentionEntity": {
@@ -1461,7 +1653,10 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "name"],
+            "required": [
+                "type",
+                "name"
+            ],
             "type": "object"
         },
         "AssistantRetentionFilter": {
@@ -1473,7 +1668,11 @@
                 },
                 "meanRetentionCalculation": {
                     "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
-                    "enum": ["simple", "weighted", "none"],
+                    "enum": [
+                        "simple",
+                        "weighted",
+                        "none"
+                    ],
                     "type": "string"
                 },
                 "period": {
@@ -1483,7 +1682,10 @@
                 },
                 "retentionReference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
-                    "enum": ["total", "previous"],
+                    "enum": [
+                        "total",
+                        "previous"
+                    ],
                     "type": "string"
                 },
                 "retentionType": {
@@ -1508,7 +1710,10 @@
                     "description": "How many intervals to show in the chart. The default value is 11 (meaning 10 periods after initial cohort)."
                 }
             },
-            "required": ["returningEntity", "targetEntity"],
+            "required": [
+                "returningEntity",
+                "targetEntity"
+            ],
             "type": "object"
         },
         "AssistantRetentionQuery": {
@@ -1541,10 +1746,16 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind", "retentionFilter"],
+            "required": [
+                "kind",
+                "retentionFilter"
+            ],
             "type": "object"
         },
         "AssistantSetPropertyFilter": {
@@ -1555,11 +1766,16 @@
                     "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
                 }
             },
-            "required": ["operator"],
+            "required": [
+                "operator"
+            ],
             "type": "object"
         },
         "AssistantSetPropertyFilterOperator": {
-            "enum": ["is_set", "is_not_set"],
+            "enum": [
+                "is_set",
+                "is_not_set"
+            ],
             "type": "string"
         },
         "AssistantSingleValuePropertyFilter": {
@@ -1574,11 +1790,21 @@
                     "type": "string"
                 }
             },
-            "required": ["operator", "value"],
+            "required": [
+                "operator",
+                "value"
+            ],
             "type": "object"
         },
         "AssistantSingleValuePropertyFilterOperator": {
-            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+            "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "regex",
+                "not_regex"
+            ],
             "type": "string"
         },
         "AssistantStringNumberOrBooleanPropertyFilter": {
@@ -1611,7 +1837,12 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "args", "type"],
+            "required": [
+                "id",
+                "name",
+                "args",
+                "type"
+            ],
             "type": "object"
         },
         "AssistantToolCallMessage": {
@@ -1635,7 +1866,11 @@
                     "type": "object"
                 }
             },
-            "required": ["type", "content", "tool_call_id"],
+            "required": [
+                "type",
+                "content",
+                "tool_call_id"
+            ],
             "type": "object"
         },
         "AssistantTrendsActionsNode": {
@@ -1656,7 +1891,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_property": {
@@ -1679,7 +1920,11 @@
                     "type": "array"
                 }
             },
-            "required": ["id", "kind", "name"],
+            "required": [
+                "id",
+                "kind",
+                "name"
+            ],
             "type": "object"
         },
         "AssistantTrendsBreakdownFilter": {
@@ -1699,7 +1944,9 @@
                     "type": "array"
                 }
             },
-            "required": ["breakdowns"],
+            "required": [
+                "breakdowns"
+            ],
             "type": "object"
         },
         "AssistantTrendsDisplayType": {
@@ -1754,7 +2001,10 @@
                 },
                 "event": {
                     "description": "The event or `null` for all events.",
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "kind": {
                     "const": "EventsNode",
@@ -1764,7 +2014,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_property": {
@@ -1786,7 +2042,9 @@
                     "type": "array"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "AssistantTrendsFilter": {
@@ -1850,7 +2108,10 @@
                 "yAxisScaleType": {
                     "default": "linear",
                     "description": "Whether to scale the y-axis.",
-                    "enum": ["log10", "linear"],
+                    "enum": [
+                        "log10",
+                        "linear"
+                    ],
                     "type": "string"
                 }
             },
@@ -1895,7 +2156,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "series": {
                     "description": "Events or actions to include",
@@ -1916,7 +2180,10 @@
                     "description": "Properties specific to the trends insight"
                 }
             },
-            "required": ["kind", "series"],
+            "required": [
+                "kind",
+                "series"
+            ],
             "type": "object"
         },
         "AutocompleteCompletionItem": {
@@ -1943,7 +2210,11 @@
                     "type": "string"
                 }
             },
-            "required": ["label", "insertText", "kind"],
+            "required": [
+                "label",
+                "insertText",
+                "kind"
+            ],
             "type": "object"
         },
         "AutocompleteCompletionItemKind": {
@@ -2044,11 +2315,18 @@
                     ]
                 }
             },
-            "required": ["property"],
+            "required": [
+                "property"
+            ],
             "type": "object"
         },
         "BreakdownAttributionType": {
-            "enum": ["first_touch", "last_touch", "all_events", "step"],
+            "enum": [
+                "first_touch",
+                "last_touch",
+                "all_events",
+                "step"
+            ],
             "type": "string"
         },
         "BreakdownFilter": {
@@ -2091,7 +2369,10 @@
                     ]
                 },
                 "breakdown_hide_other_aggregation": {
-                    "type": ["boolean", "null"]
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
                 },
                 "breakdown_histogram_bin_count": {
                     "$ref": "#/definitions/integer"
@@ -2140,7 +2421,10 @@
                     ]
                 }
             },
-            "required": ["label", "value"],
+            "required": [
+                "label",
+                "value"
+            ],
             "type": "object"
         },
         "BreakdownKeyType": {
@@ -2196,13 +2480,18 @@
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus"
                 }
             },
-            "required": ["cache_key"],
+            "required": [
+                "cache_key"
+            ],
             "type": "object"
         },
         "CachedActorsPropertyTaxonomyQueryResponse": {
@@ -3454,7 +3743,10 @@
                                 "type": "string"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -3480,7 +3772,10 @@
                                 ]
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -3497,7 +3792,10 @@
                                 "description": "An interval selected out of available intervals in source query"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -3528,7 +3826,10 @@
                                 "$ref": "#/definitions/integer"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -3544,7 +3845,10 @@
                                 "type": "string"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -3553,7 +3857,13 @@
                     "type": "string"
                 }
             },
-            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "timezone"
+            ],
             "type": "object"
         },
         "CachedLifecycleQueryResponse": {
@@ -5328,11 +5638,17 @@
                     "type": "object"
                 }
             },
-            "required": ["column"],
+            "required": [
+                "column"
+            ],
             "type": "object"
         },
         "ChartDisplayCategory": {
-            "enum": ["TimeSeries", "CumulativeTimeSeries", "TotalValue"],
+            "enum": [
+                "TimeSeries",
+                "CumulativeTimeSeries",
+                "TotalValue"
+            ],
             "type": "string"
         },
         "ChartDisplayType": {
@@ -5366,7 +5682,10 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "seriesBreakdownColumn": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "showLegend": {
                     "type": "boolean"
@@ -5398,7 +5717,11 @@
                     "type": "string"
                 },
                 "displayType": {
-                    "enum": ["auto", "line", "bar"],
+                    "enum": [
+                        "auto",
+                        "line",
+                        "bar"
+                    ],
                     "type": "string"
                 },
                 "label": {
@@ -5408,7 +5731,10 @@
                     "type": "boolean"
                 },
                 "yAxisPosition": {
-                    "enum": ["left", "right"],
+                    "enum": [
+                        "left",
+                        "right"
+                    ],
                     "type": "string"
                 }
             },
@@ -5424,7 +5750,11 @@
                     "type": "string"
                 },
                 "style": {
-                    "enum": ["none", "number", "percent"],
+                    "enum": [
+                        "none",
+                        "number",
+                        "percent"
+                    ],
                     "type": "string"
                 },
                 "suffix": {
@@ -5452,7 +5782,13 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
+            "required": [
+                "bytes_read",
+                "rows_read",
+                "estimated_rows_total",
+                "time_elapsed",
+                "active_cpu_time"
+            ],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -5481,7 +5817,12 @@
                     "type": "integer"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": [
+                "key",
+                "operator",
+                "type",
+                "value"
+            ],
             "type": "object"
         },
         "CompareFilter": {
@@ -5510,7 +5851,10 @@
                     "type": "string"
                 },
                 "colorMode": {
-                    "enum": ["light", "dark"],
+                    "enum": [
+                        "light",
+                        "dark"
+                    ],
                     "type": "string"
                 },
                 "columnName": {
@@ -5526,7 +5870,14 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
+            "required": [
+                "id",
+                "templateId",
+                "columnName",
+                "bytecode",
+                "input",
+                "color"
+            ],
             "type": "object"
         },
         "CountPerActorMathType": {
@@ -5725,15 +6076,36 @@
                     ]
                 }
             },
-            "required": ["key", "op", "id"],
+            "required": [
+                "key",
+                "op",
+                "id"
+            ],
             "type": "object"
         },
         "CustomChannelField": {
-            "enum": ["utm_source", "utm_medium", "utm_campaign", "referring_domain", "url", "pathname", "hostname"],
+            "enum": [
+                "utm_source",
+                "utm_medium",
+                "utm_campaign",
+                "referring_domain",
+                "url",
+                "pathname",
+                "hostname"
+            ],
             "type": "string"
         },
         "CustomChannelOperator": {
-            "enum": ["exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains", "regex", "not_regex"],
+            "enum": [
+                "exact",
+                "is_not",
+                "is_set",
+                "is_not_set",
+                "icontains",
+                "not_icontains",
+                "regex",
+                "not_regex"
+            ],
             "type": "string"
         },
         "CustomChannelRule": {
@@ -5755,7 +6127,12 @@
                     "type": "array"
                 }
             },
-            "required": ["items", "combiner", "channel_type", "id"],
+            "required": [
+                "items",
+                "combiner",
+                "channel_type",
+                "id"
+            ],
             "type": "object"
         },
         "CustomEventConversionGoal": {
@@ -5765,7 +6142,9 @@
                     "type": "string"
                 }
             },
-            "required": ["customEventName"],
+            "required": [
+                "customEventName"
+            ],
             "type": "object"
         },
         "DashboardFilter": {
@@ -5782,10 +6161,16 @@
                     ]
                 },
                 "date_from": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "date_to": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "properties": {
                     "anyOf": [
@@ -5845,11 +6230,16 @@
                             "type": "string"
                         },
                         "type": {
-                            "enum": ["event_definition", "team_columns"],
+                            "enum": [
+                                "event_definition",
+                                "team_columns"
+                            ],
                             "type": "string"
                         }
                     },
-                    "required": ["type"],
+                    "required": [
+                        "type"
+                    ],
                     "type": "object"
                 },
                 "embedded": {
@@ -5938,7 +6328,12 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "results", "types"],
+                            "required": [
+                                "columns",
+                                "hogql",
+                                "results",
+                                "types"
+                            ],
                             "type": "object"
                         },
                         {
@@ -5997,7 +6392,14 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                            "required": [
+                                "columns",
+                                "hogql",
+                                "limit",
+                                "offset",
+                                "results",
+                                "types"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6057,7 +6459,15 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+                            "required": [
+                                "columns",
+                                "hogql",
+                                "kind",
+                                "limit",
+                                "offset",
+                                "results",
+                                "types"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6129,7 +6539,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6174,7 +6586,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6228,7 +6642,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6282,7 +6698,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6336,7 +6754,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6374,7 +6794,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6413,7 +6835,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6461,7 +6885,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6497,7 +6923,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6534,7 +6962,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6571,7 +7001,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6619,7 +7051,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6667,7 +7101,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6718,7 +7154,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         },
                         {
@@ -6903,7 +7341,9 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": [
+                                "results"
+                            ],
                             "type": "object"
                         }
                     ]
@@ -7057,7 +7497,10 @@
                     "description": "Source of the events"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "DataVisualizationNode": {
@@ -7080,7 +7523,10 @@
                     "$ref": "#/definitions/TableSettings"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "DataWarehouseEventsModifier": {
@@ -7099,7 +7545,12 @@
                     "type": "string"
                 }
             },
-            "required": ["table_name", "timestamp_field", "distinct_id_field", "id_field"],
+            "required": [
+                "table_name",
+                "timestamp_field",
+                "distinct_id_field",
+                "id_field"
+            ],
             "type": "object"
         },
         "DataWarehouseNode": {
@@ -7132,7 +7583,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -7167,7 +7624,14 @@
                     "type": "string"
                 }
             },
-            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "required": [
+                "distinct_id_field",
+                "id",
+                "id_field",
+                "kind",
+                "table_name",
+                "timestamp_field"
+            ],
             "type": "object"
         },
         "DataWarehousePersonPropertyFilter": {
@@ -7190,7 +7654,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "DataWarehousePropertyFilter": {
@@ -7213,7 +7681,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "DatabaseSchemaBatchExportTable": {
@@ -7239,7 +7711,12 @@
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "type"],
+            "required": [
+                "fields",
+                "id",
+                "name",
+                "type"
+            ],
             "type": "object"
         },
         "DatabaseSchemaDataWarehouseTable": {
@@ -7277,7 +7754,14 @@
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": [
+                "fields",
+                "format",
+                "id",
+                "name",
+                "type",
+                "url_pattern"
+            ],
             "type": "object"
         },
         "DatabaseSchemaField": {
@@ -7321,7 +7805,12 @@
                     "$ref": "#/definitions/DatabaseSerializedFieldType"
                 }
             },
-            "required": ["name", "hogql_value", "type", "schema_valid"],
+            "required": [
+                "name",
+                "hogql_value",
+                "type",
+                "schema_valid"
+            ],
             "type": "object"
         },
         "DatabaseSchemaManagedViewTable": {
@@ -7350,7 +7839,13 @@
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": [
+                "fields",
+                "id",
+                "name",
+                "query",
+                "type"
+            ],
             "type": "object"
         },
         "DatabaseSchemaMaterializedViewTable": {
@@ -7385,7 +7880,13 @@
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": [
+                "fields",
+                "id",
+                "name",
+                "query",
+                "type"
+            ],
             "type": "object"
         },
         "DatabaseSchemaPostHogTable": {
@@ -7411,7 +7912,12 @@
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "type"],
+            "required": [
+                "fields",
+                "id",
+                "name",
+                "type"
+            ],
             "type": "object"
         },
         "DatabaseSchemaQuery": {
@@ -7429,7 +7935,9 @@
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "DatabaseSchemaQueryResponse": {
@@ -7442,7 +7950,9 @@
                     "type": "object"
                 }
             },
-            "required": ["tables"],
+            "required": [
+                "tables"
+            ],
             "type": "object"
         },
         "DatabaseSchemaSchema": {
@@ -7467,7 +7977,12 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "should_sync", "incremental"],
+            "required": [
+                "id",
+                "name",
+                "should_sync",
+                "incremental"
+            ],
             "type": "object"
         },
         "DatabaseSchemaSource": {
@@ -7489,7 +8004,12 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "status", "source_type", "prefix"],
+            "required": [
+                "id",
+                "status",
+                "source_type",
+                "prefix"
+            ],
             "type": "object"
         },
         "DatabaseSchemaTable": {
@@ -7533,11 +8053,23 @@
                     "type": "number"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
+                    "enum": [
+                        "posthog",
+                        "data_warehouse",
+                        "view",
+                        "batch_export",
+                        "materialized_view",
+                        "managed_view"
+                    ],
                     "type": "string"
                 }
             },
-            "required": ["type", "id", "name", "fields"],
+            "required": [
+                "type",
+                "id",
+                "name",
+                "fields"
+            ],
             "type": "object"
         },
         "DatabaseSchemaViewTable": {
@@ -7566,7 +8098,13 @@
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": [
+                "fields",
+                "id",
+                "name",
+                "query",
+                "type"
+            ],
             "type": "object"
         },
         "DatabaseSerializedFieldType": {
@@ -7594,15 +8132,24 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "date_to": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "explicitDate": {
                     "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
-                    "type": ["boolean", "null"]
+                    "type": [
+                        "boolean",
+                        "null"
+                    ]
                 }
             },
             "type": "object"
@@ -7638,7 +8185,11 @@
             "type": "string"
         },
         "DurationType": {
-            "enum": ["duration", "active_seconds", "inactive_seconds"],
+            "enum": [
+                "duration",
+                "active_seconds",
+                "inactive_seconds"
+            ],
             "type": "string"
         },
         "ElementPropertyFilter": {
@@ -7646,7 +8197,12 @@
             "description": "Sync with plugin-server/src/types.ts",
             "properties": {
                 "key": {
-                    "enum": ["tag_name", "text", "href", "selector"],
+                    "enum": [
+                        "tag_name",
+                        "text",
+                        "href",
+                        "selector"
+                    ],
                     "type": "string"
                 },
                 "label": {
@@ -7663,7 +8219,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "ElementType": {
@@ -7703,7 +8263,10 @@
                     "type": "string"
                 }
             },
-            "required": ["attributes", "tag_name"],
+            "required": [
+                "attributes",
+                "tag_name"
+            ],
             "type": "object"
         },
         "EmptyPropertyFilter": {
@@ -7730,7 +8293,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -7759,11 +8328,18 @@
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "EntityType": {
-            "enum": ["actions", "events", "data_warehouse", "new_entity"],
+            "enum": [
+                "actions",
+                "events",
+                "data_warehouse",
+                "new_entity"
+            ],
             "type": "string"
         },
         "ErrorTrackingIssue": {
@@ -7783,7 +8359,10 @@
                     ]
                 },
                 "description": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "earliest": {
                     "type": "string"
@@ -7800,13 +8379,25 @@
                     "type": "string"
                 },
                 "library": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "name": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+                    "enum": [
+                        "archived",
+                        "active",
+                        "resolved",
+                        "pending_release",
+                        "suppressed"
+                    ],
                     "type": "string"
                 }
             },
@@ -7848,7 +8439,13 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeRange"],
+            "required": [
+                "occurrences",
+                "sessions",
+                "users",
+                "volumeDay",
+                "volumeRange"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -7865,11 +8462,18 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user_group", "user", "role"],
+                    "enum": [
+                        "user_group",
+                        "user",
+                        "role"
+                    ],
                     "type": "string"
                 }
             },
-            "required": ["type", "id"],
+            "required": [
+                "type",
+                "id"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueFilter": {
@@ -7892,7 +8496,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "ErrorTrackingQuery": {
@@ -7935,11 +8543,20 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "enum": [
+                        "last_seen",
+                        "first_seen",
+                        "occurrences",
+                        "users",
+                        "sessions"
+                    ],
                     "type": "string"
                 },
                 "orderDirection": {
-                    "enum": ["ASC", "DESC"],
+                    "enum": [
+                        "ASC",
+                        "DESC"
+                    ],
                     "type": "string"
                 },
                 "response": {
@@ -7949,14 +8566,25 @@
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "enum": [
+                        "archived",
+                        "active",
+                        "resolved",
+                        "pending_release",
+                        "suppressed",
+                        "all"
+                    ],
                     "type": "string"
                 },
                 "volumeResolution": {
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["dateRange", "kind", "volumeResolution"],
+            "required": [
+                "dateRange",
+                "kind",
+                "volumeResolution"
+            ],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
@@ -8007,7 +8635,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "ErrorTrackingRelationalIssue": {
@@ -8024,7 +8654,10 @@
                     ]
                 },
                 "description": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "first_seen": {
                     "format": "date-time",
@@ -8034,14 +8667,30 @@
                     "type": "string"
                 },
                 "name": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+                    "enum": [
+                        "archived",
+                        "active",
+                        "resolved",
+                        "pending_release",
+                        "suppressed"
+                    ],
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
+            "required": [
+                "id",
+                "name",
+                "description",
+                "assignee",
+                "status",
+                "first_seen"
+            ],
             "type": "object"
         },
         "EventDefinition": {
@@ -8058,7 +8707,11 @@
                     "type": "object"
                 }
             },
-            "required": ["event", "properties", "elements"],
+            "required": [
+                "event",
+                "properties",
+                "elements"
+            ],
             "type": "object"
         },
         "EventMetadataPropertyFilter": {
@@ -8081,14 +8734,21 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "EventOddsRatioSerialized": {
             "additionalProperties": false,
             "properties": {
                 "correlation_type": {
-                    "enum": ["success", "failure"],
+                    "enum": [
+                        "success",
+                        "failure"
+                    ],
                     "type": "string"
                 },
                 "event": {
@@ -8104,7 +8764,13 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["event", "success_count", "failure_count", "odds_ratio", "correlation_type"],
+            "required": [
+                "event",
+                "success_count",
+                "failure_count",
+                "odds_ratio",
+                "correlation_type"
+            ],
             "type": "object"
         },
         "EventPropertyFilter": {
@@ -8130,7 +8796,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "EventTaxonomyItem": {
@@ -8149,7 +8819,11 @@
                     "type": "array"
                 }
             },
-            "required": ["property", "sample_values", "sample_count"],
+            "required": [
+                "property",
+                "sample_values",
+                "sample_count"
+            ],
             "type": "object"
         },
         "EventTaxonomyQuery": {
@@ -8182,7 +8856,9 @@
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "EventTaxonomyQueryResponse": {
@@ -8216,7 +8892,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "EventTaxonomyResponse": {
@@ -8238,7 +8916,10 @@
                     "type": "array"
                 },
                 "elements_chain": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "event": {
                     "type": "string"
@@ -8262,7 +8943,10 @@
                             "type": "object"
                         }
                     },
-                    "required": ["distinct_ids", "properties"],
+                    "required": [
+                        "distinct_ids",
+                        "properties"
+                    ],
                     "type": "object"
                 },
                 "properties": {
@@ -8275,7 +8959,14 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "distinct_id", "properties", "event", "timestamp", "elements"],
+            "required": [
+                "id",
+                "distinct_id",
+                "properties",
+                "event",
+                "timestamp",
+                "elements"
+            ],
             "type": "object"
         },
         "EventsHeatMapColumnAggregationResult": {
@@ -8288,7 +8979,10 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["column", "value"],
+            "required": [
+                "column",
+                "value"
+            ],
             "type": "object"
         },
         "EventsHeatMapDataResult": {
@@ -8304,7 +8998,11 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["row", "column", "value"],
+            "required": [
+                "row",
+                "column",
+                "value"
+            ],
             "type": "object"
         },
         "EventsHeatMapQuery": {
@@ -8372,7 +9070,11 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties", "source"],
+            "required": [
+                "kind",
+                "properties",
+                "source"
+            ],
             "type": "object"
         },
         "EventsHeatMapQueryResponse": {
@@ -8411,7 +9113,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "EventsHeatMapRowAggregationResult": {
@@ -8424,7 +9128,10 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["row", "value"],
+            "required": [
+                "row",
+                "value"
+            ],
             "type": "object"
         },
         "EventsHeatMapStructuredResult": {
@@ -8452,7 +9159,12 @@
                     "type": "array"
                 }
             },
-            "required": ["data", "rowAggregations", "columnAggregations", "allAggregations"],
+            "required": [
+                "data",
+                "rowAggregations",
+                "columnAggregations",
+                "allAggregations"
+            ],
             "type": "object"
         },
         "EventsNode": {
@@ -8463,7 +9175,10 @@
                 },
                 "event": {
                     "description": "The event or `null` for all events.",
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -8483,7 +9198,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -8519,7 +9240,9 @@
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "EventsQuery": {
@@ -8539,7 +9262,10 @@
                 },
                 "event": {
                     "description": "Limit to events matching this string",
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -8608,7 +9334,10 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "select"],
+            "required": [
+                "kind",
+                "select"
+            ],
             "type": "object"
         },
         "EventsQueryPersonColumn": {
@@ -8636,7 +9365,12 @@
                     "type": "string"
                 }
             },
-            "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "required": [
+                "uuid",
+                "created_at",
+                "properties",
+                "distinct_id"
+            ],
             "type": "object"
         },
         "EventsQueryResponse": {
@@ -8692,7 +9426,12 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "results", "types"],
+            "required": [
+                "columns",
+                "hogql",
+                "results",
+                "types"
+            ],
             "type": "object"
         },
         "ExperimentDataWarehouseNode": {
@@ -8722,7 +9461,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -8757,7 +9502,13 @@
                     "type": "string"
                 }
             },
-            "required": ["data_warehouse_join_key", "events_join_key", "kind", "table_name", "timestamp_field"],
+            "required": [
+                "data_warehouse_join_key",
+                "events_join_key",
+                "kind",
+                "table_name",
+                "timestamp_field"
+            ],
             "type": "object"
         },
         "ExperimentEventExposureConfig": {
@@ -8777,7 +9528,11 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "event", "properties"],
+            "required": [
+                "kind",
+                "event",
+                "properties"
+            ],
             "type": "object"
         },
         "ExperimentExposureCriteria": {
@@ -8810,7 +9565,9 @@
                     "$ref": "#/definitions/ExperimentExposureQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "ExperimentExposureQueryResponse": {
@@ -8836,7 +9593,12 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "timeseries", "total_exposures", "date_range"],
+            "required": [
+                "kind",
+                "timeseries",
+                "total_exposures",
+                "date_range"
+            ],
             "type": "object"
         },
         "ExperimentExposureTimeSeries": {
@@ -8858,7 +9620,11 @@
                     "type": "string"
                 }
             },
-            "required": ["variant", "days", "exposure_counts"],
+            "required": [
+                "variant",
+                "days",
+                "exposure_counts"
+            ],
             "type": "object"
         },
         "ExperimentFunnelMetric": {
@@ -8888,7 +9654,11 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "metric_type", "series"],
+            "required": [
+                "kind",
+                "metric_type",
+                "series"
+            ],
             "type": "object"
         },
         "ExperimentFunnelMetricStep": {
@@ -8915,7 +9685,10 @@
                     "type": "array"
                 }
             },
-            "required": ["metric_type", "series"],
+            "required": [
+                "metric_type",
+                "series"
+            ],
             "type": "object"
         },
         "ExperimentFunnelsQuery": {
@@ -8942,7 +9715,10 @@
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 }
             },
-            "required": ["funnels_query", "kind"],
+            "required": [
+                "funnels_query",
+                "kind"
+            ],
             "type": "object"
         },
         "ExperimentFunnelsQueryResponse": {
@@ -9042,7 +9818,11 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "metric_type", "source"],
+            "required": [
+                "kind",
+                "metric_type",
+                "source"
+            ],
             "type": "object"
         },
         "ExperimentMeanMetricTypeProps": {
@@ -9062,7 +9842,10 @@
                     "type": "number"
                 }
             },
-            "required": ["metric_type", "source"],
+            "required": [
+                "metric_type",
+                "source"
+            ],
             "type": "object"
         },
         "ExperimentMetric": {
@@ -9092,11 +9875,17 @@
                     "type": "string"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session"],
+            "enum": [
+                "total",
+                "sum",
+                "unique_session"
+            ],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
@@ -9125,7 +9914,10 @@
             ]
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean"],
+            "enum": [
+                "funnel",
+                "mean"
+            ],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -9162,7 +9954,10 @@
                     "$ref": "#/definitions/ExperimentQueryResponse"
                 }
             },
-            "required": ["kind", "metric"],
+            "required": [
+                "kind",
+                "metric"
+            ],
             "type": "object"
         },
         "ExperimentQueryResponse": {
@@ -9241,7 +10036,13 @@
             "type": "object"
         },
         "ExperimentSignificanceCode": {
-            "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
+            "enum": [
+                "significant",
+                "not_enough_exposure",
+                "low_win_probability",
+                "high_loss",
+                "high_p_value"
+            ],
             "type": "string"
         },
         "ExperimentTrendsQuery": {
@@ -9271,7 +10072,10 @@
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
-            "required": ["count_query", "kind"],
+            "required": [
+                "count_query",
+                "kind"
+            ],
             "type": "object"
         },
         "ExperimentTrendsQueryResponse": {
@@ -9354,7 +10158,11 @@
                     "type": "number"
                 }
             },
-            "required": ["key", "success_count", "failure_count"],
+            "required": [
+                "key",
+                "success_count",
+                "failure_count"
+            ],
             "type": "object"
         },
         "ExperimentVariantTrendsBaseStats": {
@@ -9373,7 +10181,12 @@
                     "type": "string"
                 }
             },
-            "required": ["key", "count", "exposure", "absolute_exposure"],
+            "required": [
+                "key",
+                "count",
+                "exposure",
+                "absolute_exposure"
+            ],
             "type": "object"
         },
         "FailureMessage": {
@@ -9390,7 +10203,9 @@
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -9414,7 +10229,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "FileSystemCount": {
@@ -9424,7 +10243,9 @@
                     "type": "number"
                 }
             },
-            "required": ["count"],
+            "required": [
+                "count"
+            ],
             "type": "object"
         },
         "FileSystemEntry": {
@@ -9467,7 +10288,10 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "path"],
+            "required": [
+                "id",
+                "path"
+            ],
             "type": "object"
         },
         "FileSystemImport": {
@@ -9515,15 +10339,27 @@
                     "type": "string"
                 }
             },
-            "required": ["path"],
+            "required": [
+                "path"
+            ],
             "type": "object"
         },
         "FilterLogicalOperator": {
-            "enum": ["AND", "OR"],
+            "enum": [
+                "AND",
+                "OR"
+            ],
             "type": "string"
         },
         "FunnelConversionWindowTimeUnit": {
-            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "enum": [
+                "second",
+                "minute",
+                "hour",
+                "day",
+                "week",
+                "month"
+            ],
             "type": "string"
         },
         "FunnelCorrelationActorsQuery": {
@@ -9559,7 +10395,10 @@
                     "$ref": "#/definitions/FunnelCorrelationQuery"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "FunnelCorrelationQuery": {
@@ -9609,7 +10448,11 @@
                     "$ref": "#/definitions/FunnelsActorsQuery"
                 }
             },
-            "required": ["funnelCorrelationType", "kind", "source"],
+            "required": [
+                "funnelCorrelationType",
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "FunnelCorrelationResponse": {
@@ -9659,7 +10502,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "FunnelCorrelationResult": {
@@ -9675,11 +10520,18 @@
                     "type": "boolean"
                 }
             },
-            "required": ["events", "skewed"],
+            "required": [
+                "events",
+                "skewed"
+            ],
             "type": "object"
         },
         "FunnelCorrelationResultsType": {
-            "enum": ["events", "properties", "event_with_properties"],
+            "enum": [
+                "events",
+                "properties",
+                "event_with_properties"
+            ],
             "type": "string"
         },
         "FunnelExclusion": {
@@ -9722,7 +10574,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -9751,7 +10609,12 @@
                     "type": "object"
                 }
             },
-            "required": ["funnelFromStep", "funnelToStep", "id", "kind"],
+            "required": [
+                "funnelFromStep",
+                "funnelToStep",
+                "id",
+                "kind"
+            ],
             "type": "object"
         },
         "FunnelExclusionEventsNode": {
@@ -9762,7 +10625,10 @@
                 },
                 "event": {
                     "description": "The event or `null` for all events.",
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -9788,7 +10654,13 @@
                     "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
                     "type": "number"
                 },
                 "math_hogql": {
@@ -9824,14 +10696,21 @@
                     "type": "object"
                 }
             },
-            "required": ["funnelFromStep", "funnelToStep", "kind"],
+            "required": [
+                "funnelFromStep",
+                "funnelToStep",
+                "kind"
+            ],
             "type": "object"
         },
         "FunnelExclusionLegacy": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "funnel_from_step": {
                     "type": "number"
@@ -9840,13 +10719,20 @@
                     "type": "number"
                 },
                 "id": {
-                    "type": ["string", "number", "null"]
+                    "type": [
+                        "string",
+                        "number",
+                        "null"
+                    ]
                 },
                 "index": {
                     "type": "number"
                 },
                 "name": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "order": {
                     "type": "number"
@@ -9855,7 +10741,10 @@
                     "$ref": "#/definitions/EntityType"
                 }
             },
-            "required": ["funnel_from_step", "funnel_to_step"],
+            "required": [
+                "funnel_from_step",
+                "funnel_to_step"
+            ],
             "type": "object"
         },
         "FunnelExclusionSteps": {
@@ -9868,19 +10757,33 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["funnelFromStep", "funnelToStep"],
+            "required": [
+                "funnelFromStep",
+                "funnelToStep"
+            ],
             "type": "object"
         },
         "FunnelLayout": {
-            "enum": ["horizontal", "vertical"],
+            "enum": [
+                "horizontal",
+                "vertical"
+            ],
             "type": "string"
         },
         "FunnelMathType": {
-            "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
+            "enum": [
+                "total",
+                "first_time_for_user",
+                "first_time_for_user_with_filters"
+            ],
             "type": "string"
         },
         "FunnelPathType": {
-            "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
+            "enum": [
+                "funnel_path_before_step",
+                "funnel_path_between_steps",
+                "funnel_path_after_step"
+            ],
             "type": "string"
         },
         "FunnelPathsFilter": {
@@ -9896,11 +10799,16 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["funnelSource"],
+            "required": [
+                "funnelSource"
+            ],
             "type": "object"
         },
         "FunnelStepReference": {
-            "enum": ["total", "previous"],
+            "enum": [
+                "total",
+                "previous"
+            ],
             "type": "string"
         },
         "FunnelStepsBreakdownResults": {
@@ -9922,7 +10830,10 @@
             "additionalProperties": false,
             "properties": {
                 "average_conversion_time": {
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "bins": {
                     "items": {
@@ -9936,7 +10847,10 @@
                     "type": "array"
                 }
             },
-            "required": ["average_conversion_time", "bins"],
+            "required": [
+                "average_conversion_time",
+                "bins"
+            ],
             "type": "object"
         },
         "FunnelTrendsResults": {
@@ -9946,7 +10860,11 @@
             "type": "array"
         },
         "FunnelVizType": {
-            "enum": ["steps", "time_to_convert", "trends"],
+            "enum": [
+                "steps",
+                "time_to_convert",
+                "trends"
+            ],
             "type": "string"
         },
         "FunnelsActorsQuery": {
@@ -9992,7 +10910,10 @@
                     "$ref": "#/definitions/FunnelsQuery"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "FunnelsFilter": {
@@ -10150,7 +11071,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -10197,7 +11121,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "series": {
                     "description": "Events and actions to include",
@@ -10207,7 +11134,10 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "series"],
+            "required": [
+                "kind",
+                "series"
+            ],
             "type": "object"
         },
         "FunnelsQueryResponse": {
@@ -10256,7 +11186,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -10291,7 +11223,13 @@
                     "type": "string"
                 }
             },
-            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "timezone"
+            ],
             "type": "object"
         },
         "GoalLine": {
@@ -10310,7 +11248,10 @@
                     "type": "number"
                 }
             },
-            "required": ["label", "value"],
+            "required": [
+                "label",
+                "value"
+            ],
             "type": "object"
         },
         "GroupMathType": {
@@ -10347,7 +11288,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "GroupsQuery": {
@@ -10395,7 +11340,10 @@
                     "type": "array"
                 }
             },
-            "required": ["group_type_index", "kind"],
+            "required": [
+                "group_type_index",
+                "kind"
+            ],
             "type": "object"
         },
         "GroupsQueryResponse": {
@@ -10455,7 +11403,15 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+            "required": [
+                "columns",
+                "hogql",
+                "kind",
+                "limit",
+                "offset",
+                "results",
+                "types"
+            ],
             "type": "object"
         },
         "HasPropertiesNode": {
@@ -10486,11 +11442,20 @@
                     "type": "array"
                 }
             },
-            "required": ["bytecode", "locals"],
+            "required": [
+                "bytecode",
+                "locals"
+            ],
             "type": "object"
         },
         "HogLanguage": {
-            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
+            "enum": [
+                "hog",
+                "hogJson",
+                "hogQL",
+                "hogQLExpr",
+                "hogTemplate"
+            ],
             "type": "string"
         },
         "HogQLASTQuery": {
@@ -10533,7 +11498,10 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "query"],
+            "required": [
+                "kind",
+                "query"
+            ],
             "type": "object"
         },
         "HogQLAutocomplete": {
@@ -10579,7 +11547,13 @@
                     "description": "Start position of the editor word"
                 }
             },
-            "required": ["endPosition", "kind", "language", "query", "startPosition"],
+            "required": [
+                "endPosition",
+                "kind",
+                "language",
+                "query",
+                "startPosition"
+            ],
             "type": "object"
         },
         "HogQLAutocompleteResponse": {
@@ -10603,7 +11577,10 @@
                     "type": "array"
                 }
             },
-            "required": ["suggestions", "incomplete_list"],
+            "required": [
+                "suggestions",
+                "incomplete_list"
+            ],
             "type": "object"
         },
         "HogQLExpression": {
@@ -10678,7 +11655,11 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "language", "query"],
+            "required": [
+                "kind",
+                "language",
+                "query"
+            ],
             "type": "object"
         },
         "HogQLMetadataResponse": {
@@ -10718,7 +11699,11 @@
                     "type": "array"
                 }
             },
-            "required": ["errors", "warnings", "notices"],
+            "required": [
+                "errors",
+                "warnings",
+                "notices"
+            ],
             "type": "object"
         },
         "HogQLNotice": {
@@ -10737,7 +11722,9 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["message"],
+            "required": [
+                "message"
+            ],
             "type": "object"
         },
         "HogQLPropertyFilter": {
@@ -10757,7 +11744,10 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "type"],
+            "required": [
+                "key",
+                "type"
+            ],
             "type": "object"
         },
         "HogQLQuery": {
@@ -10800,7 +11790,10 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "query"],
+            "required": [
+                "kind",
+                "query"
+            ],
             "type": "object"
         },
         "HogQLQueryModifiers": {
@@ -10811,7 +11804,11 @@
                     "type": "number"
                 },
                 "bounceRatePageViewMode": {
-                    "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
+                    "enum": [
+                        "count_pageviews",
+                        "uniq_urls",
+                        "uniq_page_screen_autocaptures"
+                    ],
                     "type": "string"
                 },
                 "customChannelTypeRules": {
@@ -10830,22 +11827,39 @@
                     "type": "boolean"
                 },
                 "inCohortVia": {
-                    "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
+                    "enum": [
+                        "auto",
+                        "leftjoin",
+                        "subquery",
+                        "leftjoin_conjoined"
+                    ],
                     "type": "string"
                 },
                 "materializationMode": {
-                    "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
+                    "enum": [
+                        "auto",
+                        "legacy_null_as_string",
+                        "legacy_null_as_null",
+                        "disabled"
+                    ],
                     "type": "string"
                 },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
-                    "enum": ["auto", "v1", "v2"],
+                    "enum": [
+                        "auto",
+                        "v1",
+                        "v2"
+                    ],
                     "type": "string"
                 },
                 "personsJoinMode": {
-                    "enum": ["inner", "left"],
+                    "enum": [
+                        "inner",
+                        "left"
+                    ],
                     "type": "string"
                 },
                 "personsOnEventsMode": {
@@ -10858,18 +11872,29 @@
                     "type": "string"
                 },
                 "propertyGroupsMode": {
-                    "enum": ["enabled", "disabled", "optimized"],
+                    "enum": [
+                        "enabled",
+                        "disabled",
+                        "optimized"
+                    ],
                     "type": "string"
                 },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
                 "sessionTableVersion": {
-                    "enum": ["auto", "v1", "v2"],
+                    "enum": [
+                        "auto",
+                        "v1",
+                        "v2"
+                    ],
                     "type": "string"
                 },
                 "sessionsV2JoinMode": {
-                    "enum": ["string", "uuid"],
+                    "enum": [
+                        "string",
+                        "uuid"
+                    ],
                     "type": "string"
                 },
                 "useMaterializedViews": {
@@ -10953,7 +11978,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "HogQLVariable": {
@@ -10970,7 +11997,10 @@
                     "type": "string"
                 }
             },
-            "required": ["variableId", "code_name"],
+            "required": [
+                "variableId",
+                "code_name"
+            ],
             "type": "object"
         },
         "HogQuery": {
@@ -10991,7 +12021,9 @@
                     "$ref": "#/definitions/HogQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "HogQueryResponse": {
@@ -11010,7 +12042,9 @@
                     "type": "string"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "HumanMessage": {
@@ -11027,7 +12061,10 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": [
+                "type",
+                "content"
+            ],
             "type": "object"
         },
         "InsightActorsQuery": {
@@ -11050,7 +12087,10 @@
                     ]
                 },
                 "compare": {
-                    "enum": ["current", "previous"],
+                    "enum": [
+                        "current",
+                        "previous"
+                    ],
                     "type": "string"
                 },
                 "day": {
@@ -11091,7 +12131,10 @@
                     "type": "string"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "InsightActorsQueryBase": {
@@ -11111,7 +12154,9 @@
                     "$ref": "#/definitions/ActorsQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightActorsQueryOptions": {
@@ -11141,7 +12186,10 @@
                     ]
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "InsightActorsQueryOptionsResponse": {
@@ -11170,7 +12218,10 @@
                                 "type": "string"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -11196,7 +12247,10 @@
                                 ]
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -11213,7 +12267,10 @@
                                 "description": "An interval selected out of available intervals in source query"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -11229,7 +12286,10 @@
                                 "$ref": "#/definitions/integer"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -11245,7 +12305,10 @@
                                 "type": "string"
                             }
                         },
-                        "required": ["label", "value"],
+                        "required": [
+                            "label",
+                            "value"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -11321,7 +12384,9 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 }
             ],
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightQuerySource": {
@@ -11340,11 +12405,16 @@
                     "$ref": "#/definitions/InsightThresholdType"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "InsightThresholdType": {
-            "enum": ["absolute", "percentage"],
+            "enum": [
+                "absolute",
+                "percentage"
+            ],
             "type": "string"
         },
         "InsightVizNode": {
@@ -11399,7 +12469,10 @@
                     "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "InsightsQueryBase<FunnelsQueryResponse>": {
@@ -11419,7 +12492,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11457,10 +12533,15 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightsQueryBase<LifecycleQueryResponse>": {
@@ -11480,7 +12561,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11518,10 +12602,15 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightsQueryBase<PathsQueryResponse>": {
@@ -11541,7 +12630,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11579,10 +12671,15 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightsQueryBase<RetentionQueryResponse>": {
@@ -11602,7 +12699,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11640,10 +12740,15 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightsQueryBase<TrendsQueryResponse>": {
@@ -11663,7 +12768,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11701,10 +12809,15 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "InsightsThresholdBounds": {
@@ -11720,7 +12833,13 @@
             "type": "object"
         },
         "IntervalType": {
-            "enum": ["minute", "hour", "day", "week", "month"],
+            "enum": [
+                "minute",
+                "hour",
+                "day",
+                "week",
+                "month"
+            ],
             "type": "string"
         },
         "LLMTrace": {
@@ -11765,7 +12884,12 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": [
+                "id",
+                "createdAt",
+                "person",
+                "events"
+            ],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -11784,7 +12908,12 @@
                     "type": "object"
                 }
             },
-            "required": ["id", "event", "properties", "createdAt"],
+            "required": [
+                "id",
+                "event",
+                "properties",
+                "createdAt"
+            ],
             "type": "object"
         },
         "LLMTracePerson": {
@@ -11803,7 +12932,12 @@
                     "type": "string"
                 }
             },
-            "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "required": [
+                "uuid",
+                "created_at",
+                "properties",
+                "distinct_id"
+            ],
             "type": "object"
         },
         "LifecycleFilter": {
@@ -11860,7 +12994,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -11908,7 +13045,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "series": {
                     "description": "Events and actions to include",
@@ -11918,7 +13058,10 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "series"],
+            "required": [
+                "kind",
+                "series"
+            ],
             "type": "object"
         },
         "LifecycleQueryResponse": {
@@ -11954,11 +13097,18 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "LifecycleToggle": {
-            "enum": ["new", "resurrecting", "returning", "dormant"],
+            "enum": [
+                "new",
+                "resurrecting",
+                "returning",
+                "dormant"
+            ],
             "type": "string"
         },
         "LogEntryPropertyFilter": {
@@ -11981,7 +13131,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "LogMessage": {
@@ -12036,7 +13190,12 @@
             "type": "object"
         },
         "LogSeverityLevel": {
-            "enum": ["debug", "info", "warn", "error"],
+            "enum": [
+                "debug",
+                "info",
+                "warn",
+                "error"
+            ],
             "type": "string"
         },
         "LogsQuery": {
@@ -12060,7 +13219,10 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["latest", "earliest"],
+                    "enum": [
+                        "latest",
+                        "earliest"
+                    ],
                     "type": "string"
                 },
                 "resource": {
@@ -12079,7 +13241,12 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "kind", "orderBy", "severityLevels"],
+            "required": [
+                "dateRange",
+                "kind",
+                "orderBy",
+                "severityLevels"
+            ],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -12130,7 +13297,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "MatchedRecording": {
@@ -12146,7 +13315,9 @@
                     "type": "string"
                 }
             },
-            "required": ["events"],
+            "required": [
+                "events"
+            ],
             "type": "object"
         },
         "MatchedRecordingEvent": {
@@ -12156,7 +13327,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uuid"],
+            "required": [
+                "uuid"
+            ],
             "type": "object"
         },
         "MathType": {
@@ -12197,7 +13370,10 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "values"],
+            "required": [
+                "type",
+                "values"
+            ],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -12213,17 +13389,26 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "values"],
+            "required": [
+                "type",
+                "values"
+            ],
             "type": "object"
         },
         "MaxRecordingUniversalFilters": {
             "additionalProperties": false,
             "properties": {
                 "date_from": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "date_to": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "duration": {
                     "items": {
@@ -12242,7 +13427,10 @@
                     "default": "start_time"
                 }
             },
-            "required": ["duration", "filter_group"],
+            "required": [
+                "duration",
+                "filter_group"
+            ],
             "type": "object"
         },
         "MaxUniversalFilterValue": {
@@ -12271,11 +13459,20 @@
                     "type": "array"
                 }
             },
-            "required": ["values"],
+            "required": [
+                "values"
+            ],
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": [
+                "person",
+                "event",
+                "event_metadata",
+                "group",
+                "session",
+                "hogql"
+            ],
             "type": "string"
         },
         "NodeKind": {
@@ -12353,7 +13550,10 @@
                     "type": "string"
                 }
             },
-            "required": ["url", "count"],
+            "required": [
+                "url",
+                "count"
+            ],
             "type": "object"
         },
         "PathCleaningFilter": {
@@ -12369,7 +13569,12 @@
             "type": "object"
         },
         "PathType": {
-            "enum": ["$pageview", "$screen", "custom_event", "hogql"],
+            "enum": [
+                "$pageview",
+                "$screen",
+                "custom_event",
+                "hogql"
+            ],
             "type": "string"
         },
         "PathsFilter": {
@@ -12534,7 +13739,12 @@
                     "type": "number"
                 }
             },
-            "required": ["source", "target", "value", "average_conversion_time"],
+            "required": [
+                "source",
+                "target",
+                "value",
+                "average_conversion_time"
+            ],
             "type": "object"
         },
         "PathsQuery": {
@@ -12553,7 +13763,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -12600,10 +13813,16 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind", "pathsFilter"],
+            "required": [
+                "kind",
+                "pathsFilter"
+            ],
             "type": "object"
         },
         "PathsQueryResponse": {
@@ -12639,7 +13858,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "PersonPropertyFilter": {
@@ -12664,7 +13885,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "PersonType": {
@@ -12695,7 +13920,10 @@
                     "type": "string"
                 }
             },
-            "required": ["distinct_ids", "properties"],
+            "required": [
+                "distinct_ids",
+                "properties"
+            ],
             "type": "object"
         },
         "PersonsNode": {
@@ -12743,7 +13971,9 @@
                     "type": "string"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "PropertyFilterBaseValue": {
@@ -12808,7 +14038,10 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "values"],
+            "required": [
+                "type",
+                "values"
+            ],
             "type": "object"
         },
         "PropertyGroupFilterValue": {
@@ -12831,11 +14064,24 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "values"],
+            "required": [
+                "type",
+                "values"
+            ],
             "type": "object"
         },
         "PropertyMathType": {
-            "enum": ["avg", "sum", "min", "max", "median", "p75", "p90", "p95", "p99"],
+            "enum": [
+                "avg",
+                "sum",
+                "min",
+                "max",
+                "median",
+                "p75",
+                "p90",
+                "p95",
+                "p99"
+            ],
             "type": "string"
         },
         "PropertyOperator": {
@@ -12867,7 +14113,12 @@
             "type": "string"
         },
         "QueryIndexUsage": {
-            "enum": ["undecisive", "no", "partial", "yes"],
+            "enum": [
+                "undecisive",
+                "no",
+                "partial",
+                "yes"
+            ],
             "type": "string"
         },
         "QueryRequest": {
@@ -12900,7 +14151,9 @@
                     "type": "object"
                 }
             },
-            "required": ["query"],
+            "required": [
+                "query"
+            ],
             "type": "object"
         },
         "QueryResponseAlternative": {
@@ -12961,7 +14214,12 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "results", "types"],
+                    "required": [
+                        "columns",
+                        "hogql",
+                        "results",
+                        "types"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13020,7 +14278,14 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": [
+                        "columns",
+                        "hogql",
+                        "limit",
+                        "offset",
+                        "results",
+                        "types"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13080,7 +14345,15 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+                    "required": [
+                        "columns",
+                        "hogql",
+                        "kind",
+                        "limit",
+                        "offset",
+                        "results",
+                        "types"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13109,7 +14382,10 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["label", "value"],
+                                "required": [
+                                    "label",
+                                    "value"
+                                ],
                                 "type": "object"
                             },
                             "type": "array"
@@ -13135,7 +14411,10 @@
                                         ]
                                     }
                                 },
-                                "required": ["label", "value"],
+                                "required": [
+                                    "label",
+                                    "value"
+                                ],
                                 "type": "object"
                             },
                             "type": "array"
@@ -13152,7 +14431,10 @@
                                         "description": "An interval selected out of available intervals in source query"
                                     }
                                 },
-                                "required": ["label", "value"],
+                                "required": [
+                                    "label",
+                                    "value"
+                                ],
                                 "type": "object"
                             },
                             "type": "array"
@@ -13168,7 +14450,10 @@
                                         "$ref": "#/definitions/integer"
                                     }
                                 },
-                                "required": ["label", "value"],
+                                "required": [
+                                    "label",
+                                    "value"
+                                ],
                                 "type": "object"
                             },
                             "type": "array"
@@ -13184,7 +14469,10 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["label", "value"],
+                                "required": [
+                                    "label",
+                                    "value"
+                                ],
                                 "type": "object"
                             },
                             "type": "array"
@@ -13228,7 +14516,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13247,7 +14537,9 @@
                             "type": "string"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13319,7 +14611,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13359,7 +14653,11 @@
                             "type": "array"
                         }
                     },
-                    "required": ["errors", "warnings", "notices"],
+                    "required": [
+                        "errors",
+                        "warnings",
+                        "notices"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13383,7 +14681,10 @@
                             "type": "array"
                         }
                     },
-                    "required": ["suggestions", "incomplete_list"],
+                    "required": [
+                        "suggestions",
+                        "incomplete_list"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13431,7 +14732,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13479,7 +14782,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13527,7 +14832,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13578,7 +14885,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13813,7 +15122,12 @@
                             "type": "object"
                         }
                     },
-                    "required": ["kind", "timeseries", "total_exposures", "date_range"],
+                    "required": [
+                        "kind",
+                        "timeseries",
+                        "total_exposures",
+                        "date_range"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13858,7 +15172,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13912,7 +15228,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -13966,7 +15284,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14020,7 +15340,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14058,7 +15380,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14100,7 +15424,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14139,7 +15465,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14175,7 +15503,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14212,7 +15542,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14249,7 +15581,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14312,7 +15646,12 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "results", "types"],
+                    "required": [
+                        "columns",
+                        "hogql",
+                        "results",
+                        "types"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14371,7 +15710,14 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": [
+                        "columns",
+                        "hogql",
+                        "limit",
+                        "offset",
+                        "results",
+                        "types"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14431,7 +15777,15 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
+                    "required": [
+                        "columns",
+                        "hogql",
+                        "kind",
+                        "limit",
+                        "offset",
+                        "results",
+                        "types"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14503,7 +15857,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14548,7 +15904,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14602,7 +15960,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14656,7 +16016,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14710,7 +16072,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14748,7 +16112,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14787,7 +16153,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14835,7 +16203,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14871,7 +16241,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14908,7 +16280,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14945,7 +16319,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -14993,7 +16369,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15041,7 +16419,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15092,7 +16472,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15277,7 +16659,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15317,7 +16701,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15366,7 +16752,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15402,7 +16790,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15438,7 +16828,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15474,7 +16866,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15510,7 +16904,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15560,7 +16956,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15573,7 +16971,9 @@
                             "type": "object"
                         }
                     },
-                    "required": ["tables"],
+                    "required": [
+                        "tables"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15624,7 +17024,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15637,7 +17039,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["questions"],
+                    "required": [
+                        "questions"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15670,7 +17074,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15703,7 +17109,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15736,7 +17144,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15787,7 +17197,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 },
                 {
@@ -15820,7 +17232,9 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": [
+                        "results"
+                    ],
                     "type": "object"
                 }
             ]
@@ -15987,7 +17401,9 @@
                     "$ref": "#/definitions/VectorSearchQuery"
                 }
             ],
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "QuerySchemaRoot": {
@@ -16016,7 +17432,10 @@
                 },
                 "error_message": {
                     "default": null,
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "expiration_time": {
                     "format": "date-time",
@@ -16061,7 +17480,14 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "required": [
+                "id",
+                "query_async",
+                "team_id",
+                "error",
+                "complete",
+                "error_message"
+            ],
             "type": "object"
         },
         "QueryStatusResponse": {
@@ -16071,7 +17497,9 @@
                     "$ref": "#/definitions/QueryStatus"
                 }
             },
-            "required": ["query_status"],
+            "required": [
+                "query_status"
+            ],
             "type": "object"
         },
         "QueryTiming": {
@@ -16086,7 +17514,10 @@
                     "type": "number"
                 }
             },
-            "required": ["k", "t"],
+            "required": [
+                "k",
+                "t"
+            ],
             "type": "object"
         },
         "ReasoningMessage": {
@@ -16109,7 +17540,10 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "content"],
+            "required": [
+                "type",
+                "content"
+            ],
             "type": "object"
         },
         "RecordingDurationFilter": {
@@ -16132,7 +17566,12 @@
                     "type": "number"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": [
+                "key",
+                "operator",
+                "type",
+                "value"
+            ],
             "type": "object"
         },
         "RecordingOrder": {
@@ -16182,7 +17621,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "RecordingsQuery": {
@@ -16202,10 +17645,16 @@
                 },
                 "date_from": {
                     "default": "-3d",
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "date_to": {
-                    "type": ["string", "null"]
+                    "type": [
+                        "string",
+                        "null"
+                    ]
                 },
                 "distinct_ids": {
                     "items": {
@@ -16272,7 +17721,9 @@
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "RecordingsQueryResponse": {
@@ -16288,7 +17739,10 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "has_next"],
+            "required": [
+                "results",
+                "has_next"
+            ],
             "type": "object"
         },
         "RefreshType": {
@@ -16320,11 +17774,16 @@
                     "$ref": "#/definitions/DataColorToken"
                 }
             },
-            "required": ["color"],
+            "required": [
+                "color"
+            ],
             "type": "object"
         },
         "ResultCustomizationBy": {
-            "enum": ["value", "position"],
+            "enum": [
+                "value",
+                "position"
+            ],
             "type": "string"
         },
         "ResultCustomizationByPosition": {
@@ -16338,7 +17797,10 @@
                     "$ref": "#/definitions/DataColorToken"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": [
+                "assignmentBy",
+                "color"
+            ],
             "type": "object"
         },
         "ResultCustomizationByValue": {
@@ -16352,11 +17814,18 @@
                     "$ref": "#/definitions/DataColorToken"
                 }
             },
-            "required": ["assignmentBy", "color"],
+            "required": [
+                "assignmentBy",
+                "color"
+            ],
             "type": "object"
         },
         "RetentionDashboardDisplayType": {
-            "enum": ["table_only", "graph_only", "all"],
+            "enum": [
+                "table_only",
+                "graph_only",
+                "all"
+            ],
             "type": "string"
         },
         "RetentionEntity": {
@@ -16366,7 +17835,10 @@
                     "type": "string"
                 },
                 "id": {
-                    "type": ["string", "number"]
+                    "type": [
+                        "string",
+                        "number"
+                    ]
                 },
                 "kind": {
                     "$ref": "#/definitions/RetentionEntityKind"
@@ -16394,7 +17866,10 @@
             "type": "object"
         },
         "RetentionEntityKind": {
-            "enum": ["ActionsNode", "EventsNode"],
+            "enum": [
+                "ActionsNode",
+                "EventsNode"
+            ],
             "type": "string"
         },
         "RetentionFilter": {
@@ -16411,7 +17886,11 @@
                     "description": "controls the display of the retention graph"
                 },
                 "meanRetentionCalculation": {
-                    "enum": ["simple", "weighted", "none"],
+                    "enum": [
+                        "simple",
+                        "weighted",
+                        "none"
+                    ],
                     "type": "string"
                 },
                 "period": {
@@ -16420,7 +17899,10 @@
                 },
                 "retentionReference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
-                    "enum": ["total", "previous"],
+                    "enum": [
+                        "total",
+                        "previous"
+                    ],
                     "type": "string"
                 },
                 "retentionType": {
@@ -16450,7 +17932,11 @@
                     "type": "boolean"
                 },
                 "mean_retention_calculation": {
-                    "enum": ["simple", "weighted", "none"],
+                    "enum": [
+                        "simple",
+                        "weighted",
+                        "none"
+                    ],
                     "type": "string"
                 },
                 "period": {
@@ -16458,7 +17944,10 @@
                 },
                 "retention_reference": {
                     "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
-                    "enum": ["total", "previous"],
+                    "enum": [
+                        "total",
+                        "previous"
+                    ],
                     "type": "string"
                 },
                 "retention_type": {
@@ -16480,7 +17969,12 @@
             "type": "object"
         },
         "RetentionPeriod": {
-            "enum": ["Hour", "Day", "Week", "Month"],
+            "enum": [
+                "Hour",
+                "Day",
+                "Week",
+                "Month"
+            ],
             "type": "string"
         },
         "RetentionQuery": {
@@ -16503,7 +17997,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -16546,10 +18043,16 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 }
             },
-            "required": ["kind", "retentionFilter"],
+            "required": [
+                "kind",
+                "retentionFilter"
+            ],
             "type": "object"
         },
         "RetentionQueryResponse": {
@@ -16585,7 +18088,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "RetentionResult": {
@@ -16593,7 +18098,11 @@
             "properties": {
                 "breakdown_value": {
                     "description": "Optional breakdown value for retention cohorts",
-                    "type": ["string", "number", "null"]
+                    "type": [
+                        "string",
+                        "number",
+                        "null"
+                    ]
                 },
                 "date": {
                     "format": "date-time",
@@ -16609,11 +18118,18 @@
                     "type": "array"
                 }
             },
-            "required": ["values", "label", "date"],
+            "required": [
+                "values",
+                "label",
+                "date"
+            ],
             "type": "object"
         },
         "RetentionType": {
-            "enum": ["retention_recurring", "retention_first_time"],
+            "enum": [
+                "retention_recurring",
+                "retention_first_time"
+            ],
             "type": "string"
         },
         "RetentionValue": {
@@ -16626,7 +18142,9 @@
                     "type": "string"
                 }
             },
-            "required": ["count"],
+            "required": [
+                "count"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse>": {
@@ -16649,7 +18167,10 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": [
+                "kind",
+                "revenueSources"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse>": {
@@ -16672,7 +18193,10 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": [
+                "kind",
+                "revenueSources"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
@@ -16695,7 +18219,10 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": [
+                "kind",
+                "revenueSources"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsConfig": {
@@ -16713,7 +18240,10 @@
                     "type": "array"
                 }
             },
-            "required": ["base_currency", "events"],
+            "required": [
+                "base_currency",
+                "events"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -16737,7 +18267,12 @@
                     "type": "string"
                 }
             },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "required": [
+                "eventName",
+                "revenueProperty",
+                "revenueCurrencyProperty",
+                "currencyAwareDecimal"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
@@ -16761,7 +18296,10 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": [
+                "kind",
+                "revenueSources"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
@@ -16798,7 +18336,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsOverviewItem": {
@@ -16811,11 +18351,18 @@
                     "type": "number"
                 }
             },
-            "required": ["key", "value"],
+            "required": [
+                "key",
+                "value"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsOverviewItemKey": {
-            "enum": ["revenue", "paying_customer_count", "avg_revenue_per_customer"],
+            "enum": [
+                "revenue",
+                "paying_customer_count",
+                "avg_revenue_per_customer"
+            ],
             "type": "string"
         },
         "RevenueAnalyticsOverviewQuery": {
@@ -16839,7 +18386,10 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind", "revenueSources"],
+            "required": [
+                "kind",
+                "revenueSources"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsOverviewQueryResponse": {
@@ -16875,11 +18425,16 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersGroupBy": {
-            "enum": ["month", "all"],
+            "enum": [
+                "month",
+                "all"
+            ],
             "type": "string"
         },
         "RevenueAnalyticsTopCustomersQuery": {
@@ -16906,7 +18461,11 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "kind", "revenueSources"],
+            "required": [
+                "groupBy",
+                "kind",
+                "revenueSources"
+            ],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -16943,7 +18502,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "RevenueCurrencyPropertyConfig": {
@@ -16979,7 +18540,9 @@
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "RevenueExampleDataWarehouseTablesQueryResponse": {
@@ -17027,7 +18590,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "RevenueExampleEventsQuery": {
@@ -17051,7 +18616,9 @@
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "RevenueExampleEventsQueryResponse": {
@@ -17099,7 +18666,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "RevenueSources": {
@@ -17118,7 +18687,10 @@
                     "type": "array"
                 }
             },
-            "required": ["dataWarehouseSources", "events"],
+            "required": [
+                "dataWarehouseSources",
+                "events"
+            ],
             "type": "object"
         },
         "RootAssistantMessage": {
@@ -17159,7 +18731,11 @@
                             "type": "object"
                         }
                     },
-                    "required": ["content", "tool_call_id", "type"],
+                    "required": [
+                        "content",
+                        "tool_call_id",
+                        "type"
+                    ],
                     "type": "object"
                 }
             ]
@@ -17174,7 +18750,9 @@
                     "type": "number"
                 }
             },
-            "required": ["numerator"],
+            "required": [
+                "numerator"
+            ],
             "type": "object"
         },
         "SavedInsightNode": {
@@ -17192,11 +18770,16 @@
                             "type": "string"
                         },
                         "type": {
-                            "enum": ["event_definition", "team_columns"],
+                            "enum": [
+                                "event_definition",
+                                "team_columns"
+                            ],
                             "type": "string"
                         }
                     },
-                    "required": ["type"],
+                    "required": [
+                        "type"
+                    ],
                     "type": "object"
                 },
                 "embedded": {
@@ -17330,7 +18913,10 @@
                     "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
-            "required": ["kind", "shortId"],
+            "required": [
+                "kind",
+                "shortId"
+            ],
             "type": "object"
         },
         "SessionAttributionExplorerQuery": {
@@ -17375,7 +18961,10 @@
                     "$ref": "#/definitions/SessionAttributionExplorerQueryResponse"
                 }
             },
-            "required": ["groupBy", "kind"],
+            "required": [
+                "groupBy",
+                "kind"
+            ],
             "type": "object"
         },
         "SessionAttributionExplorerQueryResponse": {
@@ -17423,11 +19012,21 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "SessionAttributionGroupBy": {
-            "enum": ["ChannelType", "Medium", "Source", "Campaign", "AdIds", "ReferringDomain", "InitialURL"],
+            "enum": [
+                "ChannelType",
+                "Medium",
+                "Source",
+                "Campaign",
+                "AdIds",
+                "ReferringDomain",
+                "InitialURL"
+            ],
             "type": "string"
         },
         "SessionPropertyFilter": {
@@ -17450,7 +19049,11 @@
                     "$ref": "#/definitions/PropertyFilterValue"
                 }
             },
-            "required": ["key", "operator", "type"],
+            "required": [
+                "key",
+                "operator",
+                "type"
+            ],
             "type": "object"
         },
         "SessionRecordingType": {
@@ -17517,7 +19120,11 @@
                     "type": "number"
                 },
                 "snapshot_source": {
-                    "enum": ["web", "mobile", "unknown"],
+                    "enum": [
+                        "web",
+                        "mobile",
+                        "unknown"
+                    ],
                     "type": "string"
                 },
                 "start_time": {
@@ -17529,7 +19136,10 @@
                 },
                 "storage": {
                     "description": "Where this recording information was loaded from",
-                    "enum": ["object_storage_lts", "object_storage"],
+                    "enum": [
+                        "object_storage_lts",
+                        "object_storage"
+                    ],
                     "type": "string"
                 },
                 "summary": {
@@ -17547,7 +19157,15 @@
                     "type": "array"
                 }
             },
-            "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "required": [
+                "id",
+                "viewed",
+                "viewers",
+                "recording_duration",
+                "start_time",
+                "end_time",
+                "snapshot_source"
+            ],
             "type": "object"
         },
         "SessionsTimelineQuery": {
@@ -17577,7 +19195,9 @@
                     "$ref": "#/definitions/SessionsTimelineQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "SessionsTimelineQueryResponse": {
@@ -17616,11 +19236,17 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "StepOrderValue": {
-            "enum": ["strict", "unordered", "ordered"],
+            "enum": [
+                "strict",
+                "unordered",
+                "ordered"
+            ],
             "type": "string"
         },
         "StickinessActorsQuery": {
@@ -17643,7 +19269,10 @@
                     ]
                 },
                 "compare": {
-                    "enum": ["current", "previous"],
+                    "enum": [
+                        "current",
+                        "previous"
+                    ],
                     "type": "string"
                 },
                 "day": {
@@ -17687,11 +19316,17 @@
                     "type": "string"
                 }
             },
-            "required": ["kind", "source"],
+            "required": [
+                "kind",
+                "source"
+            ],
             "type": "object"
         },
         "StickinessComputationMode": {
-            "enum": ["non_cumulative", "cumulative"],
+            "enum": [
+                "non_cumulative",
+                "cumulative"
+            ],
             "type": "string"
         },
         "StickinessFilter": {
@@ -17728,7 +19363,10 @@
                             "$ref": "#/definitions/integer"
                         }
                     },
-                    "required": ["operator", "value"],
+                    "required": [
+                        "operator",
+                        "value"
+                    ],
                     "type": "object"
                 }
             },
@@ -17773,7 +19411,11 @@
             "type": "object"
         },
         "StickinessOperator": {
-            "enum": ["gte", "lte", "exact"],
+            "enum": [
+                "gte",
+                "lte",
+                "exact"
+            ],
             "type": "string"
         },
         "StickinessQuery": {
@@ -17785,7 +19427,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -17833,7 +19478,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "series": {
                     "description": "Events and actions to include",
@@ -17847,7 +19495,10 @@
                     "description": "Properties specific to the stickiness insight"
                 }
             },
-            "required": ["kind", "series"],
+            "required": [
+                "kind",
+                "series"
+            ],
             "type": "object"
         },
         "StickinessQueryResponse": {
@@ -17883,7 +19534,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "SuggestedQuestionsQuery": {
@@ -17901,7 +19554,9 @@
                     "$ref": "#/definitions/SuggestedQuestionsQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "SuggestedQuestionsQueryResponse": {
@@ -17914,7 +19569,9 @@
                     "type": "array"
                 }
             },
-            "required": ["questions"],
+            "required": [
+                "questions"
+            ],
             "type": "object"
         },
         "TableSettings": {
@@ -17983,7 +19640,10 @@
                     "type": "string"
                 }
             },
-            "required": ["event", "count"],
+            "required": [
+                "event",
+                "count"
+            ],
             "type": "object"
         },
         "TeamTaxonomyQuery": {
@@ -18001,7 +19661,9 @@
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "TeamTaxonomyQueryResponse": {
@@ -18035,7 +19697,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "TeamTaxonomyResponse": {
@@ -18076,7 +19740,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "TestCachedBasicQueryResponse": {
@@ -18164,7 +19830,9 @@
                     "type": "string"
                 }
             },
-            "required": ["events"],
+            "required": [
+                "events"
+            ],
             "type": "object"
         },
         "TracesQuery": {
@@ -18207,7 +19875,9 @@
                     "type": "string"
                 }
             },
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "type": "object"
         },
         "TracesQueryResponse": {
@@ -18258,7 +19928,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "TrendsAlertConfig": {
@@ -18275,7 +19947,10 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "series_index"],
+            "required": [
+                "type",
+                "series_index"
+            ],
             "type": "object"
         },
         "TrendsFilter": {
@@ -18388,7 +20063,10 @@
                     "default": 1
                 },
                 "yAxisScaleType": {
-                    "enum": ["log10", "linear"],
+                    "enum": [
+                        "log10",
+                        "linear"
+                    ],
                     "type": "string"
                 }
             },
@@ -18463,7 +20141,10 @@
                     "type": "number"
                 },
                 "y_axis_scale_type": {
-                    "enum": ["log10", "linear"],
+                    "enum": [
+                        "log10",
+                        "linear"
+                    ],
                     "type": "string"
                 }
             },
@@ -18480,7 +20161,9 @@
                     "type": "string"
                 }
             },
-            "required": ["formula"],
+            "required": [
+                "formula"
+            ],
             "type": "object"
         },
         "TrendsQuery": {
@@ -18518,7 +20201,10 @@
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -18562,7 +20248,10 @@
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
-                    "type": ["number", "null"]
+                    "type": [
+                        "number",
+                        "null"
+                    ]
                 },
                 "series": {
                     "description": "Events and actions to include",
@@ -18576,7 +20265,10 @@
                     "description": "Properties specific to the trends insight"
                 }
             },
-            "required": ["kind", "series"],
+            "required": [
+                "kind",
+                "series"
+            ],
             "type": "object"
         },
         "TrendsQueryResponse": {
@@ -18616,7 +20308,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "VectorSearchQuery": {
@@ -18640,7 +20334,10 @@
                     "$ref": "#/definitions/VectorSearchQueryResponse"
                 }
             },
-            "required": ["embedding", "kind"],
+            "required": [
+                "embedding",
+                "kind"
+            ],
             "type": "object"
         },
         "VectorSearchQueryResponse": {
@@ -18674,7 +20371,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "VectorSearchResponse": {
@@ -18693,7 +20392,10 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "distance"],
+            "required": [
+                "id",
+                "distance"
+            ],
             "type": "object"
         },
         "VisualizationMessage": {
@@ -18733,7 +20435,11 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "query", "answer"],
+            "required": [
+                "type",
+                "query",
+                "answer"
+            ],
             "type": "object"
         },
         "VizSpecificOptions": {
@@ -18794,7 +20500,10 @@
             "type": "array"
         },
         "WebAnalyticsOrderByDirection": {
-            "enum": ["ASC", "DESC"],
+            "enum": [
+                "ASC",
+                "DESC"
+            ],
             "type": "string"
         },
         "WebAnalyticsOrderByFields": {
@@ -18902,7 +20611,10 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": [
+                "kind",
+                "properties"
+            ],
             "type": "object"
         },
         "WebExternalClicksTableQueryResponse": {
@@ -18956,7 +20668,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "WebGoalsQuery": {
@@ -19024,7 +20738,10 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": [
+                "kind",
+                "properties"
+            ],
             "type": "object"
         },
         "WebGoalsQueryResponse": {
@@ -19078,7 +20795,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "WebOverviewItem": {
@@ -19103,11 +20822,19 @@
                     "type": "number"
                 }
             },
-            "required": ["key", "kind"],
+            "required": [
+                "key",
+                "kind"
+            ],
             "type": "object"
         },
         "WebOverviewItemKind": {
-            "enum": ["unit", "duration_s", "percentage", "currency"],
+            "enum": [
+                "unit",
+                "duration_s",
+                "percentage",
+                "currency"
+            ],
             "type": "string"
         },
         "WebOverviewQuery": {
@@ -19172,7 +20899,10 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": [
+                "kind",
+                "properties"
+            ],
             "type": "object"
         },
         "WebOverviewQueryResponse": {
@@ -19217,7 +20947,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "WebPageURLSearchQuery": {
@@ -19291,7 +21023,10 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": [
+                "kind",
+                "properties"
+            ],
             "type": "object"
         },
         "WebPageURLSearchQueryResponse": {
@@ -19333,7 +21068,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "WebStatsBreakdown": {
@@ -19438,7 +21175,11 @@
                     "type": "boolean"
                 }
             },
-            "required": ["breakdownBy", "kind", "properties"],
+            "required": [
+                "breakdownBy",
+                "kind",
+                "properties"
+            ],
             "type": "object"
         },
         "WebStatsTableQueryResponse": {
@@ -19492,7 +21233,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "WebVitalsItem": {
@@ -19514,7 +21257,11 @@
                     "type": "array"
                 }
             },
-            "required": ["data", "days", "action"],
+            "required": [
+                "data",
+                "days",
+                "action"
+            ],
             "type": "object"
         },
         "WebVitalsItemAction": {
@@ -19527,15 +21274,27 @@
                     "$ref": "#/definitions/WebVitalsPercentile"
                 }
             },
-            "required": ["custom_name", "math"],
+            "required": [
+                "custom_name",
+                "math"
+            ],
             "type": "object"
         },
         "WebVitalsMetric": {
-            "enum": ["INP", "LCP", "CLS", "FCP"],
+            "enum": [
+                "INP",
+                "LCP",
+                "CLS",
+                "FCP"
+            ],
             "type": "string"
         },
         "WebVitalsMetricBand": {
-            "enum": ["good", "needs_improvements", "poor"],
+            "enum": [
+                "good",
+                "needs_improvements",
+                "poor"
+            ],
             "type": "string"
         },
         "WebVitalsPathBreakdownQuery": {
@@ -19614,7 +21373,13 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "metric", "percentile", "properties", "thresholds"],
+            "required": [
+                "kind",
+                "metric",
+                "percentile",
+                "properties",
+                "thresholds"
+            ],
             "type": "object"
         },
         "WebVitalsPathBreakdownQueryResponse": {
@@ -19653,7 +21418,9 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "WebVitalsPathBreakdownResult": {
@@ -19678,7 +21445,11 @@
                     "type": "array"
                 }
             },
-            "required": ["good", "needs_improvements", "poor"],
+            "required": [
+                "good",
+                "needs_improvements",
+                "poor"
+            ],
             "type": "object"
         },
         "WebVitalsPathBreakdownResultItem": {
@@ -19691,11 +21462,18 @@
                     "type": "number"
                 }
             },
-            "required": ["path", "value"],
+            "required": [
+                "path",
+                "value"
+            ],
             "type": "object"
         },
         "WebVitalsPercentile": {
-            "enum": ["p75", "p90", "p99"],
+            "enum": [
+                "p75",
+                "p90",
+                "p99"
+            ],
             "type": "string"
         },
         "WebVitalsQuery": {
@@ -19763,7 +21541,11 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties", "source"],
+            "required": [
+                "kind",
+                "properties",
+                "source"
+            ],
             "type": "object"
         },
         "WebVitalsQueryResponse": {
@@ -19800,14 +21582,19 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": [
+                "results"
+            ],
             "type": "object"
         },
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
                 "scale": {
-                    "enum": ["linear", "logarithmic"],
+                    "enum": [
+                        "linear",
+                        "logarithmic"
+                    ],
                     "type": "string"
                 },
                 "startAtZero": {
@@ -19830,7 +21617,9 @@
                             "$ref": "#/definitions/ExperimentMetric"
                         }
                     },
-                    "required": ["metric"],
+                    "required": [
+                        "metric"
+                    ],
                     "type": "object"
                 }
             },
@@ -19846,7 +21635,9 @@
                             "$ref": "#/definitions/ExperimentMetric"
                         }
                     },
-                    "required": ["metric"],
+                    "required": [
+                        "metric"
+                    ],
                     "type": "object"
                 }
             },
