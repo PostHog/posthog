@@ -3,7 +3,7 @@ use std::sync::Arc;
 use common_database::Client as DatabaseClient;
 use tracing::instrument;
 
-use crate::types::Item;
+use crate::types::LinksRedisItem;
 
 use super::redirect_service::RedirectError;
 
@@ -14,7 +14,7 @@ pub async fn fetch_redirect_item(
     db_reader_client: PostgresReader,
     short_link_domain: &str,
     short_code: &str,
-) -> Result<Item, RedirectError> {
+) -> Result<LinksRedisItem, RedirectError> {
     let mut conn = db_reader_client.get_connection().await.map_err(|e| {
         tracing::error!("Failed to get database connection: {}", e);
         RedirectError::DatabaseUnavailable
@@ -32,7 +32,7 @@ pub async fn fetch_redirect_item(
     .await?;
 
     match query {
-        Some(row) => Ok(Item {
+        Some(row) => Ok(LinksRedisItem {
             url: row.redirect_url,
             team_id: Some(row.team_id),
         }),
@@ -73,7 +73,7 @@ mod tests {
 
         assert_eq!(
             result.unwrap(),
-            Item {
+            LinksRedisItem {
                 url: redirect_url.to_string(),
                 team_id: Some(team.id),
             }

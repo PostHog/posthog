@@ -1,5 +1,5 @@
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Item {
+pub struct LinksRedisItem {
     pub url: String,
     pub team_id: Option<i32>,
 }

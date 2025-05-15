@@ -5,7 +5,7 @@ use thiserror::Error;
 use common_database::Client as DatabaseClient;
 use common_redis::{Client as RedisClient, CustomRedisError};
 
-use crate::types::Item;
+use crate::types::LinksRedisItem;
 
 use super::{redirect_query::fetch_redirect_item, redis_utils::RedisRedirectKeyPrefix};
 
@@ -29,7 +29,7 @@ pub trait RedirectServiceTrait {
         &self,
         short_code: &str,
         short_link_domain: &str,
-    ) -> Result<Item, RedirectError>;
+    ) -> Result<LinksRedisItem, RedirectError>;
 
     async fn store_url(
         &self,
@@ -75,7 +75,7 @@ impl InternalRedirectService {
         &self,
         short_code: &str,
         short_link_domain: &str,
-    ) -> Result<Item, RedirectError> {
+    ) -> Result<LinksRedisItem, RedirectError> {
         let redirect_item =
             fetch_redirect_item(self.db_reader_client.clone(), short_link_domain, short_code)
                 .await?;
@@ -111,7 +111,7 @@ impl RedirectServiceTrait for ExternalRedirectService {
         &self,
         short_code: &str,
         short_link_domain: &str,
-    ) -> Result<Item, RedirectError> {
+    ) -> Result<LinksRedisItem, RedirectError> {
         // Try Redis first
         tracing::info!(
             "Fetching redirect URL from Redis for key {} and domain {}",
@@ -171,7 +171,7 @@ impl RedirectServiceTrait for InternalRedirectService {
         &self,
         short_code: &str,
         short_link_domain: &str,
-    ) -> Result<Item, RedirectError> {
+    ) -> Result<LinksRedisItem, RedirectError> {
         match self
             .redis_client
             .get(
@@ -180,7 +180,7 @@ impl RedirectServiceTrait for InternalRedirectService {
             )
             .await
         {
-            Ok(item) => match serde_json::from_str::<Item>(&item) {
+            Ok(item) => match serde_json::from_str(&item) {
                 Ok(parsed_item) => Ok(parsed_item),
                 Err(_) => Err(RedirectError::InvalidOperation(
                     "Failed to parse item".into(),
@@ -228,7 +228,7 @@ mod tests {
         let key = "p2dsws3";
         let short_link_domain = "example.com";
 
-        let item = Item {
+        let item = LinksRedisItem {
             url: "https://example.com".to_string(),
             team_id: Some(257),
         };
@@ -250,7 +250,7 @@ mod tests {
         let key = "p2dsws3";
         let origin_domain = "example.com";
 
-        let item = Item {
+        let item = LinksRedisItem {
             url: "https://example.com".to_string(),
             team_id: None,
         };
@@ -291,7 +291,7 @@ mod tests {
         let key = "p2dsws3";
         let short_link_domain = "example.com";
 
-        let item = Item {
+        let item = LinksRedisItem {
             url: "https://example.com".to_string(),
             team_id: Some(257),
         };
@@ -347,7 +347,7 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
-            Item {
+            LinksRedisItem {
                 url: redirect_url,
                 team_id: Some(team.id),
             }
