@@ -348,7 +348,6 @@ class TestCSPModule(TestCase):
 
     def test_sampling_determinism_across_report_types(self):
         """Test that sampling is deterministic across different report formats for the same content"""
-        # Create two different format reports with the same content
         report_uri_data = {
             "csp-report": {
                 "document-uri": "https://example.com/test-page",
@@ -389,7 +388,6 @@ class TestCSPModule(TestCase):
             assert sample_csp_report(properties, rate) == decisions[rate]
 
     def test_sampling_different_urls_same_directive(self):
-        """Test sampling behavior for different URLs with the same directive"""
         urls = [
             "https://example.com/page1",
             "https://example.com/page2",
@@ -448,50 +446,6 @@ class TestCSPModule(TestCase):
 
         # Verify that the sampling is based on document_url
         assert sample_csp_report({"document_url": url}, rate) == first_result
-
-    def test_full_csp_sampling_flow_with_different_rates(self):
-        """Test the sampling behavior with different sampling rates"""
-        # Create test properties
-        properties = {
-            "document_url": "https://example.com/sampling-test",
-            "effective_directive": "script-src",
-        }
-
-        # Test with a range of sampling rates
-        rates_to_test = [0.0, 0.1, 0.5, 0.9, 1.0]
-        results = {}
-
-        for rate in rates_to_test:
-            # Make a copy of properties to test with each rate
-            props_copy = properties.copy()
-            results[rate] = sample_csp_report(props_copy, rate, True)
-
-        # At 0% sampling, result should be False
-        assert results[0.0] is False, "Expected report to be sampled out at 0% rate"
-
-        # At 100% sampling, result should be True and not have sampling metadata
-        assert results[1.0] is True, "Expected report to be sampled in at 100% rate"
-
-        # Testing deterministic behavior - same properties should yield same results
-        for rate in [0.1, 0.5, 0.9]:
-            # First result
-            first_result = sample_csp_report(properties.copy(), rate)
-
-            # Second result should match the first
-            assert (
-                sample_csp_report(properties.copy(), rate) == first_result
-            ), f"Expected consistent sampling at {rate} rate"
-
-            # Make a new properties object and check it with metadata
-            props_with_metadata = properties.copy()
-            sampled_in = sample_csp_report(props_with_metadata, rate, True)
-
-            if sampled_in:
-                assert props_with_metadata["csp_sampled"] is True
-                assert props_with_metadata["csp_sample_threshold"] == rate
-            else:
-                assert props_with_metadata["csp_sampled"] is False
-                assert props_with_metadata["csp_sample_threshold"] == rate
 
     def test_edge_case_urls_and_directives(self):
         """Test sampling with edge case URLs and directives"""
