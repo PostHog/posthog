@@ -21,7 +21,7 @@ export function ChatList(): JSX.Element {
     }
 
     return (
-        <div className="flex h-full gap-2">
+        <div className="flex gap-2 h-[calc(100vh-6rem)]">
             {/* Left: Chat list */}
             <div className="w-80 overflow-y-auto h-full">
                 <ChatsList />

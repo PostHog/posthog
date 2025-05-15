@@ -6,6 +6,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { Chat as ChatConversation, ChatMessage } from 'products/chat/frontend/scenes/chatListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -783,6 +784,19 @@ class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    }
+
+    // # Chat
+    public chat(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('chat')
+    }
+
+    public chatConversation(id: ChatConversation['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.chat(teamId).addPathComponent(id)
+    }
+
+    public chatConversationMessages(id: ChatConversation['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.chatConversation(id, teamId).addPathComponent('messages')
     }
 
     // # Surveys
@@ -2728,6 +2742,27 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
+        },
+    },
+
+    chat: {
+        async list(): Promise<PaginatedResponse<ChatConversation>> {
+            return await new ApiRequest().chat().get()
+        },
+        async get(conversationId: ChatConversation['id']): Promise<ChatConversation> {
+            return await new ApiRequest().chatConversation(conversationId).get()
+        },
+        async create(data: Partial<ChatConversation>): Promise<ChatConversation> {
+            return await new ApiRequest().chat().create({ data })
+        },
+        async delete(conversationId: ChatConversation['id']): Promise<void> {
+            await new ApiRequest().chatConversation(conversationId).delete()
+        },
+        async listMessages(conversationId: ChatConversation['id']): Promise<PaginatedResponse<ChatMessage>> {
+            return await new ApiRequest().chatConversation(conversationId).withAction('messages').get()
+        },
+        async sendMessage(conversationId: ChatConversation['id'], data: Partial<ChatMessage>): Promise<ChatMessage> {
+            return await new ApiRequest().chatConversation(conversationId).withAction('messages').create({ data })
         },
     },
 

@@ -16,13 +16,13 @@ export function ChatsList(): JSX.Element {
             {chats.map((chat) => (
                 <ChatListItem
                     key={chat.id}
-                    user={chat.person}
-                    message={chat.messages[chat.messages.length - 1].content}
+                    user={chat.person_uuid}
+                    message={chat.messages.length ? chat.messages[chat.messages.length - 1].content : ''}
                     isActive={selectedChatId === chat.id}
-                    onClick={() => setSelectedChatId(chat.id)}
-                    date={chat.messages[chat.messages.length - 1].created_at}
-                    isUnread={!chat.messages[chat.messages.length - 1].read}
-                    isReply={chat.messages[chat.messages.length - 1].is_assistant}
+                    onClick={() => setSelectedChatId(chat.id ?? null)}
+                    date={chat.messages.length ? chat.messages[chat.messages.length - 1].created_at : ''}
+                    isUnread={!chat.messages.length || !chat.messages[chat.messages.length - 1].read}
+                    isReply={chat.messages.length ? chat.messages[chat.messages.length - 1].is_assistant : false}
                 />
             ))}
         </aside>
