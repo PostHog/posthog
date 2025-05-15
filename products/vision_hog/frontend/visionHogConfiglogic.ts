@@ -1,6 +1,8 @@
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 
+import { StreamConfigEvent, StreamConfigEventProperty } from '~/types'
+
 import type { visionHogConfigLogicType } from './visionHogConfiglogicType'
 import { visionHogSceneLogic } from './visionHogSceneLogic'
 
@@ -14,17 +16,6 @@ export enum ConfigState {
     EDIT = 'edit',
 }
 
-export interface EventProperty {
-    name: string
-    description: string
-}
-
-export interface EventConfig {
-    name: string
-    description: string
-    properties: EventProperty[]
-}
-
 export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
     path(['products', 'visionHog', 'frontend', 'visionHogConfigLogic']),
     props({} as VisionHogConfigLogicProps), // Pass empty props object for now
@@ -35,15 +26,19 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
     })),
     actions({
         getConfigSuggestion: (prompt: string) => ({ prompt }),
-        setSuggestions: (suggestions: EventConfig[]) => ({ suggestions }),
+        setSuggestions: (suggestions: StreamConfigEvent[]) => ({ suggestions }),
         removeSuggestion: (index: number) => ({ index }),
-        updateSuggestion: (index: number, updatedEvent: Partial<EventConfig>) => ({ index, updatedEvent }),
+        updateSuggestion: (index: number, updatedEvent: Partial<StreamConfigEvent>) => ({ index, updatedEvent }),
         setSuggestionsLoading: (loading: boolean) => ({ loading }),
         addEmptySuggestion: () => ({}),
         setUrl: (url: string) => ({ url }),
         saveStreamConfig: true,
         addPropertyToEvent: (eventIndex: number) => ({ eventIndex }),
-        updateEventProperty: (eventIndex: number, propertyIndex: number, updates: Partial<EventProperty>) => ({
+        updateEventProperty: (
+            eventIndex: number,
+            propertyIndex: number,
+            updates: Partial<StreamConfigEventProperty>
+        ) => ({
             eventIndex,
             propertyIndex,
             updates,
@@ -54,7 +49,7 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
     reducers({
         url: ['', { setUrl: (_, { url }) => url }],
         suggestions: [
-            [] as EventConfig[],
+            [] as StreamConfigEvent[],
             {
                 setSuggestions: (_, { suggestions }) => suggestions,
                 removeSuggestion: (state, { index }) => state.filter((_, i) => i !== index),
@@ -100,10 +95,10 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
             actions.setSuggestionsLoading(true)
             const response = await api.streamConfig.getConfigSuggestion(prompt)
             // Convert string suggestions to EventConfig objects
-            const newEventConfigs = response.suggestions.map((suggestion: string) => ({
-                name: suggestion,
-                description: '',
-                properties: [],
+            const newEventConfigs = response.suggestions.map((suggestion: StreamConfigEvent) => ({
+                name: suggestion.name,
+                description: suggestion.description,
+                properties: suggestion.properties,
             }))
             actions.setSuggestions([...values.suggestions, ...newEventConfigs])
             actions.setSuggestionsLoading(false)

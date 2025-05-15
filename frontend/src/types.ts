@@ -2258,13 +2258,24 @@ export interface PluginLogEntry {
 }
 
 export interface StreamConfigEventSuggestions {
-    suggestions: string[]
+    suggestions: StreamConfigEvent[]
+}
+
+export interface StreamConfigEvent {
+    name: string
+    description: string
+    properties: StreamConfigEventProperty[]
+}
+
+export interface StreamConfigEventProperty {
+    name: string
+    description: string
 }
 
 export interface StreamConfigType {
     id: string
     stream_url: string
-    events: string[]
+    events: StreamConfigEvent[]
 }
 
 export enum AnnotationScope {

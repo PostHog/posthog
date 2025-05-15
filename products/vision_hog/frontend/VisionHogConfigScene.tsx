@@ -1,4 +1,4 @@
-import { IconAI, IconCheck, IconChevronDown, IconPencil, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Label } from 'lib/ui/Label/Label'
@@ -26,7 +26,6 @@ const buttonAnimationStyles = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
 }
 
 .property-card {
@@ -49,6 +48,15 @@ const buttonAnimationStyles = `
 
 .event-details {
     padding-top: 8px;
+    margin-top: 8px;
+}
+
+.properties-container {
+    background-color: white;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    margin-top: 8px;
 }
 
 .collapsible-section {
@@ -198,11 +206,6 @@ export function VisionHogConfigScene(): JSX.Element {
         }, 0)
     }
 
-    const handleDescribeEventsClick = (): void => {
-        setShowDescriptionInput(!showDescriptionInput)
-        setEditingEventIndex(null)
-    }
-
     const handleSubmitDescription = (): void => {
         if (descriptionValue.trim()) {
             setWaitingForSuggestions(true)
@@ -267,14 +270,6 @@ export function VisionHogConfigScene(): JSX.Element {
                                 <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={handleAddEvent}>
                                     New event
                                 </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconAI />}
-                                    size="small"
-                                    onClick={handleDescribeEventsClick}
-                                >
-                                    Describe events
-                                </LemonButton>
                             </div>
                         </div>
                     ) : (
@@ -316,19 +311,6 @@ export function VisionHogConfigScene(): JSX.Element {
                                             <div className="flex-1 flex flex-col">
                                                 <div className="flex items-center gap-2">
                                                     <div className="font-semibold">{event.name}</div>
-                                                    <LemonButton
-                                                        size="small"
-                                                        icon={
-                                                            <IconChevronDown
-                                                                className={
-                                                                    expandedEvents.includes(eventIndex)
-                                                                        ? 'rotate-180'
-                                                                        : ''
-                                                                }
-                                                            />
-                                                        }
-                                                        onClick={() => toggleEventExpansion(eventIndex)}
-                                                    />
                                                 </div>
                                                 {event.description && (
                                                     <div className="event-description">{event.description}</div>
@@ -338,6 +320,17 @@ export function VisionHogConfigScene(): JSX.Element {
 
                                         {editingEventIndex !== eventIndex && (
                                             <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                                                <LemonButton
+                                                    size="small"
+                                                    icon={
+                                                        <IconChevronDown
+                                                            className={
+                                                                expandedEvents.includes(eventIndex) ? 'rotate-180' : ''
+                                                            }
+                                                        />
+                                                    }
+                                                    onClick={() => toggleEventExpansion(eventIndex)}
+                                                />
                                                 <LemonButton
                                                     icon={<IconPencil />}
                                                     size="small"
@@ -358,7 +351,7 @@ export function VisionHogConfigScene(): JSX.Element {
                                     {/* Event properties (visible when expanded) */}
                                     {expandedEvents.includes(eventIndex) && (
                                         <div className="event-details">
-                                            <div className="collapsible-section">
+                                            <div className="properties-container">
                                                 <div className="flex justify-between items-center">
                                                     <Label>Properties</Label>
                                                     <LemonButton
@@ -410,7 +403,7 @@ export function VisionHogConfigScene(): JSX.Element {
                                                                         </div>
                                                                     </div>
                                                                 ) : (
-                                                                    <div className="flex justify-between items-start">
+                                                                    <div className="flex justify-between items-center">
                                                                         <div className="flex-1 flex flex-col">
                                                                             <div className="font-medium">
                                                                                 {property.name}
@@ -501,14 +494,6 @@ export function VisionHogConfigScene(): JSX.Element {
                                     >
                                         Add event
                                     </LemonButton>
-                                    <LemonButton
-                                        type="secondary"
-                                        icon={<IconAI />}
-                                        size="small"
-                                        onClick={handleDescribeEventsClick}
-                                    >
-                                        Describe events
-                                    </LemonButton>
                                 </div>
                             </div>
                         </div>
@@ -517,13 +502,20 @@ export function VisionHogConfigScene(): JSX.Element {
             </div>
 
             {/* Sticky button at the bottom */}
-            {shouldShowSaveButton && (
-                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 pop-up-animation z-10">
-                    <LemonButton type="primary" size="large" className="shadow-lg" onClick={saveStreamConfig}>
-                        {configState === ConfigState.CREATE ? 'Save stream' : 'Update stream'}
-                    </LemonButton>
-                </div>
-            )}
+
+            <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 pop-up-animation z-10">
+                <LemonButton
+                    disabledReason={
+                        shouldShowSaveButton ? undefined : 'Please enter a valid stream link and event config'
+                    }
+                    type="primary"
+                    size="large"
+                    className="shadow-lg"
+                    onClick={saveStreamConfig}
+                >
+                    {configState === ConfigState.CREATE ? 'Save stream' : 'Update stream'}
+                </LemonButton>
+            </div>
         </div>
     )
 }
