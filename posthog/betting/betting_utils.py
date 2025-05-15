@@ -404,13 +404,27 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
             # Create 5 buckets centered around the predicted value
             # Use a large number instead of infinity for JSON compatibility
             MAX_VALUE = 1000000000000  # 1 trillion
+
+            # Calculate bucket ranges ensuring no negative values and proper distribution
+            lower_bound = max(0, predicted_value - 2 * std_dev)
+            mid_lower = max(0, predicted_value - std_dev)
+            mid_upper = predicted_value + std_dev
+            upper_bound = predicted_value + 2 * std_dev
+
             bucket_definitions = [
-                {"min": 0, "max": predicted_value - 2 * std_dev},  # Low probability of being below trend
-                {"min": predicted_value - 2 * std_dev, "max": predicted_value - std_dev},  # Below trend
-                {"min": predicted_value - std_dev, "max": predicted_value + std_dev},  # Around trend
-                {"min": predicted_value + std_dev, "max": predicted_value + 2 * std_dev},  # Above trend
-                {"min": predicted_value + 2 * std_dev, "max": MAX_VALUE},  # High probability of being above trend
+                {"min": 0, "max": lower_bound},  # Low probability of being below trend
+                {"min": lower_bound, "max": mid_lower},  # Below trend
+                {"min": mid_lower, "max": mid_upper},  # Around trend
+                {"min": mid_upper, "max": upper_bound},  # Above trend
+                {"min": upper_bound, "max": MAX_VALUE},  # High probability of being above trend
             ]
+
+            # Ensure no overlapping ranges and proper ordering
+            for i in range(1, len(bucket_definitions)):
+                if bucket_definitions[i]["min"] <= bucket_definitions[i - 1]["max"]:
+                    bucket_definitions[i]["min"] = bucket_definitions[i - 1]["max"] + 1
+                if bucket_definitions[i]["min"] >= bucket_definitions[i]["max"]:
+                    bucket_definitions[i]["max"] = bucket_definitions[i]["min"] + 1
 
             # Save bucket definitions to bet definition
             bet_definition.bucket_definitions = bucket_definitions
