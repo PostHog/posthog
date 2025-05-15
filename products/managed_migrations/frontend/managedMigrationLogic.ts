@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -72,6 +72,41 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             },
         },
     }),
+    sharedListeners(({ actions }: { actions: any }) => ({
+        afterSubmit: async () => {
+            await actions.loadMigrations()
+        },
+    })),
+    listeners(({ actions, values, cache }) => ({
+        loadMigrationsSuccess: () => {
+            const hasRunningMigrations = values.migrations.some(
+                (migration) => migration.status === 'Running' || migration.status === 'Starting'
+            )
+            if (hasRunningMigrations && !values.isPolling) {
+                actions.startPolling()
+            } else if (!hasRunningMigrations && values.isPolling) {
+                actions.stopPolling()
+            }
+        },
+        startPolling: () => {
+            const pollInterval = setInterval(() => {
+                if (!values.isPolling) {
+                    clearInterval(pollInterval)
+                    return
+                }
+                actions.loadMigrations()
+            }, 5000) // Poll every 5 seconds
+
+            // Store the interval ID in the logic's cache
+            cache.pollInterval = pollInterval
+        },
+        stopPolling: () => {
+            if (cache.pollInterval) {
+                clearInterval(cache.pollInterval)
+                cache.pollInterval = null
+            }
+        },
+    })),
     selectors({
         breadcrumbs: [
             (s, p) => [p.managedMigrationId],
@@ -111,7 +146,28 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             actions.editManagedMigration(null)
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadMigrations()
+
+        // Start polling if there are running migrations
+        const pollInterval = setInterval(() => {
+            const hasRunningMigrations = values.migrations.some(
+                (migration) => migration.status === 'Running' || migration.status === 'Starting'
+            )
+
+            if (hasRunningMigrations) {
+                actions.loadMigrations()
+            }
+        }, 5000)
+
+        // Store the interval ID in the logic's cache
+        cache.pollInterval = pollInterval
+
+        // Clean up on unmount
+        return () => {
+            if (cache.pollInterval) {
+                clearInterval(cache.pollInterval)
+            }
+        }
     }),
 ])

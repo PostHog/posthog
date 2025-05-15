@@ -25,8 +25,6 @@ class ManagedMigration(UUIDModel):
         User, on_delete=models.SET_NULL, null=True, help_text="The user who created this migration."
     )
     source = models.CharField(choices=Source.choices, max_length=64, help_text="The source of the data.")
-    api_key = models.TextField(help_text="API key for the source.")
-    secret_key = models.TextField(help_text="Secret key for the source.")
     start_date = models.DateTimeField(help_text="Start date for the data migration.")
     end_date = models.DateTimeField(help_text="End date for the data migration.")
     event_names_mode = models.CharField(

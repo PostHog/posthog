@@ -13,8 +13,6 @@ from django.conf import settings
 
 class ManagedMigrationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    api_key = serializers.CharField(write_only=True)
-    secret_key = serializers.CharField(write_only=True)
 
     class Meta:
         model = ManagedMigration
@@ -31,8 +29,6 @@ class ManagedMigrationSerializer(serializers.ModelSerializer):
             "last_updated_at",
             "error",
             "created_by",
-            "api_key",
-            "secret_key",
         ]
         read_only_fields = ["id", "status", "created_at", "finished_at", "last_updated_at", "error", "created_by"]
 
@@ -41,6 +37,7 @@ class ManagedMigrationSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         validated_data["status"] = ManagedMigration.Status.STARTING
+        validated_data["workflow_id"] = None
         return super().create(validated_data)
 
 
@@ -65,8 +62,8 @@ class ManagedMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             client = sync_connect()
             workflow_inputs = {
                 "team_id": migration.team.id,
-                "api_key": migration.api_key,
-                "secret_key": migration.secret_key,
+                "api_key": self.request.data["api_key"],
+                "secret_key": self.request.data["secret_key"],
                 "posthog_api_key": migration.team.api_token,
                 "source": migration.source,
                 "job_id": str(migration.id),
@@ -89,9 +86,9 @@ class ManagedMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             migration.status = ManagedMigration.Status.RUNNING
             migration.save()
 
-        except Exception as e:
+        except Exception:
             migration.status = ManagedMigration.Status.FAILED
-            migration.error = str(e)
+            migration.error = "Something went wrong starting the migration"
             migration.save()
             raise
 
@@ -119,8 +116,8 @@ class ManagedMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             return Response({"status": "success"})
 
-        except Exception as e:
+        except Exception:
             return Response(
-                {"error": str(e)},
+                {"error": "Something went wrong canelling the migration"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
