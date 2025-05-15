@@ -25,10 +25,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         except Exception as e:
             capture_exception(e)
             return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         if response is None:
             return Response({"error": "Failed to fetch logs"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
