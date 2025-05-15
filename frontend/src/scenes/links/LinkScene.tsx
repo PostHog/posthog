@@ -46,7 +46,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
     const isNew = id === 'new'
     const buttonText = isNew ? 'Create link' : 'Update link'
 
-    const fullLink = link?.id ? `https://${link.short_link_domain}/${link.short_code}` : 'https://phog.gg/'
+    const fullLink = link?.id ? `https://${link.short_link_domain}/${link.short_code}` : 'https://phog.gg'
 
     return (
         <Form
@@ -83,15 +83,15 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                 <LemonField name="short_link_domain">
                                     <LemonSelect
                                         options={[
-                                            { label: 'phog.gg', value: 'phog.gg/' },
+                                            { label: 'phog.gg', value: 'phog.gg' },
                                             {
                                                 label: <LabelWithTag label="postho.gg" />,
-                                                value: 'postho.gg/',
+                                                value: 'postho.gg',
                                                 disabledReason: 'Coming soon...',
                                             },
                                             {
                                                 label: <LabelWithTag label="hog.gg" />,
-                                                value: 'hog.gg/',
+                                                value: 'hog.gg',
                                                 disabledReason: 'Coming soon...',
                                             },
                                             {
