@@ -80,7 +80,7 @@ def send_event_batch(batch: list[dict[str, Any]], posthog_api_key: str, posthog_
 
         return len(batch)
     except requests.exceptions.RequestException as e:
-        logger.excpetion(f"Failed to send batch to PostHog: {str(e)}")
+        logger.exception(f"Failed to send batch to PostHog: {str(e)}")
         if hasattr(e, "response") and e.response:
             logger.exception(f"Response status: {e.response.status_code}, Response body: {e.response.text[:500]}")
         return 0

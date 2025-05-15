@@ -3,6 +3,7 @@ import os
 import datetime as dt
 import dataclasses
 import requests
+from typing import Optional
 
 from posthog.temporal.event_imports.sources.amplitude.parse import parse_amplitude_event
 from posthog.temporal.event_imports.sources.amplitude.file import (
@@ -27,10 +28,10 @@ class ExternalEventWorkflowInputs:
     secret_key: str
     posthog_api_key: str
     source: str
-    job_id: str = None
-    start_date: str = None
-    end_date: str = None
-    posthog_domain: str = None
+    job_id: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    posthog_domain: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -66,7 +67,7 @@ class UpdateMigrationStatusActivityInputs:
     team_id: int
     job_id: str
     status: str
-    error: str = None
+    error: Optional[str] = None
     events_processed: int = 0
 
 
