@@ -13,22 +13,13 @@ import type { linkConfigurationLogicType } from './linkConfigurationLogicType'
 
 export interface LinkType {
     id: string
-    destination: string
+    redirect_url: string
+    short_link_domain: string
+    short_code: string
     created_at?: string
     created_by?: UserBasicType
-    origin_domain?: string
-    origin_key?: string
-    custom_key?: string
-    tags?: string
     description?: string
-    folder?: string
-    expiration_date?: string
-    password?: string
-    og_title?: string
-    og_description?: string
-    og_image?: string | File
-    utm_params?: Record<string, string>
-    targeting?: Record<string, any>
+    updated_at?: string
 }
 
 export interface Props {
@@ -56,7 +47,7 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
         deleteLink: async ({ link }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/links`,
-                object: { name: link.origin_domain + '/' + link.origin_key, id: link.id },
+                object: { name: link.short_link_domain + '/' + link.short_code, id: link.id },
                 callback: (undo) => {
                     link.id && actions.deleteLink(link)
                     if (undo) {
@@ -75,15 +66,14 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
         link: {
             defaults: {
                 id: '',
-                origin_domain: 'phog.gg',
-                origin_key: '',
-                destination: '',
+                short_link_domain: 'phog.gg',
+                short_code: '',
+                redirect_url: '',
                 description: '',
-                tags: '',
             },
 
-            errors: ({ destination }) => ({
-                destination: !destination ? 'Must have a destination url' : undefined,
+            errors: ({ redirect_url }) => ({
+                redirect_url: !redirect_url ? 'Must have a destination url' : undefined,
             }),
 
             submit: async ({ id, ...link }, breakpoint) => {

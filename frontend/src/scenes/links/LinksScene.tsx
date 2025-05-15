@@ -33,10 +33,12 @@ export function LinksScene(): JSX.Element {
                         to={record.id ? urls.link(record.id) : undefined}
                         title={
                             <>
-                                <span>{stringWithWBR(record?.origin_domain + '/' + record?.origin_key || '', 17)}</span>
+                                <span>
+                                    {stringWithWBR(record?.short_link_domain + '/' + record?.short_code || '', 17)}
+                                </span>
                             </>
                         }
-                        description={record?.destination}
+                        description={record?.redirect_url}
                     />
                 )
             },

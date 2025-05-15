@@ -11,13 +11,13 @@ class LinkAdmin(admin.ModelAdmin):
     search_fields = ("id", "destination", "team__name")
     readonly_fields = ("id", "created_at", "updated_at")
     fieldsets = (
-        (None, {"fields": ("id", "destination", "origin_domain", "origin_key", "team")}),
+        (None, {"fields": ("id", "destination", "short_link_domain", "short_code", "team")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
-        ("Additional Info", {"fields": ("description", "tags", "comments")}),
+        ("Additional Info", {"fields": ("description",)}),
     )
 
     def destination_display(self, obj: Link):
-        return format_html('<a href="{}" target="_blank">{}</a>', obj.destination, obj.destination)
+        return format_html('<a href="{}" target="_blank">{}</a>', obj.redirect_url, obj.redirect_url)
 
     destination_display.short_description = "Destination"
 

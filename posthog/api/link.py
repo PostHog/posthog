@@ -23,11 +23,10 @@ class LinkSerializer(serializers.ModelSerializer):
         model = Link
         fields = [
             "id",
-            "destination",
-            "origin_domain",
-            "origin_key",
+            "redirect_url",
+            "short_link_domain",
+            "short_code",
             "description",
-            "tags",
             "created_at",
             "updated_at",
             "created_by",
@@ -39,11 +38,10 @@ class LinkSerializer(serializers.ModelSerializer):
 
         link = Link.objects.create(
             team=team,
-            destination=validated_data["destination"],
-            origin_domain=validated_data["origin_domain"],
-            origin_key=validated_data.get("origin_key"),
+            redirect_url=validated_data["redirect_url"],
+            short_link_domain=validated_data["short_link_domain"],
+            short_code=validated_data.get("short_code"),
             description=validated_data.get("description"),
-            tags=validated_data.get("tags"),
             created_by=self.context["request"].user,
         )
 

@@ -20,7 +20,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
     const buttonText = isNew ? 'Create link' : 'Update link'
 
     const fullLink = link?.id
-        ? `${window.location.protocol}//${link.origin_domain}/${link.origin_key}`
+        ? `${window.location.protocol}//${link.short_link_domain}/${link.short_code}`
         : 'https://phog.gg/'
 
     return (
@@ -44,14 +44,14 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
             <div className="space-y-4">
                 <div className="flex gap-8">
                     <div className="flex-1 space-y-6">
-                        <LemonField name="destination" label="Destination URL">
+                        <LemonField name="redirect_url" label="Destination URL">
                             <LemonInput placeholder="https://posthog.com/links" fullWidth autoWidth={false} />
                         </LemonField>
 
                         <div className="flex flex-col gap-2">
                             <LemonLabel>Link</LemonLabel>
                             <div className="flex gap-2">
-                                <LemonField name="origin_domain">
+                                <LemonField name="short_link_domain">
                                     <LemonSelect
                                         disabledReason="More domains coming soon"
                                         options={[
@@ -62,7 +62,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                         className="text-muted"
                                     />
                                 </LemonField>
-                                <LemonField name="origin_key" className="w-full">
+                                <LemonField name="short_code" className="w-full">
                                     <LemonInput
                                         fullWidth
                                         placeholder="(optional)"
@@ -72,16 +72,6 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                 </LemonField>
                             </div>
                         </div>
-
-                        {/* <LemonField name="tags" label="Tags">
-                            <LemonInputSelect
-                                placeholder="Select tags..."
-                                mode="multiple"
-                                allowCustomValues
-                                fullWidth
-                                autoWidth={false}
-                            />
-                        </LemonField> */}
 
                         <LemonField name="description" label="Description">
                             <LemonTextArea placeholder="Add description" minRows={2} />
