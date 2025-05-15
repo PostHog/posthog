@@ -31,6 +31,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    betting,
     comments,
     dead_letter_queue,
     debug_ch_queries,
@@ -674,5 +675,41 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+# Betting feature endpoints
+register_grandfathered_environment_nested_viewset(
+    r"bet_definitions",
+    betting.BetDefinitionViewSet,
+    "environment_bet_definitions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"probability_distributions",
+    betting.ProbabilityDistributionViewSet,
+    "environment_probability_distributions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"bets",
+    betting.BetViewSet,
+    "environment_bets",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"transactions",
+    betting.TransactionViewSet,
+    "environment_transactions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"onboarding",
+    betting.OnboardingViewSet,
+    "environment_onboarding",
     ["team_id"],
 )
