@@ -681,5 +681,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],
     [urls.errorTrackingAlertNew(':templateId')]: [Scene.HogFunction, 'errorTrackingAlertNew'],
     [urls.hedgedHog()]: [Scene.HedgedHog, 'hedgedHog'],
+    [urls.hedgedHogBet(':betId')]: [Scene.HedgedHog, 'hedgedHogBet'],
     ...productRoutes,
 }

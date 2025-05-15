@@ -1,5 +1,6 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 
 import type { hedgedHogLogicType } from './hedgedHogLogicType'
@@ -50,6 +51,8 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         loadTransactions: () => ({}),
         setActiveTab: (tab: string) => ({ tab }),
         loadLeaderboard: (leaderboardType: LeaderboardType = 'balance') => ({ leaderboardType }),
+        setBetId: (betId: string | null) => ({ betId }),
+        initializeWallet: true,
     }),
 
     reducers({
@@ -113,6 +116,12 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 loadLeaderboardFailure: () => false,
             },
         ],
+        betId: [
+            null as string | null,
+            {
+                setBetId: (_, { betId }) => betId,
+            },
+        ],
     }),
 
     loaders(() => ({
@@ -172,6 +181,14 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             // Load transactions and wallet balance on mount
             actions.loadTransactions()
             actions.loadWalletBalance()
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/hedged-hog/bet/:betId': ({ betId }) => {
+            if (betId !== values.betId) {
+                actions.setBetId(betId ?? null)
+            }
         },
     })),
 ])

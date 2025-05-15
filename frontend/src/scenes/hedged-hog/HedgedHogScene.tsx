@@ -9,8 +9,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/types'
 
-import { BetDefinitionsContent } from './HedgedHogBetDefinitions'
-import { HomeContent } from './HedgedHogHome'
+import { BetDetailContent } from './HedgedHogBetDetail'
+import { BettingContent } from './HedgedHogBetting'
 import { LeaderboardContent } from './HedgedHogLeaderboard'
 import { hedgedHogLogic } from './hedgedHogLogic'
 import { WalletContent } from './HedgedHogWallet'
@@ -20,20 +20,17 @@ export const scene: SceneExport = {
     logic: hedgedHogLogic,
 }
 
-type Tab = 'home' | 'wallet' | 'bet-definitions' | 'leaderboard'
+type Tab = 'betting' | 'wallet' | 'leaderboard'
 
 export function HedgedHogScene(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { replace } = useActions(router)
-
-    const { isOnboarded, transactionsLoading, walletBalanceLoading } = useValues(hedgedHogLogic)
+    const { betId, isOnboarded, transactionsLoading, walletBalanceLoading } = useValues(hedgedHogLogic)
     const { loadTransactions, loadWalletBalance, initializeWallet } = useActions(hedgedHogLogic)
 
-    // Get the active tab from URL query parameters or default to 'home'
+    // Get the active tab from URL query parameters or default to 'betting'
     const tabFromUrl = searchParams.tab as Tab
-    const activeTab: Tab = ['home', 'wallet', 'bet-definitions', 'leaderboard'].includes(tabFromUrl)
-        ? tabFromUrl
-        : 'home'
+    const activeTab: Tab = ['betting', 'wallet', 'leaderboard'].includes(tabFromUrl) ? tabFromUrl : 'betting'
 
     // Update the URL when tab changes
     const setActiveTab = (tab: Tab): void => {
@@ -43,6 +40,10 @@ export function HedgedHogScene(): JSX.Element {
 
         // Use replace with the current pathname and the new search string
         replace(`${location.pathname}?${newParams.toString()}`)
+    }
+
+    if (betId) {
+        return <BetDetailContent />
     }
 
     return (
@@ -82,27 +83,18 @@ export function HedgedHogScene(): JSX.Element {
                     onChange={(key) => setActiveTab(key as Tab)}
                     tabs={[
                         {
-                            key: 'home',
-                            label: 'Home',
-                            // icon: <IconHome />,
-                            content: <HomeContent />,
+                            key: 'betting',
+                            label: 'Betting',
+                            content: <BettingContent />,
                         },
                         {
                             key: 'wallet',
                             label: 'Wallet',
-                            // icon: <IconWallet />,
                             content: <WalletContent />,
-                        },
-                        {
-                            key: 'bet-definitions',
-                            label: 'Bet Definitions',
-                            // icon: <IconTarget />,
-                            content: <BetDefinitionsContent />,
                         },
                         {
                             key: 'leaderboard',
                             label: 'Leaderboard',
-                            // icon: <IconTrophy />,
                             content: <LeaderboardContent />,
                         },
                     ]}

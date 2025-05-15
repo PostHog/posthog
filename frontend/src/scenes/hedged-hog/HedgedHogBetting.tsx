@@ -9,11 +9,13 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Link } from 'lib/lemon-ui/Link'
+import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
 
 import { hedgedHogBetDefinitionsLogic } from './hedgedHogBetDefinitionsLogic'
 import { BetDefinition } from './hedgedHogBetDefinitionsLogic'
 
-export const BetDefinitionForm = (): JSX.Element => {
+const BetDefinitionForm = (): JSX.Element => {
     return (
         <Form logic={hedgedHogBetDefinitionsLogic} formKey="betDefinition" enableFormOnSubmit className="space-y-4">
             <Field name="title" label="Title">
@@ -39,11 +41,9 @@ export const BetDefinitionForm = (): JSX.Element => {
                         value={typeof value === 'object' ? JSON.stringify(value, null, 2) : value}
                         onChange={(val) => {
                             try {
-                                // Try to parse as JSON if it's a valid JSON string
                                 const parsed = JSON.parse(val)
                                 onChange(parsed)
                             } catch {
-                                // If it's not valid JSON yet, just store the raw string
                                 onChange(val)
                             }
                         }}
@@ -73,13 +73,19 @@ export const BetDefinitionForm = (): JSX.Element => {
     )
 }
 
-export const BetDefinitionsContent = (): JSX.Element => {
+export function BettingContent(): JSX.Element {
     const logic = hedgedHogBetDefinitionsLogic()
     const { betDefinitions, betDefinitionsLoading, showNewForm } = useValues(logic)
     const { setShowNewForm } = useActions(logic)
 
+    const mockData = {
+        dates: ['Jan 8', 'Jan 19', 'Jan 31', 'Feb 11', 'Feb 28', 'Mar 11', 'Mar 31', 'Apr 11', 'Apr 30', 'May 11'],
+        values: [85, 75, 80, 70, 60, 70, 55, 45, 35, 40],
+    }
+    const secondLineData = [15, 25, 20, 35, 40, 30, 45, 55, 65, 60]
+
     return (
-        <div className="mt-4">
+        <div className="space-y-4">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl">Available Bets</h2>
                 <LemonButton type="primary" onClick={() => setShowNewForm(true)} icon={<IconOpenInNew />}>
@@ -97,30 +103,67 @@ export const BetDefinitionsContent = (): JSX.Element => {
             {betDefinitionsLoading ? (
                 <div className="text-center">Loading...</div>
             ) : betDefinitions.length > 0 ? (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {betDefinitions.map((bet: BetDefinition) => (
-                        <LemonCard key={bet.id} className="p-4" hoverEffect={false}>
-                            <div className="flex justify-between">
-                                <div>
-                                    <h4>{bet.title}</h4>
-                                    <p className="text-muted">{bet.description}</p>
-                                </div>
-                                <div className="text-right">
-                                    <div className="font-bold">{bet.status}</div>
-                                    <div className="text-muted">
-                                        Closes: {dayjs(bet.closing_date).format('MMM D, YYYY')}
+                        <Link key={bet.id} to={`/hedged-hog/bet/${bet.id}`} className="no-underline">
+                            <LemonCard className="h-full hover:border-primary" hoverEffect={false}>
+                                <div className="flex flex-col h-full">
+                                    <div className="flex-grow">
+                                        <h4 className="text-lg font-semibold mb-2">{bet.title}</h4>
+                                        <p className="text-muted mb-4">{bet.description}</p>
+
+                                        <div className="mb-4">
+                                            <div className="text-sm text-muted mb-1">Current probability</div>
+                                            <div>
+                                                <span className="text-2xl font-bold">39%</span>
+                                                <span className="text-sm text-success ml-2">↑ 20%</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="h-40 mb-4">
+                                            <BillingLineGraph
+                                                containerClassName="h-full"
+                                                series={[
+                                                    {
+                                                        id: 1,
+                                                        label: 'Yes',
+                                                        data: mockData.values,
+                                                        dates: mockData.dates,
+                                                    },
+                                                    {
+                                                        id: 2,
+                                                        label: 'No',
+                                                        data: secondLineData,
+                                                        dates: mockData.dates,
+                                                    },
+                                                ]}
+                                                dates={mockData.dates}
+                                                hiddenSeries={[]}
+                                                valueFormatter={(value) => `${value}%`}
+                                                interval="day"
+                                                max={100}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-auto">
+                                        <LemonDivider className="my-3" />
+                                        <div className="flex justify-between items-center">
+                                            <div className="text-sm">
+                                                <div>Type: {bet.type}</div>
+                                                <div className="text-muted">
+                                                    Closes: {dayjs(bet.closing_date).format('MMM D, YYYY')}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-bold">{bet.status}</div>
+                                                <div className="text-muted">Volume: $5,343,183</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <LemonDivider className="my-3" />
-                            <div className="text-sm">
-                                <div>Type: {bet.type}</div>
-                                <div>
-                                    URL:{' '}
-                                    {bet.bet_parameters && 'url' in bet.bet_parameters ? bet.bet_parameters.url : 'N/A'}
-                                </div>
-                            </div>
-                        </LemonCard>
+                            </LemonCard>
+                        </Link>
                     ))}
                 </div>
             ) : (
