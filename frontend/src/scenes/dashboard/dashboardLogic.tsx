@@ -1440,6 +1440,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // Create an array of functions that fetch insights synchronously
                     const fetchSyncInsightFunctions = insightsToRefresh.map((insight) => async () => {
                         const queryId = uuid()
+                        const queryStartTime = performance.now()
                         const dashboardId: number = props.id
 
                         // Set insight as refreshing
@@ -1490,6 +1491,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     e
                                 )
                                 // Do not set refresh error if cancelled by abort
+                                actions.abortQuery({ queryId, queryStartTime })
                             } else {
                                 actions.setRefreshError(insight.short_id)
                                 console.error('Error loading insight synchronously:', e)
@@ -1732,7 +1734,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}?dequeue_only=true`)
+                await api.delete(`api/environments/${currentTeamId}/query/${queryId}`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
