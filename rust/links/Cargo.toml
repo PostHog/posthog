@@ -31,3 +31,6 @@ uuid = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+reqwest = { workspace = true }
