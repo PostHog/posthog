@@ -687,7 +687,7 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         node2 = self._select(
-            "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'}e)"
+            "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})"
         )
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
