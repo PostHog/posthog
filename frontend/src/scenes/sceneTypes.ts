@@ -88,6 +88,8 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    Links = 'Links',
+    Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     MessagingCampaigns = 'MessagingCampaigns',
     MessagingProviders = 'MessagingProviders',

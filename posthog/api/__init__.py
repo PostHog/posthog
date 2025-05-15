@@ -52,6 +52,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    link,
     notebook,
     organization,
     organization_domain,
@@ -185,7 +186,6 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
-
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -614,6 +614,8 @@ register_grandfathered_environment_nested_viewset(
     "environment_hog_functions",
     ["team_id"],
 )
+
+projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
     r"hog_function_templates",
