@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.person.person import Person
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
@@ -190,7 +191,20 @@ def chat_endpoints(request: Request):
     This endpoint is the unified entry point for chat functionality, handling both
     internal authenticated requests and external client-side widget requests.
     """
+    # For GET requests, token comes from URL parameters
     token = get_token(None, request)
+
+    # For POST requests, the token might be in the body
+    if not token and request.method == "POST":
+        try:
+            if request.content_type == "application/json":
+                import json
+
+                body_data = json.loads(request.body)
+                token = body_data.get("token") or body_data.get("api_key")
+        except Exception:
+            pass  # If JSON parsing fails, we'll just continue with token=None
+
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
 
@@ -221,7 +235,9 @@ def chat_endpoints(request: Request):
 
     if request.method == "POST":
         try:
-            data = request.json()
+            import json
+
+            data = json.loads(request.body) if request.content_type == "application/json" else {}
             action = data.get("action")
 
             if action == "create_conversation":
@@ -235,11 +251,18 @@ def chat_endpoints(request: Request):
                         ),
                     )
 
-                # Find or create person for this distinct_id
+                # Find person for this distinct_id (but don't create one)
                 try:
-                    from posthog.models.person.util import get_or_create_person_from_distinct_id
-
-                    person = get_or_create_person_from_distinct_id(team_id=team.id, distinct_id=distinct_id)
+                    persons = get_persons_by_distinct_ids(team_id=team.id, distinct_ids=[distinct_id])
+                    if not persons.exists():
+                        return cors_response(
+                            request,
+                            JsonResponse(
+                                {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
+                                status=status.HTTP_404_NOT_FOUND,
+                            ),
+                        )
+                    person = persons.first()
                 except Exception as e:
                     return cors_response(
                         request,
