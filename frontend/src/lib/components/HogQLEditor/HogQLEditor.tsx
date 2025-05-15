@@ -43,6 +43,7 @@ export function HogQLEditor({
                 language="hogQLExpr"
                 className={CLICK_OUTSIDE_BLOCK_CLASS}
                 minHeight="78px"
+                maxHeight="200px"
                 autoFocus={!disableAutoFocus}
                 sourceQuery={metadataSource}
                 onPressCmdEnter={

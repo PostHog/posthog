@@ -23,6 +23,7 @@ import {
     IconSparkles,
     IconTestTube,
     IconToggle,
+    IconTrending,
     IconWarning,
 } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
@@ -57,6 +58,7 @@ import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
@@ -506,6 +508,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
+                        },
+                        {
+                            identifier: Scene.ChurnPrediction,
+                            label: 'Churn prediction',
+                            icon: <IconTrendingDown />,
+                            to: urls.churnPrediction(),
+                            tag: 'beta' as const,
                         },
                         featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
                             ? {

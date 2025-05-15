@@ -45,6 +45,7 @@ import {
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
+    ChurnPrediction: () => import('../../products/churn_prediction/frontend/ChurnPredictionScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
@@ -60,6 +61,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
 
 /** This const is auto-generated, as is the whole file */
 export const productRoutes: Record<string, [string, string]> = {
+    '/churn-prediction': ['ChurnPrediction', 'churnPrediction'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/llm-observability': ['LLMObservability', 'llmObservability'],
@@ -93,6 +95,12 @@ export const productRedirects: Record<
 
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
+    ChurnPrediction: {
+        name: 'Churn prediction',
+        projectBased: true,
+        defaultDocsPath: '/docs/web-analytics/churn-prediction',
+        activityScope: 'ChurnPrediction',
+    },
     EarlyAccessFeatures: {
         name: 'Early Access Features',
         projectBased: true,
@@ -148,6 +156,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    churnPrediction: (): string => '/churn-prediction',
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     dashboards: (): string => '/dashboard',
@@ -338,6 +347,8 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Broadcasts', href: urls.messagingBroadcasts(), type: 'hog_function/broadcast' },
     { path: 'Campaigns', href: urls.messagingCampaigns(), type: 'hog_function/campaign' },
+    { path: 'Churn prediction', iconType: 'warning', href: urls.churnPrediction() },
+    { path: 'Churn settings', iconType: 'settings', href: urls.churnPrediction() },
     { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
     { path: `Experiments`, type: 'experiment', href: urls.experiments() },
