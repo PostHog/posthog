@@ -173,7 +173,7 @@ export function BettingContent(): JSX.Element {
                                                 </div>
                                                 <div className="text-right">
                                                     <div className="font-bold">{bet.status}</div>
-                                                    <div className="text-muted">Volume: ${volume.toLocaleString()}</div>
+                                                    <div className="text-muted">Volume: {volume.toLocaleString()}</div>
                                                 </div>
                                             </div>
                                         </div>

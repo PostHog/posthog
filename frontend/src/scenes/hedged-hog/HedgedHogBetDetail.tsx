@@ -23,6 +23,7 @@ interface BetFlowProps {
     setShowConfirmation: (show: boolean) => void
     handlePlaceBet: () => void
     bucketRanges: Array<{ min: number; max: number; probability: number }>
+    lastBucketMax: number
 }
 
 const BetFlow = ({
@@ -34,6 +35,7 @@ const BetFlow = ({
     setShowConfirmation,
     handlePlaceBet,
     bucketRanges,
+    lastBucketMax,
 }: BetFlowProps): JSX.Element => {
     const getOdds = (probability: number): number => (probability > 0 ? 1 / probability : 0)
     const getPotentialPayout = (amount: number, probability: number): string =>
@@ -124,9 +126,17 @@ const BetFlow = ({
                                 <span className="text-muted">Range:</span>
                                 <span className="text-lg font-semibold">
                                     {selectedBucket
-                                        ? `${Math.round(selectedBucket.min)}-${Math.round(
-                                              selectedBucket.max
-                                          )} (${Math.round(selectedBucket.probability * 100)}%)`
+                                        ? selectedBucket.min === 0
+                                            ? `≤${Math.round(selectedBucket.max)} (${Math.round(
+                                                  selectedBucket.probability * 100
+                                              )}%)`
+                                            : selectedBucket.max === lastBucketMax
+                                            ? `≥${Math.round(selectedBucket.min)} (${Math.round(
+                                                  selectedBucket.probability * 100
+                                              )}%)`
+                                            : `${Math.round(selectedBucket.min)}-${Math.round(
+                                                  selectedBucket.max
+                                              )} (${Math.round(selectedBucket.probability * 100)}%)`
                                         : ''}
                                 </span>
                             </div>
@@ -239,6 +249,8 @@ export function BetDetailContent(): JSX.Element {
                 : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`
         ) || []
 
+    const lastBucketMax = latestDistribution?.buckets?.[latestDistribution.buckets.length - 1]?.max ?? 0
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -333,6 +345,7 @@ export function BetDetailContent(): JSX.Element {
                         setShowConfirmation={setShowConfirmation}
                         handlePlaceBet={handlePlaceBet}
                         bucketRanges={latestDistribution?.buckets || []}
+                        lastBucketMax={lastBucketMax}
                     />
                 </div>
             </div>

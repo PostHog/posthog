@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { router } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { IconArrowDown, IconArrowUp, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,6 +6,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import hogecoin from 'public/hedgehog/hodgecoin.png'
 import { userLogic } from 'scenes/userLogic'
 
@@ -95,9 +95,8 @@ export const WalletContent = (): JSX.Element => {
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
-                                    if (user) {
-                                        router.actions.push('/betting', { tab: 'bet-definitions' })
-                                    }
+                                    hedgedHogLogic.actions.loadTransactions()
+                                    lemonToast.success('Transaction successful!')
                                 }}
                             >
                                 Place a bet

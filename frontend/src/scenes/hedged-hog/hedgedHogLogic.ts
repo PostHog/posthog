@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
@@ -257,7 +258,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         placeBetSuccess: () => {
             actions.loadTransactions()
             actions.loadWalletBalance()
-            actions.goBackToBets()
+            lemonToast.success('Bet placed successfully!')
         },
     })),
 

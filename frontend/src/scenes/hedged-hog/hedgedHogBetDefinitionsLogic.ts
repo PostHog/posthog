@@ -81,6 +81,7 @@ export const hedgedHogBetDefinitionsLogic = kea<hedgedHogBetDefinitionsLogicType
         setShowNewForm: (show: boolean) => ({ show }),
         estimateBetPayout: (amount: number, predictedValue: number) => ({ amount, predictedValue }),
         resetBetEstimate: () => ({}),
+        addBetDefinitionToList: (betDefinition: BetDefinition) => ({ betDefinition }),
     }),
 
     reducers({
@@ -104,6 +105,13 @@ export const hedgedHogBetDefinitionsLogic = kea<hedgedHogBetDefinitionsLogicType
                 resetBetEstimate: () => null,
             },
         ],
+        betDefinitions: [
+            [] as BetDefinition[],
+            {
+                loadBetDefinitionsSuccess: (_, { betDefinitions }) => betDefinitions,
+                addBetDefinitionToList: (state, { betDefinition }) => [betDefinition, ...state],
+            },
+        ],
     }),
 
     loaders(({ actions, values }) => ({
@@ -113,9 +121,6 @@ export const hedgedHogBetDefinitionsLogic = kea<hedgedHogBetDefinitionsLogicType
                 loadBetDefinitions: async () => {
                     const response = await api.get('api/projects/@current/bet_definitions/')
                     return response.results
-                },
-                submitBetDefinitionSuccess: (state, betDefinition) => {
-                    return [betDefinition, ...state]
                 },
             },
         ],
@@ -165,7 +170,7 @@ export const hedgedHogBetDefinitionsLogic = kea<hedgedHogBetDefinitionsLogicType
             defaults: DEFAULT_BET_DEFINITION,
             submit: async (values) => {
                 const response = await api.create('api/projects/@current/bet_definitions/', values)
-                actions.submitBetDefinitionSuccess(response)
+                actions.addBetDefinitionToList(response)
                 actions.loadBetDefinitions()
                 return response
             },

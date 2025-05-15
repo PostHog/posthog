@@ -6,6 +6,7 @@ from django.utils import timezone
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.betting import BetDefinition, ProbabilityDistribution
 from posthog.clickhouse.client.connection import Workload
+from unittest.mock import patch
 
 logger = logging.getLogger(__name__)
 
@@ -550,3 +551,19 @@ def refresh_probability_distribution(bet_definition_id: str) -> Optional[Probabi
     except Exception as e:
         logger.exception(f"Error refreshing probability distribution for bet definition {bet_definition_id}: {e}")
         return None
+
+
+def backdate_probability_distributions(bet_definition, num_steps=100):
+    """
+    Generate and save backdated probability distributions for a bet definition.
+    Each distribution is generated as if it was created at a different point in the past.
+    """
+    interval = timedelta(seconds=bet_definition.probability_distribution_interval)
+    now = timezone.now()
+    for i in range(num_steps):
+        fake_now = now - interval * i
+        with patch("django.utils.timezone.now", return_value=fake_now):
+            dist = create_probability_distribution(bet_definition)
+            if dist:
+                dist.created_at = fake_now
+                dist.save(update_fields=["created_at"])
