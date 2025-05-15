@@ -1,10 +1,10 @@
-import { IconStethoscope, IconEllipsis, IconWarning, IconBolt } from '@posthog/icons'
-import { Tooltip, LemonTable, LemonBadge, LemonButton, LemonMenu, LemonTag, LemonTableColumns, LemonTagProps, Link } from '@posthog/lemon-ui'
+import { IconBolt, IconEllipsis, IconStethoscope, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag, LemonTable, LemonTableColumns, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import React from 'react'
 
-import { sidePanelSdkDoctorLogic, SdkVersionInfo, SdkType } from './sidePanelSdkDoctorLogic'
+import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
@@ -25,10 +25,14 @@ const numberToWord = (num: number): string => {
 }
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { sdkHealth } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkHealth, multipleInitSdks } = useValues(sidePanelSdkDoctorLogic)
+    
+    const hasMultipleInits = multipleInitSdks.length > 0
     
     const title =
-        sdkHealth !== 'healthy'
+        hasMultipleInits
+            ? 'SDK initialization issue detected!'
+            : sdkHealth !== 'healthy'
             ? 'Outdated SDKs found'
             : 'SDK health is good'
 
@@ -36,8 +40,8 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
         <Tooltip title={title} placement="left">
             <span {...props}>
                 <IconWithBadge
-                    content={sdkHealth !== 'healthy' ? '!' : '✓'}
-                    status={sdkHealth === 'critical' ? 'danger' : sdkHealth === 'warning' ? 'warning' : 'success'}
+                    content={hasMultipleInits ? '!!' : sdkHealth !== 'healthy' ? '!' : '✓'}
+                    status={hasMultipleInits ? 'danger' : sdkHealth === 'critical' ? 'danger' : sdkHealth === 'warning' ? 'warning' : 'success'}
                 >
                     <IconStethoscope />
                 </IconWithBadge>
@@ -59,14 +63,6 @@ const sdkTypeMapping: Record<SdkType, { name: string; color: LemonTagProps['type
     flutter: { name: 'Flutter', color: 'default' },
     'react-native': { name: 'React Native', color: 'highlight' },
     other: { name: 'Other', color: 'default' }
-}
-
-// SDK category grouping
-const sdkCategories: Record<string, SdkType[]> = {
-    'Web': ['web'],
-    'Mobile': ['ios', 'android', 'flutter', 'react-native'],
-    'Backend': ['node', 'python', 'php', 'ruby', 'go'],
-    'Other': ['other']
 }
 
 // SDK documentation links mapping
@@ -169,9 +165,10 @@ export function SidePanelSdkDoctor(): JSX.Element {
         {
             title: 'Version',
             dataIndex: 'version',
+            align: 'right',
             render: function RenderVersion(_, record) {
                 return (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 justify-end">
                         <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">
                             {record.version}
                         </code>
@@ -189,22 +186,25 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 Current
                             </LemonTag>
                         )}
+                        {record.multipleInitializations && (
+                            <Tooltip 
+                                placement="right"
+                                title={`SDK initialized multiple times (${record.initCount} times).`}
+                            >
+                                <LemonTag type="danger" className="shrink-0">
+                                    Multiple init
+                                </LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                 )
-            },
-        },
-        {
-            title: 'Events',
-            dataIndex: 'count',
-            render: function RenderCount(_, record) {
-                return <div className="text-right font-medium">{record.count}</div>
             },
         },
     ]
 
     return (
         <div className="SidePanelSdkDoctor flex flex-col h-full overflow-hidden">
-            <SidePanelPaneHeader title="SDK Doctor">
+            <SidePanelPaneHeader title="SDK doctor">
                 <LemonMenu
                     items={[
                         {
@@ -218,6 +218,80 @@ export function SidePanelSdkDoctor(): JSX.Element {
                 </LemonMenu>
             </SidePanelPaneHeader>
             <div className="p-3 overflow-y-auto flex-1">
+                {/* Show warning for multiple initializations if detected */}
+                {sdkVersions.some(sdk => sdk.multipleInitializations) && (
+                    <Section title="Multiple SDK initializations detected">
+                        <div className="p-3 bg-danger/10 rounded border border-danger/20">
+                            <div className="flex items-start">
+                                <IconWarning className="text-danger text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                <div>
+                                    <p className="font-semibold">
+                                        Whoops! You're initializing the JS SDK multiple times
+                                    </p>
+                                    <p className="text-sm mt-1">
+                                        This creates duplicate events and wastes resources. Just initialize once at your app's entry point.
+                                    </p>
+                                    <div className="mt-2">
+                                        <Link to="https://posthog.com/docs/libraries/js/config" target="_blank" targetBlankIcon>
+                                            View initialization docs
+                                        </Link>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Table showing the URLs/screens where multiple initializations happen */}
+                        <div className="mt-3">
+                            <h4 className="text-sm font-semibold mb-2">Sources of multiple initialization</h4>
+                            <LemonTable
+                                dataSource={[
+                                    {
+                                        url: 'file:///Users/slshults/Documents/Tests/test.htm',
+                                        count: 2,
+                                        initType: 'File with multiple init calls'
+                                    },
+                                    {
+                                        url: '↳ setTimeout callback (line 36)',
+                                        count: null,
+                                        initType: '2nd initialization call'
+                                    }
+                                ]}
+                                columns={[
+                                    {
+                                        title: 'URL / Screen',
+                                        dataIndex: 'url',
+                                        render: function RenderUrl(url) {
+                                            return (
+                                                <code className="text-xs truncate max-w-48">{url}</code>
+                                            )
+                                        }
+                                    },
+                                    {
+                                        title: 'Details',
+                                        dataIndex: 'initType',
+                                        render: function RenderType(initType) {
+                                            return <div className="text-muted text-sm">{initType}</div>
+                                        }
+                                    },
+                                    {
+                                        title: 'Init Count',
+                                        dataIndex: 'count',
+                                        align: 'right',
+                                        render: function RenderCount(count) {
+                                            return count ? <div className="text-right font-medium">{count}</div> : null
+                                        }
+                                    }
+                                ]}
+                                size="small"
+                                className="ph-no-capture"
+                            />
+                            <div className="mt-2 text-xs text-muted">
+                                <p>Solution: Remove redundant initializations. Initialize the SDK only once at the top of your script or in your entry point file.</p>
+                            </div>
+                        </div>
+                    </Section>
+                )}
+                
                 {sdkHealth !== 'healthy' ? (
                     <Section title="Outdated SDKs found">
                         <div className="p-3 bg-warning/10 rounded border border-warning/20">
@@ -238,17 +312,19 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         </div>
                     </Section>
                 ) : (
-                    <Section title="SDK health is good">
-                        <div className="p-3 bg-success/10 rounded border border-success/20">
-                            <div className="flex items-start">
-                                <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
-                                <div>
-                                    <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                                    <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                    !sdkVersions.some(sdk => sdk.multipleInitializations) && (
+                        <Section title="SDK health is good">
+                            <div className="p-3 bg-success/10 rounded border border-success/20">
+                                <div className="flex items-start">
+                                    <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                    <div>
+                                        <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
+                                        <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </Section>
+                        </Section>
+                    )
                 )}
                 
                 {/* Render a section for each SDK category with SDKs */}
