@@ -677,7 +677,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.LINK_TRACKING]
+                        featureFlags[FEATURE_FLAGS.LINK]
                             ? {
                                   identifier: Scene.Links,
                                   label: 'Links',
