@@ -1433,6 +1433,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         true
                     )
 
+                    actions.abortAnyRunningQuery()
+                    cache.syncAbortController = new AbortController()
+                    const methodOptions: ApiMethodOptions = { signal: cache.syncAbortController.signal }
+
                     // Create an array of functions that fetch insights synchronously
                     const fetchSyncInsightFunctions = insightsToRefresh.map((insight) => async () => {
                         const queryId = uuid()
@@ -1449,7 +1453,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                             await api.query(
                                 insight.query!,
-                                undefined,
+                                methodOptions,
                                 queryId,
                                 'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
                                 filtersOverride,
@@ -1463,9 +1467,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 dashboardId,
                                 queryId,
                                 'force_cache',
-                                undefined,
-                                filtersOverride,
-                                variablesOverride
+                                methodOptions,
+                                // dashboard id already passed above
+                                action === 'preview' ? values.temporaryFilters : undefined,
+                                action === 'preview' ? values.temporaryVariables : undefined
                             )
 
                             if (action === 'preview' && syncInsight?.dashboard_tiles) {
@@ -1479,8 +1484,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             // Update refresh status
                             actions.setRefreshStatus(insight.short_id)
                         } catch (e: any) {
-                            actions.setRefreshError(insight.short_id)
-                            console.error('Error loading insight synchronously:', e)
+                            if (shouldCancelQuery(e)) {
+                                console.warn(
+                                    `Insight refresh cancelled for ${insight.short_id} due to abort signal:`,
+                                    e
+                                )
+                                // Do not set refresh error if cancelled by abort
+                            } else {
+                                actions.setRefreshError(insight.short_id)
+                                console.error('Error loading insight synchronously:', e)
+                            }
                         }
                     })
 
@@ -1710,6 +1723,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
+            }
+            if (cache.syncAbortController) {
+                cache.syncAbortController.abort()
+                cache.syncAbortController = null
             }
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
