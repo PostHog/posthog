@@ -1,6 +1,7 @@
 import { IconWarning } from '@posthog/icons'
 import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewVideoButton from 'lib/components/ViewVideoButton/ViewVideoButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -60,6 +61,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         }
                         data-attr="events-table-usage"
                     />
+                    <ViewVideoButton fullWidth data-attr="events-table-usage" />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
                             fullWidth
