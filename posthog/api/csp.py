@@ -102,8 +102,8 @@ def process_csp_report(request):
     """
     try:
         # If by any chance we got this far and this is not looking like a CSP report, keep the ingestion pipeline working as it was
+        # we don't want to return an error here to avoid breaking the ingestion pipeline
         if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
-            # we don't want to return a 400 here to avoid breaking the ingestion pipeline
             return None, None
 
         csp_data = json.loads(request.body)
@@ -120,8 +120,6 @@ def process_csp_report(request):
             "properties": {"$session_id": session_id, "csp_version": version, **properties},
         }, None
 
-    # In order to be safe, we want to keep the ingestion pipeline working as it was
-    # so if anything tricky happens, we return None, None to pretend we were never here
     except json.JSONDecodeError:
         return None, cors_response(
             request,
