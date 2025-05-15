@@ -94,8 +94,6 @@ const Value = ({
 
     const pageKey = `${rootKey}.filter_${index}`
 
-    debugger
-
     return (
         <Popover
             visible={open}
