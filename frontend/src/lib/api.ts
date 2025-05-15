@@ -369,6 +369,12 @@ class ApiRequest {
         return this.environments().addPathComponent(id)
     }
 
+    // # CSP reporting
+
+    public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('insights')
@@ -1254,6 +1260,11 @@ function getSessionId(): string | undefined {
 }
 
 const api = {
+    cspReporting: {
+        explain(properties: Record<string, any>): Promise<{ response: string }> {
+            return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
+        },
+    },
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],

@@ -5,6 +5,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -682,3 +683,10 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+
+environments_router.register(
+    r"csp-reporting",
+    CSPReportingViewSet,
+    "environment_csp_reporting",
+    ["team_id"],
+)
