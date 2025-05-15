@@ -10,6 +10,7 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -55,38 +56,38 @@ export function ManagedMigration(): JSX.Element {
                 />
             </LemonField>
 
-            <LemonField name="apiKey" label="API Key">
+            <LemonField name="api_key" label="API Key">
                 <LemonInput type="password" />
             </LemonField>
 
-            <LemonField name="secretKey" label="Secret Key">
+            <LemonField name="secret_key" label="Secret Key">
                 <LemonInput type="password" />
             </LemonField>
 
             <div className="flex gap-4">
-                <LemonField name="startDate" label="Start Date" className="flex-1">
+                <LemonField name="start_date" label="Start Date" className="flex-1">
                     <LemonCalendarSelectInput
                         granularity="minute"
-                        value={managedMigration.startDate ? dayjs(managedMigration.startDate) : null}
+                        value={managedMigration.start_date ? dayjs(managedMigration.start_date) : null}
                         onChange={(date) =>
-                            setManagedMigrationValue('startDate', date?.format('YYYY-MM-DD HH:mm:ss') || '')
+                            setManagedMigrationValue('start_date', date?.format('YYYY-MM-DD HH:mm:ss') || '')
                         }
                     />
                 </LemonField>
 
-                <LemonField name="endDate" label="End Date" className="flex-1">
+                <LemonField name="end_date" label="End Date" className="flex-1">
                     <LemonCalendarSelectInput
                         granularity="minute"
-                        value={managedMigration.endDate ? dayjs(managedMigration.endDate) : null}
+                        value={managedMigration.end_date ? dayjs(managedMigration.end_date) : null}
                         onChange={(date) =>
-                            setManagedMigrationValue('endDate', date?.format('YYYY-MM-DD HH:mm:ss') || '')
+                            setManagedMigrationValue('end_date', date?.format('YYYY-MM-DD HH:mm:ss') || '')
                         }
                     />
                 </LemonField>
             </div>
 
             <div className="flex flex-col gap-2">
-                <LemonField name="eventNamesMode" label="Events">
+                <LemonField name="event_names_mode" label="Events">
                     <LemonSelect
                         options={[
                             { value: 'all', label: 'Import all events' },
@@ -96,13 +97,13 @@ export function ManagedMigration(): JSX.Element {
                     />
                 </LemonField>
 
-                {managedMigration.eventNamesMode !== 'all' && (
-                    <LemonField name="eventNames">
+                {managedMigration.event_names_mode !== 'all' && (
+                    <LemonField name="event_names">
                         <LemonInputSelect
                             mode="multiple"
                             placeholder="Enter event names"
-                            value={managedMigration.eventNames}
-                            onChange={(value) => setManagedMigrationValue('eventNames', value)}
+                            value={managedMigration.event_names}
+                            onChange={(value) => setManagedMigrationValue('event_names', value)}
                             allowCustomValues
                         />
                     </LemonField>
@@ -120,6 +121,28 @@ export function ManagedMigration(): JSX.Element {
 
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
+
+    const calculateProgress = (migration: any): { progress: number; completed: number; total: number } => {
+        if (!migration.start_date || !migration.end_date || migration.status === 'completed') {
+            return { progress: 100, completed: 0, total: 0 }
+        }
+        if (migration.status === 'failed' || migration.status === 'cancelled') {
+            return { progress: 0, completed: 0, total: 0 }
+        }
+
+        const start = dayjs(migration.start_date)
+        const end = dayjs(migration.end_date)
+        const now = dayjs()
+
+        const totalHours = end.diff(start, 'hour')
+        const elapsedHours = now.diff(start, 'hour')
+
+        return {
+            progress: Math.min(Math.max((elapsedHours / totalHours) * 100, 0), 100),
+            completed: Math.min(elapsedHours, totalHours),
+            total: totalHours,
+        }
+    }
 
     return managedMigrationId ? (
         <ManagedMigration />
@@ -182,6 +205,30 @@ export function ManagedMigrations(): JSX.Element {
                                 {migration.end_date ? dayjs(migration.end_date).format('YYYY-MM-DD HH:mm') : '-'}
                             </div>
                         ),
+                    },
+                    {
+                        title: 'Progress',
+                        dataIndex: 'progress',
+                        render: (_, migration) => {
+                            const { progress, completed, total } = calculateProgress(migration)
+                            return (
+                                <div className="flex flex-col gap-1">
+                                    <LemonProgress
+                                        percent={progress}
+                                        strokeColor={migration.status === 'failed' ? 'var(--danger)' : undefined}
+                                    />
+                                    <span className="text-xs text-muted">
+                                        {migration.status === 'completed'
+                                            ? 'Complete'
+                                            : migration.status === 'failed'
+                                            ? 'Failed'
+                                            : migration.status === 'cancelled'
+                                            ? 'Cancelled'
+                                            : `${completed}/${total}`}
+                                    </span>
+                                </div>
+                            )
+                        },
                     },
                     {
                         title: 'Created by',

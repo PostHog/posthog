@@ -4,11 +4,17 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.temporal.common.client import sync_connect
 from .models import ManagedMigration
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
+import asyncio
+from django.conf import settings
 
 
 class ManagedMigrationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    api_key = serializers.CharField(write_only=True)
+    secret_key = serializers.CharField(write_only=True)
 
     class Meta:
         model = ManagedMigration
@@ -25,6 +31,8 @@ class ManagedMigrationSerializer(serializers.ModelSerializer):
             "last_updated_at",
             "error",
             "created_by",
+            "api_key",
+            "secret_key",
         ]
         read_only_fields = ["id", "status", "created_at", "finished_at", "last_updated_at", "error", "created_by"]
 
@@ -52,10 +60,40 @@ class ManagedMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         migration = serializer.save()
-        # TODO: Start Temporal workflow here
-        migration.status = ManagedMigration.Status.FAILED
-        migration.error = "Temporal workflow not yet implemented"
-        migration.save()
+
+        try:
+            client = sync_connect()
+            workflow_inputs = {
+                "team_id": migration.team.id,
+                "api_key": migration.api_key,
+                "secret_key": migration.secret_key,
+                "posthog_api_key": migration.team.api_token,
+                "source": migration.source,
+                "job_id": str(migration.id),
+                "start_date": migration.start_date.isoformat(),
+                "end_date": migration.end_date.isoformat(),
+                "posthog_domain": settings.SITE_URL,
+            }
+
+            workflow_id = f"managed-migration-{migration.id}"
+            asyncio.run(
+                client.start_workflow(
+                    "external-event-job",
+                    workflow_inputs,
+                    id=workflow_id,
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                )
+            )
+
+            migration.workflow_id = workflow_id
+            migration.status = ManagedMigration.Status.RUNNING
+            migration.save()
+
+        except Exception as e:
+            migration.status = ManagedMigration.Status.FAILED
+            migration.error = str(e)
+            migration.save()
+            raise
 
     @action(detail=True, methods=["post"])
     def cancel(self, request: Request, *args, **kwargs):

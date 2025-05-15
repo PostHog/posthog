@@ -13,22 +13,22 @@ import { ManagedMigration } from './types'
 
 export interface ManagedMigrationForm {
     source: 'amplitude'
-    apiKey: string
-    secretKey: string
-    startDate: string
-    endDate: string
-    eventNames: string[]
-    eventNamesMode: 'all' | 'allow' | 'deny'
+    api_key: string
+    secret_key: string
+    start_date: string
+    end_date: string
+    event_names: string[]
+    event_names_mode: 'all' | 'allow' | 'deny'
 }
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     source: 'amplitude',
-    apiKey: '',
-    secretKey: '',
-    startDate: dayjs().subtract(2, 'year').startOf('hour').format('YYYY-MM-DD HH:mm:ss'),
-    endDate: dayjs().subtract(1, 'hour').startOf('hour').format('YYYY-MM-DD HH:mm:ss'),
-    eventNames: [],
-    eventNamesMode: 'all',
+    api_key: '',
+    secret_key: '',
+    start_date: dayjs().subtract(2, 'hour').startOf('hour').format('YYYY-MM-DD HH:mm:ss'),
+    end_date: dayjs().subtract(1, 'hour').startOf('hour').format('YYYY-MM-DD HH:mm:ss'),
+    event_names: [],
+    event_names_mode: 'all',
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -57,12 +57,12 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     forms({
         managedMigration: {
             defaults: NEW_MANAGED_MIGRATION as ManagedMigration,
-            errors: ({ source, apiKey, secretKey, startDate, endDate }) => ({
+            errors: ({ source, api_key, secret_key, start_date, end_date }) => ({
                 source: !source ? 'Source is required' : null,
-                apiKey: !apiKey ? 'API key is required' : null,
-                secretKey: !secretKey ? 'Secret key is required' : null,
-                startDate: !startDate ? 'Start date is required' : null,
-                endDate: !endDate ? 'End date is required' : null,
+                api_key: !api_key ? 'API key is required' : null,
+                secret_key: !secret_key ? 'Secret key is required' : null,
+                start_date: !start_date ? 'Start date is required' : null,
+                end_date: !end_date ? 'End date is required' : null,
             }),
             submit: async (values) => {
                 const projectId = ApiConfig.getCurrentProjectId()

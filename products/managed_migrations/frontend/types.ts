@@ -1,9 +1,9 @@
 export interface ManagedMigration {
     source: string
-    apiKey: string
-    secretKey: string
-    startDate: string
-    endDate: string
-    eventNamesMode: 'all' | 'allow' | 'deny'
-    eventNames: string[]
+    api_key: string
+    secret_key: string
+    start_date: string
+    end_date: string
+    event_names_mode: 'all' | 'allow' | 'deny'
+    event_names: string[]
 }
