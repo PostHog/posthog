@@ -11,7 +11,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 health = { path = "../common/health" }
 axum = { workspace = true }
-axum-extra = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 opentelemetry-proto = { workspace = true }
@@ -23,7 +22,6 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 # ClickHouse client dependencies
 clickhouse = { workspace = true }
-time = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 serde_json = { workspace = true }
 futures = { workspace = true }
