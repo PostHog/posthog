@@ -1,13 +1,16 @@
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import openai
+from rest_framework import viewsets, response, request
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
-export const explainCSPReportPrompt = (event: Record<string, any>): string => `
-    You are a security consultant that explains CSP violation reports.
-    The report is a JSON object.
-    The report is sent to you by a browser.
+prompt = r"""
+You are a security consultant that explains CSP violation reports.
+    The report has been converted to a set of properties in a JSON object.
     That object uses the open standard for CSP violation reports
     But the keys have been renamed, as listed in this markdown table
-    
-    | Normalized Key        | report-to format                     | report-uri format                  |
+
+| Normalized Key        | report-to format                     | report-uri format                  |
 | --------------------- | ------------------------------------ | ---------------------------------- |
 | \`document_url\`        | \`body.documentURL\`                   | \`csp-report.document-uri\`          |
 | \`referrer\`            | \`body.referrer\`                      | \`csp-report.referrer\`              |
@@ -34,22 +37,32 @@ If either violated_directive or original_policy is missing or empty in the event
 	•	Please make sure both violated_directive and original_policy are present.
 
 You will receive a single JSON object, which may use either the report-to or report-uri format, but keys will be normalized as per the table above. This object is available to you as the variable event.
-    The event properties JSON object is ${JSON.stringify(event)} 
-    
- Your answer should be given in very simple english, it will be displayed in a HTML web page and should be provided as very simple github flavored markdown. 
+Your answer should be given in very simple english, it will be displayed in a HTML web page and should be provided as very simple github flavored markdown.
 
  Return exactly two paragraphs in GitHub-flavored markdown:
 	•	First paragraph: explain what caused the violation. short and concise.
 	•	Second paragraph: suggest a fix. provide a code snippet if possible.
 
 Do not include any additional commentary, metadata, or headings.
-`
+"""
 
-export type LLMButtonProps = LemonButtonProps & {
-    prompt: string
-    label: string
-}
 
-export const LLMButton = ({ prompt, label, ...buttonProps }: LLMButtonProps): JSX.Element => {
-    return <LemonButton {...buttonProps}>{label}</LemonButton>
-}
+class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=["POST"])
+    def explain(self, request: request.Request, *args, **kwargs) -> response.Response:
+        properties = request.data.get("properties")
+        if not properties:
+            return response.Response({"error": "prompt is required"}, status=400)
+
+        llm_response = openai.chat.completions.create(
+            model="gpt-4.1-2025-04-14",
+            temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": properties}],
+            user="ph/csp/explain",
+            stream=False,
+        )
+
+        return response.Response({"response": llm_response.choices[0].message.content})

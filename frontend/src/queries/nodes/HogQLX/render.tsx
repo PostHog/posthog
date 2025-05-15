@@ -1,6 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { explainCSPReportPrompt, LLMButton } from 'lib/components/LLMButton/LLMButton'
+import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
@@ -42,17 +42,20 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'ExplainCSPReport') {
             const { properties } = rest
-            const prompt = explainCSPReportPrompt(properties)
             return (
                 <ErrorBoundary>
-                    <LLMButton
-                        prompt={prompt}
+                    <ExplainCSPViolationButton
+                        properties={properties}
                         label="Explain this CSP violation"
                         type="primary"
                         size="xsmall"
                         data-attr="hog-ql-explaincsp-button"
                         className="inline-block"
-                        disabledReason={prompt ? undefined : 'A prompt must be provided when creating an LLM button'}
+                        disabledReason={
+                            properties
+                                ? undefined
+                                : 'Properties of a $csp_violation event must be provided when asking for an explanation of one'
+                        }
                     />
                 </ErrorBoundary>
             )

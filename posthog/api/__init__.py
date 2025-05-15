@@ -19,6 +19,7 @@ from posthog.warehouse.api import (
     query_tab_state,
     data_modeling_job,
 )
+from posthog.api.csp_reporting import CSPReportingViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -674,5 +675,12 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"csp-reporting",
+    CSPReportingViewSet,
+    "environment_csp_reporting",
     ["team_id"],
 )
