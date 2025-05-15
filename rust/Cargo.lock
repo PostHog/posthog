@@ -3855,7 +3855,6 @@ dependencies = [
  "jsonwebtoken",
  "opentelemetry-proto 0.29.0",
  "serde",
- "serde_bytes",
  "serde_derive",
  "serde_json",
  "thiserror 1.0.69",
@@ -3863,7 +3862,6 @@ dependencies = [
  "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -5880,15 +5878,6 @@ dependencies = [
  "iter-read",
  "num-bigint",
  "num-traits",
- "serde",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8437fd221bde2d4ca316d61b90e337e9e702b3820b87d63caa9ba6c02bd06d96"
-dependencies = [
  "serde",
 ]
 
