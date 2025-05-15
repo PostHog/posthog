@@ -1,3 +1,5 @@
+import { IconX } from '@posthog/icons'
+import { Separator } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -33,23 +35,23 @@ const BetFlow = ({
     handlePlaceBet,
 }: BetFlowProps): JSX.Element => {
     return (
-        <LemonCard className="h-full">
-            <div className="p-4">
+        <LemonCard className="h-full" hoverEffect={false}>
+            <div>
                 {!showConfirmation ? (
                     <div className="space-y-6">
                         <div>
-                            <h3 className="text-lg font-semibold mb-4">Place Your Bet</h3>
+                            <h3 className="font-semibold mb-4">Place Your Bet</h3>
                             <div className="space-y-3">
                                 <LemonButton
                                     fullWidth
                                     center
                                     type="primary"
+                                    size="small"
                                     onClick={() => {
                                         setBetType('Yes')
                                         setShowConfirmation(true)
                                     }}
                                     disabledReason={amount === 0 && 'The amount must be greater than 0'}
-                                    className="h-12 text-lg"
                                 >
                                     Yes 39¢
                                 </LemonButton>
@@ -57,12 +59,12 @@ const BetFlow = ({
                                     fullWidth
                                     center
                                     type="primary"
+                                    size="small"
                                     onClick={() => {
                                         setBetType('No')
                                         setShowConfirmation(true)
                                     }}
                                     disabledReason={amount === 0 && 'The amount must be greater than 0'}
-                                    className="h-12 text-lg"
                                 >
                                     No 62¢
                                 </LemonButton>
@@ -71,34 +73,42 @@ const BetFlow = ({
 
                         <div>
                             <h3 className="font-semibold mb-2">Amount</h3>
-                            <div className="relative">
-                                <LemonInput
-                                    className="text-2xl font-bold"
-                                    type="text"
-                                    prefix={<span className="text-muted">$</span>}
-                                    value={amount.toString()}
-                                    onChange={(value) => setAmount(Number(value) || 0)}
-                                />
-                            </div>
-                        </div>
 
-                        <div className="grid grid-cols-3 gap-2">
-                            {['+$1', '+$20', '+$100'].map((amt) => (
-                                <LemonButton
-                                    key={amt}
-                                    type="secondary"
-                                    className="text-center"
-                                    onClick={() => setAmount(Number(amount + Number(amt.replace('+$', ''))))}
-                                >
-                                    {amt}
-                                </LemonButton>
-                            ))}
+                            <LemonInput
+                                className="text-2xl font-bold"
+                                type="text"
+                                prefix={<span className="text-muted">$</span>}
+                                value={amount.toString()}
+                                onChange={(value) => setAmount(Number(value) || 0)}
+                            />
+
+                            <Separator className="my-2" />
+
+                            <div className="flex flex-col gap-2">
+                                {['+$1', '+$20', '+$100'].map((amt) => (
+                                    <LemonButton
+                                        size="small"
+                                        fullWidth
+                                        center
+                                        key={amt}
+                                        type="secondary"
+                                        className="text-center"
+                                        onClick={() => setAmount(Number(amount + Number(amt.replace('+$', ''))))}
+                                    >
+                                        {amt}
+                                    </LemonButton>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="bg-bg-light rounded-lg p-6 border">
-                        <h3 className="font-semibold text-lg mb-6">Confirm Your Bet</h3>
-
+                    <div className="bg-bg-light">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-semibold text-lg mb-0">Confirm Your Bet</h3>
+                            <LemonButton size="small" type="secondary" onClick={() => setShowConfirmation(false)}>
+                                <IconX />
+                            </LemonButton>
+                        </div>
                         <div className="space-y-4 mb-8">
                             <div className="flex justify-between items-center">
                                 <span className="text-muted">Bet Type:</span>
@@ -127,19 +137,9 @@ const BetFlow = ({
                             </div>
                         </div>
 
-                        <div className="flex space-x-3">
-                            <LemonButton
-                                size="large"
-                                type="secondary"
-                                onClick={() => setShowConfirmation(false)}
-                                className="flex-1"
-                            >
-                                Back
-                            </LemonButton>
-                            <LemonButton size="large" type="primary" onClick={handlePlaceBet} className="flex-1">
-                                Confirm
-                            </LemonButton>
-                        </div>
+                        <LemonButton type="primary" fullWidth center onClick={handlePlaceBet}>
+                            Confirm
+                        </LemonButton>
                     </div>
                 )}
             </div>
@@ -195,147 +195,132 @@ export function BetDetailContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <h2 className="text-xl">{bet.title}</h2>
+                <div>
+                    <h2 className="text-xl mb-1">{bet.title}</h2>
+                    <div className="mb-4">
+                        <p className="text-xs text-muted">{bet.description}</p>
+                    </div>
+                </div>
                 <LemonButton type="primary" onClick={() => push(urls.hedgedHog())}>
                     Back to Bets
                 </LemonButton>
             </div>
 
-            <LemonCard className="mb-4" hoverEffect={false}>
-                <div className="space-y-4">
-                    <div>
-                        <h3 className="text-lg font-semibold mb-2">Description</h3>
-                        <p>{bet.description}</p>
-                    </div>
-
-                    <LemonDivider />
-
-                    <div>
-                        <h3 className="text-lg font-semibold mb-2">Bet Details</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <div className="text-sm text-muted">Type</div>
-                                <div>{bet.type}</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted">Closing Date</div>
-                                <div>{new Date(bet.closing_date).toLocaleDateString()}</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted">Status</div>
-                                <div>{bet.status}</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted">Parameters</div>
-                                <div className="font-mono text-sm">{JSON.stringify(bet.bet_parameters, null, 2)}</div>
-                            </div>
-                        </div>
-                    </div>
+            <div className="flex gap-4 mb-4">
+                <div className="space-y-1 border-r pr-4">
+                    <div className="text-sm text-muted">Type</div>
+                    <div>{bet.type}</div>
                 </div>
-            </LemonCard>
-
-            <div className="grid grid-cols-5 gap-4">
-                <div className="col-span-1">
-                    <LemonCard>
-                        <div className="p-4 space-y-4">
-                            <div>
-                                <div className="text-sm text-muted mb-1">Volume</div>
-                                <div className="font-semibold">$5,343,183</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted mb-1">Deadline</div>
-                                <div className="font-semibold">May 21, 2025</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted mb-1">Current probability</div>
-                                <div>
-                                    <span className="text-2xl font-bold">39%</span>
-                                    <span className="text-sm text-success ml-2">↑ 20%</span>
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted mb-1">Time Remaining</div>
-                                <div>
-                                    <span className="text-2xl font-bold">12 hours</span>
-                                </div>
-                            </div>
-                        </div>
-                    </LemonCard>
+                <div className="space-y-1 border-r pr-4">
+                    <div className="text-sm text-muted">Closing Date</div>
+                    <div>{new Date(bet.closing_date).toLocaleDateString()}</div>
                 </div>
+                <div className="space-y-1">
+                    <div className="text-sm text-muted">Status</div>
+                    <div className={`${bet.status === 'active' ? 'text-success' : 'text-danger'}`}>{bet.status}</div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-4">
                 <div className="col-span-3">
-                    <LemonCard>
-                        <div className="p-4">
-                            <div className="h-96">
-                                <BillingLineGraph
-                                    containerClassName="h-full"
-                                    series={[
-                                        {
-                                            id: 1,
-                                            label: 'Yes',
-                                            data: [85, 75, 80, 70, 60, 70, 55, 45, 35, 40],
-                                            dates: [
-                                                'Jan 8',
-                                                'Jan 19',
-                                                'Jan 31',
-                                                'Feb 11',
-                                                'Feb 28',
-                                                'Mar 11',
-                                                'Mar 31',
-                                                'Apr 11',
-                                                'Apr 30',
-                                                'May 11',
-                                            ],
-                                        },
-                                        {
-                                            id: 2,
-                                            label: 'No',
-                                            data: [15, 25, 20, 35, 40, 30, 45, 55, 65, 60],
-                                            dates: [
-                                                'Jan 8',
-                                                'Jan 19',
-                                                'Jan 31',
-                                                'Feb 11',
-                                                'Feb 28',
-                                                'Mar 11',
-                                                'Mar 31',
-                                                'Apr 11',
-                                                'Apr 30',
-                                                'May 11',
-                                            ],
-                                        },
-                                    ]}
-                                    dates={[
-                                        'Jan 8',
-                                        'Jan 19',
-                                        'Jan 31',
-                                        'Feb 11',
-                                        'Feb 28',
-                                        'Mar 11',
-                                        'Mar 31',
-                                        'Apr 11',
-                                        'Apr 30',
-                                        'May 11',
-                                    ]}
-                                    hiddenSeries={[]}
-                                    valueFormatter={(value) => `${value}%`}
-                                    interval="day"
-                                    max={100}
-                                />
+                    <div className="border rounded bg-surface-primary relative border-primary">
+                        <div className="flex">
+                            <div className="w-1/4 p-6 bg-bg-light space-y-4 bg-surface-secondary rounded-l-md">
+                                <div>
+                                    <div className="text-sm text-muted mb-1">Volume</div>
+                                    <div className="font-semibold">$5,343,183</div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-muted mb-1">Deadline</div>
+                                    <div className="font-semibold">May 21, 2025</div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-muted mb-1">Time Remaining</div>
+                                    <div>
+                                        <span className="font-semibold">12 hours</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-muted mb-1">Current probability</div>
+                                    <div>
+                                        <span className="text-2xl font-bold">39%</span>
+                                        <span className="text-sm text-success ml-2">↑ 20%</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="w-full flex justify-between mt-4">
-                                {['1H', '6H', '1D', '1W', '1M', 'ALL'].map((range) => (
-                                    <LemonButton
-                                        key={range}
-                                        active={timeRange === range}
-                                        onClick={() => setTimeRange(range)}
-                                        size="small"
-                                    >
-                                        {range}
-                                    </LemonButton>
-                                ))}
+                            <div className="p-6 w-3/4">
+                                <div className="h-96">
+                                    <BillingLineGraph
+                                        containerClassName="h-full"
+                                        series={[
+                                            {
+                                                id: 1,
+                                                label: 'Yes',
+                                                data: [85, 75, 80, 70, 60, 70, 55, 45, 35, 40],
+                                                dates: [
+                                                    'Jan 8',
+                                                    'Jan 19',
+                                                    'Jan 31',
+                                                    'Feb 11',
+                                                    'Feb 28',
+                                                    'Mar 11',
+                                                    'Mar 31',
+                                                    'Apr 11',
+                                                    'Apr 30',
+                                                    'May 11',
+                                                ],
+                                            },
+                                            {
+                                                id: 2,
+                                                label: 'No',
+                                                data: [15, 25, 20, 35, 40, 30, 45, 55, 65, 60],
+                                                dates: [
+                                                    'Jan 8',
+                                                    'Jan 19',
+                                                    'Jan 31',
+                                                    'Feb 11',
+                                                    'Feb 28',
+                                                    'Mar 11',
+                                                    'Mar 31',
+                                                    'Apr 11',
+                                                    'Apr 30',
+                                                    'May 11',
+                                                ],
+                                            },
+                                        ]}
+                                        dates={[
+                                            'Jan 8',
+                                            'Jan 19',
+                                            'Jan 31',
+                                            'Feb 11',
+                                            'Feb 28',
+                                            'Mar 11',
+                                            'Mar 31',
+                                            'Apr 11',
+                                            'Apr 30',
+                                            'May 11',
+                                        ]}
+                                        hiddenSeries={[]}
+                                        valueFormatter={(value) => `${value}%`}
+                                        interval="day"
+                                        max={100}
+                                    />
+                                </div>
+                                <div className="w-full flex justify-between mt-4">
+                                    {['1H', '6H', '1D', '1W', '1M', 'ALL'].map((range) => (
+                                        <LemonButton
+                                            key={range}
+                                            active={timeRange === range}
+                                            onClick={() => setTimeRange(range)}
+                                            size="small"
+                                        >
+                                            {range}
+                                        </LemonButton>
+                                    ))}
+                                </div>
                             </div>
                         </div>
-                    </LemonCard>
+                    </div>
                 </div>
                 <div className="col-span-1">
                     <BetFlow
