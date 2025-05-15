@@ -6,8 +6,6 @@ from typing import Optional, Any
 
 logger = structlog.get_logger()
 
-# comment
-
 
 def parse_event_timestamp(event_time) -> dt.datetime:
     """
@@ -88,15 +86,22 @@ def parse_amplitude_json(entry: dict[str, Any]) -> Optional[dict[str, Any]]:
     else:
         device_type = None
 
+    # Get os_version and convert to int if possible
+    os_version = entry.get("os_version")
+    browser_version = None
+    if os_version is not None and isinstance(os_version, str | int | float):
+        try:
+            browser_version = int(os_version)
+        except (ValueError, TypeError):
+            browser_version = None
+
     payload = {
         "event": event_name,
         "distinct_id": distinct_id,
         "properties": {
             "$os": entry.get("device_type"),
             "$browser": entry.get("os_name"),
-            "$browser_version": int(entry.get("os_version"))
-            if entry.get("os_version") and isinstance(entry.get("os_version"), str | int | float)
-            else None,
+            "$browser_version": browser_version,
             "$device_type": device_type,
             "$current_url": entry.get("event_properties", {}).get("[Amplitude] Page URL"),
             "$host": entry.get("event_properties", {}).get("[Amplitude] Page Domain"),
