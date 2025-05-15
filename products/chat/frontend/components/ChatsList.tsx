@@ -1,19 +1,30 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { chatListLogic } from '../scenes/chatListLogic'
 import { ChatListItem } from './ChatListItem'
 
 export function ChatsList(): JSX.Element {
     const { selectedChatId, chats } = useValues(chatListLogic)
-    const { setSelectedChatId } = useActions(chatListLogic)
+    const { setSelectedChatId, loadChats } = useActions(chatListLogic)
 
-    if (chats.length === 0) {
-        return <div className="flex flex-col items-center justify-center h-full">No chats yet</div>
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            loadChats()
+        }, 1000)
+
+        return () => clearInterval(intervalId)
+    }, [])
+
+    const displayableChats = chats.filter((chat) => chat.messages && chat.messages.length > 0)
+
+    if (displayableChats.length === 0) {
+        return <div className="flex flex-col items-center justify-center h-full">No chats with messages yet</div>
     }
 
     return (
         <aside className="overflow-y-auto h-full divide-y divide-gray-200 bg-white border border-gray-200 rounded">
-            {chats.map((chat) => (
+            {displayableChats.map((chat) => (
                 <ChatListItem
                     key={chat.id}
                     user={chat.person_uuid}

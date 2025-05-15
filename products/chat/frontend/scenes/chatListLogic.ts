@@ -5,7 +5,8 @@ import type { chatListLogicType } from './chatListLogicType'
 
 export type Chat = {
     id?: string
-    person_uuid: string // email or user id, for dummy data
+    person_uuid?: string // email or user id, for dummy data
+    distinct_id?: string // email or user id, for dummy data
     team: string // team id, for dummy data
     title?: string | null
     created_at: string
@@ -97,7 +98,8 @@ export const chatListLogic = kea<chatListLogicType>([
         },
         createZendDeskTicket: async ({ subject, uuid, message }) => {
             const chat = await api.chat.create({
-                person_uuid: uuid, //hardcode your own, e..g 'e3a558b1-99c1-5119-b407-62f7e747d46b',
+                //person_uuid: uuid,
+                distinct_id: uuid,
                 title: subject,
                 source_url: 'zendesk',
             })
