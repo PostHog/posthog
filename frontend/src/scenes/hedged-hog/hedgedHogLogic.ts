@@ -223,7 +223,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadTransactionsSuccess: ({ transactions }) => {
             // If we have transactions, also load the wallet balance
             if (transactions.length > 0) {
@@ -257,6 +257,8 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         },
         placeBetSuccess: () => {
             actions.loadTransactions()
+            actions.loadAllBets(values.betId as string)
+            actions.loadUserBets(values.betId as string)
             actions.loadWalletBalance()
             lemonToast.success('Bet placed successfully!')
         },

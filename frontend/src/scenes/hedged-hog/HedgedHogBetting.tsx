@@ -109,7 +109,7 @@ export function BettingContent(): JSX.Element {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {betDefinitions.map((bet: BetDefinition) => {
                         const chartData = bet.probability_distributions.map((dist) => ({
-                            date: new Date(dist.created_at).toLocaleDateString(),
+                            date: new Date(dist.created_at).toLocaleString(),
                             ranges: dist.buckets.map((bucket, index) => ({
                                 range:
                                     index === 0
@@ -141,7 +141,7 @@ export function BettingContent(): JSX.Element {
                                     <div className="flex flex-col h-full">
                                         <div className="flex-grow">
                                             <h4 className="text-lg font-semibold mb-2">{bet.title}</h4>
-                                            <p className="text-muted mb-4">{bet.description}</p>
+                                            <p className="text-muted mb-4 truncate">{bet.description}</p>
 
                                             <div className="h-40 mb-4">
                                                 <BillingLineGraph

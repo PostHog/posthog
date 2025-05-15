@@ -39,7 +39,7 @@ const BetFlow = ({
 }: BetFlowProps): JSX.Element => {
     const getOdds = (probability: number): number => (probability > 0 ? 1 / probability : 0)
     const getPotentialPayout = (amount: number, probability: number): string =>
-        `$${(amount * getOdds(probability)).toFixed(2)}`
+        `${(amount * getOdds(probability)).toFixed(2)}`
 
     return (
         <LemonCard className="h-full" hoverEffect={false}>
@@ -127,11 +127,11 @@ const BetFlow = ({
                                 <span className="text-lg font-semibold">
                                     {selectedBucket
                                         ? selectedBucket.min === 0
-                                            ? `≤${Math.round(selectedBucket.max)} (${Math.round(
+                                            ? `<${Math.round(selectedBucket.max)} (${Math.round(
                                                   selectedBucket.probability * 100
                                               )}%)`
                                             : selectedBucket.max === lastBucketMax
-                                            ? `≥${Math.round(selectedBucket.min)} (${Math.round(
+                                            ? `>${Math.round(selectedBucket.min)} (${Math.round(
                                                   selectedBucket.probability * 100
                                               )}%)`
                                             : `${Math.round(selectedBucket.min)}-${Math.round(
@@ -152,9 +152,9 @@ const BetFlow = ({
                             </div>
                             <LemonDivider className="my-4" />
                             <div className="flex justify-between items-center">
-                                <span className="font-semibold">Potential Payout:</span>
+                                <span className="font-semibold">Potential payout:</span>
                                 <span className="text-success text-lg font-bold">
-                                    {selectedBucket ? getPotentialPayout(amount, selectedBucket.probability) : '$0.00'}
+                                    {selectedBucket ? getPotentialPayout(amount, selectedBucket.probability) : '0.00'}
                                 </span>
                             </div>
                         </div>
@@ -253,7 +253,7 @@ export function BetDetailContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-start gap-8">
                 <div>
                     <h2 className="text-xl mb-1">{bet.title}</h2>
                     <div className="mb-4">
@@ -375,12 +375,25 @@ export function BetDetailContent(): JSX.Element {
                                         key: 'predicted_value',
                                         render: function RenderType(_, record) {
                                             const range = record.predicted_value
-                                            return range &&
+                                            if (
+                                                range &&
                                                 typeof range === 'object' &&
                                                 'min' in range &&
                                                 'max' in range
-                                                ? `${Math.round(range.min)}-${Math.round(range.max)}`
-                                                : ''
+                                            ) {
+                                                // Find the bucket index and total buckets for this bet
+                                                const buckets = latestDistribution?.buckets || []
+                                                const isFirst = buckets.length > 0 && range.min === buckets[0].min
+                                                const isLast =
+                                                    buckets.length > 0 && range.max === buckets[buckets.length - 1].max
+                                                if (isFirst) {
+                                                    return `<${Math.round(range.max)}`
+                                                } else if (isLast) {
+                                                    return `>${Math.round(range.min)}`
+                                                }
+                                                return `${Math.round(range.min)}-${Math.round(range.max)}`
+                                            }
+                                            return ''
                                         },
                                     },
                                     {
@@ -394,7 +407,7 @@ export function BetDetailContent(): JSX.Element {
                                         },
                                     },
                                     {
-                                        title: 'Potential Payout',
+                                        title: 'Potential payout',
                                         dataIndex: 'potential_payout',
                                         key: 'potential_payout',
                                         render: function RenderPayout(_, record) {
@@ -433,12 +446,25 @@ export function BetDetailContent(): JSX.Element {
                                         key: 'predicted_value',
                                         render: function RenderType(_, record) {
                                             const range = record.predicted_value
-                                            return range &&
+                                            if (
+                                                range &&
                                                 typeof range === 'object' &&
                                                 'min' in range &&
                                                 'max' in range
-                                                ? `${Math.round(range.min)}-${Math.round(range.max)}`
-                                                : ''
+                                            ) {
+                                                // Find the bucket index and total buckets for this bet
+                                                const buckets = latestDistribution?.buckets || []
+                                                const isFirst = buckets.length > 0 && range.min === buckets[0].min
+                                                const isLast =
+                                                    buckets.length > 0 && range.max === buckets[buckets.length - 1].max
+                                                if (isFirst) {
+                                                    return `<${Math.round(range.max)}`
+                                                } else if (isLast) {
+                                                    return `>${Math.round(range.min)}`
+                                                }
+                                                return `${Math.round(range.min)}-${Math.round(range.max)}`
+                                            }
+                                            return ''
                                         },
                                     },
                                     {
@@ -452,7 +478,7 @@ export function BetDetailContent(): JSX.Element {
                                         },
                                     },
                                     {
-                                        title: 'Potential Payout',
+                                        title: 'Potential payout',
                                         dataIndex: 'potential_payout',
                                         key: 'potential_payout',
                                         render: function RenderPayout(_, record) {

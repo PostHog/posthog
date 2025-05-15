@@ -1,14 +1,12 @@
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { hedgedHogLogic } from './hedgedHogLogic'
 
 export function MyBetsContent(): JSX.Element {
     const { bets, betsLoading } = useValues(hedgedHogLogic)
-    const { push } = useActions(router)
 
     return (
         <div className="space-y-4">
@@ -21,14 +19,7 @@ export function MyBetsContent(): JSX.Element {
                         dataIndex: 'bet_definition_title',
                         key: 'bet_definition_title',
                         render: function RenderBetTitle(title: string, record: any) {
-                            return (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => push(urls.hedgedHogBet(record.bet_definition))}
-                                >
-                                    {title}
-                                </LemonButton>
-                            )
+                            return <Link to={urls.hedgedHogBet(record.bet_definition)}>{title}</Link>
                         },
                     },
                     {
@@ -37,7 +28,10 @@ export function MyBetsContent(): JSX.Element {
                         key: 'amount',
                         render: function RenderAmount(amount: number | string) {
                             const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount
-                            return `${numAmount.toFixed(2)} Hogecoins`
+                            return `${numAmount.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })} Hogecoins`
                         },
                     },
                     {
@@ -51,12 +45,15 @@ export function MyBetsContent(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Potential Payout',
+                        title: 'Potential payout',
                         dataIndex: 'potential_payout',
                         key: 'potential_payout',
                         render: function RenderPayout(payout: number | string) {
                             const numPayout = typeof payout === 'string' ? parseFloat(payout) : payout
-                            return `${numPayout.toFixed(2)} Hogecoins`
+                            return `${numPayout.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })} Hogecoins`
                         },
                     },
                     {
