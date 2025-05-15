@@ -1944,8 +1944,8 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export interface LogsQuery {
-    response?: LogsQueryResponse
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer

@@ -1596,7 +1596,7 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { query: LogsQuery }): Promise<LogMessage[]> {
+        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<LogMessage[]> {
             return new ApiRequest()
                 .logsQuery()
                 .withQueryString(toParams({ data: { query } }))
