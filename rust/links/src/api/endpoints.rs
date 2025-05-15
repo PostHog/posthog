@@ -100,10 +100,14 @@ pub async fn external_store_url(
         .store_url(&payload.destination, &short_string)
         .await
     {
-        Ok(redirect_url) => {
+        Ok(_) => {
+            let short_url = format!(
+                "https://{}/ph/{}",
+                state.default_domain_for_public_store, short_string
+            );
             let response = ExternalStoreUrlResponse {
                 long_url: payload.destination,
-                short_url: redirect_url,
+                short_url,
                 created_at: chrono::Utc::now().timestamp(),
             };
             (StatusCode::OK, Json(response)).into_response()
