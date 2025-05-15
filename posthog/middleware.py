@@ -715,11 +715,9 @@ class Fix204Middleware:
     def __call__(self, request):
         response = self.get_response(request)
 
-        if response.status_code != 204:
-            return response
-
-        response.content = b""
-        for h in ["Content-Type", "X-Content-Type-Options"]:
-            response.headers.pop(h, None)
+        if response.status_code == 204:
+            response.content = b""
+            for h in ["Content-Type", "X-Content-Type-Options"]:
+                response.headers.pop(h, None)
 
         return response
