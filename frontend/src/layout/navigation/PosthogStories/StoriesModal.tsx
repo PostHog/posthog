@@ -10,6 +10,9 @@ import { Story } from 'react-insta-stories/dist/interfaces'
 import { storiesLogic } from './storiesLogic'
 import type { story } from './storiesMap'
 
+const STORY_INTERVAL = 3000
+const MAX_VIDEO_DURATION_MS = 1000000
+
 interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     reason: string
     story_id: string
@@ -19,6 +22,7 @@ interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     time_spent_seconds: number
     story_group_id: string
     story_group_title: string
+    story_watched_percentage?: number
 }
 
 interface StoryEndEventPropsExtraProps {
@@ -123,6 +127,10 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_group_title: activeGroup?.title,
                 time_spent_ms: timeSpentMs,
                 time_spent_seconds: Math.round(timeSpentMs / 1000),
+                story_watched_percentage:
+                    activeStory?.durationMs && activeStory?.durationMs > 0
+                        ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
+                        : undefined,
                 ...(extraProps || {}),
             }
             posthog.capture('posthog_story_ended', props)
@@ -148,9 +156,9 @@ export const StoriesModal = (): JSX.Element | null => {
                       sendStoryEndEvent('see_more')
                       setOpenStoriesModal(false)
                       window.open(story.link, '_self')
-                      return null
+                      return <></>
                   }
-                : undefined,
+                : () => {},
             preloadResource: true,
         })
     )
@@ -159,7 +167,7 @@ export const StoriesModal = (): JSX.Element | null => {
         <LemonModal isOpen={openStoriesModal} onClose={() => handleClose(true)} simple className="StoriesModal__modal">
             <Stories
                 stories={stories}
-                defaultInterval={3000}
+                defaultInterval={activeStory?.type === 'video' ? MAX_VIDEO_DURATION_MS : STORY_INTERVAL}
                 width="100%"
                 height="100%"
                 currentIndex={activeStoryIndex}

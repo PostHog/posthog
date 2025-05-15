@@ -1,3 +1,5 @@
+import './stories.scss'
+
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -7,7 +9,7 @@ import { storiesMap } from './storiesMap'
 
 const STORAGE_KEY = 'posthog_stories_viewed'
 
-interface ViewedStories {
+export interface ViewedStories {
     storyIds: string[]
     groupIds: string[]
 }

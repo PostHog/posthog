@@ -60,7 +60,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                             className="w-full h-full object-cover"
                                         />
                                         {firstNotViewedStory.type === 'video' && (
-                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-70">
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 video-icon">
                                                 <svg
                                                     className="w-6 h-6 text-white"
                                                     fill="currentColor"
