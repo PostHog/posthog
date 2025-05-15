@@ -94,7 +94,9 @@ def parse_amplitude_json(entry: dict[str, Any]) -> Optional[dict[str, Any]]:
         "properties": {
             "$os": entry.get("device_type"),
             "$browser": entry.get("os_name"),
-            "$browser_version": int(entry.get("os_version")) if entry.get("os_version") else None,
+            "$browser_version": int(entry.get("os_version"))
+            if entry.get("os_version") and isinstance(entry.get("os_version"), str | int | float)
+            else None,
             "$device_type": device_type,
             "$current_url": entry.get("event_properties", {}).get("[Amplitude] Page URL"),
             "$host": entry.get("event_properties", {}).get("[Amplitude] Page Domain"),
@@ -177,7 +179,7 @@ def send_event_batch(batch: list[dict[str, Any]], posthog_api_key: str, posthog_
 
         return len(batch)
     except requests.exceptions.RequestException as e:
-        logger.excpetion(f"Failed to send batch to PostHog: {str(e)}")
+        logger.exception(f"Failed to send batch to PostHog: {str(e)}")
         if hasattr(e, "response") and e.response:
             logger.exception(f"Response status: {e.response.status_code}, Response body: {e.response.text[:500]}")
         return 0
