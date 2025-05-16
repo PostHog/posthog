@@ -19,6 +19,7 @@ from posthog.warehouse.api import (
     query_tab_state,
     data_modeling_job,
 )
+from posthog.api.csp_reporting import CSPReportingViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -39,6 +40,7 @@ from . import (
     exports,
     feature_flag,
     file_system,
+    file_system_shortcut,
     hog,
     hog_function,
     hog_function_template,
@@ -218,7 +220,14 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
+projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["project_id"])
+
+register_grandfathered_environment_nested_viewset(
+    r"file_system_shortcut",
+    file_system_shortcut.FileSystemShortcutViewSet,
+    "environment_file_system_shortcut",
+    ["team_id"],
+)
 
 environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
@@ -666,5 +675,12 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"csp-reporting",
+    CSPReportingViewSet,
+    "environment_csp_reporting",
     ["team_id"],
 )
