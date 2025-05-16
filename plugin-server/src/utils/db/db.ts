@@ -1235,7 +1235,6 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
     ): Promise<number> {
         const result = await this.postgres.query<{ version: string }>(
@@ -1254,7 +1253,7 @@ export class DB {
                 createdAt.toISO(),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
+                1,
             ],
             'upsertGroup'
         )

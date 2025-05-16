@@ -554,8 +554,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
@@ -571,8 +570,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
@@ -596,8 +594,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             await expect(
@@ -608,8 +605,7 @@ describe('DB', () => {
                     { prop: 'newval' },
                     TIMESTAMP,
                     { prop: ISO_TIMESTAMP },
-                    { prop: PropertyUpdateOperation.Set },
-                    1
+                    { prop: PropertyUpdateOperation.Set }
                 )
             ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
         })
@@ -622,8 +618,7 @@ describe('DB', () => {
                 { prop: 'val' },
                 TIMESTAMP,
                 { prop: ISO_TIMESTAMP },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: PropertyUpdateOperation.Set }
             )
 
             const originalGroup = await db.fetchGroup(2, 0, 'group_key')

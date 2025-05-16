@@ -88,7 +88,6 @@ export async function upsertGroup(
                             createdAt,
                             {},
                             {},
-                            expectedVersion,
                             tx
                         )
                         actualVersion = insertedVersion
