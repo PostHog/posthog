@@ -4,7 +4,9 @@ import { DateTime } from 'luxon'
 import { Group, GroupTypeIndex, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { MessageSizeTooLarge } from '../../utils/db/error'
+import { groupUpdateVersionMismatchCounter } from '../../utils/db/metrics'
 import { PostgresUse } from '../../utils/db/postgres'
+import { logger } from '../../utils/logger'
 import { RaceConditionError } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
@@ -42,7 +44,7 @@ export async function upsertGroup(
 
                 if (propertiesUpdate.updated) {
                     if (group) {
-                        await db.updateGroup(
+                        const updatedVersion = await db.updateGroup(
                             teamId,
                             groupTypeIndex,
                             groupKey,
@@ -53,9 +55,30 @@ export async function upsertGroup(
                             version,
                             tx
                         )
+                        if (updatedVersion !== undefined) {
+                            // Track the disparity between the version on the database and the version we computed
+                            // Without races, the returned version should be only +1 what we computed
+                            const versionDisparity = updatedVersion - version
+                            if (versionDisparity > 0) {
+                                logger.info('👥', 'Group update version mismatch', {
+                                    team_id: teamId,
+                                    group_type_index: groupTypeIndex,
+                                    group_key: groupKey,
+                                    version_disparity: versionDisparity,
+                                })
+                                groupUpdateVersionMismatchCounter.labels({ type: 'version_mismatch' }).inc()
+                            }
+                        } else {
+                            logger.info('👥', 'Group update row missing', {
+                                team_id: teamId,
+                                group_type_index: groupTypeIndex,
+                                group_key: groupKey,
+                            })
+                            groupUpdateVersionMismatchCounter.labels({ type: 'row_missing' }).inc()
+                        }
                     } else {
                         // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
-                        await db.insertGroup(
+                        const insertedVersion = await db.insertGroup(
                             teamId,
                             groupTypeIndex,
                             groupKey,
@@ -66,6 +89,18 @@ export async function upsertGroup(
                             version,
                             tx
                         )
+                        // Track the disparity between the version on the database and the version we computed
+                        // Without races, the returned version should be only +1 what we computed
+                        const versionDisparity = insertedVersion - version
+                        if (versionDisparity > 0) {
+                            logger.info('👥', 'Group update version mismatch', {
+                                team_id: teamId,
+                                group_type_index: groupTypeIndex,
+                                group_key: groupKey,
+                                version_disparity: versionDisparity,
+                            })
+                            groupUpdateVersionMismatchCounter.labels({ type: 'version_mismatch' }).inc()
+                        }
                     }
                 }
 
