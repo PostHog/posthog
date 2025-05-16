@@ -715,17 +715,9 @@ class Fix204Middleware:
     def __call__(self, request):
         response = self.get_response(request)
 
-        if response.status_code != 204:
-            return response
-
-        # Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers
-        for h in ["Content-Type", "X-Content-Type-Options"]:
-            if h in response.headers:
-                del response.headers[h]
-
-        response.headers["Content-Length"] = "0"
-
-        # Set content to empty string
-        response.content = b""
+        if response.status_code == 204:
+            response.content = b""
+            for h in ["Content-Type", "X-Content-Type-Options"]:
+                response.headers.pop(h, None)
 
         return response

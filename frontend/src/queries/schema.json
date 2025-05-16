@@ -621,7 +621,7 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query"],
+            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query", "analyze_user_interviews"],
             "type": "string"
         },
         "AssistantDateRange": {
@@ -3680,12 +3680,7 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -11988,19 +11983,29 @@
             "additionalProperties": false,
             "properties": {
                 "attributes": {
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "type": "object"
+                    "type": "string"
                 },
                 "body": {
                     "type": "string"
                 },
+                "event_name": {
+                    "type": "string"
+                },
+                "instrumentation_scope": {
+                    "type": "string"
+                },
+                "level": {
+                    "$ref": "#/definitions/LogSeverityLevel"
+                },
                 "observed_timestamp": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "resource": {
                     "type": "string"
+                },
+                "severity_number": {
+                    "type": "number"
                 },
                 "severity_text": {
                     "$ref": "#/definitions/LogSeverityLevel"
@@ -12008,10 +12013,8 @@
                 "span_id": {
                     "type": "string"
                 },
-                "team_id": {
-                    "$ref": "#/definitions/integer"
-                },
                 "timestamp": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "trace_id": {
@@ -12023,7 +12026,6 @@
             },
             "required": [
                 "uuid",
-                "team_id",
                 "trace_id",
                 "span_id",
                 "body",
@@ -12031,7 +12033,11 @@
                 "timestamp",
                 "observed_timestamp",
                 "severity_text",
-                "resource"
+                "severity_number",
+                "level",
+                "resource",
+                "instrumentation_scope",
+                "event_name"
             ],
             "type": "object"
         },
@@ -12116,12 +12122,7 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -15610,12 +15611,7 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/LogMessage"
-                            },
-                            "type": "array"
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
