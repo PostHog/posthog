@@ -27,7 +27,7 @@ const IMAGE_MAP: Record<Hog, string> = {
     hog4: '/static/hedgehog/warning-hog.png',
 }
 
-type Board = (Hog | null)[][] // 6×6 matrix of emoji / empty
+type Board = (Hog | null)[][] // 6×6 grid
 
 // ==========================================================================
 // Helpers
@@ -104,34 +104,30 @@ function findMatches(board: Board): string[] {
 }
 
 // ==========================================================================
+// Main component
 const CritterMatchGame: React.FC = () => {
+    // Game state
     const [board, setBoard] = useState<Board>(makeEmptyBoard())
     const [piece, setPiece] = useState<Piece>(genPiece())
     const [pointsLeft, setPointsLeft] = useState<number>(368)
     const [clearing, setClearing] = useState<Set<string>>(new Set())
     const [gameOver, setGameOver] = useState<boolean>(false)
 
+    // Refs & timers
     const clearTimer = useRef<NodeJS.Timeout | null>(null)
+    const boardRef = useRef<HTMLDivElement>(null)
 
     // ------------------------------------------------------------------------
-    // Drop handler
-    const handleDrop = useCallback(
-        (e: React.DragEvent<HTMLDivElement>, anchorRow: number, anchorCol: number) => {
-            e.preventDefault()
+    // Shared drop logic (desktop D-n-D + mobile pointer)
+    const attemptPlacePiece = useCallback(
+        (anchorR: number, anchorC: number, droppedPiece: Piece, offset: 0 | 1): void => {
             if (gameOver || clearing.size) {
-                return // don't allow drops during animation
-            }
-
-            const payloadText = e.dataTransfer.getData('text/plain')
-            if (!payloadText) {
                 return
             }
-            const { piece: droppedPiece, offset }: DragPayload = JSON.parse(payloadText)
+
             const { orientation, cells } = droppedPiece
 
-            // Adjust anchor if drag started on the 2nd square
-            let anchorR = anchorRow
-            let anchorC = anchorCol
+            // Adjust anchor when user grabbed the 2nd square
             if (offset === 1) {
                 if (orientation === 'horizontal') {
                     anchorC -= 1
@@ -139,18 +135,18 @@ const CritterMatchGame: React.FC = () => {
                     anchorR -= 1
                 }
             }
+
+            // Bounds
             if (anchorR < 0 || anchorC < 0) {
                 return
             }
-
-            // Coordinates of second cell
             const row2 = orientation === 'vertical' ? anchorR + 1 : anchorR
             const col2 = orientation === 'horizontal' ? anchorC + 1 : anchorC
-
-            // Bounds & occupancy checks
             if (row2 >= BOARD_SIZE || col2 >= BOARD_SIZE) {
                 return
             }
+
+            // Occupancy
             if (board[anchorR][anchorC] || board[row2][col2]) {
                 return
             }
@@ -160,19 +156,18 @@ const CritterMatchGame: React.FC = () => {
             newBoard[anchorR][anchorC] = cells[0]
             newBoard[row2][col2] = cells[1]
 
-            // Look for matches
+            // Matches?
             const toRemove = findMatches(newBoard)
             if (toRemove.length === 0) {
-                // No matches – just commit board and new piece
                 setBoard(newBoard)
                 setPiece(genPiece())
                 return
             }
 
-            // Otherwise trigger vanish animation
+            // Trigger vanish animation
             const removeSet = new Set(toRemove)
             setClearing(removeSet)
-            setBoard(newBoard) // show board with new pieces (they'll animate)
+            setBoard(newBoard)
 
             // After animation, actually clear cells & update score
             if (clearTimer.current) {
@@ -192,11 +187,24 @@ const CritterMatchGame: React.FC = () => {
                 setPiece(genPiece())
             }, 350) // matches CSS animation duration
         },
-        [board, piece, pointsLeft, gameOver, clearing.size]
+        [board, pointsLeft, gameOver, clearing.size]
     )
 
     // ------------------------------------------------------------------------
-    // Drag helpers
+    // Desktop HTML5 drag-and-drop handlers
+    const handleDrop = useCallback(
+        (e: React.DragEvent<HTMLDivElement>, anchorRow: number, anchorCol: number) => {
+            e.preventDefault()
+            const payloadText = e.dataTransfer.getData('text/plain')
+            if (!payloadText) {
+                return
+            }
+            const { piece: droppedPiece, offset }: DragPayload = JSON.parse(payloadText)
+            attemptPlacePiece(anchorRow, anchorCol, droppedPiece, offset)
+        },
+        [attemptPlacePiece]
+    )
+
     const allowDrop: React.DragEventHandler<HTMLDivElement> = (e) => e.preventDefault()
 
     const handlePieceDragStart: React.DragEventHandler<HTMLDivElement> = (e) => {
@@ -215,6 +223,80 @@ const CritterMatchGame: React.FC = () => {
         const payload: DragPayload = { piece, offset }
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('text/plain', JSON.stringify(payload))
+    }
+
+    // ------------------------------------------------------------------------
+    // Mobile / touch support using Pointer events
+    const [dragStyle, setDragStyle] = useState<React.CSSProperties>({})
+    const dragOffsetPx = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+    const dragOffsetCell = useRef<0 | 1>(0)
+    const isTouchDragging = useRef<boolean>(false)
+
+    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (e.pointerType === 'mouse') {
+            return // desktop uses native drag-and-drop
+        }
+        e.preventDefault()
+
+        // Which half of the piece was touched?
+        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+        const relX = e.clientX - rect.left
+        const relY = e.clientY - rect.top
+
+        let offset: 0 | 1 = 0
+        if (
+            (piece.orientation === 'horizontal' && relX > rect.width / 2) ||
+            (piece.orientation === 'vertical' && relY > rect.height / 2)
+        ) {
+            offset = 1
+        }
+        dragOffsetCell.current = offset
+        dragOffsetPx.current = { x: relX, y: relY }
+        isTouchDragging.current = true
+
+        // Move the original element with the finger
+        setDragStyle({
+            position: 'fixed',
+            left: e.clientX - relX,
+            top: e.clientY - relY,
+            zIndex: 1000,
+            touchAction: 'none',
+        })
+        ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    }
+
+    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!isTouchDragging.current) {
+            return
+        }
+        e.preventDefault()
+        setDragStyle((prev) => ({
+            ...prev,
+            left: e.clientX - dragOffsetPx.current.x,
+            top: e.clientY - dragOffsetPx.current.y,
+        }))
+    }
+
+    const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!isTouchDragging.current) {
+            return
+        }
+        e.preventDefault()
+
+        // Determine which cell the finger is over
+        const boardEl = boardRef.current
+        if (boardEl) {
+            const boardRect = boardEl.getBoundingClientRect()
+            const cellSize = boardRect.width / BOARD_SIZE
+            const col = Math.floor((e.clientX - boardRect.left) / cellSize)
+            const row = Math.floor((e.clientY - boardRect.top) / cellSize)
+            attemptPlacePiece(row, col, piece, dragOffsetCell.current)
+        }
+
+        // Reset drag state
+        isTouchDragging.current = false
+        setDragStyle({})
+        dragOffsetCell.current = 0
     }
 
     // ------------------------------------------------------------------------
@@ -238,7 +320,7 @@ const CritterMatchGame: React.FC = () => {
                 </h2>
 
                 {/* Board */}
-                <div className="cmg-board">
+                <div className="cmg-board" ref={boardRef}>
                     {board.map((row, r) =>
                         row.map((cell, c) => (
                             <div
@@ -253,24 +335,28 @@ const CritterMatchGame: React.FC = () => {
                     )}
                 </div>
 
-                {/* Two‑block piece – entire block draggable */}
+                {/* Two-block piece – entire block draggable */}
                 {!gameOver && (
-                    <div
-                        className="cmg-piece cmg-board"
-                        draggable
-                        onDragStart={handlePieceDragStart}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={
-                            {
+                    <div className="cmg-piece-holder">
+                        <div
+                            className="cmg-piece cmg-board"
+                            draggable
+                            onDragStart={handlePieceDragStart}
+                            onPointerDown={onPointerDown}
+                            onPointerMove={onPointerMove}
+                            onPointerUp={onPointerUp}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
                                 flexDirection: piece.orientation === 'horizontal' ? 'row' : 'column',
-                            } as React.CSSProperties
-                        }
-                    >
-                        {piece.cells.map((emoji, idx) => (
-                            <div key={idx} className="cmg-cell piece-cell">
-                                <img src={IMAGE_MAP[emoji]} alt={emoji} />
-                            </div>
-                        ))}
+                                ...dragStyle,
+                            }}
+                        >
+                            {piece.cells.map((emoji, idx) => (
+                                <div key={idx} className="cmg-cell piece-cell">
+                                    <img src={IMAGE_MAP[emoji]} alt={emoji} />
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
