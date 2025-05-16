@@ -3,7 +3,6 @@ import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
-    SurveyAppearance,
     SurveyMatchType,
     SurveyPosition,
     SurveyQuestionDescriptionContentType,
@@ -36,7 +35,7 @@ export const SurveyMatchTypeLabels = {
 }
 
 export const defaultSurveyAppearance = {
-    fontFamily: 'system-ui' as SurveyAppearance['fontFamily'],
+    fontFamily: 'inherit',
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
     submitButtonTextColor: 'white',
@@ -55,6 +54,9 @@ export const defaultSurveyAppearance = {
     textSubtleColor: '#939393',
     inputBackground: 'white',
     boxPadding: '20px 24px 10px',
+    zIndex: '2147482647',
+    shuffleQuestions: false,
+    surveyPopupDelaySeconds: undefined,
 } as const
 
 export const defaultSurveyFieldValues = {
@@ -353,8 +355,8 @@ export const errorTrackingSurvey: SurveyTemplate = {
 }
 
 export const WEB_SAFE_FONTS = [
-    { value: 'system-ui', label: 'system-ui (default)' },
-    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'inherit', label: 'inherit (default, uses the font family of your website)' },
+    { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
     { value: 'Tahoma', label: 'Tahoma' },

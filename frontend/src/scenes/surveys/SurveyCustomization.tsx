@@ -5,7 +5,6 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { PartialResponsesShuffleQuestionsBanner } from 'scenes/surveys/SurveyResponsesCollection'
 
 import {
     AvailableFeature,
@@ -311,8 +310,6 @@ export function Customization({
                         }}
                         checked={appearance?.shuffleQuestions}
                     />
-                    {/* Only show the partial responses banner when the survey type is defined */}
-                    {type && <PartialResponsesShuffleQuestionsBanner />}
                 </div>
                 <div className="mt-1">
                     <LemonField.Pure>

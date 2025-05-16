@@ -32,6 +32,7 @@ import { formatDate } from 'lib/utils'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { SurveyAppearanceCustomization } from 'scenes/surveys/SurveyAppearanceCustomization'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
@@ -45,16 +46,14 @@ import {
     RatingSurveyQuestion,
     SurveyMatchType,
     SurveyQuestion,
-    SurveyQuestionType,
     SurveySchedule,
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
+import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
-import { Customization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
@@ -233,7 +232,6 @@ export default function SurveyEdit(): JSX.Element {
         targetingFlagFilters,
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
-        surveyErrors,
         deviceTypesMatchTypeValidationError,
     } = useValues(surveyLogic)
     const {
@@ -641,31 +639,7 @@ export default function SurveyEdit(): JSX.Element {
                                   {
                                       key: SurveyEditSection.Customization,
                                       header: 'Customization',
-                                      content: (
-                                          <LemonField name="appearance" label="">
-                                              {({ value, onChange }) => (
-                                                  <Customization
-                                                      type={survey.type}
-                                                      appearance={value || defaultSurveyAppearance}
-                                                      hasBranchingLogic={hasBranchingLogic}
-                                                      deleteBranchingLogic={deleteBranchingLogic}
-                                                      customizeRatingButtons={survey.questions.some(
-                                                          (question) => question.type === SurveyQuestionType.Rating
-                                                      )}
-                                                      customizePlaceholderText={survey.questions.some(
-                                                          (question) => question.type === SurveyQuestionType.Open
-                                                      )}
-                                                      onAppearanceChange={(appearance) => {
-                                                          onChange(appearance)
-                                                      }}
-                                                      isCustomFontsEnabled={
-                                                          !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
-                                                      }
-                                                      validationErrors={surveyErrors?.appearance}
-                                                  />
-                                              )}
-                                          </LemonField>
-                                      ),
+                                      content: <SurveyAppearanceCustomization />,
                                   },
                               ]
                             : []),
@@ -754,7 +728,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                     data-attr="survey-url-matching-type"
                                                                     options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            label: SurveyMatchTypeLabels[
+                                                                                key as keyof typeof SurveyMatchTypeLabels
+                                                                            ],
                                                                             value: key,
                                                                         })
                                                                     )}
@@ -800,7 +776,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                     data-attr="survey-device-types-matching-type"
                                                                     options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            label: SurveyMatchTypeLabels[
+                                                                                key as keyof typeof SurveyMatchTypeLabels
+                                                                            ],
                                                                             value: key,
                                                                         })
                                                                     )}
@@ -1095,7 +1073,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex pr-4 flex-col items-center h-full sticky top-0 pt-16">
+            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}
