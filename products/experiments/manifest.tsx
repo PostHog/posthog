@@ -30,14 +30,17 @@ export const manifest: ProductManifest = {
         {
             path: `Experiment`,
             type: 'experiment',
-            href: () => urls.experiment('new'),
+            href: urls.experiment('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: `Experiments`,
             type: 'experiment',
-            href: () => urls.experiments(),
+            href: urls.experiments(),
         },
     ],
+    fileSystemFilterTypes: {
+        experiment: { name: 'Experiments' },
+    },
 }

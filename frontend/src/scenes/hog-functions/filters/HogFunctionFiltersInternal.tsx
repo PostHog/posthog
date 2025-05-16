@@ -36,6 +36,10 @@ const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKe
             label: 'Team activity',
             value: '$activity_log_entry_created',
         },
+        {
+            label: 'Early access feature updated',
+            value: '$early_access_feature_updated',
+        },
     ]
 }
 

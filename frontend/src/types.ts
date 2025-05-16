@@ -37,6 +37,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -197,6 +198,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    USER_INTERVIEWS = 'user_interviews',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
@@ -209,6 +211,8 @@ export enum ProductKey {
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    MAX = 'max',
+    LINKS = 'links',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -854,7 +858,6 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
-    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -895,11 +898,6 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
-    operator: PropertyOperator
-}
-
-export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -966,7 +964,6 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
-    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -2954,6 +2951,7 @@ export enum SurveyEventProperties {
     SURVEY_ITERATION = '$survey_iteration',
     SURVEY_PARTIALLY_COMPLETED = '$survey_partially_completed',
     SURVEY_SUBMISSION_ID = '$survey_submission_id',
+    SURVEY_COMPLETED = '$survey_completed',
 }
 
 export interface SurveyEventStats {
@@ -3561,6 +3559,15 @@ export interface Group {
     group_key: string
     created_at: string
     group_properties: Record<string, any>
+}
+
+export interface UserInterviewType {
+    id: string
+    created_by: UserBasicType
+    created_at: string
+    transcript: string
+    summary: string
+    interviewee_emails: string[]
 }
 
 export enum ExperimentConclusion {
@@ -4306,6 +4313,7 @@ export enum ActivityScope {
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    USER_INTERVIEW = 'UserInterview',
 }
 
 export type CommentType = {
@@ -5308,8 +5316,22 @@ export enum CookielessServerHashMode {
 /**
  * Assistant Conversation
  */
+export enum ConversationStatus {
+    Idle = 'idle',
+    InProgress = 'in_progress',
+    Canceling = 'canceling',
+}
+
 export interface Conversation {
     id: string
+    status: ConversationStatus
+    title: string | null
+    created_at: string | null
+    updated_at: string | null
+}
+
+export interface ConversationDetail extends Conversation {
+    messages: AssistantMessage[]
 }
 
 export enum UserRole {
@@ -5339,6 +5361,11 @@ export interface FileSystemType {
     href?: (ref: string) => string
 }
 
+export interface FileSystemFilterType {
+    name: string
+    flag?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -5348,6 +5375,8 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    treeItemsGames?: FileSystemImport[]
+    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {

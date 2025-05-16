@@ -1,13 +1,13 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { ExportOptions } from '~/exporter/types'
+import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
 import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
 
-import { BillingSectionId } from './billing/types'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import type { BillingSectionId } from './billing/types'
+import type { OnboardingStepKey } from './onboarding/onboardingLogic'
+import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
  * To add a new URL to the front end:
@@ -154,6 +154,9 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    links: (params?: string): string =>
+        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
