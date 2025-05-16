@@ -26,7 +26,7 @@ export async function upsertGroup(
     forUpdate: boolean = true
 ): Promise<void> {
     try {
-        const [propertiesUpdate, createdAt, version] = await db.postgres.transaction(
+        const [propertiesUpdate, createdAt, actualVersion] = await db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'upsertGroup',
             async (tx) => {
@@ -34,13 +34,15 @@ export async function upsertGroup(
                     forUpdate,
                 })
                 const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
-                const version = (group?.version || 0) + 1
+                const expectedVersion = (group?.version || 0) + 1
 
                 const propertiesUpdate = calculateUpdate(group?.group_properties || {}, properties)
 
                 if (!group) {
                     propertiesUpdate.updated = true
                 }
+
+                let actualVersion = expectedVersion
 
                 if (propertiesUpdate.updated) {
                     if (group) {
@@ -52,13 +54,14 @@ export async function upsertGroup(
                             createdAt,
                             {},
                             {},
-                            version,
+                            expectedVersion,
                             tx
                         )
                         if (updatedVersion !== undefined) {
-                            // Track the disparity between the version on the database and the version we computed
-                            // Without races, the returned version should be only +1 what we computed
-                            const versionDisparity = updatedVersion - version
+                            actualVersion = updatedVersion
+                            // Track the disparity between the version on the database and the version we expected
+                            // Without races, the returned version should be only +1 what we expected
+                            const versionDisparity = updatedVersion - expectedVersion
                             if (versionDisparity > 0) {
                                 logger.info('👥', 'Group update version mismatch', {
                                     team_id: teamId,
@@ -86,12 +89,13 @@ export async function upsertGroup(
                             createdAt,
                             {},
                             {},
-                            version,
+                            expectedVersion,
                             tx
                         )
-                        // Track the disparity between the version on the database and the version we computed
-                        // Without races, the returned version should be only +1 what we computed
-                        const versionDisparity = insertedVersion - version
+                        actualVersion = insertedVersion
+                        // Track the disparity between the version on the database and the version we expected
+                        // Without races, the returned version should be only +1 what we expected
+                        const versionDisparity = insertedVersion - expectedVersion
                         if (versionDisparity > 0) {
                             logger.info('👥', 'Group update version mismatch', {
                                 team_id: teamId,
@@ -104,7 +108,7 @@ export async function upsertGroup(
                     }
                 }
 
-                return [propertiesUpdate, createdAt, version]
+                return [propertiesUpdate, createdAt, actualVersion]
             }
         )
 
@@ -115,7 +119,7 @@ export async function upsertGroup(
                 groupKey,
                 propertiesUpdate.properties,
                 createdAt,
-                version
+                actualVersion
             )
         }
     } catch (error) {
