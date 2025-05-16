@@ -1,4 +1,5 @@
 use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsServiceServer;
+use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
 use tonic_web::GrpcWebLayer;
 use tower::Layer as TowerLayer;
 
@@ -43,7 +44,7 @@ async fn main() {
     let bind = format!("{}:{}", config.host, config.port);
 
     // Initialize ClickHouse writer and logs service
-    let logs_service = match Service::new(config).await {
+    let logs_service = match Service::new(config.clone()).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
@@ -51,9 +52,10 @@ async fn main() {
         }
     };
 
-    let router = tonic::service::Routes::new(
-        GrpcWebLayer::new().layer(tonic_web::enable(LogsServiceServer::new(logs_service))),
-    )
+    let router = tonic::service::Routes::new(GrpcWebLayer::new().layer(tonic_web::enable(
+        LogsServiceServer::new(logs_service.clone()),
+    )))
+    .add_service(tonic_web::enable(TraceServiceServer::new(logs_service)))
     .prepare()
     .into_axum_router()
     .route("/", get(index))
