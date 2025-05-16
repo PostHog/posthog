@@ -21,6 +21,10 @@ posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_ch
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "BaseModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "InlineModelAdmin"  [override]
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
+<<<<<<< HEAD
+=======
+posthog/api/capture.py:0: error: Function "builtins.any" is not valid as a type  [valid-type]
+>>>>>>> 805022e74f (update mypy baseline)
 posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/api/dashboards/dashboard.py:0: error: Argument 1 to "dashboard_queryset" of "DashboardTile" has incompatible type "DashboardTile_RelatedManager"; expected "QuerySet[Any, Any]"  [arg-type]
 posthog/api/documentation.py:0: error: Signature of "run_validation" incompatible with supertype "Field"  [override]
