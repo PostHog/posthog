@@ -35,7 +35,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_uri(data)
 
-        assert properties["$current_url"] == "https://example.com/foo/bar"
+        assert properties["document_url"] == "https://example.com/foo/bar"
         assert properties["violated_directive"] == "default-src self"
         assert properties["blocked_url"] == "https://evil.com/malicious-image.png"
         assert properties["script_sample"] == escape("alert('hello')")
@@ -57,7 +57,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        assert properties["$current_url"] == "https://example.com/page.html"
+        assert properties["document_url"] == "https://example.com/page.html"
         assert properties["user_agent"] == "Mozilla/5.0"
         assert properties["script_sample"] == escape("<script>console.log('test')</script>")
         assert properties["violated_directive"] == "script-src-elem"
@@ -111,8 +111,8 @@ class TestCSPModule(TestCase):
         to_properties = parse_report_to(report_to_data)
 
         # Verify common fields are parsed correctly in both formats
-        assert uri_properties["$current_url"] == "https://example.com/page"
-        assert to_properties["$current_url"] == "https://example.com/page"
+        assert uri_properties["document_url"] == "https://example.com/page"
+        assert to_properties["document_url"] == "https://example.com/page"
 
         assert uri_properties["referrer"] == "https://referrer.example.com"
         assert to_properties["referrer"] == "https://referrer.example.com"
@@ -187,7 +187,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        assert properties["$current_url"] == "https://example.com/csp-report"
+        assert properties["document_url"] == "https://example.com/csp-report"
         assert (
             properties["user_agent"]
             == "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
@@ -227,17 +227,17 @@ class TestCSPModule(TestCase):
             "type": "csp-violation",
         }
         properties1 = parse_report_to(data1)
-        assert properties1["$current_url"] == "https://example.com/page1"
+        assert properties1["document_url"] == "https://example.com/page1"
 
         # Test with url field instead of documentURL (and no document-uri)
         data2 = {"body": {"blocked-uri": "inline"}, "type": "csp-violation", "url": "https://example.com/page1"}
         properties2 = parse_report_to(data2)
-        assert properties2["$current_url"] == "https://example.com/page1"
+        assert properties2["document_url"] == "https://example.com/page1"
 
         # Test with no URL fields at all
         data3 = {"body": {"blocked-uri": "inline"}, "type": "csp-violation"}
         properties3 = parse_report_to(data3)
-        assert properties3["$current_url"] is None
+        assert properties3["document_url"] is None
 
     def test_parse_report_to_with_multiple_script_samples(self):
         data = {
@@ -270,4 +270,4 @@ class TestCSPModule(TestCase):
 
         assert event["distinct_id"] == "test-user"
         assert event["properties"]["$session_id"] == "test-session"
-        assert event["properties"]["csp_version"] == "1"
+        assert event["properties"]["$csp_version"] == "1"

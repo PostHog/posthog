@@ -1749,7 +1749,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$csp_raw_report": {
             "label": "Raw CSP report",
             "description": "The raw CSP report as received from the browser.",
-            "system": True,
         },
         "$csp_referrer": {
             "label": "CSP Referrer",
