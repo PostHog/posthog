@@ -636,8 +636,7 @@ describe('DB', () => {
                 { prop: 'newVal', prop2: 2 },
                 TIMESTAMP,
                 { prop: timestamp2.toISO()!, prop2: timestamp2.toISO()! },
-                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                2
+                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({

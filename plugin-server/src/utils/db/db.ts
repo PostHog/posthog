@@ -1274,7 +1274,6 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(

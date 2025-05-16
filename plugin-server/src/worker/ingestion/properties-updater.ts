@@ -54,7 +54,6 @@ export async function upsertGroup(
                             createdAt,
                             {},
                             {},
-                            expectedVersion,
                             tx
                         )
                         if (updatedVersion !== undefined) {
