@@ -299,6 +299,11 @@ export const treeItemsNew = [
     { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
+    {
+        path: `Insight/Calendar Heatmap`,
+        type: 'insight',
+        href: () => urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+    },
     { path: `Insight/Funnel`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },
     { path: `Insight/Retention`, type: 'insight', href: () => urls.insightNew({ type: InsightType.RETENTION }) },
