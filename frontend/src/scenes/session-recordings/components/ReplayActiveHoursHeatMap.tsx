@@ -31,7 +31,7 @@ export const ReplayActiveHoursHeatMap = (): JSX.Element => {
                 }}
                 onClick={(colIndex, rowIndex) => {
                     const daysToSubtract = 6 - colIndex
-                    let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc()
+                    let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc(true)
                     let endDate = startDate.clone()
 
                     if (rowIndex !== undefined) {
@@ -40,7 +40,7 @@ export const ReplayActiveHoursHeatMap = (): JSX.Element => {
                         startDate = startDate.hour(startHour)
                         endDate = endDate.hour(endHour)
                     } else {
-                        endDate.add(1, 'day')
+                        endDate = endDate.add(1, 'day')
                     }
 
                     router.actions.push(
