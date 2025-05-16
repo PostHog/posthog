@@ -2752,7 +2752,7 @@ const api = {
         async get(conversationId: ChatConversation['id']): Promise<ChatConversation> {
             return await new ApiRequest()
                 .chatConversation(conversationId)
-                .withQueryString(toParams({ is_assitant: true }))
+                .withQueryString(toParams({ is_assistant: true }))
                 .get()
         },
         async create(data: Partial<ChatConversation>): Promise<ChatConversation> {
