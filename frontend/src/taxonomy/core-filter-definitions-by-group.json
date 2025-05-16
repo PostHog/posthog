@@ -1725,7 +1725,7 @@
         },
         "$identify": {
             "description": "A user has been identified with properties.",
-            "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
+            "ignored_in_assistant": true,
             "label": "Identify"
         },
         "$merge_dangerously": {
