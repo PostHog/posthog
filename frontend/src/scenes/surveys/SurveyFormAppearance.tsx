@@ -20,7 +20,7 @@ export function SurveyFormAppearance({
     handleSetSelectedPageIndex,
 }: SurveyFormAppearanceProps): JSX.Element {
     return survey.type !== SurveyType.API ? (
-        <div className="survey-view max-w-72">
+        <>
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
@@ -54,7 +54,7 @@ export function SurveyFormAppearance({
                         : []),
                 ]}
             />
-        </div>
+        </>
     ) : (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>

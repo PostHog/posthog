@@ -64,6 +64,14 @@ export function Customization({
                         <></>
                     </PayGateMini>
                 )}
+                <LemonField.Pure label="Max width">
+                    <LemonInput
+                        value={appearance?.maxWidth}
+                        onChange={(maxWidth) => onAppearanceChange({ ...appearance, maxWidth })}
+                        disabled={!surveysStylingAvailable}
+                        className="ignore-error-border"
+                    />
+                </LemonField.Pure>
                 <LemonField.Pure label="Background color">
                     <LemonInput
                         value={appearance?.backgroundColor}

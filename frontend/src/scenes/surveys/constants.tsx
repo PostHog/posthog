@@ -51,7 +51,11 @@ export const defaultSurveyAppearance = {
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
-}
+    maxWidth: '300px',
+    textSubtleColor: '#939393',
+    inputBackground: 'white',
+    boxPadding: '20px 24px 10px',
+} as const
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
