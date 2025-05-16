@@ -9,6 +9,8 @@ from rest_framework.viewsets import GenericViewSet
 # Data manipulation
 import pandas as pd
 import numpy as np
+import pickle
+import os
 
 # Machine learning
 from catboost import CatBoostClassifier, Pool
@@ -30,9 +32,21 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # Set random seed for reproducibility
 np.random.seed(42)
 
+MODEL_PATH = "/tmp/churn_model.pkl"
+
 
 class ChurnPredictionViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
+
+    def _load_model(self):
+        if os.path.exists(MODEL_PATH):
+            with open(MODEL_PATH, "rb") as f:
+                return pickle.load(f)
+        return None
+
+    def _save_model(self, model):
+        with open(MODEL_PATH, "wb") as f:
+            pickle.dump(model, f)
 
     @action(methods=["POST"], detail=False)
     def train_model(self, request: request.Request, **kwargs):
@@ -89,6 +103,9 @@ class ChurnPredictionViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         model = CatBoostClassifier(**params)
         model.fit(train_pool, eval_set=test_pool)
 
+        # Save model
+        self._save_model(model)
+
         # Get predictions and probabilities
         y_pred = model.predict(X_test)
         y_pred_proba = model.predict_proba(X_test)[:, 1]
@@ -130,5 +147,58 @@ class ChurnPredictionViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 "class_distribution": class_distribution,
                 "categorical_features": [str(f) for f in cat_features],
                 "total_features": len(X.columns),
+            }
+        )
+
+    @action(methods=["POST"], detail=False)
+    def predict(self, request: request.Request, **kwargs):
+        if "dataset_query" not in request.data:
+            raise exceptions.ValidationError("Missing dataset query")
+        if "distinct_id" not in request.data:
+            raise exceptions.ValidationError("Missing distinct_id")
+
+        # Load model
+        model = self._load_model()
+        if not model:
+            raise exceptions.ValidationError("No trained model found. Please train a model first.")
+
+        query_runner = get_query_runner(
+            query={
+                "kind": "HogQLQuery",
+                "query": request.data["dataset_query"],
+            },
+            team=self.team,
+        )
+
+        query_result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        results = query_result.results
+
+        # Convert results to DataFrame
+        df = pd.DataFrame(results)
+
+        # Find the row for the specified distinct_id
+        target_row = df[df.iloc[:, 0] == request.data["distinct_id"]]
+        if target_row.empty:
+            raise exceptions.ValidationError(f"No data found for distinct_id: {request.data['distinct_id']}")
+
+        # Get features (all columns except last)
+        X = target_row.iloc[:, :-1]
+
+        # Identify categorical features
+        cat_features = X.select_dtypes(include=["object"]).columns.tolist()
+
+        # Create prediction pool
+        predict_pool = Pool(X, cat_features=cat_features)
+
+        # Make prediction
+        prediction = model.predict(predict_pool)[0]
+        probability = model.predict_proba(predict_pool)[0][1]  # Probability of class 1 (churn)
+
+        return Response(
+            {
+                "status": "success",
+                "distinct_id": request.data["distinct_id"],
+                "prediction": bool(prediction),
+                "probability": float(probability),
             }
         )

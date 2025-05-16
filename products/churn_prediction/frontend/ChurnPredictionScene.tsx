@@ -73,6 +73,16 @@ export function ChurnPredictionScene(): JSX.Element {
     >(undefined)
     const [trainingIsLoading, setTrainingIsLoading] = useState<boolean>(false)
 
+    const [distinctId, setDistinctId] = useState<string>('')
+    const [isCalculatingRisk, setIsCalculatingRisk] = useState<boolean>(false)
+    const [churnRisk, setChurnRisk] = useState<
+        | {
+              prediction: boolean
+              probability: number
+          }
+        | undefined
+    >(undefined)
+
     useEffect(() => {
         if (churnSignalQuery) {
             localStorage.setItem('churn_signal_query', JSON.stringify(churnSignalQuery))
@@ -143,6 +153,23 @@ export function ChurnPredictionScene(): JSX.Element {
             lemonToast.error('Error training model: ' + (error as Error).message)
         } finally {
             setTrainingIsLoading(false)
+        }
+    }
+
+    const calculateChurnRisk = async (): Promise<void> => {
+        if (!distinctId || !trainingDatasetQuery) return
+
+        setIsCalculatingRisk(true)
+        try {
+            const response = await api.create(`api/environments/1/churn_prediction/predict/`, {
+                dataset_query: trainingDatasetQuery,
+                distinct_id: distinctId,
+            })
+            setChurnRisk(response)
+        } catch (error) {
+            lemonToast.error('Error calculating churn risk: ' + (error as Error).message)
+        } finally {
+            setIsCalculatingRisk(false)
         }
     }
 
@@ -399,6 +426,19 @@ export function ChurnPredictionScene(): JSX.Element {
                 </div>
             )}
 
+            <LemonButton
+                type="primary"
+                loading={trainingIsLoading}
+                onClick={() => void trainModel()}
+                disabledReason={
+                    !hasChurnSignal || !hasCustomerBase || churnInputQueries.length === 0
+                        ? 'Configure a churn signal, customer base and inputs above to train a churn model'
+                        : undefined
+                }
+            >
+                {trainingResults ? 'Re-train' : 'Train'} churn model
+            </LemonButton>
+
             {trainingResults && (
                 <div className="flex flex-col gap-4 w-full">
                     <LemonLabel>Training results</LemonLabel>
@@ -454,21 +494,59 @@ export function ChurnPredictionScene(): JSX.Element {
                             ]}
                         />
                     </div>
+
+                    {/* Churn Risk Calculator */}
+                    <div className="border rounded p-4">
+                        <div className="font-semibold mb-2">Churn Risk Calculator</div>
+                        <div className="flex flex-col gap-4">
+                            <div className="flex gap-2">
+                                <LemonInput
+                                    placeholder="Enter distinct_id"
+                                    value={distinctId}
+                                    onChange={setDistinctId}
+                                    className="flex-1"
+                                />
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => void calculateChurnRisk()}
+                                    loading={isCalculatingRisk}
+                                    disabled={!distinctId || !trainingDatasetQuery}
+                                >
+                                    Calculate risk
+                                </LemonButton>
+                            </div>
+                            {churnRisk && (
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="text-muted">Churn Risk:</div>
+                                        <div
+                                            className={`font-semibold ${
+                                                churnRisk.probability > 0.7
+                                                    ? 'text-red'
+                                                    : churnRisk.probability > 0.3
+                                                    ? 'text-yellow'
+                                                    : 'text-green'
+                                            }`}
+                                        >
+                                            {(churnRisk.probability * 100).toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <div className="text-muted">Prediction:</div>
+                                        <div
+                                            className={`font-semibold ${
+                                                churnRisk.prediction ? 'text-red' : 'text-green'
+                                            }`}
+                                        >
+                                            {churnRisk.prediction ? 'Likely to churn' : 'Not likely to churn'}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
-
-            <LemonButton
-                type="primary"
-                loading={trainingIsLoading}
-                onClick={() => void trainModel()}
-                disabledReason={
-                    !hasChurnSignal || !hasCustomerBase || churnInputQueries.length === 0
-                        ? 'Configure a churn signal, customer base and inputs above to train a churn model'
-                        : undefined
-                }
-            >
-                Train churn model
-            </LemonButton>
 
             {queryDialog}
         </div>
