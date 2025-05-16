@@ -17,7 +17,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -35,7 +34,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     CalendarHeatmapQuery,
-    TrendsFormulaNode,
     CalendarHeatmapResponse,
     EventsHeatMapDataResult,
     EventsHeatMapRowAggregationResult,
@@ -119,9 +117,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
     ):
         if isinstance(query, dict):
             query = CalendarHeatmapQuery.model_validate(query)
-
-        # Use the new function to handle WAU/MAU conversions
-        query = convert_active_user_math_based_on_interval(query)
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
@@ -230,7 +225,9 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             return ast.Constant(value=True)
 
     def _all_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties, team=self.team)
+        if self.query.properties is not None and self.query.properties != []:
+            return property_to_expr(self.query.properties, team=self.team)
+        return ast.Constant(value=True)
 
     def _current_period_expression(self, field="start_timestamp"):
         return ast.Call(
@@ -312,10 +309,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-    @cached_property
-    def formula_nodes(self) -> list[TrendsFormulaNode]:
-        return []
 
     def _event_property(
         self,
