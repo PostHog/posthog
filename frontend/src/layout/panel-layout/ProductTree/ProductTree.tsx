@@ -58,7 +58,7 @@ export function ProductTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel>
+        <PanelLayoutPanel searchPlaceholder="Search products">
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
