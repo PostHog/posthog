@@ -446,7 +446,6 @@ class TestCapture(BaseTest):
                 HTTP_ORIGIN="https://localhost",
             )
 
-        # TODO(eli): catch error bubbled up when this fails in more detailed way?
         assert response.status_code == 400
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
