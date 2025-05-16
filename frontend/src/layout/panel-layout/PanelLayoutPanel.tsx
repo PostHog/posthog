@@ -130,7 +130,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {types
-                        .filter(([_, { flag }]) => !flag || featureFlags[flag])
+                        .filter(([_, { flag }]) => !flag || featureFlags[flag as keyof typeof featureFlags])
                         .map(([obj, { name }]) => (
                             <DropdownMenuItem
                                 key={obj}
