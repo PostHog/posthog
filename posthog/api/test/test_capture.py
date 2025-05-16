@@ -431,12 +431,32 @@ class TestCapture(BaseTest):
                     assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_non_numeric_offset(self, kafka_produce):
+        data = {
+            "event": "$exception",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "offset": "should_blow_up",  # only integer values may pass!
+            },
+        }
+        with self.assertNumQueries(0):  # Capture does not hit PG anymore
+            response = self.client.get(
+                "/e/?data={}".format(quote(self._to_json(data))),
+                HTTP_ORIGIN="https://localhost",
+            )
+
+        # TODO(eli): catch error bubbled up when this fails in more detailed way?
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
             "properties": {
                 "distinct_id": 2,
                 "token": self.team.api_token,
+                "offset": 1234,
                 "$elements": [
                     {
                         "tag_name": "a",
