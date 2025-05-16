@@ -11,16 +11,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
 
     return (
         <>
-            <div
-                className="text-sm text-text-3000"
-                onClick={() => {
-                    // reset local storage for testing purposes TODO REMOVE LATER
-                    localStorage.removeItem('posthog_stories_viewed')
-                }}
-            >
-                Check our features in action!
-            </div>
-            <div className="PosthogStoriesContainer flex flex-row gap-4 p-4 overflow-x-auto">
+            <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
                 {stories
                     .sort((a: storyGroup, b: storyGroup) => a.order - b.order)
                     .map((storyGroup: storyGroup, index: number) => {
