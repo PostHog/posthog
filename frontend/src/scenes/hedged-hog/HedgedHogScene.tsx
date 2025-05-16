@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { BurningMoneyHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -52,6 +53,7 @@ export function HedgedHogScene(): JSX.Element {
                     thingName="betting wallet"
                     description="Get Hedged with the Hedged Hot betting platform."
                     isEmpty={true}
+                    customHog={BurningMoneyHog}
                     action={() => initializeWallet()}
                 />
             ) : (
