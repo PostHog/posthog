@@ -51,7 +51,7 @@ ON data.real_hour_block = hours.hour_block
 GROUP BY hour_block
 ORDER BY hour_block`
 
-                const wat: HogQLQueryResponse = await api.query({
+                const queryResponse: HogQLQueryResponse = await api.query({
                     kind: NodeKind.HogQLQuery,
                     query: q,
                 })
@@ -65,7 +65,7 @@ ORDER BY hour_block`
 
                 breakpoint()
 
-                return wat
+                return queryResponse
             },
         },
     })),
