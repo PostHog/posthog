@@ -3,6 +3,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, SpinnerOv
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -43,6 +44,21 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
         return <SpinnerOverlay sceneLevel />
     }
 
+    const headerButtons = (
+        <>
+            <More
+                overlay={
+                    <>
+                        <LemonButton status="danger" fullWidth onClick={() => {}}>
+                            Delete
+                        </LemonButton>
+                    </>
+                }
+            />
+            <LemonDivider vertical />
+        </>
+    )
+
     const isNew = id === 'new'
     const buttonText = isNew ? 'Create link' : 'Update link'
 
@@ -60,9 +76,12 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader
                 delimited
                 buttons={
-                    <LemonButton type="primary" onClick={submitLink} loading={isLinkSubmitting}>
-                        {buttonText}
-                    </LemonButton>
+                    <>
+                        {headerButtons}
+                        <LemonButton type="primary" onClick={submitLink} loading={isLinkSubmitting}>
+                            {buttonText}
+                        </LemonButton>
+                    </>
                 }
             />
 
@@ -105,7 +124,13 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                 </LemonField>
                                 <span className="text-muted">/</span>
                                 <LemonField name="short_code" className="w-full">
-                                    <LemonInput fullWidth placeholder="short" className="flex-1" autoWidth={false} />
+                                    <LemonInput
+                                        fullWidth
+                                        maxLength={32}
+                                        placeholder="short"
+                                        className="flex-1"
+                                        autoWidth={false}
+                                    />
                                 </LemonField>
                             </div>
                         </div>

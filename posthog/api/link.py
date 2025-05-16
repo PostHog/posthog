@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 
 class LinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    short_code = serializers.CharField(required=True, allow_null=False)
+    short_code = serializers.CharField(required=True, allow_null=False, min_length=7, max_length=32)
 
     class Meta:
         model = Link
