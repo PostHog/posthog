@@ -347,7 +347,7 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
-def enforce_numeric_offset(properties: dict[str, any]):
+def enforce_numeric_offset(properties: dict[str, Any]):
     try:
         raw_offset = properties["offset"]
     except KeyError:
