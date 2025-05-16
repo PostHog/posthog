@@ -1,12 +1,15 @@
 import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { urls } from 'scenes/urls'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
+import { ReplayTabs } from '~/types'
 
 import type { replayActiveHoursHeatMapLogicType } from './replayActiveHoursHeatMapLogicType'
 
@@ -51,7 +54,7 @@ ON data.real_hour_block = hours.hour_block
 GROUP BY hour_block
 ORDER BY hour_block`
 
-                const queryResponse: HogQLQueryResponse = await api.query({
+                const qResponse: HogQLQueryResponse = await api.query({
                     kind: NodeKind.HogQLQuery,
                     query: q,
                 })
@@ -65,14 +68,41 @@ ORDER BY hour_block`
 
                 breakpoint()
 
-                return queryResponse
+                return qResponse
             },
         },
     })),
     selectors(() => ({
+        columnLabels: [
+            () => [],
+            () => [
+                now().subtract(6, 'day').format('ddd D'),
+                now().subtract(5, 'day').format('ddd D'),
+                now().subtract(4, 'day').format('ddd D'),
+                now().subtract(3, 'day').format('ddd D'),
+                now().subtract(2, 'day').format('ddd D'),
+                now().subtract(1, 'day').format('ddd D'),
+                'Today',
+            ],
+        ],
+        rowLabels: [
+            () => [],
+            () => [
+                '00:00 - 04:00',
+                '04:00 - 08:00',
+                '08:00 - 12:00',
+                '12:00 - 16:00',
+                '16:00 - 20:00',
+                '20:00 - 00:00',
+            ],
+        ],
         calendarHeatmapProps: [
-            (s) => [s.recordingsPerHour],
-            (recordingsPerHour): Pick<CalendarHeatMapProps, 'rowLabels' | 'columnLabels' | 'processedData'> => {
+            (s) => [s.recordingsPerHour, s.columnLabels, s.rowLabels],
+            (
+                recordingsPerHour,
+                columnLabels,
+                rowLabels
+            ): Pick<CalendarHeatMapProps, 'rowLabels' | 'columnLabels' | 'processedData'> => {
                 if (!recordingsPerHour || !recordingsPerHour.results) {
                     return {
                         rowLabels: [],
@@ -125,25 +155,42 @@ ORDER BY hour_block`
                 }
 
                 return {
-                    rowLabels: [
-                        '00:00 - 04:00',
-                        '04:00 - 08:00',
-                        '08:00 - 12:00',
-                        '12:00 - 16:00',
-                        '16:00 - 20:00',
-                        '20:00 - 00:00',
-                    ],
-                    columnLabels: [
-                        now().subtract(6, 'day').format('ddd D'),
-                        now().subtract(5, 'day').format('ddd D'),
-                        now().subtract(4, 'day').format('ddd D'),
-                        now().subtract(3, 'day').format('ddd D'),
-                        now().subtract(2, 'day').format('ddd D'),
-                        now().subtract(1, 'day').format('ddd D'),
-                        'Today',
-                    ],
+                    rowLabels: rowLabels,
+                    columnLabels: columnLabels,
                     processedData: processedData,
                 }
+            },
+        ],
+        getOnClickTooltip: [
+            (s) => [s.columnLabels, s.rowLabels],
+            (columnLabels, rowLabels) => (colIndex, rowIndex) => {
+                const day = columnLabels[colIndex]
+                const timeRange = rowIndex === undefined ? undefined : rowLabels[rowIndex]
+                return `View recordings for ${day}${timeRange ? ` ${timeRange}` : ''}`
+            },
+        ],
+        onCellClick: [
+            () => [],
+            () => (colIndex, rowIndex) => {
+                const daysToSubtract = 6 - colIndex
+                let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc(true)
+                let endDate = startDate.clone()
+
+                if (rowIndex !== undefined) {
+                    const startHour = rowIndex * 4
+                    const endHour = startHour + 4
+                    startDate = startDate.hour(startHour)
+                    endDate = endDate.hour(endHour)
+                } else {
+                    endDate = endDate.add(1, 'day')
+                }
+
+                router.actions.push(
+                    urls.replay(ReplayTabs.Home, {
+                        date_from: startDate.toISOString(),
+                        date_to: endDate.toISOString(),
+                    })
+                )
             },
         ],
     })),
