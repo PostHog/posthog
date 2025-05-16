@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Fragment } from 'react'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -18,7 +19,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
         <div className="flex flex-col h-full overflow-y-scoll deprecated-space-y-px mb-2">
             {actions.length ? (
                 actions.map((action, index) => (
-                    <>
+                    <Fragment key={action.id}>
                         <Link
                             subtle
                             key={action.id}
@@ -30,7 +31,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                                 {action.name || <span className="italic text-secondary">Untitled</span>}
                             </span>
                         </Link>
-                    </>
+                    </Fragment>
                 ))
             ) : allActionsLoading ? (
                 <div className="flex items-center">
