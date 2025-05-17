@@ -126,6 +126,7 @@ class SessionSummarySerializer(serializers.Serializer):
     Session summary enriched with metadata.
     """
 
+    session_id = serializers.CharField(min_length=1, max_length=128, required=True, allow_null=False)
     segments = serializers.ListField(
         child=EnrichedSegmentSerializer(), required=False, allow_empty=True, allow_null=True
     )
@@ -459,12 +460,12 @@ def enrich_raw_session_summary_with_meta(
     event_index_index = get_column_index(simplified_events_columns, "event_index")
     raw_segments = raw_session_summary.data.get("segments")
     raw_key_actions = raw_session_summary.data.get("key_actions")
-    summary_to_enrich = dict(raw_session_summary.data)
+    summary_to_enrich = {"session_id": session_id, **dict(raw_session_summary.data)}
     # Enrich LLM segments with metadata
     enriched_segments = []
     if not raw_segments:
         # If segments aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(raw_session_summary.data, session_id)
+        session_summary = _validate_enriched_summary(summary_to_enrich, session_id)
         return session_summary
     for raw_segment in raw_segments:
         enriched_segment = dict(raw_segment)
