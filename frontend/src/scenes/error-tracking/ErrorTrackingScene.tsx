@@ -22,6 +22,7 @@ import { ErrorFilters } from './components/ErrorFilters'
 import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { StatusIndicator } from './components/Indicator'
+import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { RuntimeIcon } from './components/RuntimeIcon'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -82,6 +83,9 @@ export function ErrorTrackingScene(): JSX.Element {
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const { dateRange } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
+    if (!record.aggregations) {
+        throw new Error('No aggregations found')
+    }
     const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
@@ -118,7 +122,7 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { assignIssue } = useActions(errorTrackingDataNodeLogic)
+    const { updateIssueAssignee } = useActions(issueActionsLogic)
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
@@ -166,7 +170,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <span>|</span>
                     <AssigneeSelect
                         assignee={record.assignee}
-                        onChange={(assignee) => assignIssue(record.id, assignee)}
+                        onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
                     >
                         {(anyAssignee) => (
                             <div
