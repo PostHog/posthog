@@ -6,6 +6,7 @@ from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
+from django.conf import settings
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -618,3 +619,85 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
+
+
+@override_settings(SESSION_COOKIE_CREATED_AT_KEY="session_created_at")
+class TestSessionAgeMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.session_cookie_age = 3600  # 1 hour
+        self.organization.save()
+
+        # Create another organization with different session age
+        self.other_org = create_organization(name="other org")
+        self.other_org.session_cookie_age = 7200  # 2 hours
+        self.other_org.save()
+
+        # Add user to both organizations
+        self.user.organization_memberships.create(organization=self.other_org)
+
+    def test_session_expiry_set_to_shortest_age(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        with freeze_time(now):
+            # Login and set initial session
+            self.client.force_login(self.user)
+            response = self.client.get("/")
+            self.assertEqual(response.status_code, 200)
+
+            # Check session expiry is set to shortest age (1 hour)
+            self.assertEqual(self.client.session.get_expiry_age(), 3600)
+
+    def test_session_expiry_updates_with_remaining_time(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        with freeze_time(now):
+            # Login and set initial session
+            self.client.force_login(self.user)
+            self.client.get("/")
+
+            # Move forward 30 minutes
+            now = now + timedelta(minutes=30)
+            with freeze_time(now):
+                self.client.get("/")
+                # Should have 30 minutes remaining
+                self.assertEqual(
+                    self.client.session.get_expiry_age(),
+                    1800,  # 30 minutes in seconds
+                )
+
+    def test_session_expiry_handles_no_org_settings(self):
+        # Remove session cookie age from both orgs
+        self.organization.session_cookie_age = None
+        self.organization.save()
+        self.other_org.session_cookie_age = None
+        self.other_org.save()
+
+        self.client.force_login(self.user)
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        # Should use default Django session expiry
+        self.assertIsNone(self.client.session.get_expiry_age())
+
+    def test_session_expiry_handles_missing_created_at(self):
+        self.client.force_login(self.user)
+        # Remove created_at from session
+        del self.client.session[settings.SESSION_COOKIE_CREATED_AT_KEY]
+        self.client.session.save()
+
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        # Should set created_at and use full session age
+        self.assertEqual(self.client.session.get_expiry_age(), 3600)
+        self.assertIn(settings.SESSION_COOKIE_CREATED_AT_KEY, self.client.session)
+
+    def test_session_expiry_handles_negative_remaining_time(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        with freeze_time(now):
+            self.client.force_login(self.user)
+            self.client.get("/")
+
+            # Move forward past expiry
+            now = now + timedelta(hours=2)
+            with freeze_time(now):
+                self.client.get("/")
+                # Should be 0 since session is expired
+                self.assertEqual(self.client.session.get_expiry_age(), 0)

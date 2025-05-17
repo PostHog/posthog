@@ -26,6 +26,7 @@ from django_prometheus.middleware import (
 )
 from rest_framework import status
 from statshog.defaults.django import statsd
+from posthog.utils import capture_exception
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
@@ -645,6 +646,33 @@ class SessionAgeMiddleware:
     def __call__(self, request: HttpRequest):
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
+
+        # Set the session cookie age based on the organization setting if available
+        if hasattr(request, "user") and request.user.is_authenticated:
+            try:
+                # Use UserPermissions for efficient organization access
+                user_permissions = UserPermissions(user=request.user)
+
+                # Get all organizations and find the shortest session cookie age
+                shortest_age = None
+                for org in user_permissions.organizations.values():
+                    if hasattr(org, "session_cookie_age") and org.session_cookie_age is not None:
+                        if shortest_age is None or org.session_cookie_age < shortest_age:
+                            shortest_age = org.session_cookie_age
+
+                if shortest_age is not None:
+                    # Calculate elapsed time since session creation
+                    created_at = request.session[settings.SESSION_COOKIE_CREATED_AT_KEY]
+                    now = time.time()
+                    elapsed = now - created_at
+
+                    # Update the session expiry to match the remainder of allowed time
+                    remaining_time = max(0, shortest_age - elapsed)
+                    request.session.set_expiry(remaining_time)
+
+            except Exception as e:
+                capture_exception(e)
+
         return self.get_response(request)
 
 
