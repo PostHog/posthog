@@ -41,15 +41,13 @@ export const ExplainCSPViolationButton = ({
             overlay={
                 <div className="p-4 max-w-160 max-h-160 overflow-auto">
                     <div className="flex items-center justify-between mb-2 border-b pb-2">
-                        <>
-                            {/** We're not a MaxTool yet */}
-                            <ProfilePicture
-                                user={{ hedgehog_config: { use_as_profile: true } }}
-                                size="md"
-                                className="border bg-bg-light"
-                            />
-                            <h5 className="font-semibold m-0">CSP Violation Explanation</h5>
-                        </>
+                        {/** We're not a MaxTool yet */}
+                        <ProfilePicture
+                            user={{ hedgehog_config: { use_as_profile: true } }}
+                            size="md"
+                            className="border bg-bg-light"
+                        />
+                        <h5 className="font-semibold m-0">CSP Violation Explanation</h5>
                         <LemonButton
                             type="tertiary"
                             onClick={() => setIsOpen(false)}
