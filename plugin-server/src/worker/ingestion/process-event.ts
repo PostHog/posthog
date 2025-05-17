@@ -301,7 +301,8 @@ export class EventsProcessor {
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},
-                timestamp
+                timestamp,
+                !this.hub.DISABLE_GROUP_SELECT_FOR_UPDATE
             )
         }
     }

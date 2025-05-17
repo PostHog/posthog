@@ -1235,10 +1235,9 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const result = await this.postgres.query(
+    ): Promise<number> {
+        const result = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
@@ -1254,7 +1253,7 @@ export class DB {
                 createdAt.toISO(),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
+                1,
             ],
             'upsertGroup'
         )
@@ -1262,6 +1261,8 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
+
+        return Number(result.rows[0].version || 0)
     }
 
     public async updateGroup(
@@ -1272,10 +1273,9 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        await this.postgres.query(
+    ): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             `
             UPDATE posthog_group SET
@@ -1283,8 +1283,9 @@ export class DB {
             group_properties = $5,
             properties_last_updated_at = $6,
             properties_last_operation = $7,
-            version = $8
+            version = COALESCE(version, 0)::numeric + 1
             WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
+            RETURNING version
             `,
             [
                 teamId,
@@ -1294,10 +1295,15 @@ export class DB {
                 JSON.stringify(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
             ],
             'upsertGroup'
         )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     public async upsertGroupClickhouse(
