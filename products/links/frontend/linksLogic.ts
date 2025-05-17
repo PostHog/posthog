@@ -2,7 +2,8 @@ import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { LinkType } from './linkConfigurationLogic'
+import { LinkType } from '~/types'
+
 import type { linksLogicType } from './linksLogicType'
 
 export const linksLogic = kea<linksLogicType>([

@@ -164,7 +164,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     }),
     selectors({
-        mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
         breadcrumbs: [
             (s) => [s.earlyAccessFeature],
             (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [

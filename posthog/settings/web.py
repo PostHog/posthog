@@ -30,6 +30,7 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 PRODUCTS_APPS = [
     "products.early_access_features",
     "products.editor",
+    "products.links",
     "products.revenue_analytics",
     "products.user_interviews",
 ]

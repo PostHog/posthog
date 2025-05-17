@@ -8,7 +8,7 @@ from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import Link
+from .models import Link
 import structlog
 
 from posthog.models.team.team import Team
@@ -69,6 +69,14 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
 
+    # TODO: Call the /invalidate route on the Rust service
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().update(request, *args, **kwargs)
+
+    # TODO: Call the /invalidate route on the Rust service
+    # and wait for confirmation before we delete this link
+    #
+    # TODO: Consider implementing "archiving" rather than deletion
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         logger.info("link_deleted", id=instance.id, team_id=self.team_id)

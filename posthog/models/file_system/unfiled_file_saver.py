@@ -19,6 +19,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.links.backend.models import Link
 
 MIXIN_MODELS = {
     "action": Action,
@@ -26,6 +27,7 @@ MIXIN_MODELS = {
     "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
+    "link": Link,
     "notebook": Notebook,
     "early_access_feature": EarlyAccessFeature,
     "session_recording_playlist": SessionRecordingPlaylist,

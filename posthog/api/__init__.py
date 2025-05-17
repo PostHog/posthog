@@ -22,6 +22,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -53,7 +54,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    link,
     notebook,
     organization,
     organization_domain,

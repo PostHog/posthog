@@ -1,4 +1,3 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
@@ -20,9 +19,7 @@ export function LinkMetricSparkline({ id }: Props): JSX.Element {
         },
     ]
 
-    return !sparklineData || sparklineDataLoading ? (
-        <LemonSkeleton className="h-8 max-w-24" />
-    ) : (
+    return (
         <Sparkline
             loading={sparklineDataLoading}
             labels={sparklineData?.labels}
