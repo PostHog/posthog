@@ -7,16 +7,20 @@ import {
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
@@ -76,6 +80,17 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    const { currentLocation } = useValues(router)
+
+    const [wasUserAutoEnrolled, setWasUserAutoEnrolled] = useState(false)
+    useEffect(() => {
+        if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+            updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.ARTIFICIAL_HOG, true)
+            setWasUserAutoEnrolled(true)
+        }
+    }, [])
 
     const headerButtons = (
         <>
@@ -160,6 +175,27 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                 // This makes the transition from one view into another just that bit smoother visually.
                 <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                    {wasUserAutoEnrolled && (
+                        <LemonBanner
+                            type="info"
+                            className="mt-3"
+                            hideIcon={false}
+                            onClose={() => setWasUserAutoEnrolled(false)}
+                        >
+                            PostHog AI feature preview{' '}
+                            <Link
+                                to={
+                                    combineUrl(currentLocation.pathname, currentLocation.search, {
+                                        ...currentLocation.hashParams,
+                                        panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
+                                    }).url
+                                }
+                            >
+                                activated
+                            </Link>
+                            !
+                        </LemonBanner>
+                    )}
                     <div className="flex-1 items-center justify-center flex flex-col gap-3">
                         <Intro />
                         <QuestionInput />

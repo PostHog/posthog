@@ -52,11 +52,19 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext, s.currentTeam],
-            (isCloudOrDev, featureflags, sceneSidePanelContext, currentTeam) => {
+            (s) => [
+                s.selectedTab,
+                s.sidePanelOpen,
+                s.isCloudOrDev,
+                s.featureFlags,
+                s.sceneSidePanelContext,
+                s.currentTeam,
+            ],
+            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureflags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (selectedTab === SidePanelTab.Max && sidePanelOpen)) {
+                    // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
                 tabs.push(SidePanelTab.Notebooks)
@@ -74,12 +82,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
+                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
 
                 if (
-                    featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
+                    featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
                     sceneSidePanelContext.access_control_resource &&
                     sceneSidePanelContext.access_control_resource_id
                 ) {
