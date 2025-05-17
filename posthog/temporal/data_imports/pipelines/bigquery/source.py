@@ -10,6 +10,8 @@ from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.oauth2 import service_account
 
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.bigquery import bigquery_client
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -106,6 +108,78 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
     return primary_keys
 
 
+def _get_rows_to_sync(
+    table: bigquery.Table,
+    client: bigquery.Client,
+    is_incremental: bool,
+    db_incremental_field_last_value: typing.Any,
+    logger: FilteringBoundLogger,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
+) -> int:
+    try:
+        if not is_incremental:
+            table = client.get_table(table)
+            if table.num_rows:
+                logger.debug(f"_get_rows_to_sync: table.num_rows={table.num_rows}")
+
+                return table.num_rows
+
+        inner_query = _get_query(
+            is_incremental, db_incremental_field_last_value, table, incremental_field, incremental_field_type
+        )
+
+        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+        job_config = QueryJobConfig()
+        job = client.query(query, job_config=job_config)
+
+        rows = job.result(page_size=1)
+        row = next(rows, None)
+
+        if row and len(row) > 0 and row[0] is not None:
+            rows_to_sync_int = int(row[0])
+            logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+            return rows_to_sync_int
+
+        logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+
+        return 0
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
+
+
+def _get_query(
+    is_incremental: bool,
+    db_incremental_field_last_value: typing.Any,
+    bq_table: bigquery.Table,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
+) -> str:
+    if is_incremental:
+        if incremental_field is None or incremental_field_type is None:
+            raise ValueError("incremental_field and incremental_field_type can't be None")
+
+        if db_incremental_field_last_value is None:
+            last_value: int | datetime | date | str = incremental_type_to_initial_value(incremental_field_type)
+        else:
+            last_value = db_incremental_field_last_value
+
+        if isinstance(last_value, datetime) or isinstance(last_value, date):
+            last_value = f"'{last_value.isoformat()}'"
+
+        return f"""
+            SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
+            WHERE `{incremental_field}` >= {last_value}
+            ORDER BY `{incremental_field}` ASC
+            """
+
+    return f"SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`"
+
+
 def bigquery_source(
     project_id: str,
     dataset_id: str,
@@ -117,6 +191,7 @@ def bigquery_source(
     is_incremental: bool,
     bq_destination_table_id: str,
     db_incremental_field_last_value: typing.Any,
+    logger: FilteringBoundLogger,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
     partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
@@ -140,6 +215,15 @@ def bigquery_source(
         bq_table = bq_client.get_table(fully_qualified_table_name)
         primary_keys = get_primary_keys(bq_table, bq_client)
         partition_settings = get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
+        rows_to_sync = _get_rows_to_sync(
+            bq_table,
+            bq_client,
+            is_incremental,
+            db_incremental_field_last_value,
+            logger,
+            incremental_field,
+            incremental_field_type,
+        )
 
     def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
         with bigquery_client(
@@ -160,22 +244,9 @@ def bigquery_source(
                 # TODO: Think about whether this is at all necessary. We (and our users)
                 # are paying a (potentially high) cost to run this query job and store
                 # this data, when we could instead give up tracking and read it.
-                if incremental_field is None or incremental_field_type is None:
-                    raise ValueError("incremental_field and incremental_field_type can't be None")
-
-                if db_incremental_field_last_value is None:
-                    last_value: int | datetime | date | str = incremental_type_to_initial_value(incremental_field_type)
-                else:
-                    last_value = db_incremental_field_last_value
-
-                if isinstance(last_value, datetime) or isinstance(last_value, date):
-                    last_value = f"'{last_value.isoformat()}'"
-
-                query = f"""
-                SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
-                WHERE `{incremental_field}` >= {last_value}
-                ORDER BY `{incremental_field}` ASC
-                """
+                query = _get_query(
+                    is_incremental, db_incremental_field_last_value, bq_table, incremental_field, incremental_field_type
+                )
 
                 destination_table = bigquery.Table(bq_destination_table_id)
                 job_config = QueryJobConfig(destination=destination_table)
@@ -190,9 +261,9 @@ def bigquery_source(
                 # results to a temporary table first. In the case of an incremental sync,
                 # we already do this for all tables and views, so here we just handle the
                 # views or materialized views that are not incremental.
-                query = f"""
-                SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
-                """
+                query = _get_query(
+                    is_incremental, db_incremental_field_last_value, bq_table, incremental_field, incremental_field_type
+                )
 
                 destination_table = bigquery.Table(bq_destination_table_id)
                 job_config = QueryJobConfig(destination=destination_table)
@@ -257,4 +328,5 @@ def bigquery_source(
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
+        rows_to_sync=rows_to_sync,
     )
