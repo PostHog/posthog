@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use uuid::Uuid;
 
-use crate::{config::Config, redirect::links_model::LinkRow};
+use crate::{config::Config, redirect::models::LinkRow};
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_for_test);
 
