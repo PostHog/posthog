@@ -33,6 +33,11 @@ services:
                         path /flags*
                     }
 
+                    @links {
+                        path /links
+                        path /links*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3000
                     }
