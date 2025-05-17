@@ -14,7 +14,7 @@ import { gameTreeLogic } from '../GameTree/gameTreeLogic'
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 
 export function GameTree(): JSX.Element {
-    const { treeItems } = useValues(gameTreeLogic)
+    const { gameTreeItems } = useValues(gameTreeLogic)
     const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
@@ -64,7 +64,7 @@ export function GameTree(): JSX.Element {
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeItems}
+                data={gameTreeItems}
                 itemContextMenu={(item) => {
                     return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
                 }}

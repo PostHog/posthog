@@ -14,7 +14,7 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { productTreeLogic } from '../ProductTree/productTreeLogic'
 
 export function ProductTree(): JSX.Element {
-    const { treeItems } = useValues(productTreeLogic)
+    const { productTreeItems } = useValues(productTreeLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
     const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -63,7 +63,7 @@ export function ProductTree(): JSX.Element {
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeItems}
+                data={productTreeItems}
                 itemContextMenu={(item) => {
                     return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
                 }}
