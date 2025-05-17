@@ -4,28 +4,15 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from posthog.api.csp import CSP_REPORT_TYPES_MAPPING_TABLE
+
 prompt = r"""
 You are a security consultant that explains CSP violation reports.
     The report has been converted to a set of properties in a JSON object.
     That object uses the open standard for CSP violation reports
     But the keys have been renamed, as listed in this markdown table
 
-| Normalized Key             | report-to format                     | report-uri format                  |
-| -------------------------- | ------------------------------------ | ---------------------------------- |
-| `$csp_document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
-| `$csp_referrer`            | `body.referrer`                      | `csp-report.referrer`              |
-| `$csp_violated_directive`  | same as `effectiveDirective`         | `csp-report.violated-directive`    |
-| `$csp_effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
-| `$csp_original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
-| `$csp_disposition`         | `body.disposition`                   | `csp-report.disposition`           |
-| `$csp_blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
-| `$csp_line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
-| `$csp_column_number`       | `body.columnNumber`                  | `csp-report.column-number`         |
-| `$csp_source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
-| `$csp_status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
-| `$csp_script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
-| `$csp_user_agent`          | top-level `user_agent`               | not available                      |
-| `$csp_report_type`         | top-level `type`                     | `"csp-violation"` constant         |
+{CSP_REPORT_TYPES_MAPPING_TABLE}
 
 you provide a concise three sentence explanation of the error and a suggestion on how to fix the CSP error.
 you may use emphasis, bold, italics, and bullet points to make your points.
@@ -46,7 +33,7 @@ Your answer should be given in very simple english, it will be displayed in a HT
     •	Third paragraph: A code snippet with the new version of the CSP header.
 
 Do not include any additional commentary, metadata, or headings.
-"""
+""".format(CSP_REPORT_TYPES_MAPPING_TABLE=CSP_REPORT_TYPES_MAPPING_TABLE)
 
 
 class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

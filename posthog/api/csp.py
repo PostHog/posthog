@@ -11,11 +11,7 @@ from django.utils.html import escape
 
 logger = structlog.get_logger(__name__)
 
-"""
-This module is used to parse CSP reports into PostHog events.
-
-Keep this table in sync with the table in posthog/api/csp_reporting.py
-
+CSP_REPORT_TYPES_MAPPING_TABLE = """
 | Normalized Key             | report-to format                     | report-uri format                  |
 | -------------------------- | ------------------------------------ | ---------------------------------- |
 | `$csp_document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
