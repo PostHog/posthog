@@ -103,7 +103,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             • path:<txt>     → match any parent-folder segment (substring)
             • name:<txt>     → match the basename (substring)
             • user:<txt>     → matches creator full-name or e-mail (use **user:me** as a shortcut)
-            • type:<txt>     → exact match (or use an ending “/” for prefix match)
+            • type:<txt>     → exact match (or use an ending "/" for prefix match)
             • ref:<txt>      → exact match
         • Plain tokens         → searched in `path` (`icontains`)
         • Quotes               → `"multi word value"` keeps spaces together
@@ -143,7 +143,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     #
                     #   (^|(?<!\\)/)       ← segment start (BOL or un-escaped /)
                     #   ([^/]|\\.)*value([^/]|\\.)*
-                    #   (?<!\\)/          ← next un-escaped slash (ensures “parent”)
+                    #   (?<!\\)/          ← next un-escaped slash (ensures "parent")
                     # ────────────────────────────────────────────────────────────
                     regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*(?<!\\)/"
                     q = Q(path__iregex=regex)
@@ -153,7 +153,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     # substring search *only* in the last segment (basename)
                     #   (^|(?<!\\)/)       ← segment start
                     #   ([^/]|\\.)*value([^/]|\\.)*
-                    #   $                 ← end-of-string  (marks “last” segment)
+                    #   $                 ← end-of-string  (marks "last" segment)
                     # ────────────────────────────────────────────────────────────
                     regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
                     q = Q(path__iregex=regex)
@@ -163,7 +163,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     if value.lower() == "me" and self.request.user.is_authenticated:
                         q = Q(created_by=self.request.user)
                     else:
-                        # build “first last” once and do a single icontains
+                        # build "first last" once and do a single icontains
                         queryset = queryset.annotate(
                             _created_by_full_name=Concat(
                                 F("created_by__first_name"),
@@ -186,7 +186,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     q = Q(path__icontains=token)
             else:
                 # plain free-text token: search in path
-                q = Q(path__icontains=token)
+                # If the token contains a slash, treat it as a path and search for each segment
+                if "/" in token:
+                    path_parts = token.split("/")
+                    q = Q()
+                    for part in path_parts:
+                        if part:  # Skip empty parts
+                            q &= Q(path__icontains=part)
+                else:
+                    q = Q(path__icontains=token)
 
             combined_q &= ~q if negated else q
 
