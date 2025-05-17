@@ -53,7 +53,7 @@
         "@floating-ui/react": "^0.26.9",
         "@lottiefiles/react-lottie-player": "^3.4.7",
         "@medv/finder": "^3.1.0",
-        "@microlink/react-json-view": "^1.21.3",
+        "@microlink/react-json-view": "^1.26.2",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
         "@posthog/ee": "workspace:*",
