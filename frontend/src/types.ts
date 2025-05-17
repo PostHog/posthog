@@ -3106,6 +3106,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3118,6 +3119,7 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
