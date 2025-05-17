@@ -19,6 +19,31 @@ const mockTooltips = {
     getOverallAggregationTooltip: (label: string, value: number) => `${label}: ${value}`,
 }
 
+const mockData = {
+    isLoading: false,
+    rowLabels: ['Homepage', 'Pricing', 'Docs', 'Blog'],
+    columnLabels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    allAggregationsLabel: 'Total',
+    processedData: {
+        matrix: [
+            [1200, 1500, 1800, 1400, 1600],
+            [800, 950, 1100, 900, 1000],
+            [600, 750, 900, 700, 800],
+            [400, 550, 700, 500, 600],
+        ],
+        columnsAggregations: [3000, 3750, 4500, 3500, 4000],
+        rowsAggregations: [7500, 4750, 3750, 2750],
+        overallValue: 18750,
+        maxOverall: 1800,
+        minOverall: 400,
+        maxRowAggregation: 7500,
+        minRowAggregation: 2750,
+        maxColumnAggregation: 4500,
+        minColumnAggregation: 3000,
+    },
+    ...mockTooltips,
+}
+
 export const Loading: Story = {
     args: {
         isLoading: true,
@@ -73,28 +98,27 @@ export const NoResults: Story = {
 }
 
 export const WithData: Story = {
+    args: mockData,
+}
+
+export const WithHiddenColumnAggregation: Story = {
     args: {
-        isLoading: false,
-        rowLabels: ['Homepage', 'Pricing', 'Docs', 'Blog'],
-        columnLabels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-        allAggregationsLabel: 'Total',
-        processedData: {
-            matrix: [
-                [1200, 1500, 1800, 1400, 1600],
-                [800, 950, 1100, 900, 1000],
-                [600, 750, 900, 700, 800],
-                [400, 550, 700, 500, 600],
-            ],
-            columnsAggregations: [3000, 3750, 4500, 3500, 4000],
-            rowsAggregations: [7500, 4750, 3750, 2750],
-            overallValue: 18750,
-            maxOverall: 1800,
-            minOverall: 400,
-            maxRowAggregation: 7500,
-            minRowAggregation: 2750,
-            maxColumnAggregation: 4500,
-            minColumnAggregation: 3000,
-        },
-        ...mockTooltips,
+        ...mockData,
+        showColumnAggregations: false,
+    },
+}
+
+export const WithHiddenRowAggregation: Story = {
+    args: {
+        ...mockData,
+        showRowAggregations: false,
+    },
+}
+
+export const WithAllHiddenAggregation: Story = {
+    args: {
+        ...mockData,
+        showColumnAggregations: false,
+        showRowAggregations: false,
     },
 }

@@ -5,6 +5,7 @@ import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
 
 import { buildIntegerMatcher } from '../../../config/config'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
 import { logger as logger } from '../../../utils/logger'
@@ -62,6 +63,24 @@ export class SessionRecordingIngester {
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
+        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
+        let metadataSwitchoverDate: Date | null = null
+        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
+            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
+            if (!isNaN(parsed)) {
+                metadataSwitchoverDate = new Date(parsed)
+                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                    parsedDate: metadataSwitchoverDate.toISOString(),
+                })
+            } else {
+                logger.warn('SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                })
+                metadataSwitchoverDate = null
+            }
+        }
+
         this.promiseScheduler = new PromiseScheduler()
 
         this.kafkaConsumer = new KafkaConsumer({
@@ -105,7 +124,10 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(producer)
+        const metadataStore = new SessionMetadataStore(
+            producer,
+            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC || KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST
+        )
         const consoleLogStore = new SessionConsoleLogStore(
             producer,
             this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
@@ -127,6 +149,7 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            metadataSwitchoverDate,
         })
     }
 

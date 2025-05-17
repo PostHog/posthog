@@ -55,7 +55,7 @@ export function SessionRecordingsPlaylist({
 
     const sections: PlaylistSection[] = []
 
-    if (logicProps.logicKey) {
+    if (pinnedRecordings.length) {
         sections.push({
             key: 'pinned',
             title: (
@@ -72,7 +72,7 @@ export function SessionRecordingsPlaylist({
         })
     }
 
-    if (!logicProps.logicKey) {
+    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
         sections.push({
             key: 'other',
             title: (

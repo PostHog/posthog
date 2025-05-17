@@ -578,6 +578,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-cohorts':
+        specifier: workspace:*
+        version: link:../products/cohorts
       '@posthog/products-dashboards':
         specifier: workspace:*
         version: link:../products/dashboards
@@ -590,12 +593,18 @@ importers:
       '@posthog/products-feature-flags':
         specifier: workspace:*
         version: link:../products/feature_flags
+      '@posthog/products-games':
+        specifier: workspace:*
+        version: link:../products/games
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
       '@posthog/products-llm-observability':
         specifier: workspace:*
         version: link:../products/llm_observability
+      '@posthog/products-logs':
+        specifier: workspace:*
+        version: link:../products/logs
       '@posthog/products-messaging':
         specifier: workspace:*
         version: link:../products/messaging
@@ -614,6 +623,12 @@ importers:
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics
+      '@posthog/products-surveys':
+        specifier: workspace:*
+        version: link:../products/surveys
+      '@posthog/products-user-interviews':
+        specifier: workspace:*
+        version: link:../products/user_interviews
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
@@ -858,8 +873,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.240.3
-        version: 1.240.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.242.2
+        version: 1.242.2(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -872,6 +887,9 @@ importers:
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
+      qrcode.react:
+        specifier: ^4.2.0
+        version: 4.2.0(react@18.2.0)
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1569,6 +1587,33 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/cohorts:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/dashboards:
     dependencies:
       '@posthog/icons':
@@ -1682,6 +1727,33 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/games:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/groups:
     dependencies:
       '@posthog/icons':
@@ -1710,6 +1782,54 @@ importers:
         version: 18.2.0
 
   products/llm_observability:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      classnames:
+        specifier: '*'
+        version: 2.5.1
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      eslint:
+        specifier: '*'
+        version: 8.57.0
+      eslint-plugin-posthog:
+        specifier: workspace:*
+        version: link:../../common/eslint_rules
+      jest:
+        specifier: '*'
+        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      prettier:
+        specifier: '*'
+        version: 3.4.2
+      react:
+        specifier: '*'
+        version: 18.2.0
+      stylelint:
+        specifier: '*'
+        version: 15.11.0(typescript@4.9.5)
+      typescript:
+        specifier: ~4.9.5
+        version: 4.9.5
+
+  products/logs:
     dependencies:
       '@posthog/icons':
         specifier: 0.13.1
@@ -1924,6 +2044,60 @@ importers:
       kea-router:
         specifier: '*'
         version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/surveys:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/user_interviews:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      posthog-js:
+        specifier: '*'
+        version: 1.242.2(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -13258,8 +13432,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.240.3:
-    resolution: {integrity: sha512-8SLOatYvxbuG4HWbRTvIvIQ0iVGwZSuj8drmSDjvD2gunT4F/2o5glYxOEpaHHWp06kRnAWP1Kwi494a38AwEA==}
+  posthog-js@1.242.2:
+    resolution: {integrity: sha512-bj5Bq9Z/TE24k0fbt/VoD13xsqCybuoLp7KkWmfknEiO63+1Ln/PnX/1CjppikE9yM7toQIWY3vY7hT/RTT57Q==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -13534,6 +13708,11 @@ packages:
 
   pure-rand@6.1.0:
     resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
+
+  qrcode.react@4.2.0:
+    resolution: {integrity: sha512-QpgqWi8rD9DsS9EP3z7BT+5lY5SFhsqGjpgW5DY/i3mK4M9DTBNz3ErMi8BWYEfI3L0d8GIbGmcdFAS1uIRGjA==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   qs@6.10.4:
     resolution: {integrity: sha512-OQiU+C+Ds5qiH91qh/mg0w+8nwQuLjM4F4M/PbmhDOoYehPh+Fb0bDjtR1sOvy7YKxvj28Y/M0PhP5uVX0kB+g==}
@@ -15492,8 +15671,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.259.0:
-    resolution: {integrity: sha512-u5XYqhyOXESMQcgaS3SgzQgpoJOGIHU8wu0KPkMtVRfeuvcJOinomy6reqxN03tlsSt/u33OGY5z3ijFWVTlXA==}
+  unlayer-types@1.261.0:
+    resolution: {integrity: sha512-aSJTrqXQIClOSar5PENIrjRoHEiq5LRLLb9Z1k5D0g42FKiZVHQVolhPzN1ilw9FCl3lRNm1Ke000zDHiDSGGg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30813,7 +30992,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.240.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.242.2(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -31146,6 +31325,10 @@ snapshots:
 
   pure-rand@6.1.0: {}
 
+  qrcode.react@4.2.0(react@18.2.0):
+    dependencies:
+      react: 18.2.0
+
   qs@6.10.4:
     dependencies:
       side-channel: 1.1.0
@@ -31320,7 +31503,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.259.0
+      unlayer-types: 1.261.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33442,7 +33625,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.259.0: {}
+  unlayer-types@1.261.0: {}
 
   unpipe@1.0.0: {}
 

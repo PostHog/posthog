@@ -13,34 +13,17 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryMeta
 
 
 class TestLoadRawSessionSummary:
-    def test_load_raw_session_summary_success(self, mock_valid_llm_yaml_response: str) -> None:
+    def test_load_raw_session_summary_success(
+        self, mock_valid_llm_yaml_response: str, mock_loaded_llm_json_response: dict[str, Any]
+    ) -> None:
         allowed_event_ids = ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"]
         session_id = "test_session"
         result = load_raw_session_summary_from_llm_content(mock_valid_llm_yaml_response, allowed_event_ids, session_id)
         assert result is not None
         # Ensure the LLM output is valid
         assert result.is_valid()
-        # Check segments
-        segments = result.data["segments"]
-        assert len(segments) == 2
-        assert segments[0]["index"] == 0
-        assert segments[0]["start_event_id"] == "abcd1234"
-        # Check key actions
-        key_actions = result.data["key_actions"]
-        assert len(key_actions) == 2
-        first_segment_actions = key_actions[0]["events"]
-        assert len(first_segment_actions) == 2
-        assert first_segment_actions[0]["event_id"] == "abcd1234"
-        assert first_segment_actions[0]["failure"] is False
-        # Check segment outcomes
-        segment_outcomes = result.data["segment_outcomes"]
-        assert len(segment_outcomes) == 2
-        assert segment_outcomes[0]["segment_index"] == 0
-        assert segment_outcomes[0]["success"] is True
-        # Check session outcome
-        session_outcome = result.data["session_outcome"]
-        assert session_outcome["success"] is True
-        assert "description" in session_outcome
+        # Compare the entire structure
+        assert result.data == mock_loaded_llm_json_response
 
     def test_load_raw_session_summary_no_content(self) -> None:
         session_id = "test_session"
@@ -343,3 +326,50 @@ class TestEnrichRawSessionSummary:
         assert len(events) > 1
         assert events[0]["milliseconds_since_start"] < events[1]["milliseconds_since_start"]
         assert datetime.fromisoformat(events[0]["timestamp"]) < datetime.fromisoformat(events[1]["timestamp"])
+
+    def test_enrich_raw_session_summary_metadata(
+        self,
+        mock_raw_session_summary: RawSessionSummarySerializer,
+        mock_events_mapping: dict[str, list[Any]],
+        mock_events_columns: list[str],
+        mock_url_mapping_reversed: dict[str, str],
+        mock_window_mapping_reversed: dict[str, str],
+        mock_session_metadata: SessionSummaryMetadata,
+    ) -> None:
+        session_id = "test_session"
+        result = enrich_raw_session_summary_with_meta(
+            mock_raw_session_summary,
+            mock_events_mapping,
+            mock_events_columns,
+            mock_url_mapping_reversed,
+            mock_window_mapping_reversed,
+            mock_session_metadata,
+            session_id,
+        )
+        assert result.is_valid()
+
+        # Expected metadata for segment 0 (successful segment)
+        assert result.data["segments"][0]["meta"] == {
+            "abandonment_count": 0,
+            "confusion_count": 0,
+            "duration": 5,
+            "duration_percentage": 0.0009,
+            "events_count": 3,
+            "events_percentage": 0.4286,
+            "exception_count": 0,
+            "failure_count": 0,
+            "key_action_count": 2,
+        }
+
+        # Expected metadata for segment 1 (segment with failures)
+        assert result.data["segments"][1]["meta"] == {
+            "abandonment_count": 1,
+            "confusion_count": 1,
+            "duration": 17,
+            "duration_percentage": 0.0032,
+            "events_count": 4,
+            "events_percentage": 0.5714,
+            "exception_count": 1,
+            "failure_count": 2,
+            "key_action_count": 3,
+        }
