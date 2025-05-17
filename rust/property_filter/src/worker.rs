@@ -25,7 +25,6 @@ const PROPFILTER_DEFS_SCANNED: &str = "propfilter_definitions_scanned";
 // looking at the distribution of propdefs to teams in the database, this
 // feels like a reasonable threshold, but we can make final decisions later
 const TEAM_PROPDEFS_CAP: i32 = 100_000;
-const _TEAM_PROPDEFS_FILTER_SIZE_CAP: usize = 8192; // TODO(eli): enforce this! 8k as initial limit
 
 // batch size & retry params
 const BATCH_FETCH_SIZE: i64 = 1_000;
