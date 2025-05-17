@@ -297,15 +297,27 @@ jobs:
                     fi
                   fi
 
-                  echo "Snapshot changes:"
+                  PATHS_FLAPPING=()
+                  snapshots_changed_now=($(git diff --name-only HEAD))
+                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
+                  for snapshot_path in "${snapshots_changed_now[@]}"; do
+                      number_of_times_file_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
+                      if [ "$number_of_times_file_has_changed_since_last_human_commit" -gt 0 ]; then
+                          PATHS_FLAPPING+=($snapshot_path)
+                      fi
+                  done
+
                   echo "Added: $ADDED"
                   echo "Modified: $MODIFIED"
                   echo "Deleted: $DELETED"
                   echo "Total: $TOTAL"
+                  echo "Paths flapping: $PATHS_FLAPPING"
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
+                  echo "${{ matrix.browser }}-${{ matrix.shard }}-pathsFlapping=$PATHS_FLAPPING" >> $GITHUB_OUTPUT
+                  echo
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
@@ -341,6 +353,7 @@ jobs:
 
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }
+                      const flaps = []
                       const diffByBrowser = Object.fromEntries(BROWSERS.map(browser => [browser, {
                         total: 0, added: 0, modified: 0, deleted: 0, commitHashes: []
                       }]))
@@ -348,7 +361,9 @@ jobs:
                         // Split e.g. 'chromium-1-commitHash' into ['chromium', '1' 'commitHash']
                         const [browser, shardNumber, diffKey] = key.split('-')
                         // Sum up the counts - but not the commit hash
-                        if (diffKey === 'commitHash') {
+                        if (diffKey = 'pathsFlapping') {
+                          flaps.push([parseInt(shardNumber), rawValue])
+                        } else if (diffKey === 'commitHash') {
                           diffByBrowser[browser].commitHashes.push([parseInt(shardNumber), rawValue])
                         } else {
                           const value = parseInt(rawValue)
@@ -385,6 +400,15 @@ jobs:
                         return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
                       }).join('\n')
 
+                      let flapsDisplay = ''
+                      if (flaps.length > 0) {
+                        flapsDisplay = [
+                          '\n### ‼️ UI snapshot flapping detected ‼️\n',
+                          ...flaps.map(([shardNumber, path]) => `- ${path}`),
+                          '\nIt doesn't matter who started it – the flippie-flopppies are a deadly disease that must be cured. Fix the cause of floppiness NOW. Run `pnpm storybook` to test the fix locally.'
+                        ].join('\n')
+                      }
+
                       github.rest.issues.createComment({
                         issue_number: context.issue.number,
                         owner: context.repo.owner,
@@ -393,7 +417,7 @@ jobs:
 
                       **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
 
-                      ${diffByBrowserDisplay}
+                      ${diffByBrowserDisplay}${flapsDisplay}
 
                       _Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }})._
 
