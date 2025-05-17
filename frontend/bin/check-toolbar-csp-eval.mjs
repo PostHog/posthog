@@ -5,7 +5,7 @@ import path from "path";
 
 // Parse dist/toolbar.js and check for anything that might trigger CSP script-src violations
 
-// The thread model here is:
+// The threat model here is:
 // * We're not trying to protect against an attacker hiding an eval like window["ev" + "al"]("...").
 // * This is OK because any actual violations will be caught by the customer's actual CSP rules.
 // * We are just trying to prevent false positives in the CSP report.
