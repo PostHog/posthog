@@ -1,5 +1,7 @@
 import { LemonSelect } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
@@ -19,8 +21,14 @@ export function SurveyFormAppearance({
     survey,
     handleSetSelectedPageIndex,
 }: SurveyFormAppearanceProps): JSX.Element {
+    const { isAppearanceModalOpen } = useValues(surveyLogic)
+
+    if (isAppearanceModalOpen) {
+        return <div />
+    }
+
     return survey.type !== SurveyType.API ? (
-        <div className="survey-view max-w-72">
+        <>
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
@@ -54,7 +62,7 @@ export function SurveyFormAppearance({
                         : []),
                 ]}
             />
-        </div>
+        </>
     ) : (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>

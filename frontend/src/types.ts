@@ -3033,6 +3033,12 @@ export enum SurveyType {
 }
 
 export enum SurveyPosition {
+    TopLeft = 'top_left',
+    TopCenter = 'top_center',
+    TopRight = 'top_right',
+    MiddleLeft = 'middle_left',
+    MiddleCenter = 'middle_center',
+    MiddleRight = 'middle_right',
     Left = 'left',
     Center = 'center',
     Right = 'right',
@@ -3075,6 +3081,12 @@ export interface SurveyAppearance {
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
     disabledButtonOpacity?: string
+    maxWidth?: string
+    textSubtleColor?: string
+    inputBackground?: string
+    boxPadding?: string
+    boxShadow?: string
+    borderRadius?: string
 }
 
 export interface SurveyQuestionBase {
