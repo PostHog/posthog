@@ -825,6 +825,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   // HogQL rules
+  
+  VISIT(Create) {
+    auto table_identifier_ctx = ctx->tableIdentifier();
+    vector<string> table =
+        table_identifier_ctx ? any_cast<vector<string>>(visit(table_identifier_ctx)) : vector<string>();
+
+    auto select_ctx = ctx->select();
+    PyObject* select = visitAsPyObject(select_ctx);
+
+    RETURN_NEW_AST_NODE("CreateQuery", "{s:N, s:N}", "chain", X_PyList_FromStrings(table), "select_query", select);
+  }
 
   VISIT(Select) {
     auto select_set_stmt_ctx = ctx->selectSetStmt();
@@ -3054,6 +3065,7 @@ METHOD_PARSE_NODE(OrderExpr, orderExpr, order_expr)
 METHOD_PARSE_NODE(Select, select, select)
 METHOD_PARSE_NODE(FullTemplateString, fullTemplateString, full_template_string)
 METHOD_PARSE_NODE(Program, program, program)
+METHOD_PARSE_NODE(Create, create, create)
 
 #undef METHOD_PARSE_NODE
 
@@ -3089,6 +3101,10 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = (PyCFunction)method_parse_full_template_string,
      .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse a Hog template string into an AST"},
+    {.ml_name = "parse_create",
+     .ml_meth = (PyCFunction)method_parse_create,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse the CREATE statement string into an AST"},
     {.ml_name = "parse_program",
      .ml_meth = (PyCFunction)method_parse_program,
      .ml_flags = METH_VARARGS | METH_KEYWORDS,

@@ -28,7 +28,7 @@ from posthog.hogql.ast import (
 from posthog.hogql.parser import parse_program
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template, parse_create
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -49,6 +49,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
+
+        def _create(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
+            return clear_locations(parse_create(expr, placeholders=placeholders, backend=backend))
 
         def _select(
             self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
@@ -804,6 +807,15 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("interval event year"),
                 ast.Call(name="toIntervalYear", args=[ast.Field(chain=["event"])]),
+            )
+
+        def test_create_table(self):
+            self.assertEqual(
+                self._create("create table test as (select 1)"),
+                ast.CreateQuery(
+                    chain=ast.Field(chain=["test"]),
+                    select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                ),
             )
 
         def test_select_columns(self):
