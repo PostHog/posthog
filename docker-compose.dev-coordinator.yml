@@ -180,14 +180,6 @@ services:
             - redis
             - db
 
-    links:
-        extends:
-            file: docker-compose.base.yml
-            service: links
-        depends_on:
-            - db
-            - redis
-
     livestream:
         extends:
             file: docker-compose.base.yml

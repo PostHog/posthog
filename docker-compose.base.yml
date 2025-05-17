@@ -33,11 +33,6 @@ services:
                         path /flags*
                     }
 
-                    @links {
-                        path /links
-                        path /links*
-                    }
-
                     handle @capture {
                         reverse_proxy capture:3000
                     }
@@ -48,10 +43,6 @@ services:
 
                     handle @flags {
                         reverse_proxy feature-flags:3001
-                    }
-
-                    handle @links {
-                        reverse_proxy links:3001
                     }
 
                     handle {
@@ -251,19 +242,6 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
-
-    links:
-        image: ghcr.io/posthog/posthog/links:master
-        build:
-            context: rust/
-            args:
-                BIN: links
-        restart: on-failure
-        environment:
-            READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            INTERNAL_REDIS_URL: 'redis://redis:6379/'
-            EXTERNAL_REDIS_URL: 'redis://redis:6379/'
-            ADDRESS: '0.0.0.0:3001'
 
     livestream:
         image: 'ghcr.io/posthog/livestream:main'
