@@ -17,9 +17,9 @@ pub struct Context {
 pub struct FilterRow {
     // the team this filter represents
     pub team_id: i64,
-    // the raw bytes (from Postgres BYTEA cols) of the serialized bloom filters
-    pub fwd_bloom: Option<Vec<u8>>,
-    pub rev_bloom: Option<Vec<u8>>,
+    // the raw bytes (from Postgres BYTEA cols) of the serialized trie
+    // containing the team's known event properties
+    pub filter: Option<Vec<u8>>,
     // number of property definitions recorded in the filters
     pub property_count: i32,
     // is this team prohibited from defining any more properties?

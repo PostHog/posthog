@@ -120,7 +120,7 @@ clickhouse = { version = "0.13.2", features = [
     "inserter",
     "rustls-tls",
 ] }
-qp-trie = "0.8.2"
+qp-trie = { version = "0.8.2", features = [ "serde" ] }
 prost = "0.13.5"
 prost-derive = "0.13.5"
 prost-types = "0.13.5"

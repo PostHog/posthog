@@ -7,13 +7,12 @@ publish = false
 [dependencies]
 health = { path = "../common/health" }
 serve-metrics = { path = "../common/serve_metrics" }
+bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 futures = { workspace = true }
 time = { workspace = true }
 serde = { workspace = true }
-sbbf-rs-safe = { workspace = true }
-fxhash = { workspace = true }
 sqlx = { workspace = true }
 metrics = { workspace = true }
 tokio = { workspace = true }
@@ -21,6 +20,8 @@ axum = { workspace = true }
 envconfig = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }
+serde_json = { workspace = true }
+qp-trie = { workspace = true }
 
 [lints]
 workspace = true

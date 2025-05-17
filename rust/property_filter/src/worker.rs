@@ -1,14 +1,11 @@
-use std::fmt;
-use std::hash::Hasher;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{fmt, sync::Arc, time::Duration};
 
 use crate::app::{Context, FilterRow};
-
 use chrono::Utc;
-use fxhash::FxHasher64;
-use sbbf_rs_safe::Filter;
+use qp_trie::{wrapper::BString, Trie};
 use serde::{Deserialize, Serialize};
+use serde_json::{from_str, to_value, Error};
+
 use sqlx::{
     postgres::{PgQueryResult, PgRow},
     FromRow,
@@ -35,11 +32,6 @@ const BATCH_FETCH_SIZE: i64 = 1_000;
 const BATCH_RETRY_DELAY_MS: u64 = 100;
 const MAX_BATCH_FETCH_ATTEMPTS: u64 = 5;
 const MAX_PROPFILTER_STORE_ATTEMPTS: u64 = 5;
-
-// TODO(eli): bloom filter params DO NOT CHANGE ONCE DECIDED :)
-// play with the math, iterate, and measure behavior in property-defs-rs before finalizing!
-const BITS_PER_KEY: usize = 64;
-const NUM_KEYS: usize = 1_000_000;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct PropEntry {
@@ -92,24 +84,31 @@ pub struct PropertyRow {
     group_type_index: Option<i8>,
 }
 
-// Builds or updates the Bloom filters for the specified FilterRow (team ID)
+// Builds or updates the properties trie for the specified team's FilterRow
 // which may be brand new, or fetched from posthog_propertyfilter by the
 // caller. This function is will be spawned in a thread and fanned out in
 // a fixed-size worker pool (Tokio runtime) to control DB R/W load.
 pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
+    let team_id = filter_row.team_id;
     let mut offset: i64 = 0;
-    let mut fwd_filter = filter_row
-        .fwd_bloom
-        .as_ref()
-        .map_or(Filter::new(BITS_PER_KEY, NUM_KEYS), |bs| {
-            Filter::from_bytes(bs).expect("failed to deserialize bloom filter")
-        });
-    let mut rev_filter = filter_row
-        .rev_bloom
-        .as_ref()
-        .map_or(Filter::new(BITS_PER_KEY, NUM_KEYS), |bs| {
-            Filter::from_bytes(bs).expect("failed to deserialize bloom filter")
-        });
+    let buf = std::mem::take(&mut filter_row.filter);
+    let mut filter: Trie<BString, bool> = match buf {
+        Some(buf) => {
+            let data = String::from_utf8(buf).unwrap();
+            match from_str::<Trie<BString, bool>>(&data) {
+                Ok(trie) => trie,
+                Err(e) => {
+                    // TODO(eli): also stat this fail!
+                    error!(
+                        "failed to deserialize Trie from filter row for team {}, got: {}",
+                        team_id, e
+                    );
+                    Trie::new()
+                }
+            }
+        }
+        None => Trie::new(),
+    };
 
     loop {
         if filter_row.property_count >= TEAM_PROPDEFS_CAP {
@@ -120,7 +119,14 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
 
             // mark as blocked along with other partial updates before persisting
             filter_row.blocked = true;
-            filter_row = update_prop_filter(filter_row, &fwd_filter, &rev_filter);
+            filter_row = update_prop_filter(filter_row, &filter)
+                .map_err(|e| {
+                    error!(
+                        "failed to serialize filter for team {}, got: {}",
+                        team_id, e
+                    );
+                })
+                .unwrap();
 
             match store_team_filter(&ctx, &filter_row).await {
                 Ok(result) => {
@@ -145,36 +151,15 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
             return;
         }
 
-        match get_next_batch(&ctx, filter_row.team_id, offset).await {
+        match get_next_batch(&ctx, team_id, offset).await {
             Ok(rows) => {
                 let mut insert_count: usize = 0;
                 for row in &rows {
                     let pd_row = PropertyRow::from_row(row).unwrap();
+                    let entry = PropEntry::from_row(pd_row).to_string();
 
-                    // build a hash for each bloom filter and insert
-                    // into the corresponding filter if missing
-                    let fwd_entry = PropEntry::from_row(pd_row).to_string();
-                    let mut fwd_hasher = FxHasher64::default();
-                    fwd_hasher.write(fwd_entry.as_bytes());
-                    let fwd_hash = fwd_hasher.finish();
-
-                    let rev_entry = fwd_entry.chars().rev().collect::<String>();
-                    let mut rev_hasher = FxHasher64::default();
-                    rev_hasher.write(rev_entry.as_bytes());
-                    let rev_hash = rev_hasher.finish();
-
-                    // only add the key to a filter if it's missing, and
-                    // only update the prop count once for this step
-                    let mut exists = true;
-                    if !fwd_filter.contains_hash(fwd_hash) {
-                        exists = false;
-                        fwd_filter.insert_hash(fwd_hash);
-                    }
-                    if !rev_filter.contains_hash(rev_hash) {
-                        exists = false;
-                        rev_filter.insert_hash(rev_hash);
-                    }
-                    if !exists {
+                    if filter.get_str(&entry).is_none() {
+                        filter.insert_str(&entry, true);
                         insert_count += 1;
                         filter_row.property_count += 1;
                     }
@@ -182,7 +167,14 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
 
                 // if we've processed all the rows, we're done
                 if rows.is_empty() {
-                    filter_row = update_prop_filter(filter_row, &fwd_filter, &rev_filter);
+                    filter_row = update_prop_filter(filter_row, &filter)
+                        .map_err(|e| {
+                            error!(
+                                "failed to serialize filter for team {}, got: {}",
+                                team_id, e
+                            );
+                        })
+                        .unwrap();
                     match store_team_filter(&ctx, &filter_row).await {
                         Ok(result) => {
                             metrics::counter!(PROPFILTER_TEAMS_PROCESSED, &[("result", "success")])
@@ -226,7 +218,11 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
                     "Failed fetching posthog_propertydefinition row batch: {}",
                     e
                 );
-                filter_row = update_prop_filter(filter_row, &fwd_filter, &rev_filter);
+                filter_row = update_prop_filter(filter_row, &filter)
+                    .map_err(|e| {
+                        error!("failed to serialize filter for team {} got: {}", team_id, e);
+                    })
+                    .unwrap();
                 metrics::counter!(PROPFILTER_TEAMS_FAILED, &[("reason", "batch_fetch")])
                     .increment(1);
                 match store_team_filter(&ctx, &filter_row).await {
@@ -247,11 +243,15 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
     }
 }
 
-fn update_prop_filter(mut filter_row: FilterRow, fwd: &Filter, rev: &Filter) -> FilterRow {
-    filter_row.fwd_bloom = Some(fwd.as_bytes().into());
-    filter_row.rev_bloom = Some(rev.as_bytes().into());
+fn update_prop_filter(
+    mut filter_row: FilterRow,
+    filter: &Trie<BString, bool>,
+) -> Result<FilterRow, Error> {
+    let data = to_value::<&Trie<BString, bool>>(filter)?;
+    filter_row.filter = Some(data.to_string().bytes().collect());
     filter_row.last_updated_at = Utc::now();
-    filter_row
+
+    Ok(filter_row)
 }
 
 async fn store_team_filter(
@@ -263,14 +263,13 @@ async fn store_team_filter(
         match sqlx::query(
             r#"
             INSERT INTO posthog_propertyfilter
-                (team_id, fwd_bloom, rev_bloom, property_count, blocked, last_updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                (team_id, filter, property_count, blocked, last_updated_at)
+                VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (team_id) DO UPDATE SET
-                fwd_bloom=$2, rev_bloom=$3, property_count=$4, blocked=$5, last_updated_at=$6"#,
+                filter=$2, property_count=$3, blocked=$4, last_updated_at=$5"#,
         )
         .bind(filter_row.team_id)
-        .bind(&filter_row.fwd_bloom)
-        .bind(&filter_row.rev_bloom)
+        .bind(&filter_row.filter)
         .bind(filter_row.property_count)
         .bind(filter_row.blocked)
         .bind(filter_row.last_updated_at)

@@ -54,8 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let team_id = 2;
     let filter_row = FilterRow {
         team_id,
-        fwd_bloom: None,
-        rev_bloom: None,
+        filter: None,
         property_count: 0,
         blocked: false,
         last_updated_at: Utc::now(),
