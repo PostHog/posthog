@@ -70,7 +70,7 @@ function main() {
             ) {
                 const firstArg = p.get("arguments")[0];
                 if (firstArg?.isStringLiteral()) {
-                    evals.push({type: `${callee.node.name}(string)`, start: path.node.loc});
+                    evals.push({type: `${callee.node.name}(string)`, start: p.node.loc});
                 }
             }
         },
