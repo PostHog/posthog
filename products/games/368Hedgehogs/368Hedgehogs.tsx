@@ -3,6 +3,7 @@ import './368Hedgehogs.scss'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useCallback, useRef, useState } from 'react'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 // ==========================================================================
 export type Hog = 'hog1' | 'hog2' | 'hog3' | 'hog4'
 export type Orientation = 'horizontal' | 'vertical'
@@ -33,8 +34,33 @@ type Board = (Hog | null)[][] // 6×6 grid
 // Helpers
 const makeEmptyBoard = (): Board => Array.from({ length: BOARD_SIZE }, () => Array<Hog | null>(BOARD_SIZE).fill(null))
 
-const genPiece = (): Piece => {
-    const orientation: Orientation = Math.random() < 0.5 ? 'horizontal' : 'vertical'
+// Generate a piece that **can actually be placed** on the current board.
+// Returns null if the board has no legal placement left.
+const genPieceForBoard = (board: Board): Piece | null => {
+    // Collect every orientation that has **any** legal anchor position.
+    const legalOrientations: Orientation[] = []
+
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            if (board[r][c] !== null) {
+                continue // anchor occupied
+            }
+            // Horizontal: need right neighbour
+            if (c + 1 < BOARD_SIZE && board[r][c + 1] === null) {
+                legalOrientations.push('horizontal')
+            }
+            // Vertical: need cell below
+            if (r + 1 < BOARD_SIZE && board[r + 1][c] === null) {
+                legalOrientations.push('vertical')
+            }
+        }
+    }
+
+    if (legalOrientations.length === 0) {
+        return null // No space left for **any** piece – game over
+    }
+
+    const orientation = legalOrientations[Math.floor(Math.random() * legalOrientations.length)] as Orientation
     const cells: [Hog, Hog] = [
         EMOJIS[Math.floor(Math.random() * EMOJIS.length)],
         EMOJIS[Math.floor(Math.random() * EMOJIS.length)],
@@ -106,9 +132,12 @@ function findMatches(board: Board): string[] {
 // ==========================================================================
 // Main component
 const CritterMatchGame: React.FC = () => {
+    // Build an *initial* board once so we can derive both board & first piece from it.
+    const initialBoard = makeEmptyBoard()
+
     // Game state
-    const [board, setBoard] = useState<Board>(makeEmptyBoard())
-    const [piece, setPiece] = useState<Piece>(genPiece())
+    const [board, setBoard] = useState<Board>(initialBoard)
+    const [piece, setPiece] = useState<Piece | null>(() => genPieceForBoard(initialBoard))
     const [pointsLeft, setPointsLeft] = useState<number>(368)
     const [clearing, setClearing] = useState<Set<string>>(new Set())
     const [gameOver, setGameOver] = useState<boolean>(false)
@@ -120,8 +149,8 @@ const CritterMatchGame: React.FC = () => {
     // ------------------------------------------------------------------------
     // Shared drop logic (desktop D-n-D + mobile pointer)
     const attemptPlacePiece = useCallback(
-        (anchorR: number, anchorC: number, droppedPiece: Piece, offset: 0 | 1): void => {
-            if (gameOver || clearing.size) {
+        (anchorR: number, anchorC: number, droppedPiece: Piece | null, offset: 0 | 1): void => {
+            if (gameOver || clearing.size || !droppedPiece) {
                 return
             }
 
@@ -160,7 +189,12 @@ const CritterMatchGame: React.FC = () => {
             const toRemove = findMatches(newBoard)
             if (toRemove.length === 0) {
                 setBoard(newBoard)
-                setPiece(genPiece())
+                const nextPiece = genPieceForBoard(newBoard)
+                if (!nextPiece) {
+                    setGameOver(true)
+                } else {
+                    setPiece(nextPiece)
+                }
                 return
             }
 
@@ -183,8 +217,14 @@ const CritterMatchGame: React.FC = () => {
                 setPointsLeft(newPoints)
                 if (newPoints <= 0) {
                     setGameOver(true)
+                    return
                 }
-                setPiece(genPiece())
+                const nextPiece = genPieceForBoard(afterClear)
+                if (!nextPiece) {
+                    setGameOver(true)
+                } else {
+                    setPiece(nextPiece)
+                }
             }, 350) // matches CSS animation duration
         },
         [board, pointsLeft, gameOver, clearing.size]
@@ -208,6 +248,9 @@ const CritterMatchGame: React.FC = () => {
     const allowDrop: React.DragEventHandler<HTMLDivElement> = (e) => e.preventDefault()
 
     const handlePieceDragStart: React.DragEventHandler<HTMLDivElement> = (e) => {
+        if (!piece) {
+            return
+        }
         const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
         const relX = e.clientX - rect.left
         const relY = e.clientY - rect.top
@@ -225,6 +268,21 @@ const CritterMatchGame: React.FC = () => {
         e.dataTransfer.setData('text/plain', JSON.stringify(payload))
     }
 
+    const restartGame = useCallback(() => {
+        // Cancel pending clear animation, if any
+        if (clearTimer.current) {
+            clearTimeout(clearTimer.current)
+            clearTimer.current = null
+        }
+
+        const freshBoard = makeEmptyBoard()
+        setBoard(freshBoard)
+        setPiece(genPieceForBoard(freshBoard))
+        setPointsLeft(368)
+        setClearing(new Set())
+        setGameOver(false)
+    }, [])
+
     // ------------------------------------------------------------------------
     // Mobile / touch support using Pointer events
     const [dragStyle, setDragStyle] = useState<React.CSSProperties>({})
@@ -232,9 +290,9 @@ const CritterMatchGame: React.FC = () => {
     const dragOffsetCell = useRef<0 | 1>(0)
     const isTouchDragging = useRef<boolean>(false)
 
-    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-        if (e.pointerType === 'mouse') {
-            return // desktop uses native drag-and-drop
+    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>):void => {
+        if (e.pointerType === 'mouse' || !piece) {
+            return // desktop uses native drag-and-drop or no piece available
         }
         e.preventDefault()
 
@@ -265,7 +323,7 @@ const CritterMatchGame: React.FC = () => {
         ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     }
 
-    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>):void => {
         if (!isTouchDragging.current) {
             return
         }
@@ -277,7 +335,7 @@ const CritterMatchGame: React.FC = () => {
         }))
     }
 
-    const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const onPointerUp = (e: React.PointerEvent<HTMLDivElement>):void => {
         if (!isTouchDragging.current) {
             return
         }
@@ -307,8 +365,24 @@ const CritterMatchGame: React.FC = () => {
     return (
         <div className="Game368Hedgehogs">
             <div className="cmg-container">
-                <h2>
-                    {gameOver ? '🎉 All the hogs are safe! Well done you! 🎉' : `${pointsLeft} hogs remaining`}
+                <h2 className='flex gap-2 items-center'>
+                    {gameOver ? (
+                        pointsLeft > 0 ? (
+                            <>
+                                <span>Game over.</span>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={restartGame}
+                                >
+                                    Try again?
+                                </LemonButton>
+                            </>
+                        ) : (
+                            '🎉 All the hogs are safe! Well done you! 🎉'
+                        )
+                    ) : (
+                        `${pointsLeft} hogs remaining`
+                    )}
                     {!gameOver ? (
                         <Tooltip
                             title="Drag the hogs onto the board. Get 3 in a row to save them. Heavily inspired by 368chickens.com"
@@ -336,7 +410,7 @@ const CritterMatchGame: React.FC = () => {
                 </div>
 
                 {/* Two-block piece – entire block draggable */}
-                {!gameOver && (
+                {!gameOver && piece && (
                     <div className="cmg-piece-holder">
                         <div
                             className="cmg-piece cmg-board"
