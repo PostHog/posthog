@@ -28,6 +28,7 @@ class LinkSerializer(serializers.ModelSerializer):
             "short_link_domain",
             "short_code",
             "description",
+            "deleted",
             "created_at",
             "updated_at",
             "created_by",
@@ -67,7 +68,7 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     param_derived_from_user_current_team = "team_id"
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        return queryset.filter(team_id=self.team_id, deleted=False).order_by("-created_at")
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

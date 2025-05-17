@@ -18,6 +18,7 @@ class Link(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_code = models.CharField(
         max_length=255, help_text="The unique code/path that identifies the short link, e.g. 'abc123'"
     )
+    deleted = models.BooleanField(default=False)
     team = models.ForeignKey(
         Team,
         on_delete=models.CASCADE,

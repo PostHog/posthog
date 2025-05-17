@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,12 +19,13 @@ import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'
 
 export function LinksScene(): JSX.Element {
-    const { links, linksLoading } = useValues(linksLogic())
+    const { links, linksLoading } = useValues(linksLogic)
+    const { deleteLink } = useActions(linksLogic)
 
     const columns = [
         {
-            title: 'Key',
-            dataIndex: 'key',
+            title: 'Link',
+            dataIndex: 'link',
             sticky: true,
             width: '40%',
             render: function Render(_: any, record: LinkType) {
@@ -73,14 +74,13 @@ export function LinksScene(): JSX.Element {
                             <LemonMenuOverlay
                                 items={[
                                     {
-                                        label: `Edit link`,
+                                        label: `Edit`,
                                         onClick: () => router.actions.push(urls.link(link.id)),
                                     },
                                     {
-                                        label: `Delete link`,
+                                        label: `Delete`,
                                         status: 'danger' as const,
-                                        disabledReason: 'Coming soon',
-                                        onClick: () => {},
+                                        onClick: () => deleteLink(link),
                                     },
                                 ]}
                             />

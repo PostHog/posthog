@@ -7,10 +7,10 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { UserBasicType } from '~/types'
 
 import type { linkConfigurationLogicType } from './linkConfigurationLogicType'
+import { linksLogic } from './linksLogic'
 
 export type LinkType = {
     id: string
@@ -33,6 +33,7 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
     key(({ id }: Props) => id),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
+        actions: [linksLogic, ['loadLinks']],
     })),
     loaders(() => ({
         // Cannot include `null` in here because Kea doesn't like it because of the form below
@@ -54,15 +55,9 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/links`,
                 object: { name: link.short_link_domain + '/' + link.short_code, id: link.id },
-                callback: (undo) => {
-                    link.id && actions.deleteLink(link)
-                    if (undo) {
-                        refreshTreeItem('link', String(link.id))
-                    } else {
-                        deleteFromTree('link', String(link.id))
-                    }
-                    // Load latest change so a backwards navigation shows the link as deleted
-                    actions.loadLink({ id: link.id })
+                callback: () => {
+                    actions.resetLink()
+                    actions.loadLinks()
                     router.actions.push(urls.links())
                 },
             })

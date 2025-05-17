@@ -2,6 +2,7 @@ import { IconCopy, IconDownload } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -37,11 +38,14 @@ const LabelWithTag = ({ label, paid }: { label: string; paid?: boolean }): JSX.E
 export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
     const logic = linkConfigurationLogic({ id: id ?? 'new' })
     const { link, isLinkSubmitting, linkLoading } = useValues(logic)
-    const { submitLink } = useActions(logic)
+    const { submitLink, deleteLink } = useActions(logic)
 
-    // While loading, show a spinner
     if (linkLoading) {
         return <SpinnerOverlay sceneLevel />
+    }
+
+    if (!linkLoading && !link.id) {
+        return <NotFound object="Link" />
     }
 
     const headerButtons = (
@@ -49,7 +53,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
             <More
                 overlay={
                     <>
-                        <LemonButton status="danger" fullWidth onClick={() => {}}>
+                        <LemonButton status="danger" fullWidth onClick={() => deleteLink(link)}>
                             Delete
                         </LemonButton>
                     </>
