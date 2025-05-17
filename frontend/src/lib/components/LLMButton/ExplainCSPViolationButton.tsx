@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { lemonToast, Popover, ProfilePicture } from '@posthog/lemon-ui'
+import { Popover, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -17,17 +17,19 @@ export const ExplainCSPViolationButton = ({
 }: ExplainCSPViolationButtonProps): JSX.Element => {
     const [loading, setLoading] = useState(false)
     const [isOpen, setIsOpen] = useState(false)
-    const [description, setDescription] = useState('')
+    const [result, setResult] = useState({})
 
     const handleClick = async (): Promise<void> => {
         setLoading(true)
+        setIsOpen(true)
         try {
             const r = await api.cspReporting.explain(properties)
             if (r) {
-                setDescription(r.response)
-                setIsOpen(true)
+                setResult(<LemonMarkdown>{r.response}</LemonMarkdown>)
             } else {
-                lemonToast.error('Failed to get CSP violation report explanation.')
+                setResult(<div className="flex items-center justify-center min-h-40 gap-4 text-l">
+                    Sorry! We failed to get a CSP explanation. Please try again later
+            </div>)
             }
         } finally {
             setLoading(false)
@@ -39,9 +41,9 @@ export const ExplainCSPViolationButton = ({
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <div className="p-4 max-w-160 max-h-160 overflow-auto">
+                <div className="p-4 min-w-140 max-w-140 min-h-40 max-h-80 overflow-auto">
                     <div className="flex items-center justify-between mb-2 border-b pb-2">
-                        {/** We're not a MaxTool yet */}
+                        {/** We're not a MaxTool... yet */}
                         <ProfilePicture
                             user={{ hedgehog_config: { use_as_profile: true } }}
                             size="md"
@@ -56,12 +58,16 @@ export const ExplainCSPViolationButton = ({
                             className="ml-2"
                         />
                     </div>
-                    <LemonMarkdown>{description}</LemonMarkdown>
+
+                    {loading ?
+                        <div className="flex items-center justify-center min-h-40 gap-4">
+                            <div className="text-l"><Spinner /> Thinking about security sheeps </div>
+                        </div> : result}
                 </div>
             }
         >
             {/* eslint-disable-next-line @typescript-eslint/no-misused-promises */}
-            <LemonButton {...buttonProps} loading={loading} onClick={handleClick}>
+            <LemonButton {...buttonProps} onClick={handleClick}>
                 {label}
             </LemonButton>
         </Popover>
