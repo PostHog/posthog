@@ -290,7 +290,7 @@ const CritterMatchGame: React.FC = () => {
     const dragOffsetCell = useRef<0 | 1>(0)
     const isTouchDragging = useRef<boolean>(false)
 
-    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>):void => {
+    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
         if (e.pointerType === 'mouse' || !piece) {
             return // desktop uses native drag-and-drop or no piece available
         }
@@ -323,7 +323,7 @@ const CritterMatchGame: React.FC = () => {
         ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     }
 
-    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>):void => {
+    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
         if (!isTouchDragging.current) {
             return
         }
@@ -335,7 +335,7 @@ const CritterMatchGame: React.FC = () => {
         }))
     }
 
-    const onPointerUp = (e: React.PointerEvent<HTMLDivElement>):void => {
+    const onPointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
         if (!isTouchDragging.current) {
             return
         }
@@ -365,15 +365,12 @@ const CritterMatchGame: React.FC = () => {
     return (
         <div className="Game368Hedgehogs">
             <div className="cmg-container">
-                <h2 className='flex gap-2 items-center'>
+                <h2 className="flex gap-2 items-center">
                     {gameOver ? (
                         pointsLeft > 0 ? (
                             <>
                                 <span>Game over.</span>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={restartGame}
-                                >
+                                <LemonButton type="primary" onClick={restartGame}>
                                     Try again?
                                 </LemonButton>
                             </>
