@@ -98,8 +98,7 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
             match from_str::<Trie<BString, bool>>(&data) {
                 Ok(trie) => trie,
                 Err(e) => {
-                    metrics::counter!(PROPFILTER_SERDE_FAILED, &[("at", "hydrate")])
-                        .increment(1);
+                    metrics::counter!(PROPFILTER_SERDE_FAILED, &[("at", "hydrate")]).increment(1);
                     error!(
                         "failed to deserialize Trie from filter row for team {}, got: {}",
                         team_id, e
