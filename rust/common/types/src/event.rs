@@ -33,6 +33,33 @@ pub struct RawEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
+#[derive(Default, Debug, Deserialize, Serialize)]
+pub struct RawEngageEvent {
+    #[serde(
+        alias = "$token",
+        alias = "api_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub token: Option<String>,
+    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, deserialize_with = "empty_string_is_none")]
+    pub uuid: Option<Uuid>,
+    // NOTE: missing event name is the only difference between RawEvent and RawEngageEvent
+    // when the event name is missing, we need fill in $identify as capture.py does:
+    // https://github.com/PostHog/posthog/blob/70ce86a73f6c3d3ee6f44e1ac0acd695e2f78682/posthog/api/capture.py#L501-L502
+    #[serde(default)]
+    pub properties: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
+    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<HashMap<String, Value>>,
+    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
+    pub set_once: Option<HashMap<String, Value>>,
+}
+
 // The event type that capture produces
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct CapturedEvent {
