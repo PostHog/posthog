@@ -15,9 +15,9 @@ import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 
 export function ProductTree(): JSX.Element {
     const { treeItemsProducts } = useValues(projectTreeLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
-
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
 
@@ -58,7 +58,7 @@ export function ProductTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel>
+        <PanelLayoutPanel searchPlaceholder="Search products">
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
@@ -87,6 +87,11 @@ export function ProductTree(): JSX.Element {
                                 : node.record.href
                         )
                     }
+                    if (!isLayoutPanelPinned) {
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                    }
+
                     node?.onClick?.(true)
                 }}
                 expandedItemIds={expandedFolders}
