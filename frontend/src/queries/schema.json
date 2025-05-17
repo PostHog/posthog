@@ -7238,6 +7238,44 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
+        "DatabaseSchemaManagedDataWarehouseTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
+                },
+                "schema": {
+                    "$ref": "#/definitions/DatabaseSchemaSchema"
+                },
+                "source": {
+                    "$ref": "#/definitions/DatabaseSchemaSource"
+                },
+                "type": {
+                    "const": "managed_data_warehouse",
+                    "type": "string"
+                },
+                "url_pattern": {
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "type": "object"
+        },
         "DatabaseSchemaManagedViewTable": {
             "additionalProperties": false,
             "properties": {
@@ -7425,6 +7463,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaManagedDataWarehouseTable"
                 }
             ]
         },
@@ -7447,7 +7488,15 @@
                     "type": "number"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
+                    "enum": [
+                        "posthog",
+                        "data_warehouse",
+                        "view",
+                        "batch_export",
+                        "materialized_view",
+                        "managed_view",
+                        "managed_data_warehouse"
+                    ],
                     "type": "string"
                 }
             },

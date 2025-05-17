@@ -108,6 +108,7 @@ export const APIScopes: APIScope[] = [
     },
     { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
     { key: 'warehouse_saved_query' },
+    { key: 'warehouse_table' },
 ]
 
 export type EditingKeyFormValues = Pick<

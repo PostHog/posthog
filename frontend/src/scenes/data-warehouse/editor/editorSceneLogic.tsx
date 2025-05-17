@@ -488,7 +488,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     )
                 }
 
-                return [...dataWarehouseSavedQueries, ...managedViews].map((item) => [item, null])
+                return [...dataWarehouseSavedQueries.filter((view) => !view.managed), ...managedViews].map((item) => [
+                    item,
+                    null,
+                ])
             },
         ],
     })),

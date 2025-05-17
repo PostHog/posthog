@@ -84,6 +84,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaManagedDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
@@ -808,6 +809,7 @@ DatabaseSchemaTable: TypeAlias = (
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
+    | DatabaseSchemaManagedDataWarehouseTable
 )
 
 
@@ -920,16 +922,28 @@ def serialize_database(
         )
         fields_dict = {field.name: field for field in fields}
 
-        tables[table_key] = DatabaseSchemaDataWarehouseTable(
-            fields=fields_dict,
-            id=str(warehouse_table.id),
-            name=table_key,
-            format=warehouse_table.format,
-            url_pattern=warehouse_table.url_pattern,
-            schema=schema,
-            source=source,
-            row_count=warehouse_table.row_count,
-        )
+        if warehouse_table.managed:
+            tables[table_key] = DatabaseSchemaManagedDataWarehouseTable(
+                fields=fields_dict,
+                id=str(warehouse_table.id),
+                name=table_key,
+                format=warehouse_table.format,
+                url_pattern=warehouse_table.url_pattern,
+                schema=schema,
+                source=source,
+                row_count=warehouse_table.row_count,
+            )
+        else:
+            tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                fields=fields_dict,
+                id=str(warehouse_table.id),
+                name=table_key,
+                format=warehouse_table.format,
+                url_pattern=warehouse_table.url_pattern,
+                schema=schema,
+                source=source,
+                row_count=warehouse_table.row_count,
+            )
 
     # Fetch all views in a single query
     all_views = (
@@ -973,13 +987,22 @@ def serialize_database(
         if saved_query.table:
             row_count = saved_query.table.row_count
 
-        tables[view_name] = DatabaseSchemaViewTable(
-            fields=fields_dict,
-            id=str(saved_query.pk),
-            name=view_name,
-            query=HogQLQuery(query=saved_query.query["query"]),
-            row_count=row_count,
-        )
+        if saved_query.managed:
+            tables[view_name] = DatabaseSchemaManagedViewTable(
+                fields=fields_dict,
+                id=str(saved_query.pk),
+                name=view_name,
+                query=HogQLQuery(query=saved_query.query["query"]),
+                row_count=row_count,
+            )
+        else:
+            tables[view_name] = DatabaseSchemaViewTable(
+                fields=fields_dict,
+                id=str(saved_query.pk),
+                name=view_name,
+                query=HogQLQuery(query=saved_query.query["query"]),
+                row_count=row_count,
+            )
 
     return tables
 

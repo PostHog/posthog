@@ -1,8 +1,11 @@
 from typing import Any
 
-from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
+from rest_framework import exceptions, filters, request, response, serializers, status, viewsets, parsers
 from posthog.api.utils import action
+from django.conf import settings
+from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 
+import boto3
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
@@ -52,6 +55,7 @@ class TableSerializer(serializers.ModelSerializer):
             "columns",
             "external_data_source",
             "external_schema",
+            "managed",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
@@ -162,7 +166,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_table"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
     filter_backends = [filters.SearchFilter]
@@ -267,3 +271,75 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser],
+    )
+    def file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        if "file" not in request.FILES:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        file = request.FILES["file"]
+        table_name = request.data.get("name", file.name)
+        file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate table name
+        team_id = self.team_id
+        table_name_exists = (
+            DataWarehouseTable.objects.exclude(deleted=True).filter(team_id=team_id, name=table_name).exists()
+        )
+        if table_name_exists:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Table name already exists"})
+
+        # Create the table record
+        try:
+            # Create credential if object storage is available
+            credential = None
+            if hasattr(settings, "AIRBYTE_BUCKET_KEY") and hasattr(settings, "AIRBYTE_BUCKET_SECRET"):
+                credential = get_or_create_datawarehouse_credential(
+                    team_id=team_id,
+                    access_key=settings.AIRBYTE_BUCKET_KEY,
+                    access_secret=settings.AIRBYTE_BUCKET_SECRET,
+                )
+
+            # Create the table
+            table = DataWarehouseTable.objects.create(
+                team_id=team_id, name=table_name, format=file_format, created_by=request.user, credential=credential
+            )
+
+            # Generate URL pattern and store file in object storage
+            if credential:
+                s3 = boto3.client(
+                    "s3", aws_access_key_id=credential.access_key, aws_secret_access_key=credential.access_secret
+                )
+                s3.upload_fileobj(
+                    file, "posthog-s3-datawarehouse-us-east-1-dev", f"dlt/managed/team_{team_id}/{file.name}"
+                )
+
+                # Set the URL pattern for the table
+                table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/managed/team_{team_id}/{file.name}"
+
+                # Try to determine columns from the file
+                table.columns = table.get_columns()
+                table.save()
+
+                # Validate columns in background
+                from posthog.tasks.warehouse import validate_data_warehouse_table_columns
+
+                validate_data_warehouse_table_columns.delay(team_id, str(table.id))
+
+                return response.Response(
+                    status=status.HTTP_201_CREATED,
+                    data=TableSerializer(table, context=self.get_serializer_context()).data,
+                )
+            else:
+                table.delete()
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Object storage must be available to upload files."},
+                )
+        except Exception as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
