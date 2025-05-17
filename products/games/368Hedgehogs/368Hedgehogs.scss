@@ -47,10 +47,14 @@
         background: #24344d;
     }
 
+    .cmg-piece-holder {
+        height: 140px;
+        padding-top: 32px;
+    }
+
     .cmg-piece {
         display: flex;
         gap: 4px;
-        margin-top: 32px;
         cursor: grab;
     }
 
