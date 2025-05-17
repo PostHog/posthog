@@ -216,6 +216,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-llm-observability`,
                 label: 'LLM observability',
             },
+            {
+                value: 'messaging',
+                'data-attr': `support-form-target-area-messaging`,
+                label: 'Messaging',
+            },
         ],
     },
 ]
