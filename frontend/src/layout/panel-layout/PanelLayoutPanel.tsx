@@ -28,6 +28,7 @@ interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
     children: React.ReactNode
+    showFilterDropdown?: boolean
 }
 
 const panelLayoutPanelVariants = cva({
@@ -130,7 +131,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {types
-                        .filter(([_, { flag }]) => !flag || featureFlags[flag])
+                        .filter(([_, { flag }]) => !flag || featureFlags[flag as keyof typeof featureFlags])
                         .map(([obj, { name }]) => (
                             <DropdownMenuItem
                                 key={obj}
@@ -155,7 +156,12 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
     )
 }
 
-export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: PanelLayoutPanelProps): JSX.Element {
+export function PanelLayoutPanel({
+    searchPlaceholder,
+    panelActions,
+    children,
+    showFilterDropdown = false,
+}: PanelLayoutPanelProps): JSX.Element {
     const { clearSearch, setSearchTerm, toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,
@@ -238,7 +244,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                             }
                         }}
                     />
-                    <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
+                    {showFilterDropdown && <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />}
                 </div>
                 <div className="border-b border-primary h-px" />
                 {children}

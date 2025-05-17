@@ -372,6 +372,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
 
     return (
         <PanelLayoutPanel
+            showFilterDropdown={true}
             searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={
                 <>
