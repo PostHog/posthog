@@ -5,7 +5,7 @@ export interface Workflow {
     id: string
     name: string
     description: string
-    json: {
+    workflow: {
         nodes: WorkflowNode[]
         edges: WorkflowEdge[]
     }
