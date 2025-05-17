@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // start filter builder worker (TODO: parallelize this via chunked table scan)
     let mut handles = Vec::new();
 
-    // TODO(eli): just for demo, construct a synthetic team entry to scan.
+    // TODO(eli): temporary: hardcode a team ID to extract property defs for.
     // next up, we'll fetch batches of team IDs to fan out into worker threads
     let team_id = 2;
     let filter_row = FilterRow {
