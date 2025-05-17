@@ -411,6 +411,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "latest_invoice_id": StringDatabaseField(name="latest_invoice"),
         "trial_settings": StringJSONDatabaseField(name="trial_settings"),
         "invoice_settings": StringJSONDatabaseField(name="invoice_settings"),
+        "pause_collection": StringJSONDatabaseField(name="pause_collection"),
         "payment_settings": StringJSONDatabaseField(name="payment_settings"),
         "collection_method": StringDatabaseField(name="collection_method"),
         "default_tax_rates": StringJSONDatabaseField(name="default_tax_rates"),
