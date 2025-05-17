@@ -14,7 +14,7 @@ export const productTreeLogic = kea<productTreeLogicType>([
         actions: [],
     })),
     selectors({
-        treeItems: [
+        productTreeItems: [
             (s) => [s.featureFlags, s.folderStates, s.users],
             (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({

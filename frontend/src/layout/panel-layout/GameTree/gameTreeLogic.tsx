@@ -14,7 +14,7 @@ export const gameTreeLogic = kea<gameTreeLogicType>([
         actions: [],
     })),
     selectors({
-        treeItems: [
+        gameTreeItems: [
             (s) => [s.featureFlags, s.folderStates, s.users],
             (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
