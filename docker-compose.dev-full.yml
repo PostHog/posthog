@@ -160,6 +160,14 @@ services:
             - redis
             - db
 
+    links:
+        extends:
+            file: docker-compose.base.yml
+            service: links
+        depends_on:
+            - db
+            - redis
+
     plugins:
         extends:
             file: docker-compose.base.yml
