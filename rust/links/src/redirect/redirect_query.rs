@@ -3,24 +3,25 @@ use std::sync::Arc;
 use common_database::Client as DatabaseClient;
 use tracing::instrument;
 
+use crate::types::LinksRedisItem;
+
 use super::redirect_service::RedirectError;
 
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 
-#[instrument(name = "fetch_redirect_url", skip(db_reader_client))]
-pub async fn fetch_redirect_url(
+#[instrument(name = "fetch_redirect_item", skip(db_reader_client))]
+pub async fn fetch_redirect_item(
     db_reader_client: PostgresReader,
     short_link_domain: &str,
     short_code: &str,
-) -> Result<String, RedirectError> {
+) -> Result<LinksRedisItem, RedirectError> {
     let mut conn = db_reader_client.get_connection().await.map_err(|e| {
         tracing::error!("Failed to get database connection: {}", e);
         RedirectError::DatabaseUnavailable
     })?;
-    // TODO: Validate query
     let query = sqlx::query!(
         r#"
-        SELECT redirect_url
+        SELECT team_id, redirect_url
         FROM posthog_link
         WHERE short_code = $1 AND short_link_domain = $2
         "#,
@@ -29,8 +30,12 @@ pub async fn fetch_redirect_url(
     )
     .fetch_optional(&mut *conn)
     .await?;
+
     match query {
-        Some(row) => Ok(row.redirect_url),
+        Some(row) => Ok(LinksRedisItem {
+            url: row.redirect_url,
+            team_id: Some(row.team_id),
+        }),
         _ => Err(RedirectError::LinkNotFound),
     }
 }
@@ -46,7 +51,7 @@ mod tests {
     use anyhow::Result;
 
     #[tokio::test]
-    async fn test_should_fetch_redirect_url_from_database() -> Result<()> {
+    async fn test_should_fetch_redirect_item_from_database() -> Result<()> {
         let db_client = setup_pg_client(None).await;
         let short_link_domain = "phog.gg";
         let short_code = &random_string("", 6);
@@ -64,9 +69,15 @@ mod tests {
 
         println!("Inserted link with ID: {:?}", row);
 
-        let result = fetch_redirect_url(db_client, short_link_domain, short_code).await;
+        let result = fetch_redirect_item(db_client, short_link_domain, short_code).await;
 
-        assert_eq!(result.unwrap(), redirect_url);
+        assert_eq!(
+            result.unwrap(),
+            LinksRedisItem {
+                url: redirect_url.to_string(),
+                team_id: Some(team.id),
+            }
+        );
         Ok(())
     }
 }
