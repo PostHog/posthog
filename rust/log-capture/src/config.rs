@@ -5,7 +5,7 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "3305")]
+    #[envconfig(from = "BIND_PORT", default = "4317")]
     pub port: u16,
 
     #[envconfig(from = "JWT_SECRET")]
