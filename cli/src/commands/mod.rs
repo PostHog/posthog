@@ -55,6 +55,18 @@ pub enum SourcemapCommand {
         /// The build ID to associate with the uploaded chunks
         #[arg(short, long)]
         build: Option<String>,
+        
+        /// The timeout in seconds for HTTP requests
+        #[arg(short, long, default_value_t = 60)]
+        timeout: u64,
+        
+        /// The base interval in seconds between retry attempts
+        #[arg(short = 'i', long = "retry-interval", default_value_t = 3)]
+        retry_interval: u64,
+        
+        /// The maximum number of retry attempts per chunk
+        #[arg(short, long, default_value_t = 3)]
+        retries: u32,
     },
 }
 
@@ -70,8 +82,8 @@ impl Cli {
                 SourcemapCommand::Inject { directory } => {
                     sourcemap::inject::inject(directory)?;
                 }
-                SourcemapCommand::Upload { directory, build } => {
-                    sourcemap::upload::upload(&command.host, directory, build)?;
+                SourcemapCommand::Upload { directory, build, timeout, retry_interval, retries } => {
+                    sourcemap::upload::upload(&command.host, directory, build, *timeout, *retry_interval, *retries)?;
                 }
             },
             Commands::Query { cmd } => query::query_command(&command.host, cmd)?,
