@@ -353,7 +353,11 @@ export function FeatureFlagReleaseConditions({
                                         onChange={(value): void => {
                                             updateConditionSet(index, value === undefined ? 0 : value)
                                         }}
-                                        value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
+                                        value={
+                                            group.rollout_percentage !== null
+                                                ? group.rollout_percentage ?? Number.NaN
+                                                : 100
+                                        }
                                         min={0}
                                         max={100}
                                         step="any"
