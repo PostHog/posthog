@@ -58,7 +58,7 @@ jobs:
                   workingDir: ./common/storybook/
 
     visual-regression:
-        name: Visual regression tests
+        name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
@@ -284,8 +284,9 @@ jobs:
                   MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
                   TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
+                  PATHS_FLAPPING=()
 
-                  # If added or modified, run OptiPNG
+                  # If added or modified, run OptiPNG and check for flapping
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
@@ -306,19 +307,16 @@ jobs:
                     if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                         echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
                         git add frontend/__snapshots__/ playwright/
+                        snapshots_changed_now=($(git diff --name-only HEAD))
+                        last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
+                        for snapshot_path in "${snapshots_changed_now[@]}"; do
+                            number_of_times_snapshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
+                            if [ "$number_of_times_snapshot_has_changed_since_last_human_commit" -gt 0 ]; then
+                                PATHS_FLAPPING+=($snapshot_path)
+                            fi
+                        done
                     fi
                   fi
-
-                  git log | tail -n 50
-                  PATHS_FLAPPING=()
-                  snapshots_changed_now=($(git diff --name-only HEAD))
-                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
-                  for snapshot_path in "${snapshots_changed_now[@]}"; do
-                      number_of_times_file_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
-                      if [ "$number_of_times_file_has_changed_since_last_human_commit" -gt 0 ]; then
-                          PATHS_FLAPPING+=($snapshot_path)
-                      fi
-                  done
 
                   echo "Added: $ADDED"
                   echo "Modified: $MODIFIED"
