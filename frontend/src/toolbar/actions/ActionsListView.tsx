@@ -22,7 +22,6 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                     <Fragment key={action.id}>
                         <Link
                             subtle
-                            key={action.id}
                             onClick={() => selectAction(action.id || null)}
                             className="font-medium my-1 w-full"
                         >
