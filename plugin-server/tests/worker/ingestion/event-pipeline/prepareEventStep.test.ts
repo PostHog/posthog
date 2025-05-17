@@ -97,6 +97,7 @@ describe('prepareEventStep()', () => {
             teamId: 2,
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
+            capturedAt: '2020-02-23T02:15:00.000Z',
         })
 
         // @ts-expect-error TODO: Check existence of queueMessage
@@ -120,6 +121,7 @@ describe('prepareEventStep()', () => {
             teamId: 2,
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
+            capturedAt: '2020-02-23T02:15:00.000Z',
         })
 
         // @ts-expect-error TODO: Check existence of queueMessage
