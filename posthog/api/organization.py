@@ -265,6 +265,41 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 groups=groups(organization),
             )
 
+        # TODO: Re-enable this when we want to support changes from the client
+        # Handle session_cookie_age updates
+        # if "session_cookie_age" in request.data:
+        #     session_cookie_age = request.data["session_cookie_age"]
+        #     organization = self.get_object()
+        #     user = cast(User, request.user)
+
+        #     # Validate session_cookie_age
+        #     if session_cookie_age is not None:
+        #         try:
+        #             session_cookie_age_int = int(session_cookie_age)
+        #             if session_cookie_age_int <= 0:
+        #                 return Response(
+        #                     {"detail": "Session cookie age must be a positive integer."},
+        #                     status=400,
+        #                 )
+        #         except (ValueError, TypeError):
+        #             return Response(
+        #                 {"detail": "Session cookie age must be a valid integer or null."},
+        #                 status=400,
+        #             )
+
+        #     # Add capture event for session cookie age change
+        #     posthoganalytics.capture(
+        #         str(user.distinct_id),
+        #         "organization session cookie age updated",
+        #         properties={
+        #             "session_cookie_age": session_cookie_age,
+        #             "organization_id": str(organization.id),
+        #             "organization_name": organization.name,
+        #             "user_role": user.organization_memberships.get(organization=organization).level,
+        #         },
+        #         groups=groups(organization),
+        #     )
+
         return super().update(request, *args, **kwargs)
 
     @extend_schema(exclude=True)

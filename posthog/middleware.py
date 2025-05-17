@@ -645,6 +645,22 @@ class SessionAgeMiddleware:
     def __call__(self, request: HttpRequest):
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
+
+        # Set the session cookie age based on the organization setting if available
+        if hasattr(request, "user") and request.user.is_authenticated:
+            try:
+                # Get the current organization for the user
+                organization = getattr(request.user, "organization", None)
+                if (
+                    organization
+                    and hasattr(organization, "session_cookie_age")
+                    and organization.session_cookie_age is not None
+                ):
+                    # Use organization-specific session cookie age
+                    request.session.set_expiry(organization.session_cookie_age)
+            except Exception:
+                pass
+
         return self.get_response(request)
 
 
