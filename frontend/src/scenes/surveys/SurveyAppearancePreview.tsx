@@ -52,9 +52,5 @@ export function SurveyAppearancePreview({
             })
         }
     }, [survey, previewPageIndex, surveysHTMLAvailable, onPreviewSubmit, positionStyles])
-    return (
-        <>
-            <div ref={surveyPreviewRef} />
-        </>
-    )
+    return <div ref={surveyPreviewRef} />
 }

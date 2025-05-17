@@ -1,15 +1,18 @@
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useState } from 'react'
 
 import {
     AvailableFeature,
     SurveyAppearance,
     SurveyPosition,
+    SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyType,
     SurveyWidgetType,
@@ -29,14 +32,44 @@ interface SurveyAppearanceModalProps {
 
 type PreviewScreenSize = 'mobile' | 'tablet' | 'desktop'
 
+// Grid positions based on the enum
+const gridPositions: SurveyPosition[] = [
+    SurveyPosition.TopLeft,
+    SurveyPosition.TopCenter,
+    SurveyPosition.TopRight,
+    SurveyPosition.MiddleLeft,
+    SurveyPosition.MiddleCenter,
+    SurveyPosition.MiddleRight,
+    SurveyPosition.Left,
+    SurveyPosition.Center,
+    SurveyPosition.Right,
+    // Bottom positions are not in the current enum, will add if they become available
+    // SurveyPosition.BottomLeft, SurveyPosition.BottomCenter, SurveyPosition.BottomRight
+]
+
+const positionDisplayNames: Record<SurveyPosition, string> = {
+    [SurveyPosition.TopLeft]: 'Top Left',
+    [SurveyPosition.TopCenter]: 'Top Center',
+    [SurveyPosition.TopRight]: 'Top Right',
+    [SurveyPosition.MiddleLeft]: 'Middle Left',
+    [SurveyPosition.MiddleCenter]: 'Middle Center',
+    [SurveyPosition.MiddleRight]: 'Middle Right',
+    // [SurveyPosition.BottomLeft]: 'Bottom Left',
+    // [SurveyPosition.BottomCenter]: 'Bottom Center',
+    // [SurveyPosition.BottomRight]: 'Bottom Right',
+    [SurveyPosition.Left]: 'Bottom Left',
+    [SurveyPosition.Center]: 'Bottom Center',
+    [SurveyPosition.Right]: 'Bottom Right',
+    [SurveyPosition.NextToTrigger]: 'Next to feedback button',
+}
+
 export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModalProps): JSX.Element | null {
-    const { survey, surveyErrors } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { survey, surveyErrors, selectedPageIndex } = useValues(surveyLogic)
+    const { setSurveyValue, setSelectedPageIndex } = useActions(surveyLogic)
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const [activeScreenSize, setActiveScreenSize] = useState<PreviewScreenSize>('desktop')
-    const [previewPageIndex, setPreviewPageIndex] = useState(0)
 
     const appearance: SurveyAppearance = { ...defaultSurveyAppearance, ...(survey.appearance || {}) }
     const validationErrors = surveyErrors?.appearance
@@ -50,9 +83,9 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
     const customizePlaceholderText = survey.questions.some((question) => question.type === SurveyQuestionType.Open)
 
     const screenDimensions: Record<PreviewScreenSize, { width: string; height: string; scale?: number }> = {
-        mobile: { width: '375px', height: '667px', scale: 0.85 },
-        tablet: { width: '768px', height: '1024px', scale: 0.65 },
-        desktop: { width: '100%', height: '100%', scale: 1 },
+        mobile: { width: '375px', height: '667px' },
+        tablet: { width: '768px', height: '1024px' },
+        desktop: { width: '100%', height: '100%' },
     }
 
     const currentDimensions = screenDimensions[activeScreenSize]
@@ -61,29 +94,23 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
         return null
     }
 
-    const isNotDesktop = activeScreenSize !== 'desktop'
-
     const surveyPositioningStyles: React.CSSProperties = {
         position: 'absolute',
-        ...(isNotDesktop && {
-            maxWidth: '85%',
-        }),
     }
 
     return (
         <LemonModal isOpen={visible} onClose={onClose} fullScreen simple>
             <LemonModal.Header>Customize Survey Apperance</LemonModal.Header>
             <LemonModal.Content className="flex flex-row flex-1 h-full gap-4 overflow-hidden">
-                {/* Left side: Customization Options */}
                 <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
-                    <h3 className="sticky top-0 bg-bg-light py-2 z-10">Options</h3>
                     {!surveysStylingAvailable && (
                         <PayGateMini feature={AvailableFeature.SURVEYS_STYLING} className="mb-4">
                             <></>
                         </PayGateMini>
                     )}
 
-                    <div className="flex gap-4 items-start">
+                    <div className="grid grid-cols-2 gap-4 items-start">
+                        <h3 className="col-span-2 mb-0">Survey Container Options</h3>
                         <LemonField.Pure label="Max width" className="flex-1 gap-1">
                             <LemonInput
                                 value={appearance.maxWidth}
@@ -118,6 +145,36 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                                 <LemonField.Error error={validationErrors?.borderColor} />
                             )}
                         </LemonField.Pure>
+                        <LemonField.Pure label="Box padding" className="flex-1 gap-1">
+                            <LemonInput
+                                value={appearance.boxPadding}
+                                onChange={(boxPadding) => onAppearanceChange({ boxPadding })}
+                                disabled={!surveysStylingAvailable}
+                                className={clsx(
+                                    validationErrors?.boxPadding ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                                )}
+                            />
+                            {validationErrors?.boxPadding && <LemonField.Error error={validationErrors?.boxPadding} />}
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Box shadow" className="flex-1 gap-1">
+                            <LemonInput
+                                value={appearance.boxShadow}
+                                onChange={(boxShadow) => onAppearanceChange({ boxShadow })}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Border radius" className="flex-1 gap-1">
+                            <LemonInput
+                                value={appearance.borderRadius}
+                                onChange={(borderRadius) => onAppearanceChange({ borderRadius })}
+                                disabled={!surveysStylingAvailable}
+                                className={clsx(
+                                    validationErrors?.borderRadius ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                                )}
+                            />
+                            {validationErrors?.borderRadius && (
+                                <LemonField.Error error={validationErrors?.borderRadius} />
+                            )}
+                        </LemonField.Pure>
                     </div>
 
                     <LemonField.Pure
@@ -129,37 +186,40 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                         }
                         className="gap-1"
                     >
-                        <div className="flex gap-1 flex-wrap">
-                            {Object.values(SurveyPosition).map((position) => {
-                                if (
-                                    position === SurveyPosition.NextToTrigger &&
-                                    !(
-                                        surveyType === SurveyType.Widget &&
-                                        appearance.widgetType === SurveyWidgetType.Selector
-                                    )
-                                ) {
-                                    return null
-                                }
-                                return (
+                        <div className="grid grid-cols-3 gap-1 mb-1">
+                            {gridPositions.map((position) => (
+                                <LemonButton
+                                    key={position}
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => onAppearanceChange({ position })}
+                                    active={appearance.position === position}
+                                    disabled={!surveysStylingAvailable}
+                                    className="justify-center text-xs" // Ensure text is centered and button is small
+                                >
+                                    {positionDisplayNames[position]}
+                                    {appearance.position === position && <IconCheck className="ml-2 size-4" />}
+                                </LemonButton>
+                            ))}
+                        </div>
+                        <div className="flex flex-col gap-1 items-start w-60">
+                            {surveyType === SurveyType.Widget &&
+                                appearance.widgetType === SurveyWidgetType.Selector && (
                                     <LemonButton
-                                        key={position}
-                                        tooltip={
-                                            position === SurveyPosition.NextToTrigger
-                                                ? 'This option is only available for feedback button surveys.'
-                                                : undefined
-                                        }
+                                        key={SurveyPosition.NextToTrigger}
                                         type="tertiary"
                                         size="small"
-                                        onClick={() => onAppearanceChange({ position })}
-                                        active={appearance.position === position}
+                                        fullWidth
+                                        onClick={() => onAppearanceChange({ position: SurveyPosition.NextToTrigger })}
+                                        active={appearance.position === SurveyPosition.NextToTrigger}
                                         disabled={!surveysStylingAvailable}
                                     >
-                                        {position === SurveyPosition.NextToTrigger
-                                            ? 'Next to feedback button'
-                                            : position}
+                                        {positionDisplayNames[SurveyPosition.NextToTrigger]}
+                                        {appearance.position === SurveyPosition.NextToTrigger && (
+                                            <IconCheck className="ml-2 size-4" />
+                                        )}
                                     </LemonButton>
-                                )
-                            })}
+                                )}
                         </div>
                     </LemonField.Pure>
 
@@ -292,9 +352,7 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                         disabled={!surveysStylingAvailable && !appearance.whiteLabel}
                     />
                 </div>
-                {/* End of options scrollable area */}
-                {/* Right side: Preview */}
-                <div className="flex flex-[1.5] flex-col items-center bg-conic justify-start rounded overflow-hidden">
+                <div className="flex flex-[1.5] flex-col items-center justify-start rounded overflow-hidden">
                     <LemonTabs
                         activeKey={activeScreenSize}
                         onChange={(key) => setActiveScreenSize(key as PreviewScreenSize)}
@@ -306,9 +364,9 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                         className="m-0"
                     />
                     <LemonSelect
-                        onChange={(pageIndex) => setPreviewPageIndex(pageIndex)}
+                        onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
                         className="whitespace-nowrap max-w-xs w-full mb-2"
-                        value={previewPageIndex}
+                        value={selectedPageIndex || 0}
                         options={[
                             ...survey.questions.map((question, index) => ({
                                 label: `${index + 1}. ${question.question || 'Untitled Question'}`,
@@ -326,7 +384,7 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                     />
                     <div
                         className={clsx(
-                            'border border-border max-w-full overflow-hidden rounded-md bg-bg-light shadow-lg flex items-center justify-center relative transition-[width,height,max-height] duration-300 ease-in-out'
+                            'border border-border max-w-full overflow-hidden rounded-md bg-fill-primary shadow-lg flex items-center justify-center relative transition-[width,height,max-height] duration-300 ease-in-out'
                         )}
                         // easier to use inline-styles for this very specific case
                         // eslint-disable-next-line react/forbid-dom-props
@@ -338,12 +396,23 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                     >
                         <SurveyAppearancePreview
                             survey={survey}
-                            previewPageIndex={previewPageIndex}
+                            previewPageIndex={selectedPageIndex || 0}
                             positionStyles={surveyPositioningStyles}
+                            onPreviewSubmit={(response) => {
+                                const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
+                                if (
+                                    nextStep === SurveyQuestionBranchingType.End &&
+                                    !survey.appearance?.displayThankYouMessage
+                                ) {
+                                    return
+                                }
+                                setSelectedPageIndex(
+                                    nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
+                                )
+                            }}
                         />
                     </div>
-                </div>{' '}
-                {/* End of Right Side */}
+                </div>
             </LemonModal.Content>
             <LemonModal.Footer>
                 <LemonButton type="secondary" onClick={onClose}>

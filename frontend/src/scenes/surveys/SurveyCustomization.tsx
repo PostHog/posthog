@@ -27,7 +27,6 @@ interface CustomizationProps {
     hasBranchingLogic: boolean
     deleteBranchingLogic?: () => void
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
-    isCustomFontsEnabled?: boolean
     validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
     type?: SurveyType
 }
@@ -41,7 +40,6 @@ export function Customization({
     hasBranchingLogic,
     onAppearanceChange,
     deleteBranchingLogic,
-    isCustomFontsEnabled = false,
     validationErrors,
     type,
 }: CustomizationProps): JSX.Element {
@@ -232,29 +230,25 @@ export function Customization({
                         />
                     </LemonField.Pure>
                 )}
-                {isCustomFontsEnabled && (
-                    <LemonField.Pure
-                        className="mt-2"
-                        label="Font family"
-                        info="Custom font selection requires at least version 1.223.4 of posthog-js"
-                    >
-                        <LemonSelect
-                            value={appearance?.fontFamily}
-                            onChange={(fontFamily) => onAppearanceChange({ ...appearance, fontFamily })}
-                            options={WEB_SAFE_FONTS.map((font) => {
-                                return {
-                                    label: (
-                                        <span className={font.value.toLowerCase().replace(/\s/g, '-')}>
-                                            {font.label}
-                                        </span>
-                                    ),
-                                    value: font.value,
-                                }
-                            })}
-                            className="ignore-error-border"
-                        />
-                    </LemonField.Pure>
-                )}
+                <LemonField.Pure
+                    className="mt-2"
+                    label="Font family"
+                    info="Custom font selection requires at least version 1.223.4 of posthog-js"
+                >
+                    <LemonSelect
+                        value={appearance?.fontFamily}
+                        onChange={(fontFamily) => onAppearanceChange({ ...appearance, fontFamily })}
+                        options={WEB_SAFE_FONTS.map((font) => {
+                            return {
+                                label: (
+                                    <span className={font.value.toLowerCase().replace(/\s/g, '-')}>{font.label}</span>
+                                ),
+                                value: font.value,
+                            }
+                        })}
+                        className="ignore-error-border"
+                    />
+                </LemonField.Pure>
                 <div className="mt-4">
                     <LemonCheckbox
                         label={

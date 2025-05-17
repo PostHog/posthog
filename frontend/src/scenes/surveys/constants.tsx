@@ -53,10 +53,11 @@ export const defaultSurveyAppearance = {
     maxWidth: '300px',
     textSubtleColor: '#939393',
     inputBackground: 'white',
-    boxPadding: '20px 24px 10px',
+    boxPadding: '20px 24px',
     zIndex: '2147482647',
     shuffleQuestions: false,
     surveyPopupDelaySeconds: undefined,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
 } as const
 
 export const defaultSurveyFieldValues = {
