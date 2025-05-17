@@ -19,17 +19,24 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let redis_client = match RedisClient::new(config.redis_url.clone()) {
+    let redis_writer_client = match RedisClient::new(config.redis_url.clone()) {
         Ok(client) => Arc::new(client),
         Err(e) => {
-            tracing::error!("Failed to create Redis client: {}", e);
+            tracing::error!("Failed to create Redis writer client: {}", e);
             return;
         }
     };
 
-    // TODO - we should have a dedicated URL for both this and the writer – the reader will read
-    // from the replica, and the writer will write to the main database.
-    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
+    let redis_reader_client = match RedisClient::new(config.redis_reader_url.clone()) {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!("Failed to create Redis reader client: {}", e);
+            return;
+        }
+    };
+
+    let postgres_reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
+    {
         Ok(client) => {
             tracing::info!("Successfully created read Postgres client");
             Arc::new(client)
@@ -45,7 +52,7 @@ where
         }
     };
 
-    let writer =
+    let postgres_writer =
         // TODO - we should have a dedicated URL for both this and the reader – the reader will read
         // from the replica, and the writer will write to the main database.
         match get_pool(&config.write_database_url, config.max_pg_connections).await {
@@ -73,7 +80,7 @@ where
     };
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
-        reader.clone(),
+        postgres_reader.clone(),
         Some(config.cache_max_cohort_entries),
         Some(config.cache_ttl_seconds),
     ));
@@ -88,7 +95,7 @@ where
 
     let billing_limiter = match RedisLimiter::new(
         Duration::from_secs(5),
-        redis_client.clone(),
+        redis_reader_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
         QuotaResource::FeatureFlags,
@@ -104,13 +111,14 @@ where
     // You can decide which client to pass to the router, or pass both if needed
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
-        redis_client.clone(),
+        redis_writer_client.clone(),
     ));
 
     let app = router::router(
-        redis_client,
-        reader,
-        writer,
+        redis_writer_client,
+        redis_reader_client,
+        postgres_reader,
+        postgres_writer,
         cohort_cache,
         geoip_service,
         health,
