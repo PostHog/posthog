@@ -93,8 +93,8 @@ class ProxyClient:
         types_check=False,
         columnar=False,
     ):
-        if query_id:
-            settings["query_id"] = query_id
+        # if query_id:
+        #     settings["query_id"] = query_id # setting query_id via HTTP interface is not supported, see https://github.com/ClickHouse/ClickHouse/issues/11987
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 
         # we must play with result summary here
