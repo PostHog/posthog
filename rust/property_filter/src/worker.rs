@@ -4,7 +4,7 @@ use crate::app::{Context, FilterRow};
 use chrono::Utc;
 use qp_trie::{wrapper::BString, Trie};
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, to_value, Error};
+use serde_json::{from_str, to_value, Error, Value};
 
 use sqlx::{
     postgres::{PgQueryResult, PgRow},
@@ -19,6 +19,7 @@ const PROPFILTER_TEAMS_PROCESSED: &str = "propfilter_teams_processed";
 const PROPFILTER_TEAMS_FAILED: &str = "propfilter_teams_failed";
 const PROPFILTER_PROPS_INSERTED: &str = "propfilter_props_inserted";
 const PROPFILTER_DEFS_SCANNED: &str = "propfilter_definitions_scanned";
+const PROPFILTER_SERDE_FAILED: &str = "propfilter_serde_failed";
 
 // teams with more than this many property definitions are outliers
 // and should be skipped for further property defs processing anyway.
@@ -97,7 +98,8 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
             match from_str::<Trie<BString, bool>>(&data) {
                 Ok(trie) => trie,
                 Err(e) => {
-                    // TODO(eli): also stat this fail!
+                    metrics::counter!(PROPFILTER_SERDE_FAILED, &[("at", "hydrate")])
+                        .increment(1);
                     error!(
                         "failed to deserialize Trie from filter row for team {}, got: {}",
                         team_id, e
@@ -246,7 +248,7 @@ fn update_prop_filter(
     mut filter_row: FilterRow,
     filter: &Trie<BString, bool>,
 ) -> Result<FilterRow, Error> {
-    let data = to_value::<&Trie<BString, bool>>(filter)?;
+    let data: Value = to_value::<&Trie<BString, bool>>(filter)?;
     filter_row.filter = Some(data.to_string().bytes().collect());
     filter_row.last_updated_at = Utc::now();
 
