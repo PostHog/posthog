@@ -202,8 +202,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <LemonField name="link" label="Link" info="Only https:// or mailto: links are supported.">
-                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                    <LemonField
+                        name="link"
+                        label="Link"
+                        info="Only https:// or mailto: links are supported. Embedding person properties in links requires posthog-js version at least XXX."
+                        help="Use {'{{property}}'} embedding person properties in links, e.g., 'https://posthog.com?email={{distinct_id}}'."
+                    >
+                        <LemonInput
+                            value={question.link || ''}
+                            placeholder="https://posthog.com?email={{distinct_id}}"
+                        />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Rating && (
