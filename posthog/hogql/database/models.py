@@ -44,6 +44,13 @@ class IntegerDatabaseField(DatabaseField):
         return IntegerType(nullable=self.is_nullable())
 
 
+class UUIDDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UUIDType
+
+        return UUIDType(nullable=self.is_nullable())
+
+
 class FloatDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import FloatType
