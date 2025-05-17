@@ -473,10 +473,11 @@ mod tests {
         flags::flag_models::{FeatureFlagRow, FlagFilters},
         properties::property_models::OperatorType,
         utils::test_utils::{
-            create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
-            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            create_test_flag, insert_flag_for_team_in_pg, insert_person_for_team_in_pg,
+            setup_pg_reader_client, setup_pg_writer_client,
         },
     };
+    use common_models::test_utils::insert_new_team_in_pg;
 
     use super::*;
 

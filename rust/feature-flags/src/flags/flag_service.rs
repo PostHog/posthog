@@ -6,10 +6,10 @@ use crate::{
         FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
         TOKEN_VALIDATION_ERRORS_COUNTER,
     },
-    team::team_models::Team,
 };
 use common_database::Client as DatabaseClient;
 use common_metrics::inc;
+use common_models::team_models::Team;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
@@ -107,7 +107,7 @@ impl FlagService {
             1,
         );
 
-        team_result
+        team_result.map_err(FlagError::from)
     }
 
     /// Fetches the flags from the cache or the database. Returns a tuple containing
@@ -165,8 +165,9 @@ mod tests {
             FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
         },
         properties::property_models::{OperatorType, PropertyFilter},
-        utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
+        utils::test_utils::setup_pg_reader_client,
     };
+    use common_models::test_utils::{insert_new_team_in_redis, setup_redis_client};
 
     use super::*;
 

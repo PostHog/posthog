@@ -37,7 +37,7 @@ pub async fn increment_request_count(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::setup_redis_client;
+    use common_models::test_utils::setup_redis_client;
 
     #[tokio::test]
     async fn test_get_team_request_key() {

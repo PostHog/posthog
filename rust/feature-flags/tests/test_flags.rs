@@ -10,11 +10,13 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
+use common_models::test_utils::{
+    insert_new_team_in_pg, insert_new_team_in_redis, setup_redis_client,
+};
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
-    create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-    insert_new_team_in_redis, insert_person_for_team_in_pg, setup_pg_reader_client,
-    setup_redis_client,
+    create_group_in_pg, insert_flags_for_team_in_redis, insert_person_for_team_in_pg,
+    setup_pg_reader_client,
 };
 
 pub mod common;
