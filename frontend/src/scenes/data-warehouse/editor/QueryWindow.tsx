@@ -64,11 +64,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
-        !!editingView?.status &&
-        (editingView.status === 'Completed' ||
-            editingView.status === 'Failed' ||
-            editingView.status === 'Cancelled' ||
-            editingView.status === 'Running')
+        !!editingView?.last_run_at ||
+        (!!editingView?.status &&
+            (editingView.status === 'Completed' ||
+                editingView.status === 'Failed' ||
+                editingView.status === 'Cancelled' ||
+                editingView.status === 'Running'))
 
     const renderAddSQLVariablesButton = (): JSX.Element => (
         <LemonButton
