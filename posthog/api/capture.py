@@ -347,6 +347,16 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def enforce_numeric_offset(properties: dict[str, Any]):
+    try:
+        raw_offset = properties["offset"]
+    except KeyError:
+        return
+
+    if not isinstance(raw_offset, int):
+        raise ValueError(f'Event field "offset" must be numeric, received {type(properties["offset"]).__name__}!')
+
+
 def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
@@ -891,6 +901,8 @@ def parse_event(event):
 
     if not event.get("properties"):
         event["properties"] = {}
+
+    enforce_numeric_offset(event["properties"])
 
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))
