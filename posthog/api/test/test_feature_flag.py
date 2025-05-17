@@ -231,7 +231,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
-    def test_is_simple_flag(self):
+    def test_return_rollout_percentage(self):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -241,10 +241,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         ).json()
-        self.assertTrue(feature_flag["is_simple_flag"])
         self.assertEqual(feature_flag["rollout_percentage"], 65)
 
-    def test_is_not_simple_flag(self):
+    def test_not_return_rollout_percentage(self):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -268,41 +267,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         ).json()
-        self.assertFalse(feature_flag["is_simple_flag"])
-
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_is_simple_flag_groups(self, mock_capture):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 65}],
-                },
-            },
-            format="json",
-        ).json()
-        self.assertFalse(feature_flag["is_simple_flag"])
-        # Assert analytics are sent
-        instance = FeatureFlag.objects.get(id=feature_flag["id"])
-        mock_capture.assert_called_once_with(
-            self.user,
-            "feature flag created",
-            {
-                "groups_count": 1,
-                "has_variants": False,
-                "variants_count": 0,
-                "has_rollout_percentage": True,
-                "has_filters": False,
-                "filter_count": 0,
-                "created_at": instance.created_at,
-                "aggregating_by_groups": True,
-                "payload_count": 0,
-                "creation_context": "feature_flags",
-            },
-        )
+        self.assertIsNone(feature_flag["rollout_percentage"])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
