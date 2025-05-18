@@ -11,6 +11,7 @@ from posthog.hogql.property import (
     get_property_key,
 )
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
     map_columns,
@@ -40,8 +41,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
+        self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
+        if self.preaggregated_query_builder.can_use_preaggregated_tables():
+            return self.preaggregated_query_builder.get_query()
+
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
                 return self.to_main_query(self._counts_breakdown_value())
