@@ -1,6 +1,5 @@
 import structlog
 from celery import shared_task
-from django.db.models import Q
 from django.utils import timezone
 from prometheus_client import Counter
 
@@ -45,8 +44,8 @@ def persist_single_recording_v2(id: str, team_id: int) -> None:
 )
 def persist_finished_recordings() -> None:
     min_age = timezone.now() - MINIMUM_AGE_FOR_RECORDING
-    finished_recordings = SessionRecording.objects.filter(created_at__lte=min_age, object_storage_path=None).filter(
-        Q(persist_to_lts_error_count__lte=50) | Q(persist_to_lts_error_count__isnull=True)
+    finished_recordings = SessionRecording.objects.filter(
+        created_at__lte=min_age, object_storage_path=None, persist_to_lts_error_count__lte=50
     )
 
     logger.info("Persisting finished recordings", count=finished_recordings.count())
