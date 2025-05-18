@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { AssistantEventType, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationStatus } from '~/types'
@@ -68,6 +69,16 @@ describe('maxLogic', () => {
     }
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/conversations/': { results: [] },
+                '/api/environments/:team_id/core_memory/': { results: [] },
+            },
+            post: {
+                'api/environments/:team_id/query': { questions: ['Question'] },
+                '/api/environments/:team_id/conversations/': {},
+            },
+        })
         initKeaTests()
     })
 
@@ -118,14 +129,6 @@ describe('maxLogic', () => {
     })
 
     it('does not reset the thread when it was already opened after conversations have been loaded', async () => {
-        // mock api
-        jest.spyOn(api.conversations, 'list').mockImplementation(async () => {
-            await new Promise((resolve) => setTimeout(resolve))
-            return {
-                results: [],
-            }
-        })
-
         const streamSpy = mockStream()
 
         // mount logic
@@ -137,17 +140,18 @@ describe('maxLogic', () => {
 
             // start a thread
             logic.actions.askMax('hello')
-        }).delay(10)
+        }).delay(50)
 
         expect(streamSpy).toHaveBeenCalledTimes(1)
 
         await expectLogic(logic).toMatchValues({
+            threadLoading: false,
             threadGrouped: [
                 [
                     {
                         content: 'hello',
                         status: 'completed',
-                        type: 'human',
+                        type: AssistantMessageType.Human,
                     },
                 ],
                 [
@@ -155,7 +159,35 @@ describe('maxLogic', () => {
                         content: 'Response to "hello"',
                         id: 'mock-assistant-msg-1',
                         status: 'completed',
-                        type: 'ai',
+                        type: AssistantMessageType.Assistant,
+                    },
+                ],
+            ],
+        })
+    })
+
+    it('selects threadGroup without a human message', async () => {
+        // Must create the logic first to spy on its actions
+        logic = maxLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'mock-assistant-msg-1',
+                },
+            ])
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'mock-assistant-msg-1',
                     },
                 ],
             ],

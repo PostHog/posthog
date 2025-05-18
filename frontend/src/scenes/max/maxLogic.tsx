@@ -316,7 +316,10 @@ export const maxLogic = kea<maxLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
-                            } else if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
+                            } else if (
+                                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
+                                values.threadRaw.length === 0
+                            ) {
                                 actions.addMessage({
                                     ...parsedResponse,
                                     status: !parsedResponse.id ? 'loading' : 'completed',
@@ -550,11 +553,17 @@ export const maxLogic = kea<maxLogicType>([
                     const previousMessage: ThreadMessage | undefined = thread[i - 1]
                     if (isHumanMessage(currentMessage) === isHumanMessage(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
-                        if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
+                        if (
+                            currentMessage.id &&
+                            previousMessage &&
+                            previousMessage.type === AssistantMessageType.Reasoning
+                        ) {
                             // Only preserve the latest reasoning message, and remove once reasoning is done
                             lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
-                        } else {
+                        } else if (lastThreadSoFar) {
                             lastThreadSoFar.push(currentMessage)
+                        } else {
+                            threadGrouped.push([currentMessage])
                         }
                     } else {
                         threadGrouped.push([currentMessage])
