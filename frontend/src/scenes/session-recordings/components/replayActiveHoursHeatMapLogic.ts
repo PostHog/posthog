@@ -60,6 +60,7 @@ FROM (
         WHERE min_first_timestamp >= now() - INTERVAL 7 day
           AND min_first_timestamp <= now()
         GROUP BY session_id
+        having dateDiff('SECOND', min(min_first_timestamp), max(max_last_timestamp)) > 5
     )
 ) AS data
 RIGHT JOIN (
