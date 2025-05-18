@@ -34,11 +34,13 @@ SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
 SNAPSHOT_PERSIST_SUCCESS_COUNTER = Counter(
     "snapshot_persist_success",
     "Count of session recordings that were successfully persisted",
+    labelnames=["team_id"],
 )
 
 SNAPSHOT_PERSIST_FAILURE_COUNTER = Counter(
     "snapshot_persist_failure",
     "Count of session recordings that failed to be persisted",
+    labelnames=["team_id"],
 )
 
 SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER = Counter(
@@ -111,7 +113,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     recording.load_metadata()
 
     if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
-        # Recording is too recent to be persisted.
+        # The recording is too recent to be persisted.
         # We can save the metadata as it is still useful for querying, but we can't move to S3 yet.
         SNAPSHOT_PERSIST_TOO_YOUNG_COUNTER.inc()
         recording.save()
@@ -127,10 +129,10 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.storage_version = "2023-08-01"
         recording.object_storage_path = target_prefix
         recording.save()
-        SNAPSHOT_PERSIST_SUCCESS_COUNTER.inc()
+        SNAPSHOT_PERSIST_SUCCESS_COUNTER.labels(team_id=team_id).inc()
         return
     else:
-        SNAPSHOT_PERSIST_FAILURE_COUNTER.inc()
+        SNAPSHOT_PERSIST_FAILURE_COUNTER.labels(team_id=team_id).inc()
         logger.error(
             "No snapshots found to copy in S3 when persisting a recording",
             recording_id=recording_id,
