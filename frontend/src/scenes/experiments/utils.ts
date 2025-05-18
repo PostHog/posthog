@@ -584,50 +584,31 @@ export function metricToQuery(
     }
 
     switch (metric.metric_type) {
-        case ExperimentMetricType.MEAN:
+        case ExperimentMetricType.MEAN: {
             const source = metric.source as EventsNode | ActionsNode
-            switch (metric.source.math) {
-                case ExperimentMetricMathType.Sum:
-                    return {
-                        ...commonTrendsQueryProps,
-                        series: [
-                            {
-                                kind: source.kind,
-                                ...(source.kind === NodeKind.EventsNode
-                                    ? { event: source.event, name: source.name }
-                                    : { id: source.id, name: source.name }),
-                                math: ExperimentMetricMathType.Sum,
-                                math_property: source.math_property,
-                            },
-                        ],
-                    } as TrendsQuery
-                case ExperimentMetricMathType.UniqueSessions:
-                    return {
-                        ...commonTrendsQueryProps,
-                        series: [
-                            {
-                                kind: source.kind,
-                                ...(source.kind === NodeKind.EventsNode
-                                    ? { event: source.event, name: source.name }
-                                    : { id: source.id, name: source.name }),
-                                math: ExperimentMetricMathType.UniqueSessions,
-                            },
-                        ],
-                    } as TrendsQuery
-                default:
-                    return source.kind === NodeKind.EventsNode
-                        ? ({
-                              ...commonTrendsQueryProps,
-                              series: [
-                                  {
-                                      kind: NodeKind.EventsNode,
-                                      event: source.event,
-                                      name: source.name,
-                                  },
-                              ],
-                          } as TrendsQuery)
-                        : undefined
+            // Return undefined if this is not an EventsNode and has no math specified
+            if (source.kind !== NodeKind.EventsNode && !metric.source.math) {
+                return undefined
             }
+            return {
+                ...commonTrendsQueryProps,
+                series: [
+                    {
+                        kind: source.kind,
+                        ...(source.kind === NodeKind.EventsNode
+                            ? { event: source.event, name: source.name }
+                            : { id: source.id, name: source.name }),
+                        ...(metric.source.math === ExperimentMetricMathType.Sum && {
+                            math: ExperimentMetricMathType.Sum,
+                            math_property: source.math_property,
+                        }),
+                        ...(metric.source.math === ExperimentMetricMathType.UniqueSessions && {
+                            math: ExperimentMetricMathType.UniqueSessions,
+                        }),
+                    },
+                ],
+            } as TrendsQuery
+        }
         case ExperimentMetricType.FUNNEL: {
             return {
                 kind: NodeKind.FunnelsQuery,
