@@ -730,8 +730,9 @@ export const maxLogic = kea<maxLogicType>([
                 actions.setQuestion(cleanedQuestion)
             }
         }
+
         // Load conversation history on mount
-        actions.loadConversationHistory()
+        actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
     }),
 
     urlToAction(({ actions, values }) => ({
