@@ -65,7 +65,7 @@ export function Shortcuts(): JSX.Element {
                         <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
                         {shortcutsLoading && shortcuts.length > 0 ? <Spinner /> : null}
                     </div>
-                    <ButtonPrimitive onClick={showModal}>
+                    <ButtonPrimitive onClick={showModal} iconOnly>
                         <IconPlus className="size-3 text-secondary" />
                     </ButtonPrimitive>
                 </div>
