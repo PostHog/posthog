@@ -288,11 +288,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Validate table name
         team_id = self.team_id
-        table_name_exists = (
-            DataWarehouseTable.objects.exclude(deleted=True).filter(team_id=team_id, name=table_name).exists()
-        )
-        if table_name_exists:
-            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Table name already exists"})
+        table = None
+        table_query = DataWarehouseTable.objects.exclude(deleted=True).filter(team_id=team_id, name=table_name)
+        if table_query.exists():
+            table = table_query.first()
 
         # Create the table record
         try:
@@ -305,22 +304,25 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     access_secret=settings.AIRBYTE_BUCKET_SECRET,
                 )
 
-            # Create the table
-            table = DataWarehouseTable.objects.create(
-                team_id=team_id, name=table_name, format=file_format, created_by=request.user, credential=credential
-            )
+            # Create the table if it doesn't exist, otherwise use existing one
+            if table is None:
+                table = DataWarehouseTable.objects.create(
+                    team_id=team_id, name=table_name, format=file_format, created_by=request.user, credential=credential
+                )
 
             # Generate URL pattern and store file in object storage
             if credential:
                 s3 = boto3.client(
                     "s3", aws_access_key_id=credential.access_key, aws_secret_access_key=credential.access_secret
                 )
-                s3.upload_fileobj(
-                    file, "posthog-s3-datawarehouse-us-east-1-dev", f"dlt/managed/team_{team_id}/{file.name}"
-                )
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"dlt/managed/team_{team_id}/{file.name}")
 
                 # Set the URL pattern for the table
                 table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/managed/team_{team_id}/{file.name}"
+                table.format = file_format
+
+                if table.credential is None:
+                    table.credential = credential
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()
@@ -336,7 +338,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data=TableSerializer(table, context=self.get_serializer_context()).data,
                 )
             else:
-                table.delete()
+                if table is not None and table.credential is None:
+                    table.delete()
                 return response.Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Object storage must be available to upload files."},
