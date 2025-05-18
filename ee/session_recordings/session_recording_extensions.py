@@ -21,6 +21,11 @@ MAXIMUM_AGE_FOR_RECORDING_V2 = timedelta(
     minutes=int(settings.get_from_env("SESSION_RECORDING_V2_MAXIMUM_AGE_MINUTES", 7 * 24 * 60))
 )
 
+# we have 30, 90, and 365-day retention possible
+# if we don't act on retention before 90 days has passed, then the recording will be deleted
+# so, if 100 days have passed, then there's no point trying to persist a recording
+MAXIMUM_AGE_FOR_RECORDING = timedelta(days=int(settings.get_from_env("SESSION_RECORDING_MAXIMUM_AGE_DAYS", 100)))
+
 SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
     "snapshot_persist_time_seconds",
     "We persist recording snapshots from S3, how long does that take?",
