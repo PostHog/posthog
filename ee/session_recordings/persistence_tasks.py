@@ -44,9 +44,7 @@ def persist_single_recording_v2(id: str, team_id: int) -> None:
 )
 def persist_finished_recordings() -> None:
     min_age = timezone.now() - MINIMUM_AGE_FOR_RECORDING
-    finished_recordings = SessionRecording.objects.filter(
-        created_at__lte=min_age, object_storage_path=None, persist_to_lts_error_count__lte=50
-    )
+    finished_recordings = SessionRecording.objects.filter(created_at__lte=min_age, object_storage_path=None)
 
     logger.info("Persisting finished recordings", count=finished_recordings.count())
 

@@ -31,10 +31,8 @@ class SessionRecording(UUIDModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     deleted = models.BooleanField(null=True, blank=True)
-
     object_storage_path = models.CharField(max_length=200, null=True, blank=True)
     full_recording_v2_path = models.CharField(max_length=1000, null=True, blank=True)
-    persist_to_lts_error_count = models.IntegerField(null=True, blank=True)
 
     distinct_id = models.CharField(max_length=400, null=True, blank=True)
 

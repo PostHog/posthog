@@ -133,8 +133,6 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             target_prefix=target_prefix,
             source_prefix=source_prefix,
         )
-        recording.persist_to_lts_error_count = (recording.persist_to_lts_error_count or 0) + 1
-        recording.save()
         raise InvalidRecordingForPersisting("Could not persist recording: " + recording_id)
 
 
