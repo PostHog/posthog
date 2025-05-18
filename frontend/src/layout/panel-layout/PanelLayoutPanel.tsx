@@ -237,6 +237,7 @@ export function PanelLayoutPanel({
                             if (e.key === 'ArrowDown') {
                                 e.preventDefault() // Prevent scrolling
                                 const visibleItems = panelTreeRef?.current?.getVisibleItems()
+
                                 if (visibleItems && visibleItems.length > 0) {
                                     e.currentTarget.blur() // Remove focus from input
                                     panelTreeRef?.current?.focusItem(visibleItems[0].id)

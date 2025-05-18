@@ -4,7 +4,7 @@ import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/Le
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { RefObject, useRef, useState } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
@@ -17,9 +17,13 @@ export function ProductTree(): JSX.Element {
     const { productTreeItems, searchResults } = useValues(productTreeLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
     const { mainContentRef, isLayoutPanelPinned, searchTerm } = useValues(panelLayoutLogic)
-    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
+
+    useEffect(() => {
+        setPanelTreeRef(treeRef)
+    }, [treeRef, setPanelTreeRef])
 
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         const MenuItem = type === 'context' ? ContextMenuItem : DropdownMenuItem
