@@ -123,32 +123,26 @@ export function CalendarHeatMap({
                             <th className="bg" />
                             {columnLabels.map((label, i) => {
                                 const headerContents = onClick ? (
-                                    <Tooltip
-                                        key={i}
-                                        title={getOnClickTooltip ? getOnClickTooltip(i) : ''}
-                                        delayMs={100}
-                                    >
+                                    <Tooltip title={getOnClickTooltip ? getOnClickTooltip(i) : ''} delayMs={100}>
                                         {label}
                                     </Tooltip>
                                 ) : (
                                     label
                                 )
                                 return (
-                                    <>
-                                        <th
-                                            key={i}
-                                            className={cn(onClick ? 'rounded cursor-pointer hover:bg-highlight' : '')}
-                                            onClick={
-                                                onClick
-                                                    ? () => {
-                                                          onClick(i)
-                                                      }
-                                                    : undefined
-                                            }
-                                        >
-                                            {headerContents}
-                                        </th>
-                                    </>
+                                    <th
+                                        key={i}
+                                        className={cn(onClick ? 'rounded cursor-pointer hover:bg-highlight' : '')}
+                                        onClick={
+                                            onClick
+                                                ? () => {
+                                                      onClick(i)
+                                                  }
+                                                : undefined
+                                        }
+                                    >
+                                        {headerContents}
+                                    </th>
                                 )
                             })}
                             {rowsAggregations?.[0] !== undefined && showRowAggregations && (

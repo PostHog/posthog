@@ -27,7 +27,7 @@ export function CalendarHeatMapCell({ values, bg, fontSize, tooltip, onClick }: 
                 style={{ fontSize, backgroundColor, color }}
                 onClick={onClick}
             >
-                {humanFriendlyLargeNumber(values.value || 0)}
+                {values.value == undefined ? '' : humanFriendlyLargeNumber(values.value)}
             </div>
         </Tooltip>
     )
