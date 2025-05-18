@@ -1,13 +1,13 @@
-import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, defaults, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { now } from 'lib/dayjs'
+import { Dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ReplayTabs } from '~/types'
 
@@ -18,10 +18,25 @@ export interface ReplayActiveHoursHeatMapLogicProps {
     scene?: 'templates' | 'filters' | 'replay-home'
 }
 
+const rowLabels = ['00:00 - 04:00', '04:00 - 08:00', '08:00 - 12:00', '12:00 - 16:00', '16:00 - 20:00', '20:00 - 00:00']
+
+const columnLabels = (now: Dayjs): string[] => [
+    now.subtract(6, 'day').format('ddd D'),
+    now.subtract(5, 'day').format('ddd D'),
+    now.subtract(4, 'day').format('ddd D'),
+    now.subtract(3, 'day').format('ddd D'),
+    now.subtract(2, 'day').format('ddd D'),
+    now.subtract(1, 'day').format('ddd D'),
+    'Today',
+]
+
 export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicType>([
     path(['scenes', 'session-recordings', 'components', 'replayActiveHoursHeatMapLogic']),
     props({} as ReplayActiveHoursHeatMapLogicProps),
     key((props) => props.scene || 'default'),
+    defaults({
+        recordingsPerHour: null as HogQLQueryResponse | null,
+    }),
     loaders(() => ({
         recordingsPerHour: {
             loadRecordingsPerHour: async (_, breakpoint): Promise<HogQLQueryResponse> => {
@@ -54,7 +69,7 @@ ON data.real_hour_block = hours.hour_block
 GROUP BY hour_block
 ORDER BY hour_block`
 
-                const qResponse: HogQLQueryResponse = await api.query({
+                const qResponse = await api.query<HogQLQuery>({
                     kind: NodeKind.HogQLQuery,
                     query: q,
                 })
@@ -73,35 +88,10 @@ ORDER BY hour_block`
         },
     })),
     selectors(() => ({
-        columnLabels: [
-            () => [],
-            () => [
-                now().subtract(6, 'day').format('ddd D'),
-                now().subtract(5, 'day').format('ddd D'),
-                now().subtract(4, 'day').format('ddd D'),
-                now().subtract(3, 'day').format('ddd D'),
-                now().subtract(2, 'day').format('ddd D'),
-                now().subtract(1, 'day').format('ddd D'),
-                'Today',
-            ],
-        ],
-        rowLabels: [
-            () => [],
-            () => [
-                '00:00 - 04:00',
-                '04:00 - 08:00',
-                '08:00 - 12:00',
-                '12:00 - 16:00',
-                '16:00 - 20:00',
-                '20:00 - 00:00',
-            ],
-        ],
         calendarHeatmapProps: [
-            (s) => [s.recordingsPerHour, s.columnLabels, s.rowLabels],
+            (s) => [s.recordingsPerHour],
             (
-                recordingsPerHour,
-                columnLabels,
-                rowLabels
+                recordingsPerHour: HogQLQueryResponse | null
             ): Pick<CalendarHeatMapProps, 'rowLabels' | 'columnLabels' | 'processedData'> => {
                 if (!recordingsPerHour || !recordingsPerHour.results) {
                     return {
@@ -125,7 +115,7 @@ ORDER BY hour_block`
                 const dataWithoutHourBlock = recordingsPerHour.results.map((row) => row.slice(1))
 
                 const columnsAggregations = dataWithoutHourBlock.reduce((acc, row) => {
-                    row.forEach((value, index) => {
+                    row.forEach((value: number, index: number) => {
                         acc[index] = (acc[index] || 0) + value
                     })
                     return acc
@@ -134,14 +124,14 @@ ORDER BY hour_block`
                     // take each row and ignoring row[0]
                     // gather a sum for each index in the row
                     // so we end up with an array of numbers with length 6
-                    acc[row[0]] = (acc[row[0]] || 0) + row.reduce((a, b) => a + b, 0)
+                    acc[row[0]] = (acc[row[0]] || 0) + row.reduce((a: number, b: number) => a + b, 0)
                     return acc
                 }, [])
                 const processedData = {
                     matrix: dataWithoutHourBlock,
                     columnsAggregations: columnsAggregations,
                     rowsAggregations: rowsAggregations,
-                    overallValue: columnsAggregations.reduce((a, b) => a + b, 0),
+                    overallValue: columnsAggregations.reduce((a: number, b: number) => a + b, 0),
                     maxOverall: dataWithoutHourBlock.reduce((acc, row) => {
                         return Math.max(acc, ...row)
                     }, 0),
@@ -156,22 +146,22 @@ ORDER BY hour_block`
 
                 return {
                     rowLabels: rowLabels,
-                    columnLabels: columnLabels,
+                    columnLabels: columnLabels(now()),
                     processedData: processedData,
                 }
             },
         ],
         getOnClickTooltip: [
-            (s) => [s.columnLabels, s.rowLabels],
-            (columnLabels, rowLabels) => (colIndex, rowIndex) => {
-                const day = columnLabels[colIndex]
+            () => [],
+            () => (colIndex: number, rowIndex: number) => {
+                const day = columnLabels(now())[colIndex]
                 const timeRange = rowIndex === undefined ? undefined : rowLabels[rowIndex]
                 return `View recordings for ${day}${timeRange ? ` ${timeRange}` : ''}`
             },
         ],
         onCellClick: [
             () => [],
-            () => (colIndex, rowIndex) => {
+            () => (colIndex: number, rowIndex: number) => {
                 const daysToSubtract = 6 - colIndex
                 let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc(true)
                 let endDate = startDate.clone()
