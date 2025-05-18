@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 REPLAY_NEEDS_PERSISTENCE_COUNTER = Counter(
     "snapshot_persist_persistence_task_queued",
     "Count of session recordings that need to be persisted",
-    # we normally avoid team label but not all teams pin recordings so there shouldn't be _too_ many labels here
+    # we normally avoid team label but not all teams pin recordings, so there shouldn't be _too_ many labels here
     labelnames=["team_id"],
 )
 
