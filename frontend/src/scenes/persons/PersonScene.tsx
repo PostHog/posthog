@@ -132,28 +132,28 @@ function PersonSummariesTable(): JSX.Element {
             status: 'success',
             details: {
                 criticalIssues: [
-                    'Blocking backend/API errors in authentication and signup',
-                    'Repeated paywall interruptions in analytics and settings',
-                    'UI confusion in filtering and onboarding',
-                    'Non-blocking query failures and timeouts',
+                    'Consistently encounters authentication timeouts during morning sessions',
+                    'Frequent paywall interruptions when accessing historical data',
+                    'Regular UI confusion with advanced filtering options',
+                    'Repeated query timeouts when analyzing large date ranges',
                 ],
                 commonJourneys: [
                     {
-                        name: 'Analytics Exploration',
-                        path: 'Dashboard → Analytics → Filtering → Save Results',
+                        name: 'Morning Analytics Review',
+                        path: 'Login → Dashboard → Analytics → Filter by Date → Export Data',
                     },
                     {
-                        name: 'Error Tracking',
-                        path: 'Dashboard → Error Tracking → Session Replay → Documentation',
+                        name: 'Error Investigation',
+                        path: 'Session Replay → Error Details → Team Assignment → Documentation',
                     },
                 ],
                 edgeCases: [
-                    'Users repeatedly attempt bulk team invites despite API failures',
-                    'Creative navigation around paywalls and errors',
-                    'Rage clicks around advanced filtering',
+                    'Consistently attempts to bulk export data despite size limitations',
+                    'Regular workaround: splits large date ranges into smaller chunks',
+                    'Often uses browser back button when encountering paywalls',
                 ],
                 summary:
-                    'Most users follow analytics exploration patterns with some persistence through minor issues. Blocking errors and paywalls are primary abandonment causes.',
+                    'User shows consistent morning activity patterns with focus on data analysis. Regularly encounters authentication and data size limitations, but has developed workarounds. Most productive during early sessions before encountering performance issues.',
             },
         },
     ]
