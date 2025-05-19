@@ -104,6 +104,13 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
+interface SummaryDetails {
+    criticalIssues: string[]
+    commonJourneys: { name: string; path: string }[]
+    edgeCases: string[]
+    summary: string
+}
+
 interface SummaryData {
     id: number
     period: string
@@ -111,7 +118,7 @@ interface SummaryData {
     keyInsights: number
     pains: number
     status: 'success' | 'failure'
-    details: string
+    details: SummaryDetails
 }
 
 function PersonSummariesTable(): JSX.Element {
@@ -123,18 +130,31 @@ function PersonSummariesTable(): JSX.Element {
             keyInsights: 5,
             pains: 2,
             status: 'success',
-            details:
-                'User showed high engagement with the checkout process but abandoned cart twice. Most common path was homepage -> product page -> cart. Average session duration was 8 minutes.',
-        },
-        {
-            id: 2,
-            period: '2024-02-15 to 2024-02-29',
-            sessionsAnalyzed: 8,
-            keyInsights: 3,
-            pains: 1,
-            status: 'success',
-            details:
-                'User primarily used mobile device. Most active during evening hours. Completed one purchase with total value of $89.99. Showed interest in premium features.',
+            details: {
+                criticalIssues: [
+                    'Blocking backend/API errors in authentication and signup',
+                    'Repeated paywall interruptions in analytics and settings',
+                    'UI confusion in filtering and onboarding',
+                    'Non-blocking query failures and timeouts',
+                ],
+                commonJourneys: [
+                    {
+                        name: 'Analytics Exploration',
+                        path: 'Dashboard → Analytics → Filtering → Save Results',
+                    },
+                    {
+                        name: 'Error Tracking',
+                        path: 'Dashboard → Error Tracking → Session Replay → Documentation',
+                    },
+                ],
+                edgeCases: [
+                    'Users repeatedly attempt bulk team invites despite API failures',
+                    'Creative navigation around paywalls and errors',
+                    'Rage clicks around advanced filtering',
+                ],
+                summary:
+                    'Most users follow analytics exploration patterns with some persistence through minor issues. Blocking errors and paywalls are primary abandonment causes.',
+            },
         },
     ]
 
@@ -166,21 +186,61 @@ function PersonSummariesTable(): JSX.Element {
                     title: 'Status',
                     dataIndex: 'status',
                     width: 120,
-                    render: (dataValue: string | number | undefined, record: SummaryData) => {
+                    render: ((dataValue: string | number | SummaryDetails | undefined, record: SummaryData) => {
                         const status = record.status
                         return (
                             <LemonTag type={status === 'success' ? 'success' : 'danger'}>
                                 {status.charAt(0).toUpperCase() + status.slice(1)}
                             </LemonTag>
                         )
-                    },
+                    }) as (dataValue: string | number | SummaryDetails | undefined, record: SummaryData) => JSX.Element,
                 },
             ]}
             expandable={{
-                expandedRowRender: (record) => (
+                expandedRowRender: (record: SummaryData) => (
                     <div className="px-4 py-2 bg-bg-light">
-                        <h4 className="font-semibold mb-2">Detailed Analysis</h4>
-                        <p>{record.details}</p>
+                        <div className="space-y-4">
+                            <div>
+                                <h4 className="font-semibold mb-2">Critical Issues</h4>
+                                <ul className="list-disc pl-4 space-y-1">
+                                    {record.details.criticalIssues.map((issue: string, i: number) => (
+                                        <li key={i} className="text-sm">
+                                            {issue}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div>
+                                <h4 className="font-semibold mb-2">Common User Journeys</h4>
+                                <div className="space-y-2">
+                                    {record.details.commonJourneys.map(
+                                        (journey: { name: string; path: string }, i: number) => (
+                                            <div key={i} className="text-sm">
+                                                <span className="font-medium">{journey.name}:</span>{' '}
+                                                <span className="text-muted">{journey.path}</span>
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 className="font-semibold mb-2">Interesting Edge Cases</h4>
+                                <ul className="list-disc pl-4 space-y-1">
+                                    {record.details.edgeCases.map((edgeCase: string, i: number) => (
+                                        <li key={i} className="text-sm">
+                                            {edgeCase}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div>
+                                <h4 className="font-semibold mb-2">General Summary</h4>
+                                <p className="text-sm">{record.details.summary}</p>
+                            </div>
+                        </div>
                     </div>
                 ),
                 rowExpandable: () => true,
