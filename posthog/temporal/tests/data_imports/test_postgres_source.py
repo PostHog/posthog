@@ -16,7 +16,7 @@ from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource, PostgreSQLSourceConfig
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -184,3 +184,24 @@ async def test_postgres_source_full_refresh(
     )
 
     assert res.results == TEST_DATA
+
+
+def test_postgresql_sql_source_config_loads():
+    job_inputs = {
+        "host": "host.com",
+        "port": "5432",
+        "user": "Username",
+        "schema": "schema",
+        "database": "database",
+        "password": "password",
+        "ssh_tunnel_host": "other-host.com",
+        "ssh_tunnel_port": "55550",
+        "ssh_tunnel_enabled": "True",
+        "ssh_tunnel_auth_type": "password",
+        "ssh_tunnel_auth_type_password": "password",
+        "ssh_tunnel_auth_type_username": "username",
+    }
+    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.enabled is True
