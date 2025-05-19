@@ -1,6 +1,5 @@
-import { logger } from '~/src/utils/logger'
-
 import { PluginCapabilities, PluginMethods } from '../../types'
+import { logger } from '../../utils/logger'
 import { PluginServerCapabilities } from './../../types'
 
 const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>(['ingestionV2', 'ingestionV2Combined'])
