@@ -150,7 +150,7 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" hideIcon className="mb-2">
+                <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
                         <JudgeHog className="w-20 h-20 flex-shrink-0" />
                         <div>

@@ -1,6 +1,7 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { fetch, FetchResponse } from '~/src/utils/request'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -15,7 +16,6 @@ import {
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-worker-plugins.consumer'
-
 jest.setTimeout(1000)
 
 /**
@@ -27,7 +27,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-    let mockFetch: jest.Mock
+    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, {
             ...hogFunction,
@@ -49,13 +49,12 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor['pluginExecutor'].fetch = mockFetch = jest.fn(() =>
+        processor['pluginExecutor'].fetch = mockFetch = jest.fn((_url, _options) =>
             Promise.resolve({
                 status: 200,
-                json: () =>
-                    Promise.resolve({
-                        status: 200,
-                    }),
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify({})),
+                headers: {},
             } as any)
         )
 
@@ -120,6 +119,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
             mockFetch.mockResolvedValue({
                 status: 200,
                 json: () => Promise.resolve({ total_count: 1 }),
+                text: () => Promise.resolve(''),
+                headers: {},
             })
 
             await processor.processBatch([invocation])
@@ -189,12 +190,13 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const res = await processor.processBatch([invocation])
+            const { invocationResults, backgroundTask } = await processor.processBatch([invocation])
+            await backgroundTask
 
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
-            expect(res[0].error).toBeInstanceOf(Error)
-            expect(forSnapshot(res[0].logs)).toMatchInlineSnapshot(`[]`)
+            expect(invocationResults[0].error).toBeInstanceOf(Error)
+            expect(forSnapshot(invocationResults[0].logs)).toMatchInlineSnapshot(`[]`)
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
                 {

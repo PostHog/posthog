@@ -1,7 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
+import { getRelativeNextPath } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +14,7 @@ import type { productsLogicType } from './productsLogicType'
 export const productsLogic = kea<productsLogicType>([
     path(['scenes', 'products', 'productsLogic']),
     connect(() => ({
-        actions: [teamLogic, ['addProductIntent']],
+        actions: [teamLogic, ['addProductIntent'], onboardingLogic, ['setOnCompleteOnboardingRedirectUrl']],
     })),
     actions(() => ({
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
@@ -36,6 +38,12 @@ export const productsLogic = kea<productsLogicType>([
     }),
     listeners(({ actions, values }) => ({
         handleStartOnboarding: () => {
+            const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
+
+            if (nextUrl && nextUrl !== '/') {
+                actions.setOnCompleteOnboardingRedirectUrl(nextUrl)
+            }
+
             if (!values.firstProductOnboarding) {
                 return
             }

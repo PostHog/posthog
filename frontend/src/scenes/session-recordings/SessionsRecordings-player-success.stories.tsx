@@ -21,6 +21,7 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
         derived_name: '(Untitled)',
         description: '',
         pinned: false,
+        type: 'collection',
         created_at: '2023-07-31T16:24:38.956943Z',
         created_by: {
             id: 1,
@@ -70,7 +71,7 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
 }
 
 const meta: Meta = {
-    title: 'Replay/Player/Success',
+    title: 'Replay/Tabs/Home/Success',
     tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',

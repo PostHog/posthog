@@ -593,12 +593,12 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-resizer: 761;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
     --z-layout-navbar-under: 755;
-    --z-resizer: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -1070,12 +1070,9 @@
             }
         }
 
-        .styled-scrollbars {
-            --scrollbar-background: transparent transparent;
-
+        .show-scrollbar-on-hover {
             scrollbar-color: transparent transparent;
             scrollbar-width: thin;
-            scrollbar-gutter: stable;
 
             &::-webkit-scrollbar {
                 width: 0.5rem;
@@ -1582,7 +1579,7 @@
         background-color: var(--bg-surface-primary);
         border: 1px solid var(--border-secondary);
         border-radius: var(--radius-md);
-        box-shadow: var(--shadow);
+        box-shadow: var(--shadow-elevation-3000);
     }
 
     .primitive-menu-content-inner {

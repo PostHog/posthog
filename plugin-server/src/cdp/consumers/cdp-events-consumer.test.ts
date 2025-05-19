@@ -18,20 +18,6 @@ import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 
-jest.mock('../../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
-    }
-})
-
-const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
-
 jest.setTimeout(1000)
 
 /**
@@ -82,8 +68,6 @@ describe.each([
         mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
 
         await processor.start()
-
-        mockFetch.mockClear()
     })
 
     afterEach(async () => {
@@ -177,7 +161,7 @@ describe.each([
             }
 
             it('should process events', async () => {
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(2)
                 expect(invocations).toMatchObject([
@@ -192,7 +176,7 @@ describe.each([
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
@@ -227,7 +211,7 @@ describe.each([
                 await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
                 await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
                 expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)

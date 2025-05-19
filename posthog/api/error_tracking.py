@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
+from posthog.models.team.team import Team
 import structlog
 import hashlib
 
@@ -22,6 +23,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingSymbolSet,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -138,6 +140,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
         ids: list[str] = request.data.get("ids", [])
+        # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
+        ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
@@ -227,7 +231,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         item_id = kwargs["pk"]
         if not ErrorTrackingIssue.objects.filter(id=item_id, team_id=self.team_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="ErrorTrackingIssue",
@@ -430,7 +434,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
             assignment_rule.filters = json_filters
-            assignment_rule.bytecode = self.generate_byte_code(parsed_filters)
+            assignment_rule.bytecode = generate_byte_code(self.team, parsed_filters)
 
         if assignee:
             assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
@@ -452,7 +456,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
         parsed_filters = PropertyGroupFilterValue(**json_filters)
 
-        bytecode = self.generate_byte_code(parsed_filters)
+        bytecode = generate_byte_code(self.team, parsed_filters)
 
         assignment_rule = ErrorTrackingAssignmentRule.objects.create(
             team=self.team,
@@ -467,13 +471,69 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         serializer = ErrorTrackingAssignmentRuleSerializer(assignment_rule)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    def generate_byte_code(self, props: PropertyGroupFilterValue):
-        expr = property_to_expr(props, self.team, strict=True)
-        # The rust HogVM expects a return statement, so we wrap the compiled filter expression in one
-        with_return = ast.ReturnStatement(expr=expr)
-        bytecode = create_bytecode(with_return).bytecode
-        validate_bytecode(bytecode)
-        return bytecode
+
+class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingGroupingRule
+        fields = ["id", "filters"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingGroupingRule.objects.all()
+    serializer_class = ErrorTrackingGroupingRuleSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
+
+    def update(self, request, *args, **kwargs) -> Response:
+        grouping_rule = self.get_object()
+        assignee = request.data.get("assignee")
+        json_filters = request.data.get("filters")
+        description = request.data.get("description")
+
+        if json_filters:
+            parsed_filters = PropertyGroupFilterValue(**json_filters)
+            grouping_rule.filters = json_filters
+            grouping_rule.bytecode = generate_byte_code(self.team, parsed_filters)
+
+        if assignee:
+            grouping_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
+            grouping_rule.user_group_id = None if assignee["type"] != "user_group" else assignee["id"]
+            grouping_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
+
+        if description:
+            grouping_rule.description = description
+
+        grouping_rule.save()
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        json_filters = request.data.get("filters")
+        assignee = request.data.get("assignee", None)
+        description = request.data.get("description", None)
+
+        if not json_filters:
+            return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        parsed_filters = PropertyGroupFilterValue(**json_filters)
+        bytecode = generate_byte_code(self.team, parsed_filters)
+
+        grouping_rule = ErrorTrackingGroupingRule.objects.create(
+            team=self.team,
+            filters=json_filters,
+            bytecode=bytecode,
+            order_key=0,
+            user_id=None if assignee["type"] != "user" else assignee["id"],
+            user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
+            role_id=None if assignee["type"] != "role" else assignee["id"],
+            description=description,
+        )
+
+        serializer = ErrorTrackingGroupingRuleSerializer(grouping_rule)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
@@ -518,6 +578,15 @@ def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:
     data.extend(len(sm_bytes).to_bytes(8, "little"))
     data.extend(sm_bytes)
     return data
+
+
+def generate_byte_code(team: Team, props: PropertyGroupFilterValue):
+    expr = property_to_expr(props, team, strict=True)
+    # The rust HogVM expects a return statement, so we wrap the compiled filter expression in one
+    with_return = ast.ReturnStatement(expr=expr)
+    bytecode = create_bytecode(with_return).bytecode
+    validate_bytecode(bytecode)
+    return bytecode
 
 
 def validate_bytecode(bytecode: list[Any]) -> None:

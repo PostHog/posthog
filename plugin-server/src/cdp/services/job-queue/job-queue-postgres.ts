@@ -37,7 +37,7 @@ export class CyclotronJobQueuePostgres {
         private config: PluginsServerConfig,
         private queue: HogFunctionInvocationJobQueue,
         private hogFunctionManager: HogFunctionManagerService,
-        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<any>
+        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {}
 
     /**
@@ -91,6 +91,10 @@ export class CyclotronJobQueuePostgres {
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
+        if (invocations.length === 0) {
+            return
+        }
+
         const cyclotronManager = this.getCyclotronManager()
 
         // For the cyclotron ones we simply create the jobs
@@ -242,7 +246,7 @@ function invocationToCyclotronJobInitial(invocation: HogFunctionInvocation): Cyc
         parameters,
         blob,
         metadata: invocation.queueMetadata ?? null,
-        scheduled: invocation.queueScheduledAt?.toISO() ?? null,
+        scheduled: invocation.queueScheduledAt?.toISO() ?? DateTime.now().toISO(),
     }
     return job
 }

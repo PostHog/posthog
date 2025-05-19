@@ -37,6 +37,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -197,6 +198,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    USER_INTERVIEWS = 'user_interviews',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
@@ -209,6 +211,8 @@ export enum ProductKey {
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    MAX = 'max',
+    LINKS = 'links',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -443,6 +447,15 @@ export interface OrganizationMemberType extends BaseMemberType {
     is_2fa_enabled: boolean
 }
 
+export interface OrganizationMemberScopedApiKeysResponse {
+    has_keys: boolean
+    has_keys_active_last_week: boolean
+    keys: {
+        name: string
+        last_used_at: string | null
+    }[]
+}
+
 export interface ExplicitTeamMemberType extends BaseMemberType {
     /** Level at which the user explicitly is in the project. */
     level: TeamMembershipLevel
@@ -508,6 +521,8 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
+    secret_api_token: string
+    secret_api_token_backup: string
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -843,7 +858,6 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
-    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -884,11 +898,6 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
-    operator: PropertyOperator
-}
-
-export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -955,7 +964,6 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
-    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1332,9 +1340,7 @@ export interface CommonActorType {
 
 export interface PersonActorType extends CommonActorType {
     type: 'person'
-    /** Serial ID (NOT UUID). */
-    id: number
-    uuid: string
+    id: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
@@ -1539,6 +1545,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    type: 'filters' | 'collection'
     _create_in_folder?: string | null
 }
 
@@ -1849,6 +1856,9 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
+        [key: string]: number | null
+    }
+    next_period_custom_limits_usd?: {
         [key: string]: number | null
     }
     billing_period?: {
@@ -2939,6 +2949,9 @@ export enum SurveyEventProperties {
     SURVEY_ID = '$survey_id',
     SURVEY_RESPONSE = '$survey_response',
     SURVEY_ITERATION = '$survey_iteration',
+    SURVEY_PARTIALLY_COMPLETED = '$survey_partially_completed',
+    SURVEY_SUBMISSION_ID = '$survey_submission_id',
+    SURVEY_COMPLETED = '$survey_completed',
 }
 
 export interface SurveyEventStats {
@@ -3548,6 +3561,23 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface UserInterviewType {
+    id: string
+    created_by: UserBasicType
+    created_at: string
+    transcript: string
+    summary: string
+    interviewee_emails: string[]
+}
+
+export enum ExperimentConclusion {
+    Won = 'won',
+    Lost = 'lost',
+    Inconclusive = 'inconclusive',
+    StoppedEarly = 'stopped_early',
+    Invalid = 'invalid',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3596,6 +3626,8 @@ export interface Experiment {
         version?: number
     }
     _create_in_folder?: string | null
+    conclusion?: ExperimentConclusion | null
+    conclusion_comment?: string | null
 }
 
 export interface FunnelExperimentVariant {
@@ -4281,6 +4313,7 @@ export enum ActivityScope {
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    USER_INTERVIEW = 'UserInterview',
 }
 
 export type CommentType = {
@@ -4378,6 +4411,7 @@ export interface DataWarehouseSavedQuery {
     sync_frequency: string
     status?: string
     latest_error: string | null
+    latest_history_id?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -4448,7 +4482,7 @@ export interface ExternalDataSource {
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed'
+    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
     error: string | null
     created_at: string
@@ -5088,21 +5122,25 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
-    | 'error-tracking'
+    | 'error-tracking-issue-created'
+    | 'error-tracking-issue-reopened'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
     'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
-    sub_template_id?: HogFunctionSubTemplateIdType
     _create_in_folder?: string | null
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
-    id: HogFunctionSubTemplateIdType
-    name: string
-    description: string | null
+export type HogFunctionSubTemplateType = Pick<
+    HogFunctionType,
+    'filters' | 'inputs' | 'masking' | 'mappings' | 'type'
+> & {
+    template_id: HogFunctionTemplateType['id']
+    sub_template_id: HogFunctionSubTemplateIdType
+    name?: string
+    description?: string
 }
 
 export type HogFunctionTemplateType = Pick<
@@ -5121,8 +5159,11 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
-    sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
+}
+
+export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
+    sub_template_id?: HogFunctionSubTemplateIdType
 }
 
 export type HogFunctionIconResponse = {
@@ -5275,8 +5316,22 @@ export enum CookielessServerHashMode {
 /**
  * Assistant Conversation
  */
+export enum ConversationStatus {
+    Idle = 'idle',
+    InProgress = 'in_progress',
+    Canceling = 'canceling',
+}
+
 export interface Conversation {
     id: string
+    status: ConversationStatus
+    title: string | null
+    created_at: string | null
+    updated_at: string | null
+}
+
+export interface ConversationDetail extends Conversation {
+    messages: AssistantMessage[]
 }
 
 export enum UserRole {
@@ -5306,6 +5361,11 @@ export interface FileSystemType {
     href?: (ref: string) => string
 }
 
+export interface FileSystemFilterType {
+    name: string
+    flag?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -5314,7 +5374,9 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsExplore?: FileSystemImport[]
+    treeItemsProducts?: FileSystemImport[]
+    treeItemsGames?: FileSystemImport[]
+    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {

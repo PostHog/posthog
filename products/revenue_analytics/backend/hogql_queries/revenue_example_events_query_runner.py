@@ -10,7 +10,7 @@ from posthog.schema import (
     RevenueExampleEventsQueryResponse,
     CachedRevenueExampleEventsQueryResponse,
 )
-from ..models import EVENTS_VIEW_SUFFIX
+from ..views.revenue_analytics_charge_view import EVENTS_VIEW_SUFFIX
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):

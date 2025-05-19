@@ -5,7 +5,6 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
-from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
 
@@ -13,7 +12,7 @@ def prepare_s3_files_for_querying(
     folder_path: str,
     table_name: str,
     file_uris: list[str],
-    pipeline_version: Optional[ExternalDataJob.PipelineVersion] = None,
+    preserve_table_name_casing: Optional[bool] = False,
 ):
     s3 = get_s3_client()
 
@@ -21,7 +20,12 @@ def prepare_s3_files_for_querying(
 
     s3_folder_for_job = f"{settings.BUCKET_URL}/{folder_path}"
 
-    s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}"
+    # Dont use the normalized table name when renaming files when called from the data modeling job
+    s3_folder_for_schema = (
+        f"{s3_folder_for_job}/{table_name}"
+        if preserve_table_name_casing is True
+        else f"{s3_folder_for_job}/{normalized_table_name}"
+    )
 
     s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
 
