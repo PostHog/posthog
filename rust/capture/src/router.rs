@@ -180,7 +180,7 @@ pub fn router<
         .route("/i/v0", get(index))
         .route("/i/v0/", get(index));
 
-    // conditionally route /e (and soon /track /capture /engage) to mirror deploy!
+    // conditionally route all legacy capture endpoints to event_legacy handler
     if is_mirror_deploy {
         event_router = event_router
             .route(
@@ -191,6 +191,42 @@ pub fn router<
             )
             .route(
                 "/e/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/track",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/track/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/engage",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/engage/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/capture",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/capture/",
                 post(v0_endpoint::event_legacy)
                     .get(v0_endpoint::event_legacy)
                     .options(v0_endpoint::options),

@@ -699,7 +699,7 @@ export const maxLogic = kea<maxLogicType>([
                     return null
                 }
 
-                return 'New chat'
+                return 'Max'
             },
         ],
 
@@ -731,7 +731,12 @@ export const maxLogic = kea<maxLogicType>([
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
             sidePanelStateLogic.values.selectedTabOptions
         ) {
-            actions.setQuestion(sidePanelStateLogic.values.selectedTabOptions)
+            const cleanedQuestion = sidePanelStateLogic.values.selectedTabOptions.replace(/^!/, '')
+            if (sidePanelStateLogic.values.selectedTabOptions.startsWith('!')) {
+                actions.askMax(cleanedQuestion)
+            } else {
+                actions.setQuestion(cleanedQuestion)
+            }
         }
         // Load conversation history on mount
         actions.loadConversationHistory()
@@ -742,12 +747,12 @@ export const maxLogic = kea<maxLogicType>([
          * When the URL contains a conversation ID, we want to make that conversation the active one.
          */
         '*': (_, search) => {
-            if (!search.chat) {
+            if (!search.chat || search.chat === values.conversationId) {
                 return
             }
 
-            if (!values.sidePanelOpen && !router.values.location.pathname.includes('/max')) {
-                actions.openSidePanel(SidePanelTab.Max)
+            if (!sidePanelStateLogic.values.sidePanelOpen && !router.values.location.pathname.includes('/max')) {
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
             }
 
             const conversation = values.conversationHistory.find((c) => c.id === search.chat)

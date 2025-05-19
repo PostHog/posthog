@@ -147,9 +147,20 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     return result
 
 
+def is_csp_report(request) -> bool:
+    return (
+        request.path == "/report"
+        or request.path == "/report/"
+        or request.headers.get("Content-Type") in {"application/reports+json", "application/csp-report"}
+    )
+
+
 def get_token(data, request) -> Optional[str]:
     token = None
-    if request.method == "GET":
+
+    if request.method == "GET" or is_csp_report(
+        request
+    ):  # CSPs are actually POST, but the token must be available at the report-uri/to URL
         if request.GET.get("token"):
             token = request.GET.get("token")  # token passed as query param
         elif request.GET.get("api_key"):
@@ -189,6 +200,7 @@ def get_project_id(data, request) -> Optional[int]:
 
 def get_data(request):
     data = None
+
     try:
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:

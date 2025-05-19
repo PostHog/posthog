@@ -216,6 +216,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-llm-observability`,
                 label: 'LLM observability',
             },
+            {
+                value: 'messaging',
+                'data-attr': `support-form-target-area-messaging`,
+                label: 'Messaging',
+            },
         ],
     },
 ]
@@ -253,6 +258,7 @@ export type SupportTicketTargetArea =
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
+    | 'messaging'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -292,6 +298,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     transformations: 'cdp_destinations',
     source: 'data_warehouse',
     sources: 'data_warehouse',
+    messaging: 'messaging',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -355,6 +362,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -369,6 +377,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        focusedField: [
+            null as string | null,
+            {
+                setFocusedField: (_, { field }) => field,
+                // Reset focused field when form is closed
+                closeSupportForm: () => null,
             },
         ],
     })),
@@ -413,11 +429,14 @@ export const supportLogic = kea<supportLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
+            // Only include non-text fields in the URL parameters
+            // This prevents focus loss when typing in text fields
             const panelOptions = [
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
+                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {
@@ -579,8 +598,11 @@ export const supportLogic = kea<supportLogicType>([
             props.onClose?.()
         },
 
-        setSendSupportRequestValue: () => {
-            actions.updateUrlParams()
+        setSendSupportRequestValue: ({ name }) => {
+            // Only update URL params for non-text fields to prevent focus loss during typing
+            if (name !== 'message' && name !== 'name' && name !== 'email') {
+                actions.updateUrlParams()
+            }
         },
     })),
 

@@ -93,7 +93,7 @@ export function Thread(): JSX.Element | null {
                             productKey={ProductKey.MAX}
                             thingName="message"
                             titleOverride="Start chatting with Max"
-                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
                             docsURL="https://posthog.com/docs/data/max-ai"
                         />
                     </div>

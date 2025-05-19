@@ -16,14 +16,14 @@ class TestSessionRecordingV2Service(TestCase):
         self.recording.team = self.team
 
     @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEventsV2Test")
+    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_empty_list_when_no_metadata(self, mock_replay_events):
         mock_replay_events.return_value.get_metadata.return_value = None
         blocks = list_blocks(self.recording)
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEventsV2Test")
+    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_empty_list_when_arrays_have_different_lengths_simple(self, mock_replay_events):
         mock_replay_events.return_value.get_metadata.return_value = {
             "block_first_timestamps": [datetime(2024, 1, 1, 12, 0)],
@@ -35,7 +35,7 @@ class TestSessionRecordingV2Service(TestCase):
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEventsV2Test")
+    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_empty_list_when_arrays_have_different_lengths_complex(self, mock_replay_events):
         mock_replay_events.return_value.get_metadata.return_value = {
             "block_first_timestamps": [
@@ -60,7 +60,7 @@ class TestSessionRecordingV2Service(TestCase):
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEventsV2Test")
+    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_empty_list_when_first_block_not_at_start_time(self, mock_replay_events):
         mock_replay_events.return_value.get_metadata.return_value = {
             "block_first_timestamps": [datetime(2024, 1, 1, 12, 1)],  # Later than start_time
@@ -72,7 +72,7 @@ class TestSessionRecordingV2Service(TestCase):
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEventsV2Test")
+    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_sorted_blocks(self, mock_replay_events):
         mock_replay_events.return_value.get_metadata.return_value = {
             "block_first_timestamps": [

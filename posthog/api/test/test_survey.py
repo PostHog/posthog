@@ -3292,8 +3292,9 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
                 properties=event_data["properties"],
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        with patch("posthog.api.survey.SurveyViewSet.is_partial_responses_enabled", return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
 
@@ -3497,8 +3498,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
                 properties=event["properties"],
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
         flush_persons_and_events()
+
+        with patch("posthog.api.survey.SurveyViewSet.is_partial_responses_enabled", return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data: dict[str, Any] = response.json()

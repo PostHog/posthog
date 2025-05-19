@@ -66,7 +66,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                         maxRows={10}
                         className={clsx('p-3 pr-12', isFloating && 'border-primary')}
                     />
-                    <div className="absolute flex items-center right-3 bottom-[7px]">
+                    <div className="absolute flex items-center right-2 bottom-[7px]">
                         <LemonButton
                             type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
                             onClick={() => {

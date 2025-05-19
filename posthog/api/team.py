@@ -34,7 +34,7 @@ from posthog.models.product_intent.product_intent import ProductIntentSerializer
 from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -691,6 +691,30 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
@@ -828,7 +852,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action == "reset_token" else None
+        team = self.get_object() if self.action in actions_that_require_current_team else None
         return UserPermissions(cast(User, self.request.user), team)
 
 

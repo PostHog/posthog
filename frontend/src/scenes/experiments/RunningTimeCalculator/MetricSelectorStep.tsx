@@ -1,7 +1,7 @@
-import { LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
 import { MetricTitle } from '../MetricsView/MetricTitle'
@@ -9,6 +9,12 @@ import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
+
+type MetricOption = {
+    metric: ExperimentMetric
+    index: number
+    isSharedMetric: boolean
+}
 
 export const MetricSelectorStep = ({
     onChangeMetric,
@@ -22,36 +28,68 @@ export const MetricSelectorStep = ({
     const { experiment, metric, metricIndex, metricResultLoading } = useValues(
         runningTimeCalculatorLogic({ experimentId })
     )
-
     const { setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
+
+    // Create combined array of metrics and saved metrics
+    const metricOptions: MetricOption[] = [
+        // Regular metrics
+        ...experiment.metrics.map((metric, index) => ({
+            metric: metric as ExperimentMetric,
+            index,
+            isSharedMetric: false,
+        })),
+        // Shared metrics with primary type
+        ...experiment.saved_metrics
+            .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
+            .map((sharedMetric, index) => {
+                // Ensure the shared metric query is an ExperimentMetric type
+                if (
+                    sharedMetric.query &&
+                    (sharedMetric.query.kind === NodeKind.ExperimentMetric ||
+                        sharedMetric.query.metric_type !== undefined)
+                ) {
+                    return {
+                        metric: sharedMetric.query as ExperimentMetric,
+                        index: experiment.metrics.length + index,
+                        isSharedMetric: true,
+                    }
+                }
+                return null
+            })
+            .filter((option): option is MetricOption => option !== null),
+    ]
 
     return (
         <RunningTimeCalculatorModalStep
             stepNumber={2}
-            title="Select a Metric"
+            title="Select a metric"
             description="Choose a metric to analyze. We'll use historical data from this metric to estimate the experiment duration."
         >
             <div className="mb-4">
                 <div className="card-secondary mb-2">Experiment metric</div>
                 <LemonSelect
-                    options={experiment.metrics.map((metric, index) => ({
+                    options={metricOptions.map((option, index) => ({
                         label: (
                             <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                 <span className="mr-1">{index + 1}.</span>
-                                <MetricTitle metric={metric} />
+                                <MetricTitle metric={option.metric} />
+                                {option.isSharedMetric && (
+                                    <span className="ml-1">
+                                        <LemonTag>Shared</LemonTag>
+                                    </span>
+                                )}
                             </div>
                         ),
-                        value: index,
+                        value: option.index,
                     }))}
                     value={metricIndex}
                     onChange={(value) => {
                         if (value !== null) {
                             setMetricIndex(value)
-                            /**
-                             * Instead of using the metric index, we should be using an unique id.
-                             * This could lead to issues if the metrics change after saving this value.
-                             */
-                            onChangeMetric(experiment.metrics[value] as ExperimentMetric)
+                            const selectedOption = metricOptions.find((option) => option.index === value)
+                            if (selectedOption) {
+                                onChangeMetric(selectedOption.metric)
+                            }
                         }
                     }}
                 />

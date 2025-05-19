@@ -7,8 +7,8 @@ export function AnimatedBackButton({ children, in: inProp }: React.PropsWithChil
     const backButtonRef = useRef(null)
 
     return (
-        <CSSTransition nodeRef={backButtonRef} in={inProp} timeout={150} classNames="MaxBackButton" unmountOnExit>
-            <div ref={backButtonRef} className="inline-block transition-all duration-150 overflow-hidden MaxBackButton">
+        <CSSTransition nodeRef={backButtonRef} in={inProp} timeout={100} classNames="MaxBackButton" unmountOnExit>
+            <div ref={backButtonRef} className="shrink-0 transition-all duration-100 overflow-hidden MaxBackButton">
                 {children}
             </div>
         </CSSTransition>
