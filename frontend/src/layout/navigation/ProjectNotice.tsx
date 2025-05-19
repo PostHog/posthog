@@ -183,13 +183,14 @@ export function ProjectNotice(): JSX.Element | null {
         sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
 
     return (
-        <LemonBanner
-            type={relevantNotice.type || 'info'}
-            className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
-            action={relevantNotice.action}
-            onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
-        >
-            {relevantNotice.message}
-        </LemonBanner>
+        <></>
+        // <LemonBanner
+        //     type={relevantNotice.type || 'info'}
+        //     className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
+        //     action={relevantNotice.action}
+        //     onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
+        // >
+        //     {relevantNotice.message}
+        // </LemonBanner>
     )
 }
