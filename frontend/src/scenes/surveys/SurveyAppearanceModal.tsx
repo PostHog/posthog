@@ -1,5 +1,13 @@
 import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonTabs,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -109,7 +117,7 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                         </PayGateMini>
                     )}
 
-                    <div className="grid grid-cols-2 gap-4 items-start">
+                    <div className="grid grid-cols-2 gap-1 items-start">
                         <h3 className="col-span-2 mb-0">Survey Container Options</h3>
                         <LemonField.Pure label="Max width" className="flex-1 gap-1">
                             <LemonInput
@@ -175,53 +183,56 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                                 <LemonField.Error error={validationErrors?.borderRadius} />
                             )}
                         </LemonField.Pure>
-                    </div>
 
-                    <LemonField.Pure
-                        label="Position"
-                        info={
-                            surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
-                                ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
-                                : undefined
-                        }
-                        className="gap-1"
-                    >
-                        <div className="grid grid-cols-3 gap-1 mb-1">
-                            {gridPositions.map((position) => (
-                                <LemonButton
-                                    key={position}
-                                    type="tertiary"
-                                    size="small"
-                                    onClick={() => onAppearanceChange({ position })}
-                                    active={appearance.position === position}
-                                    disabled={!surveysStylingAvailable}
-                                    className="justify-center text-xs" // Ensure text is centered and button is small
-                                >
-                                    {positionDisplayNames[position]}
-                                    {appearance.position === position && <IconCheck className="ml-2 size-4" />}
-                                </LemonButton>
-                            ))}
-                        </div>
-                        <div className="flex flex-col gap-1 items-start w-60">
-                            {surveyType === SurveyType.Widget &&
-                                appearance.widgetType === SurveyWidgetType.Selector && (
+                        <LemonField.Pure
+                            label="Position"
+                            info={
+                                surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
+                                    ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
+                                    : undefined
+                            }
+                            className="gap-1 col-span-2"
+                        >
+                            <div className="grid grid-cols-3 gap-1 mb-1">
+                                {gridPositions.map((position) => (
                                     <LemonButton
-                                        key={SurveyPosition.NextToTrigger}
+                                        key={position}
                                         type="tertiary"
                                         size="small"
-                                        fullWidth
-                                        onClick={() => onAppearanceChange({ position: SurveyPosition.NextToTrigger })}
-                                        active={appearance.position === SurveyPosition.NextToTrigger}
+                                        onClick={() => onAppearanceChange({ position })}
+                                        active={appearance.position === position}
                                         disabled={!surveysStylingAvailable}
+                                        className="justify-center text-xs" // Ensure text is centered and button is small
                                     >
-                                        {positionDisplayNames[SurveyPosition.NextToTrigger]}
-                                        {appearance.position === SurveyPosition.NextToTrigger && (
-                                            <IconCheck className="ml-2 size-4" />
-                                        )}
+                                        {positionDisplayNames[position]}
+                                        {appearance.position === position && <IconCheck className="ml-2 size-4" />}
                                     </LemonButton>
-                                )}
-                        </div>
-                    </LemonField.Pure>
+                                ))}
+                            </div>
+                            <div className="flex flex-col gap-1 items-start w-60">
+                                {surveyType === SurveyType.Widget &&
+                                    appearance.widgetType === SurveyWidgetType.Selector && (
+                                        <LemonButton
+                                            key={SurveyPosition.NextToTrigger}
+                                            type="tertiary"
+                                            size="small"
+                                            fullWidth
+                                            onClick={() =>
+                                                onAppearanceChange({ position: SurveyPosition.NextToTrigger })
+                                            }
+                                            active={appearance.position === SurveyPosition.NextToTrigger}
+                                            disabled={!surveysStylingAvailable}
+                                        >
+                                            {positionDisplayNames[SurveyPosition.NextToTrigger]}
+                                            {appearance.position === SurveyPosition.NextToTrigger && (
+                                                <IconCheck className="ml-2 size-4" />
+                                            )}
+                                        </LemonButton>
+                                    )}
+                            </div>
+                        </LemonField.Pure>
+                    </div>
+                    <LemonDivider />
 
                     {customizeRatingButtons && (
                         <div className="flex gap-4 items-start">
