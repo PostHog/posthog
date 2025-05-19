@@ -195,7 +195,7 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
-            <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP} match="templates">
+            <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_FILTERING_EXPERIMENT} match="templates-heatmap">
                 <ReplayActiveHoursHeatMap />
             </FlaggedFeature>
             <h2 className="mt-4">Filter templates</h2>
