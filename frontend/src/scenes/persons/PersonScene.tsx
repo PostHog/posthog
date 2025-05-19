@@ -199,46 +199,60 @@ function PersonSummariesTable(): JSX.Element {
             expandable={{
                 expandedRowRender: (record: SummaryData) => (
                     <div className="px-4 py-2 bg-bg-light">
-                        <div className="space-y-4">
-                            <div>
-                                <h4 className="font-semibold mb-2">Critical Issues</h4>
-                                <ul className="list-disc pl-4 space-y-1">
-                                    {record.details.criticalIssues.map((issue: string, i: number) => (
-                                        <li key={i} className="text-sm">
-                                            {issue}
-                                        </li>
-                                    ))}
-                                </ul>
+                        <div className="flex flex-col">
+                            <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
+                                <IconAIText />
+                                Sessions Analysis
+                                <LemonTag type="completion" size="medium">
+                                    ALPHA
+                                </LemonTag>
+                            </h3>
+
+                            <div className="mb-2">
+                                <LemonBanner type={record.status === 'success' ? 'success' : 'error'} className="mb-4">
+                                    <div className="text-sm font-normal">
+                                        <div>{record.details.summary}</div>
+                                    </div>
+                                </LemonBanner>
+                                <LemonDivider />
                             </div>
 
-                            <div>
-                                <h4 className="font-semibold mb-2">Common User Journeys</h4>
-                                <div className="space-y-2">
-                                    {record.details.commonJourneys.map(
-                                        (journey: { name: string; path: string }, i: number) => (
-                                            <div key={i} className="text-sm">
-                                                <span className="font-medium">{journey.name}:</span>{' '}
-                                                <span className="text-muted">{journey.path}</span>
-                                            </div>
-                                        )
-                                    )}
+                            <div className="space-y-4">
+                                <div>
+                                    <h4 className="font-semibold mb-2">Critical Issues</h4>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        {record.details.criticalIssues.map((issue: string, i: number) => (
+                                            <li key={i} className="text-sm">
+                                                {issue}
+                                            </li>
+                                        ))}
+                                    </ul>
                                 </div>
-                            </div>
 
-                            <div>
-                                <h4 className="font-semibold mb-2">Interesting Edge Cases</h4>
-                                <ul className="list-disc pl-4 space-y-1">
-                                    {record.details.edgeCases.map((edgeCase: string, i: number) => (
-                                        <li key={i} className="text-sm">
-                                            {edgeCase}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
+                                <div>
+                                    <h4 className="font-semibold mb-2">Common User Journeys</h4>
+                                    <div className="space-y-2">
+                                        {record.details.commonJourneys.map(
+                                            (journey: { name: string; path: string }, i: number) => (
+                                                <div key={i} className="text-sm">
+                                                    <span className="font-medium">{journey.name}:</span>{' '}
+                                                    <span className="text-muted">{journey.path}</span>
+                                                </div>
+                                            )
+                                        )}
+                                    </div>
+                                </div>
 
-                            <div>
-                                <h4 className="font-semibold mb-2">General Summary</h4>
-                                <p className="text-sm">{record.details.summary}</p>
+                                <div>
+                                    <h4 className="font-semibold mb-2">Interesting Edge Cases</h4>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        {record.details.edgeCases.map((edgeCase: string, i: number) => (
+                                            <li key={i} className="text-sm">
+                                                {edgeCase}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>
