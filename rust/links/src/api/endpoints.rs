@@ -18,6 +18,8 @@ pub async fn internal_redirect_url(
     Host(host): Host,
     Path(short_code): Path<String>,
 ) -> impl IntoResponse {
+    // Convert the host to lowercase and remove the "www." prefix
+    let lowcase_host = host.to_lowercase();
     let host = lowcase_host.strip_prefix("www.").unwrap_or(&lowcase_host);
     let redirect_service = InternalRedirectService::new(
         state.db_reader_client.clone(),
@@ -30,7 +32,10 @@ pub async fn internal_redirect_url(
         _ => host,
     };
 
-    match redirect_service.redirect_url(&short_code, &host).await {
+    match redirect_service
+        .redirect_url(&short_code, short_link_domain)
+        .await
+    {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
             (
