@@ -109,7 +109,7 @@ export const manifest: ProductManifest = {
         {
             path: `Insight/Calendar Heatmap`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+            href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
         },
     ],
     treeItemsProducts: [

@@ -340,7 +340,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     {
         path: `Insight/Calendar Heatmap`,
         type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+        href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
     },
     { path: `Insight/Funnel`, type: 'insight', href: urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: urls.insightNew({ type: InsightType.LIFECYCLE }) },

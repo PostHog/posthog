@@ -4,7 +4,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -27,9 +27,9 @@ export function SavedInsightsFilters({
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
     const insightTypeOptions: LemonSelectOptions<string> = calendarHeatmapInsightEnabled
         ? INSIGHT_TYPE_OPTIONS
-        : (INSIGHT_TYPE_OPTIONS.filter((option): option is LemonSelectOption<string> => {
-              return 'value' in option && option.value !== InsightType.CALENDAR_HEATMAP
-          }) as LemonSelectOptions<string>)
+        : (INSIGHT_TYPE_OPTIONS.filter(
+              (option: any) => option.value !== InsightType.CALENDAR_HEATMAP
+          ) as LemonSelectOptions<string>)
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
