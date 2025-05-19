@@ -1,4 +1,4 @@
-import { IconAIText, IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { IconAIText, IconChevronDown, IconCopy, IconInfo, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -42,6 +42,8 @@ import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { useState } from 'react'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -104,8 +106,18 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
+interface CriticalIssue {
+    description: string
+    sessions: {
+        id: string
+        timestamp: string
+        hasRecording: boolean
+        summary: string
+    }[]
+}
+
 interface SummaryDetails {
-    criticalIssues: string[]
+    criticalIssues: CriticalIssue[]
     commonJourneys: { name: string; path: string }[]
     edgeCases: string[]
     summary: string
@@ -121,6 +133,41 @@ interface SummaryData {
     details: SummaryDetails
 }
 
+function SessionSegmentCollapse({
+    header,
+    content,
+    isFailed,
+}: {
+    header: React.ReactNode
+    content: React.ReactNode
+    isFailed?: boolean
+}): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(false)
+
+    return (
+        <div className="border rounded">
+            <div
+                className="cursor-pointer"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                <div className="p-2">
+                    <div className="flex items-center justify-between">
+                        {header}
+                        <IconChevronDown
+                            className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                    </div>
+                </div>
+            </div>
+            {isExpanded && (
+                <div className="border-t p-2">
+                    {content}
+                </div>
+            )}
+        </div>
+    )
+}
+
 function PersonSummariesTable(): JSX.Element {
     const sampleData: SummaryData[] = [
         {
@@ -132,10 +179,34 @@ function PersonSummariesTable(): JSX.Element {
             status: 'success',
             details: {
                 criticalIssues: [
-                    'Consistently encounters authentication timeouts during morning sessions',
-                    'Frequent paywall interruptions when accessing historical data',
-                    'Regular UI confusion with advanced filtering options',
-                    'Repeated query timeouts when analyzing large date ranges',
+                    {
+                        description: 'Authentication timeouts during morning sessions',
+                        sessions: [
+                            {
+                                id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
+                                timestamp: '2024-03-15 09:15:23',
+                                hasRecording: true,
+                                summary: 'User attempted to log in 3 times, each attempt timed out after 30 seconds. Network latency was high during these attempts.',
+                            },
+                            {
+                                id: '0196d2bd-288d-73ea-970d-3d7f38e1707f',
+                                timestamp: '2024-03-14 09:30:45',
+                                hasRecording: true,
+                                summary: 'Similar timeout pattern observed. User switched networks after second attempt.',
+                            },
+                        ],
+                    },
+                    {
+                        description: 'Paywall interruptions when accessing historical data',
+                        sessions: [
+                            {
+                                id: '0196d2bd-515c-7230-9e15-a2a437f2e3e3',
+                                timestamp: '2024-03-13 14:20:10',
+                                hasRecording: false,
+                                summary: 'User hit paywall while trying to access data from Q4 2023. Attempted to refresh page multiple times.',
+                            },
+                        ],
+                    },
                 ],
                 commonJourneys: [
                     {
@@ -220,13 +291,60 @@ function PersonSummariesTable(): JSX.Element {
                             <div className="space-y-4">
                                 <div>
                                     <h4 className="font-semibold mb-2">Critical Issues</h4>
-                                    <ul className="list-disc pl-4 space-y-1">
-                                        {record.details.criticalIssues.map((issue: string, i: number) => (
-                                            <li key={i} className="text-sm">
-                                                {issue}
-                                            </li>
+                                    <div className="space-y-2">
+                                        {record.details.criticalIssues.map((issue: CriticalIssue, i: number) => (
+                                            <SessionSegmentCollapse
+                                                key={i}
+                                                isFailed={true}
+                                                header={
+                                                    <div className="flex flex-row gap-2 items-center">
+                                                        <h3 className="text-sm font-medium mb-0">{issue.description}</h3>
+                                                        <LemonTag size="small" type="default">
+                                                            {issue.sessions.length} sessions
+                                                        </LemonTag>
+                                                    </div>
+                                                }
+                                                content={
+                                                    <div className="space-y-2">
+                                                        {issue.sessions.map((session, j) => (
+                                                            <div key={j} className="text-sm">
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-muted">{session.timestamp}</span>
+                                                                        <span className="text-muted">•</span>
+                                                                        <span className="text-muted">{session.id}</span>
+                                                                    </div>
+                                                                    <div className="flex gap-1">
+                                                                        <LemonButton
+                                                                            sideIcon={<IconTarget />}
+                                                                            size="xsmall"
+                                                                            type="secondary"
+                                                                            className="px-2"
+                                                                        >
+                                                                            <span>View moment</span>
+                                                                        </LemonButton>
+                                                                        <LemonButton
+                                                                            size="xsmall"
+                                                                            type="secondary"
+                                                                            className="px-2"
+                                                                            disabledReason={
+                                                                                session.hasRecording
+                                                                                    ? undefined
+                                                                                    : 'No recording available'
+                                                                            }
+                                                                        >
+                                                                            View recording
+                                                                        </LemonButton>
+                                                                    </div>
+                                                                </div>
+                                                                <p className="mb-0">{session.summary}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                }
+                                            />
                                         ))}
-                                    </ul>
+                                    </div>
                                 </div>
 
                                 <div>
