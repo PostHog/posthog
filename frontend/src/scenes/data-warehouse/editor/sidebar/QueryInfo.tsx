@@ -1,4 +1,4 @@
-import { IconX } from '@posthog/icons'
+import { IconRevert, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -101,7 +101,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                     <div>
-                        {savedQuery?.sync_frequency || savedQuery?.last_run_at ? (
+                        {savedQuery?.sync_frequency ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
@@ -155,17 +155,17 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         loading={updatingDataWarehouseSavedQuery}
                                         options={OPTIONS}
                                     />
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        tooltip="Revert materialized view to view"
-                                        disabledReason={
-                                            savedQuery?.status === 'Running' &&
-                                            'Cannot revert while materialization is running'
-                                        }
-                                        icon={<IconX />}
-                                        onClick={() => {
-                                            if (editingView) {
+                                    {editingView && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            tooltip="Revert materialized view to view"
+                                            disabledReason={
+                                                savedQuery?.status === 'Running' &&
+                                                'Cannot revert while materialization is running'
+                                            }
+                                            icon={<IconRevert />}
+                                            onClick={() => {
                                                 LemonDialog.open({
                                                     title: 'Revert materialization',
                                                     maxWidth: '30rem',
@@ -180,9 +180,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                         children: 'Cancel',
                                                     },
                                                 })
-                                            }
-                                        }}
-                                    />
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         ) : (
