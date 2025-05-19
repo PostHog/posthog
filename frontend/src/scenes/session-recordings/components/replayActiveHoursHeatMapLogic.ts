@@ -174,6 +174,16 @@ export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicTy
                 }
             },
         ],
+        isClickable: [
+            (s) => [s.calendarHeatmapProps],
+            (calendarHeatmapProps) => (colIndex: number, rowIndex?: number) => {
+                const valueSource =
+                    rowIndex == undefined
+                        ? calendarHeatmapProps?.processedData.columnsAggregations
+                        : calendarHeatmapProps?.processedData.matrix[rowIndex]
+                return (valueSource[colIndex] ?? 0) > 0
+            },
+        ],
     })),
     listeners(() => ({
         loadRecordingsPerHourFailed: async () => {
