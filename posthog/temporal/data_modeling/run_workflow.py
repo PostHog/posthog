@@ -841,9 +841,22 @@ class FailJobsActivityInputs:
 @temporalio.activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
-    await database_sync_to_async(
-        DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED)
+    try:
+        job = await database_sync_to_async(DataModelingJob.objects.get)(
+            workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        job.status = DataModelingJob.Status.CANCELLED
+        await database_sync_to_async(job.save)()
+    except DataModelingJob.DoesNotExist:
+        await logger.ainfo(
+            "No job record found to cancel", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        await database_sync_to_async(DataModelingJob.objects.create)(
+            workflow_id=inputs.workflow_id,
+            workflow_run_id=inputs.workflow_run_id,
+            status=DataModelingJob.Status.CANCELLED,
+            team_id=inputs.team_id,
+        )
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )
@@ -852,11 +865,21 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 @temporalio.activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
-    job = await database_sync_to_async(DataModelingJob.objects.get)(
-        workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
-    )
-
-    await mark_job_as_failed(job, inputs.error)
+    try:
+        job = await database_sync_to_async(DataModelingJob.objects.get)(
+            workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        await mark_job_as_failed(job, inputs.error)
+    except DataModelingJob.DoesNotExist:
+        await logger.ainfo(
+            "No job record found to fail", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        DataModelingJob.objects.create(
+            workflow_id=inputs.workflow_id,
+            workflow_run_id=inputs.workflow_run_id,
+            status=DataModelingJob.Status.FAILED,
+            error=inputs.error,
+        )
 
 
 @dataclasses.dataclass
