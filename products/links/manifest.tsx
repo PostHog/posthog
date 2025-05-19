@@ -1,4 +1,5 @@
 import { IconExternal } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -42,6 +43,7 @@ export const manifest: ProductManifest = {
             path: `Link`,
             type: 'link',
             href: urls.link('new'),
+            flag: FEATURE_FLAGS.LINKS,
         },
     ],
     treeItemsProducts: [
@@ -49,9 +51,10 @@ export const manifest: ProductManifest = {
             path: 'Links',
             type: 'link',
             href: urls.links(),
+            flag: FEATURE_FLAGS.LINKS,
         },
     ],
     fileSystemFilterTypes: {
-        link: { name: 'Links' },
+        link: { name: 'Links', flag: FEATURE_FLAGS.LINKS },
     },
 }
