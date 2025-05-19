@@ -10,6 +10,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLive,
     IconPerson,
     IconPieChart,
     IconPiggyBank,
@@ -435,6 +436,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.EventsHeatMapQuery]: {
         name: 'Active Hours Heat Map',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.LogsQuery]: {
+        name: 'Logs',
+        icon: IconLive,
         inMenu: false,
     },
 }
