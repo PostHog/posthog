@@ -27,10 +27,9 @@ export function SavedInsightsFilters({
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
     const insightTypeOptions: LemonSelectOptions<string> = calendarHeatmapInsightEnabled
         ? INSIGHT_TYPE_OPTIONS
-        : INSIGHT_TYPE_OPTIONS.filter(
-              (option): option is LemonSelectOption<string> =>
-                  'value' in option && option.value !== InsightType.CALENDAR_HEATMAP
-          )
+        : (INSIGHT_TYPE_OPTIONS.filter((option): option is LemonSelectOption<string> => {
+              return 'value' in option && option.value !== InsightType.CALENDAR_HEATMAP
+          }) as LemonSelectOptions<string>)
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
