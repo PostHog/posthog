@@ -34,6 +34,7 @@ from posthog.schema import (
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
@@ -91,7 +92,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         tool_call_partial_state: Optional[AssistantState] = None,
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
-    ) -> list[tuple[str, Any]]:
+        contextual_tools: Optional[dict[str, Any]] = None,
+    ) -> tuple[list[tuple[str, Any]], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
             self.team,
@@ -101,6 +103,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=is_new_conversation,
             tool_call_partial_state=tool_call_partial_state,
             mode=mode,
+            contextual_tools=contextual_tools,
         )
         if test_graph:
             assistant._graph = test_graph
@@ -108,7 +111,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output: list[tuple[str, Any]] = []
         for _message in assistant.stream():
             output.append(self._parse_stringified_message(_message))
-        return output
+        return output, assistant
 
     def assertConversationEqual(self, output: list[tuple[str, Any]], expected_output: list[tuple[str, Any]]):
         self.assertEqual(len(output), len(expected_output), output)
@@ -141,6 +144,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             "status": Conversation.Status.IN_PROGRESS,
         }
 
+    def assertStateMessagesEqual(self, messages: list[Any], expected_messages: list[Any]):
+        self.assertEqual(len(messages), len(expected_messages))
+        for i, (message, expected_message) in enumerate(zip(messages, expected_messages)):
+            expected_msg_dict = (
+                expected_message.model_dump(exclude_none=True)
+                if isinstance(expected_message, BaseModel)
+                else expected_message
+            )
+            msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
+            self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
+
     @patch(
         "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
         return_value=PartialAssistantState(
@@ -156,7 +170,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_funnel_planner_run):
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             InsightsAssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
             .add_trends_planner(AssistantNodeName.QUERY_EXECUTOR, AssistantNodeName.END)
@@ -219,7 +233,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     def test_reasoning_messages_with_substeps_added(self, _mock_funnel_planner_run):
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             InsightsAssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
             .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
@@ -285,7 +299,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ]
             ),
         ):
-            output = self._run_assistant_graph(
+            output, _ = self._run_assistant_graph(
                 InsightsAssistantGraph(self.team)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
                 .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
@@ -375,7 +389,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ```
             """
             planner_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
-            output = self._run_assistant_graph(graph, conversation=self.conversation)
+            output, _ = self._run_assistant_graph(graph, conversation=self.conversation)
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
                 ("message", AssistantMessage(content="Okay")),
@@ -445,7 +459,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 raise GraphRecursionError()
 
         with patch("langgraph.pregel.Pregel.stream", side_effect=FakeStream):
-            output = self._run_assistant_graph(conversation=self.conversation)
+            output, _ = self._run_assistant_graph(conversation=self.conversation)
             self.assertEqual(output[0][0], "message")
             self.assertEqual(output[0][1]["content"], "Hello")
             self.assertEqual(output[1][0], "message")
@@ -462,7 +476,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph,
             conversation=self.conversation,
             is_new_conversation=True,
@@ -472,7 +486,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         self.assertConversationEqual(output[:1], expected_output)
 
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph,
             conversation=self.conversation,
             is_new_conversation=False,
@@ -566,7 +580,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # First run
-        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
             ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
@@ -581,12 +595,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
 
         # Second run
-        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
         # Third run
-        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
@@ -640,7 +654,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
 
         # First run
-        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
             ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
@@ -655,12 +669,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
 
         # Second run
-        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
         # Third run
-        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
@@ -714,7 +728,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))
 
         # First run
-        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
             ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
@@ -729,12 +743,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
 
         # Second run
-        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
         # Third run
-        actual_output = self._run_assistant_graph(is_new_conversation=False)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
@@ -779,7 +793,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         generator_mock.return_value = RunnableLambda(lambda _: query.model_dump())
 
         # First run
-        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
             ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
@@ -813,7 +827,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
 
         # First run - get the product description
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
         )
         expected_output = [
@@ -836,7 +850,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
         # Second run - accept the memory
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph,
             message=memory_prompts.SCRAPING_CONFIRMATION_MESSAGE,
             is_new_conversation=False,
@@ -870,7 +884,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
 
         # First run - get the product description
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
         )
         expected_output = [
@@ -893,7 +907,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
         # Second run - reject the memory
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph,
             message=memory_prompts.SCRAPING_REJECTION_MESSAGE,
             is_new_conversation=False,
@@ -939,7 +953,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         model_mock.return_value = RunnableLambda(memory_collector_side_effect)
 
         # First run - analyze and append memory
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             graph,
             message="We use a subscription model",
             is_new_conversation=True,
@@ -1006,7 +1020,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = AssistantGraph(self.team).compile_full_graph()
 
         # Run the assistant and capture output
-        output = self._run_assistant_graph(graph)
+        output, _ = self._run_assistant_graph(graph)
 
         # Verify the last message doesn't contain any tool calls and has our expected content
         last_message = output[-1][1]
@@ -1079,7 +1093,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ("message", HumanMessage(content="Hello")),
                 ("message", AssistantMessage(content="Finished")),
             ]
-            actual_output = self._run_assistant_graph(graph)
+            actual_output, _ = self._run_assistant_graph(graph)
             self.assertConversationEqual(actual_output, expected_output)
 
     @override_settings(INKEEP_API_KEY="test")
@@ -1111,7 +1125,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         inkeep_docs_model_mock.return_value = FakeChatOpenAI(
             responses=[messages.AIMessage(content="Here's what I found in the docs...")]
         )
-        output = self._run_assistant_graph(graph, message="How do I use feature flags?")
+        output, _ = self._run_assistant_graph(graph, message="How do I use feature flags?")
 
         self.assertConversationEqual(
             output,
@@ -1161,7 +1175,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         # Run in insights tool mode
-        output = self._run_assistant_graph(
+        output, _ = self._run_assistant_graph(
             conversation=self.conversation,
             is_new_conversation=False,
             message=None,
@@ -1263,13 +1277,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         config = {"configurable": {"thread_id": self.conversation.id}}
 
         # First run should add the message with initial content
-        output = self._run_assistant_graph(graph, conversation=self.conversation)
+        output, _ = self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
         self.assertEqual(output[1][1]["id"], message_id)
         self.assertEqual(output[1][1]["content"], first_content)
 
         # Second run should update the message with new content
-        output = self._run_assistant_graph(graph, conversation=self.conversation)
+        output, _ = self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
         self.assertEqual(output[1][1]["id"], message_id)
         self.assertEqual(output[1][1]["content"], updated_content)
@@ -1325,7 +1339,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
             # Run the assistant and capture output
-            output = self._run_assistant_graph(graph, conversation=self.conversation)
+            output, _ = self._run_assistant_graph(graph, conversation=self.conversation)
             expected_output: list = [
                 ("message", HumanMessage(content="Hello")),
             ]
@@ -1334,3 +1348,118 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 expected_output.append(("message", test_message))
 
             self.assertConversationEqual(output, expected_output)
+
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    def test_create_and_query_insight_contextual_tool(
+        self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock
+    ):
+        def root_side_effect(prompt: ChatPromptValue):
+            if prompt.messages[-1].type == "tool":
+                return RunnableLambda(lambda _: messages.AIMessage(content="Everything is fine"))
+
+            return messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                    }
+                ],
+            )
+
+        root_mock.return_value = FakeRunnableLambdaWithTokenCounter(root_side_effect)
+        rag_mock.return_value = PartialAssistantState(
+            rag_context="",
+        )
+
+        planner_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="""
+                Thought: Done.
+                Action:
+                ```
+                {
+                    "action": "final_answer",
+                    "action_input": "Plan"
+                }
+                ```
+                """
+            )
+        )
+        query = AssistantTrendsQuery(series=[])
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+
+        query_executor_mock.return_value = PartialAssistantState(
+            messages=[
+                AssistantToolCallMessage(content="The results indicate a great future for you.", tool_call_id="xyz")
+            ],
+        )
+
+        output, assistant = self._run_assistant_graph(
+            test_graph=AssistantGraph(self.team)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root(
+                {
+                    "root": AssistantNodeName.ROOT,
+                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                    "end": AssistantNodeName.END,
+                }
+            )
+            .add_insights()
+            .compile(),
+            conversation=self.conversation,
+            is_new_conversation=True,
+            message=None,
+            mode=AssistantMode.ASSISTANT,
+            contextual_tools={"create_and_query_insight": {"current_query": "query"}},
+        )
+
+        expected_output = [
+            ("conversation", self._serialize_conversation()),
+            ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Coming up with an insight")),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Creating trends query")),
+            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            (
+                "message",
+                AssistantToolCallMessage(
+                    content="The results indicate a great future for you.",
+                    tool_call_id="xyz",
+                    ui_payload={"create_and_query_insight": query.model_dump()},
+                    visible=False,
+                ),
+            ),
+            ("message", AssistantMessage(content="Everything is fine")),
+        ]
+        self.assertConversationEqual(output, expected_output)
+
+        state = AssistantState.model_validate(assistant._graph.get_state(assistant._get_config()).values)
+        expected_state_messages = [
+            HumanMessage(content="Hello"),
+            AssistantMessage(
+                content="",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="xyz",
+                        name="create_and_query_insight",
+                        args={"query_description": "Foobar", "query_kind": "trends"},
+                    )
+                ],
+            ),
+            VisualizationMessage(query="Foobar", answer=query, plan="Plan"),
+            AssistantToolCallMessage(
+                content="The results indicate a great future for you.",
+                tool_call_id="xyz",
+                ui_payload={"create_and_query_insight": query.model_dump()},
+                visible=False,
+            ),
+            AssistantMessage(content="Everything is fine"),
+        ]
+        self.assertStateMessagesEqual(state.messages, expected_state_messages)

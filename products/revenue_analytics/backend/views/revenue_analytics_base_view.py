@@ -2,6 +2,7 @@ from typing import Optional
 from posthog.models.team.team import Team
 from posthog.hogql.database.models import SavedQuery
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+import re
 
 
 class RevenueAnalyticsBaseView(SavedQuery):
@@ -27,7 +28,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
             *RevenueAnalyticsCustomerView.for_schema_source(source),
         ]
 
-    # Used in child classes to generate the view name
+    # Used in child classes to generate view names
     @staticmethod
     def get_view_name_for_source(source: ExternalDataSource, view_name: str) -> str:
         if not source.prefix:
@@ -35,3 +36,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
         else:
             prefix = source.prefix.strip("_")
             return f"{source.source_type.lower()}.{prefix}.{view_name}"
+
+    @staticmethod
+    def get_view_name_for_event(event: str, view_name: str) -> str:
+        return f"revenue_analytics.{re.sub(r'[^a-zA-Z0-9]', '_', event)}.{view_name}"
