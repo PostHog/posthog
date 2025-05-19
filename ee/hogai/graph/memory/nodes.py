@@ -227,7 +227,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         return SCRAPING_SUCCESS_MESSAGE + re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
-        return ChatPerplexity(model="sonar-pro", temperature=0, streaming=True, timeout=None)
+        return ChatPerplexity(model="sonar-pro", temperature=0.3, streaming=True, timeout=None)
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
@@ -292,7 +292,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
@@ -414,7 +414,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).bind_tools(memory_collector_tools)
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []

@@ -1,5 +1,6 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
@@ -29,6 +30,7 @@ import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -42,7 +44,7 @@ export interface ProjectTreeProps {
 
 export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
-        treeData,
+        projectTreeItems,
         treeTableKeys,
         lastViewedId,
         viableItems,
@@ -89,17 +91,12 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setTreeTableColumnSizes,
         setSelectMode,
     } = useActions(projectTreeLogic)
+    const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
         useActions(panelLayoutLogic)
     const { mainContentRef, isLayoutPanelPinned, projectTreeMode } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
-
-    const handleCopyPath = (path?: string): void => {
-        if (path) {
-            void navigator.clipboard.writeText(path)
-        }
-    }
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -167,7 +164,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         >
                             <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
                         </MenuItem>
-
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -247,7 +243,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                                 if (folder) {
                                                                     setLastNewFolder(folder)
                                                                 }
-                                                                child.onClick?.()
+                                                                if (child.record?.href) {
+                                                                    router.actions.push(
+                                                                        typeof child.record.href === 'function'
+                                                                            ? child.record.href(child.record.ref)
+                                                                            : child.record.href
+                                                                    )
+                                                                }
                                                             }}
                                                         >
                                                             <ButtonPrimitive menuItem className="capitalize">
@@ -270,7 +272,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                 if (folder) {
                                                     setLastNewFolder(folder)
                                                 }
-                                                treeItem.onClick?.()
+                                                if (treeItem.record?.href) {
+                                                    router.actions.push(
+                                                        typeof treeItem.record.href === 'function'
+                                                            ? treeItem.record.href(treeItem.record.ref)
+                                                            : treeItem.record.href
+                                                    )
+                                                }
                                             }}
                                         >
                                             <ButtonPrimitive menuItem>
@@ -287,37 +295,15 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     </>
                 ) : null}
 
-                {item.record?.path ? (
+                {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            handleCopyPath(item.record?.path)
+                            item.record && addShortcutItem(item.record as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
-
-                {item.record?.shortcut ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
-                    </MenuItem>
-                ) : item.record?.path && item.record?.type === 'folder' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
 
@@ -358,12 +344,35 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
+
+                {item.record?.shortcut ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            deleteItem(item.record as unknown as FileSystemEntry)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
+                    </MenuItem>
+                ) : item.record?.path && item.record?.type === 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            deleteItem(item.record as unknown as FileSystemEntry)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
             </>
         )
     }
 
     return (
         <PanelLayoutPanel
+            showFilterDropdown={true}
             searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={
                 <>
@@ -424,7 +433,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeData}
+                data={projectTreeItems}
                 mode={projectTreeMode as TreeMode}
                 selectMode={selectMode}
                 tableViewKeys={treeTableKeys}
@@ -437,21 +446,27 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 }}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
-                onNodeClick={(node) => {
-                    if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
+                onItemClick={(item) => {
+                    if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                         return
                     }
-
+                    if (item?.record?.href) {
+                        router.actions.push(
+                            typeof item.record.href === 'function'
+                                ? item.record.href(item.record.ref)
+                                : item.record.href
+                        )
+                    }
                     if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)
                     }
 
-                    if (node?.record?.path) {
-                        setLastViewedId(node?.id || '')
+                    if (item?.record?.path) {
+                        setLastViewedId(item?.id || '')
                     }
-                    if (node?.id.startsWith('project-load-more/')) {
-                        const path = node.id.split('/').slice(1).join('/')
+                    if (item?.id.startsWith('project-load-more/')) {
+                        const path = item.id.split('/').slice(1).join('/')
                         if (path) {
                             loadFolder(path)
                         }
@@ -665,13 +680,15 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 renderItemIcon={(item) => {
                     return (
                         <>
-                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
-                                <ProfilePicture
-                                    user={item.record?.user as UserBasicType | undefined}
-                                    size="xs"
-                                    className="ml-[4px]"
-                                />
-                            )}
+                            {sortMethod === 'recent' &&
+                                projectTreeMode === 'tree' &&
+                                item.type !== 'loading-indicator' && (
+                                    <ProfilePicture
+                                        user={item.record?.user as UserBasicType | undefined}
+                                        size="xs"
+                                        className="ml-[4px]"
+                                    />
+                                )}
                             <TreeNodeDisplayIcon
                                 item={item}
                                 expandedItemIds={expandedFolders}
@@ -690,11 +707,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             >
                                 {item.displayName}
                             </span>
-                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
-                                <span className="text-tertiary text-xxs pt-[3px] ml-1">
-                                    {dayjs(item.record?.created_at).fromNow()}
-                                </span>
-                            )}
+                            {sortMethod === 'recent' &&
+                                projectTreeMode === 'tree' &&
+                                item.type !== 'loading-indicator' && (
+                                    <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                        {dayjs(item.record?.created_at).fromNow()}
+                                    </span>
+                                )}
                         </span>
                     )
                 }}

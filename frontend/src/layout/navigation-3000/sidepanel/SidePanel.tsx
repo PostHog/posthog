@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
     SidePanelExports,
     SidePanelExportsIcon,
@@ -235,7 +236,9 @@ export function SidePanel(): JSX.Element | null {
             {PanelConent ? (
                 <div className="SidePanel3000__content">
                     <WithinSidePanelContext.Provider value={true}>
-                        <PanelConent />
+                        <ErrorBoundary>
+                            <PanelConent />
+                        </ErrorBoundary>
                     </WithinSidePanelContext.Provider>
                 </div>
             ) : null}

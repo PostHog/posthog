@@ -2,7 +2,6 @@ from typing import cast
 
 import pydantic
 from django.http import StreamingHttpResponse
-from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -11,9 +10,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.assistant import Assistant
 from ee.hogai.graph.graph import AssistantGraph
-from ee.hogai.utils.types import AssistantMode, AssistantState
+from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
@@ -21,6 +21,7 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import HumanMessage
+from posthog.utils import get_instance_region
 
 
 class MessageSerializer(serializers.Serializer):
@@ -38,24 +39,6 @@ class MessageSerializer(serializers.Serializer):
         return data
 
 
-class ConversationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Conversation
-        fields = ["id", "status", "title", "messages"]
-        read_only_fields = fields
-
-    messages = serializers.SerializerMethodField()
-
-    def get_messages(self, conversation: Conversation):
-        graph: CompiledStateGraph = self.context["assistant_graph"]
-        snapshot = graph.get_state({"configurable": {"thread_id": str(conversation.id)}})
-        try:
-            state = AssistantState.model_validate(snapshot.values)
-            return state.model_dump()["messages"]
-        except (pydantic.ValidationError, KeyError):
-            return []
-
-
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = ConversationSerializer
@@ -71,10 +54,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return qs
 
         # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT)
+        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
 
     def get_throttles(self):
-        if self.action == "create":
+        if self.action == "create" and not (
+            # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
+            get_instance_region() == "US" and self.team_id in (2, 87921)
+        ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
 
