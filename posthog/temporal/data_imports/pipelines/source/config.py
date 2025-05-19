@@ -260,8 +260,9 @@ def _get_default_prefix_for_class(cls: type) -> str:
     * An uppercase character followed by a sequence of lowercase characters.
     * A sequence of uppercase characters.
 
-    Moreover, continuing with the heuristical approach, we exclude the string
-    "config" from the default prefix if it's the final component.
+    Moreover, continuing with the heuristics, we exclude the string
+    "config" from the default prefix if it's the final component, unless it is
+    the only string in the class name.
 
     These are only heuristics though and there are cases in which we cannot
     separate words, like if a class name is composed of multiple continuous
@@ -284,6 +285,9 @@ def _get_default_prefix_for_class(cls: type) -> str:
         >>> class AWSKMSKey: ...
         >>> _get_default_prefix_for_class(AWSKMSKey)
         'awskms_key'
+        >>> class Config: ...
+        >>> _get_default_prefix_for_class(Config)
+        'config'
     """
     cls_name = cls.__name__
     split = []
@@ -308,7 +312,7 @@ def _get_default_prefix_for_class(cls: type) -> str:
                 split.append(current[:-1])
                 current = current[-1]
 
-    if split[-1] == "config":
+    if len(split) > 1 and split[-1] == "config":
         split = split[:-1]
 
     return "_".join(split)
