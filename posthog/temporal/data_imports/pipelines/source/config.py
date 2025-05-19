@@ -179,9 +179,14 @@ def to_config(
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
-    """Resolve a field's type."""
+    """Resolve a field's type.
+
+    If necessary, we resolve it by importing the module where the configuration
+    is defined.
+    """
     if isinstance(field.type, str):
-        module = importlib.import_module(module_path)
+        # Ignore comment necessary here as mypy thinks `field.type` cannot be `str`.
+        module = importlib.import_module(module_path)  # type: ignore
         lookup_type = functools.partial(_lookup_str_type, module=module)
 
         if "|" in field.type:
