@@ -21,7 +21,7 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     get_schemas as get_mysql_schemas,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
-from posthog.temporal.data_imports.pipelines.postgres.postgres import (
+from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
     get_schemas as get_postgres_schemas,
 )
@@ -436,48 +436,6 @@ def get_postgres_row_count(
             return get_row_count(tunnel.local_bind_host, tunnel.local_bind_port)
 
     return get_row_count(host, int(port))
-
-
-def get_postgres_schemas(
-    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
-) -> dict[str, list[tuple[str, str]]]:
-    def get_schemas(postgres_host: str, postgres_port: int):
-        connection = psycopg2.connect(
-            host=postgres_host,
-            port=postgres_port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode="prefer",
-            connect_timeout=10,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": schema},
-            )
-            result = cursor.fetchall()
-
-            schema_list = defaultdict(list)
-            for row in result:
-                schema_list[row[0]].append((row[1], row[2]))
-
-        connection.close()
-
-        return schema_list
-
-    if ssh_tunnel.enabled:
-        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
-            if tunnel is None:
-                raise Exception("Can't open tunnel to SSH server")
-
-            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
-
-    return get_schemas(host, int(port))
 
 
 def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
