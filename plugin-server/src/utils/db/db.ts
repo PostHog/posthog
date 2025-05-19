@@ -694,7 +694,8 @@ export class DB {
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
         )} WHERE id = $${Object.values(update).length + 1}
-        RETURNING *`
+        RETURNING *
+        /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
         const { rows } = await this.postgres.query<RawPerson>(
             tx ?? PostgresUse.PERSONS_WRITE,
