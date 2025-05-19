@@ -96,6 +96,7 @@ class EventPropFilter(BaseModel, extra="forbid"):
 class HogQLFilter(BaseModel, extra="forbid"):
     type: Literal["hogql"]
     key: str
+    value: Any | None = None
 
 
 class BehavioralFilter(BaseModel, extra="forbid"):
@@ -110,7 +111,7 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     operator_value: int | None = None
     seq_time_interval: str | None = None
     seq_time_value: int | None = None
-    seq_event: str | None = None
+    seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
     seq_event_type: str | None = None
     total_periods: int | None = None
     min_periods: int | None = None
@@ -278,6 +279,9 @@ class CohortSerializer(serializers.ModelSerializer):
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
         """
+        # Skip validation for static cohorts
+        if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
+            return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}

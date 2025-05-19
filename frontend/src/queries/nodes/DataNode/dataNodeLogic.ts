@@ -127,7 +127,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props, values }, oldProps) => {
+    propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -163,14 +163,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
             }
 
-            if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING]) {
-                refreshType =
-                    refreshType === 'force_async'
-                        ? 'force_blocking'
-                        : refreshType === 'async'
-                        ? 'blocking'
-                        : refreshType
-            }
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
@@ -212,7 +204,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const query = overrideQuery ?? props.query
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
-                    const refresh = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING] && !pollOnly) {
+                        refresh =
+                            refresh === 'force_async' ? 'force_blocking' : refresh === 'async' ? 'blocking' : refresh
+                    }
 
                     if (props.doNotLoad) {
                         return props.cachedResults

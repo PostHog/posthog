@@ -116,7 +116,7 @@ export const RecordingsUniversalFilters = ({
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
     const newPlaylistHandler = async (): Promise<void> => {
-        await createPlaylist({ name: savedFilterName, filters }, false)
+        await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setSavedFilterName('')
@@ -408,7 +408,11 @@ const RecordingsUniversalFilterGroup = ({
                     <div className="w-full">
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                             <div
-                                className={showAddFilter ? 'flex items-center gap-2 border-t py-4' : 'flex gap-2 pt-2'}
+                                className={
+                                    showAddFilter
+                                        ? 'flex flex-wrap items-center gap-2 border-t py-4'
+                                        : 'flex flex-wrap gap-2 pt-2'
+                                }
                             >
                                 {(totalFiltersCount ?? 0) > 0 && showAddFilter && (
                                     <span className="font-semibold">Applied filters:</span>

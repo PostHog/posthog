@@ -13,10 +13,11 @@ from temporalio.client import (
 )
 import temporalio
 from temporalio.common import RetryPolicy
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
+    trigger_schedule,
     update_schedule,
     schedule_exists,
     delete_schedule,
@@ -55,12 +56,12 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             "data-modeling-run",
             asdict(inputs),
             id=str(saved_query.id),
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+            task_queue=str(DATA_MODELING_TASK_QUEUE),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),
                 maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError"],
+                non_retryable_error_types=["NondeterminismError", "CancelledError"],
             ),
         ),
         spec=ScheduleSpec(
@@ -100,6 +101,11 @@ def delete_saved_query_schedule(schedule_id: str):
 def saved_query_workflow_exists(id: str) -> bool:
     temporal = sync_connect()
     return schedule_exists(temporal, schedule_id=id)
+
+
+def trigger_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
+    temporal = sync_connect()
+    trigger_schedule(temporal, schedule_id=str(saved_query.id))
 
 
 def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:

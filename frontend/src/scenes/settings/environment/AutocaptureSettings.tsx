@@ -1,4 +1,4 @@
-import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -135,11 +135,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 }}
                 checked={!!currentTeam?.autocapture_exceptions_opt_in}
                 disabled={userLoading}
-                label={
-                    <>
-                        Enable exception autocapture <LemonTag>ALPHA</LemonTag>
-                    </>
-                }
+                label="Enable exception autocapture"
                 bordered
             />
         </>
