@@ -292,6 +292,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if table_query.exists():
             table = table_query.first()
 
+        if file.size > 52428800:  # 50MB in bytes
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"File size exceeds maximum allowed size of 50MB"},
+            )
+
         # Create the table record
         try:
             # Create credential if object storage is available
@@ -343,5 +349,5 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Object storage must be available to upload files."},
                 )
-        except Exception as e:
-            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+        except Exception:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
