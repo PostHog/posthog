@@ -44,6 +44,7 @@ import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { useState } from 'react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import React from 'react'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -227,6 +228,10 @@ function PersonSummariesTable(): JSX.Element {
                         name: 'Error Investigation',
                         path: 'Session Replay → Error Details → Team Assignment → Documentation',
                     },
+                    {
+                        name: 'Data Export Workflow',
+                        path: 'Analytics → Filter by Date → Split Range → Export → Verify → Download',
+                    },
                 ],
                 edgeCases: [
                     {
@@ -319,7 +324,7 @@ function PersonSummariesTable(): JSX.Element {
                         <div className="flex flex-col">
                             <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
                                 <IconAIText />
-                                Sessions Analysis
+                                Person's Session Analysis
                                 <LemonTag type="completion" size="medium">
                                     ALPHA
                                 </LemonTag>
@@ -398,12 +403,26 @@ function PersonSummariesTable(): JSX.Element {
 
                                 <div>
                                     <h4 className="font-semibold mb-2">Common User Journeys</h4>
-                                    <div className="space-y-2">
+                                    <div className="grid grid-cols-2 gap-4">
                                         {record.details.commonJourneys.map(
                                             (journey: { name: string; path: string }, i: number) => (
-                                                <div key={i} className="text-sm">
-                                                    <span className="font-medium">{journey.name}:</span>{' '}
-                                                    <span className="text-muted">{journey.path}</span>
+                                                <div key={i} className="bg-bg-light border rounded p-3">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <h3 className="text-sm font-medium mb-0">{journey.name}</h3>
+                                                        <LemonTag size="small" type="primary">
+                                                            Common
+                                                        </LemonTag>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 text-sm">
+                                                        {journey.path.split(' → ').map((step, j) => (
+                                                            <React.Fragment key={j}>
+                                                                {j > 0 && (
+                                                                    <IconChevronDown className="w-4 h-4 rotate-270 text-muted" />
+                                                                )}
+                                                                <span className="text-muted">{step}</span>
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             )
                                         )}
