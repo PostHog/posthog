@@ -76,6 +76,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_api = 'cdp-api',
+    cdp_legacy_on_event = 'cdp-legacy-on-event',
     functional_tests = 'functional-tests',
 }
 
@@ -393,6 +394,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
+    cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerFetch?: boolean
