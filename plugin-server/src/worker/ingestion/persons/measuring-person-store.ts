@@ -231,13 +231,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        this.incrementCount('updatePersonForUpdate')
-        this.clearCache()
-        this.incrementDatabaseOperation('updatePersonForUpdate')
-        const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx, 'forUpdate')
-        observeLatencyByVersion(person, start, 'updatePersonForUpdate')
-        return response
+        return this.updatePerson(person, update, tx, 'updatePersonForUpdate', 'forUpdate')
     }
 
     async updatePersonForMerge(
@@ -245,12 +239,22 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        this.incrementCount('updatePersonForMerge')
+        return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge')
+    }
+
+    private async updatePerson(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx: TransactionClient | undefined,
+        methodName: MethodName,
+        updateType: 'forUpdate' | 'forMerge'
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        this.incrementCount(methodName)
         this.clearCache()
-        this.incrementDatabaseOperation('updatePersonForMerge')
+        this.incrementDatabaseOperation(methodName)
         const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx, 'forMerge')
-        observeLatencyByVersion(person, start, 'updatePersonForMerge')
+        const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
+        observeLatencyByVersion(person, start, methodName)
         return response
     }
 
