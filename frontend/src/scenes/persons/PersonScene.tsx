@@ -1,4 +1,4 @@
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { IconAIText, IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -156,6 +156,15 @@ export function PersonScene(): JSX.Element | null {
                             type="secondary"
                         />
                         <LemonButton
+                            icon={<IconAIText />}
+                            disabled={deletedPersonLoading}
+                            loading={deletedPersonLoading}
+                            type="secondary"
+                            data-attr="delete-person"
+                        >
+                            Summarize sessions
+                        </LemonButton>
+                        <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
@@ -306,6 +315,20 @@ export function PersonScene(): JSX.Element | null {
                                   </span>
                               ),
                               content: <RelatedGroups id={person.uuid} groupTypeIndex={null} />,
+                          }
+                        : false,
+                    person.uuid
+                        ? {
+                              key: PersonsTabType.SUMMARIES,
+                              label: (
+                                  <span className="flex items-center" data-attr="persons-related-tab">
+                                      Summaries
+                                      <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
+                                          <IconInfo className="ml-1 text-base shrink-0" />
+                                      </Tooltip>
+                                  </span>
+                              ),
+                              content: <div>Summaries</div>,
                           }
                         : false,
                     person.uuid
