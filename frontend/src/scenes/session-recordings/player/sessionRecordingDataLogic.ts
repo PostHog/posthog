@@ -220,7 +220,7 @@ async function processEncodedResponse(
     return { transformed, untransformed }
 }
 
-type SourceKey = `${SnapshotSourceType}-${string}`
+export type SourceKey = `${SnapshotSourceType}-${string}`
 
 const getSourceKey = (source: SessionRecordingSnapshotSource): SourceKey => {
     // realtime sources vary so blob_key is not always present and is either null or undefined...
