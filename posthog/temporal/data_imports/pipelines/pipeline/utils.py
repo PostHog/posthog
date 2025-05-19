@@ -402,11 +402,6 @@ def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: 
     return last_value
 
 
-def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
-    schema.last_synced_at = job.created_at
-    schema.save()
-
-
 def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
     try:
         if (

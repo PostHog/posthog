@@ -52,15 +52,9 @@ class PipelineInputs:
 
 
 def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> None:
-    job = ExternalDataJob.objects.prefetch_related(
-        "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-    ).get(pk=job_id)
-
-    schema = (
-        ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    )
+    job = ExternalDataJob.objects.get(pk=job_id)
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
     schema.last_synced_at = job.created_at
-
     schema.save()
 
 
@@ -128,7 +122,7 @@ def validate_schema_and_update_table_sync(
         }
 
         # create or update
-        table_created: DataWarehouseTable | None = ExternalDataSchema.objects.get(id=_schema_id, team_id=team_id).table
+        table_created: DataWarehouseTable | None = external_data_schema.table
         if table_created:
             table_created.credential = table_params["credential"]
             table_created.format = table_params["format"]

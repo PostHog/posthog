@@ -24,9 +24,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_incremental_field_last_value,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
-    _update_job_row_count,
-    _update_last_synced_at_sync,
     _notify_revenue_analytics_that_sync_has_completed,
+    _update_job_row_count,
     append_partition_key_to_table,
     normalize_table_column_names,
     should_partition_table,
@@ -34,6 +33,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
+    update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -332,7 +332,7 @@ class PipelineNonDLT:
         prepare_s3_files_for_querying(self._job.folder_path(), self._resource_name, file_uris)
 
         self._logger.debug("Updating last synced at timestamp on schema")
-        _update_last_synced_at_sync(self._schema, self._job)
+        update_last_synced_at_sync(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
 
         self._logger.debug("Notifying revenue analytics that sync has completed")
         _notify_revenue_analytics_that_sync_has_completed(self._schema, self._logger)
@@ -343,6 +343,7 @@ class PipelineNonDLT:
             self._logger.debug(
                 f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
             )
+            self._schema.refresh_from_db()
             self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
 
         self._logger.debug("Validating schema and updating table")
