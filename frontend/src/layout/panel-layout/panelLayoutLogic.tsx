@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { LemonTreeRef, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
@@ -130,6 +130,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        setActivePanelIdentifier: () => {
+            // clear search term when changing panel
+            actions.clearSearch()
+        },
+    })),
     selectors({
         isLayoutNavCollapsed: [
             (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],
