@@ -312,11 +312,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
                 table = DataWarehouseTable.objects.create(
-                    team_id=team_id, name=table_name, format=file_format, created_by=request.user, credential=credential
+                    team_id=team_id,
+                    name=table_name,
+                    format=file_format,
+                    created_by=request.user,
+                    credential=credential,  # type: ignore
                 )
 
             # Generate URL pattern and store file in object storage
-            if credential:
+            if credential and settings.DATAWAREHOUSE_BUCKET:
                 s3 = boto3.client(
                     "s3", aws_access_key_id=credential.access_key, aws_secret_access_key=credential.access_secret
                 )
