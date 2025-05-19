@@ -1,4 +1,4 @@
-import { LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
@@ -53,7 +53,6 @@ export const MetricSelectorStep = ({
                     return {
                         metric: sharedMetric.query as ExperimentMetric,
                         index: experiment.metrics.length + index,
-                        label: `Shared: ${sharedMetric.name}`,
                         isSharedMetric: true,
                     }
                 }
@@ -75,10 +74,11 @@ export const MetricSelectorStep = ({
                         label: (
                             <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                 <span className="mr-1">{index + 1}.</span>
-                                {option.isSharedMetric ? (
-                                    <span>{option.label}</span>
-                                ) : (
-                                    <MetricTitle metric={option.metric} />
+                                <MetricTitle metric={option.metric} />
+                                {option.isSharedMetric && (
+                                    <span className="ml-1">
+                                        <LemonTag>Shared</LemonTag>
+                                    </span>
                                 )}
                             </div>
                         ),
