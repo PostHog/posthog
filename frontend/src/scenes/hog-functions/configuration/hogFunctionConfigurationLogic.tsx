@@ -303,7 +303,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
             ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
-        loadSampleGlobals: true,
+        loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
@@ -499,7 +499,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sampleGlobals: [
             null as HogFunctionInvocationGlobals | null,
             {
-                loadSampleGlobals: async (_, breakpoint) => {
+                loadSampleGlobals: async ({ eventId }, breakpoint) => {
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
@@ -507,9 +507,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        let response = await performQuery(values.lastEventQuery)
+                        let response = await performQuery({
+                            ...values.lastEventQuery,
+                            properties: eventId
+                                ? [
+                                      {
+                                          type: PropertyFilterType.HogQL,
+                                          key: `uuid = '${eventId}'`,
+                                      },
+                                  ]
+                                : undefined,
+                        })
                         if (!response?.results?.[0] && values.lastEventSecondQuery) {
-                            response = await performQuery(values.lastEventSecondQuery)
+                            response = await performQuery({
+                                ...values.lastEventSecondQuery,
+                                properties: eventId
+                                    ? [
+                                          {
+                                              type: PropertyFilterType.HogQL,
+                                              key: `uuid = '${eventId}'`,
+                                          },
+                                      ]
+                                    : undefined,
+                            })
                         }
                         if (!response?.results?.[0]) {
                             throw new Error(errorMessage)

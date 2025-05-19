@@ -263,7 +263,7 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                                                         <LemonDivider />
                                                         <LemonButton
                                                             fullWidth
-                                                            onClick={loadSampleGlobals}
+                                                            onClick={() => loadSampleGlobals()}
                                                             loading={sampleGlobalsLoading && !fetchCancelled}
                                                             tooltip="Find the last event matching filters, and use it to populate the globals below."
                                                         >

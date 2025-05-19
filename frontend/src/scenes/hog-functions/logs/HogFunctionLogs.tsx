@@ -1,12 +1,16 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
+import { PipelineNodeTab, PipelineStage } from '~/types'
+
+import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { LogsViewer } from './LogsViewer'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
@@ -108,6 +112,7 @@ function HogFunctionLogsStatus({
         sourceType: 'hog_function',
         sourceId: hogFunctionId,
     }
+    const { loadSampleGlobals, toggleExpanded } = useActions(hogFunctionTestLogic({ id: hogFunctionId }))
 
     const { retries, selectingMany, selectedForRetry, eventIdByInvocationId } = useValues(
         hogFunctionLogsLogic(logicProps)
@@ -168,6 +173,20 @@ function HogFunctionLogsStatus({
                             setSelectedForRetry({
                                 [record.instanceId]: true,
                             })
+                        },
+                    },
+                    {
+                        label: 'View event in configuration tab',
+                        onClick: () => {
+                            loadSampleGlobals({ eventId })
+                            toggleExpanded(true)
+                            router.actions.push(
+                                urls.pipelineNode(
+                                    PipelineStage.Destination,
+                                    'hog-' + hogFunctionId,
+                                    PipelineNodeTab.Configuration
+                                )
+                            )
                         },
                     },
                 ]}
