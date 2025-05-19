@@ -132,6 +132,10 @@ jobs:
                   # we only care if the toolbar will increase a lot
                   minimum-change-threshold: 1000
 
+            - name: Check toolbar for CSP eval violations
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+
     jest:
         runs-on: depot-ubuntu-24.04
         needs: changes

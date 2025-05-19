@@ -9,7 +9,9 @@ from posthog.schema import (
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
 )
-from ..models import RevenueAnalyticsRevenueView, CHARGE_REVENUE_VIEW_SUFFIX, CUSTOMER_REVENUE_VIEW_SUFFIX
+from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
+from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from ..views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -32,17 +34,19 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
-            if isinstance(view, RevenueAnalyticsRevenueView):
-                if view.source_id in self.query.revenueSources.dataWarehouseSources:
+
+            if isinstance(view, RevenueAnalyticsBaseView):
+                if view.source_id is not None and view.source_id in self.query.revenueSources.dataWarehouseSources:
                     select = ast.SelectQuery(
                         select=[ast.Field(chain=["*"])],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
                     )
-                    if CHARGE_REVENUE_VIEW_SUFFIX in view.name:
+
+                    if isinstance(view, RevenueAnalyticsChargeView):
                         charge_selects.append(select)
-                    elif CUSTOMER_REVENUE_VIEW_SUFFIX in view.name:
+                    elif isinstance(view, RevenueAnalyticsCustomerView):
                         customer_selects.append(select)
-                elif view.is_events_view:
+                elif view.source_id is None and isinstance(view, RevenueAnalyticsChargeView):
                     if len(self.query.revenueSources.events) > 0:
                         select = ast.SelectQuery(
                             select=[ast.Field(chain=["*"])],

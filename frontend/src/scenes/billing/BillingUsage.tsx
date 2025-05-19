@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingDataTable } from './BillingDataTable'
+import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { billingUsageLogic } from './billingUsageLogic'
@@ -38,6 +39,7 @@ export function BillingUsage(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <BillingEarlyAccessBanner />
             <div className="border rounded p-4 bg-bg-light space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Usage Types */}

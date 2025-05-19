@@ -15,12 +15,13 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
+from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
+from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
@@ -113,11 +114,31 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
             zip(output, expected_output)
         ):
-            self.assertEqual(output_msg_type, expected_msg_type, f"Message type mismatch at index {i}")
-            msg_dict = (
-                expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
-            )
-            self.assertDictContainsSubset(msg_dict, output_msg, f"Message content mismatch at index {i}")
+            if output_msg_type == "conversation" and expected_msg_type == "conversation":
+                self.assertConversationDictsEqual(output_msg, expected_msg)
+            else:
+                self.assertEqual(output_msg_type, expected_msg_type, f"Message type mismatch at index {i}")
+                msg_dict = (
+                    expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
+                )
+                self.assertDictContainsSubset(msg_dict, output_msg, f"Message content mismatch at index {i}")
+
+    def assertConversationDictsEqual(self, dict1: dict[str, Any], dict2: dict[str, Any]):
+        self.assertEqual(dict1["id"], dict2["id"])
+        self.assertEqual(dict1["status"], dict2["status"])
+        self.assertEqual(dict1["title"], dict2["title"])
+        self.assertIn("created_at", dict1)
+        self.assertIn("created_at", dict2)
+        self.assertIn("updated_at", dict1)
+        self.assertIn("updated_at", dict2)
+
+    def _serialize_conversation(self, conversation: Conversation | None = None) -> dict[str, Any]:
+        conversation = conversation or self.conversation
+        return {
+            **ConversationMinimalSerializer(conversation).data,
+            # Status is set in progress because conversation was generating.
+            "status": Conversation.Status.IN_PROGRESS,
+        }
 
     @patch(
         "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
@@ -446,7 +467,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
         )
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
         ]
         self.assertConversationEqual(output[:1], expected_output)
 
@@ -546,7 +567,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -620,7 +641,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -694,7 +715,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -759,7 +780,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -786,7 +807,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run - get the product description
         output = self._run_assistant_graph(graph, is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             (
                 "message",
@@ -832,7 +853,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run - get the product description
         output = self._run_assistant_graph(graph, is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             (
                 "message",
@@ -900,7 +921,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
         )
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="We use a subscription model")),
         ]
         self.assertConversationEqual(output, expected_output)
@@ -1240,3 +1261,52 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             updated_content,
             "The merged message should have the content of the last message",
         )
+
+    def test_assistant_filters_messages_correctly(self):
+        """Test that the Assistant class correctly filters messages based on should_output_assistant_message."""
+
+        output_messages = [
+            # Should be output (has content)
+            (AssistantMessage(content="This message has content", id="1"), True),
+            # Should be filtered out (empty content)
+            (AssistantMessage(content="", id="2"), False),
+            # Should be output (has UI payload)
+            (
+                AssistantToolCallMessage(
+                    content="Tool result", tool_call_id="123", id="3", ui_payload={"some": "data"}
+                ),
+                True,
+            ),
+            # Should be filtered out (no UI payload)
+            (AssistantToolCallMessage(content="Tool result", tool_call_id="456", id="4", ui_payload=None), False),
+        ]
+
+        for test_message, expected_in_output in output_messages:
+            # Create a simple graph that produces different message types to test filtering
+            class MessageFilteringNode:
+                def __init__(self, message_to_return):
+                    self.message_to_return = message_to_return
+
+                def __call__(self, *args, **kwargs):
+                    # Return a set of messages that should be filtered differently
+                    return PartialAssistantState(messages=[self.message_to_return])
+
+            # Create a graph with our test node
+            graph = (
+                AssistantGraph(self.team)
+                .add_node(AssistantNodeName.ROOT, MessageFilteringNode(test_message))
+                .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+                .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+                .compile()
+            )
+
+            # Run the assistant and capture output
+            output = self._run_assistant_graph(graph, conversation=self.conversation)
+            expected_output: list = [
+                ("message", HumanMessage(content="Hello")),
+            ]
+
+            if expected_in_output:
+                expected_output.append(("message", test_message))
+
+            self.assertConversationEqual(output, expected_output)

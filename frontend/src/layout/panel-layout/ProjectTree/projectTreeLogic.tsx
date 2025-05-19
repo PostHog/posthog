@@ -18,7 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
+import { getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
@@ -28,6 +28,7 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
+    unescapePath,
 } from './utils'
 
 const PAGINATION_LIMIT = 100
@@ -871,12 +872,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ? [
                               {
                                   path: 'Groups',
-                                  href: () => urls.groups(0),
+                                  href: urls.groups(0),
                               },
                           ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
                               path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              href: () => urls.groups(groupType.group_type_index),
+                              href: urls.groups(groupType.group_type_index),
                           }))),
                 ]
 
@@ -894,19 +895,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     folderStates,
                     root: 'new',
                     users,
-                }),
-        ],
-        treeItemsExplore: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates, s.users],
-            (featureFlags, groupNodes: FileSystemImport[], folderStates, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes).filter(
-                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
-                    ),
-                    checkedItems: {},
-                    folderStates,
-                    root: 'explore',
-                    users,
+                    foldersFirst: false,
                 }),
         ],
         recentTreeItems: [
@@ -978,7 +967,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        treeData: [
+        projectTreeItems: [
             (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
             (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
@@ -1151,7 +1140,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         // No scene breadcrumbs, so create a new one with the file name
                         lastBreadcrumb = {
                             key: `project-tree/${projectTreeRefEntry.path}`,
-                            name: name,
+                            name: unescapePath(name ?? 'Unnamed'),
                             path: projectTreeRefEntry.href, // link to actual page
                         }
                     }
@@ -1170,7 +1159,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 // Convert the folders into breadcrumbs
                 const breadcrumbs: ProjectTreeBreadcrumb[] = folders.map((path, index) => ({
                     key: `project-tree/${path}`,
-                    name: path,
+                    name: unescapePath(path),
                     path: joinPath(folders.slice(0, index + 1)),
                     type: 'folder',
                 }))
