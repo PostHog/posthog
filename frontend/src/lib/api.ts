@@ -816,7 +816,7 @@ class ApiRequest {
     }
 
     public chatConversation(id: ChatConversation['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.chat(teamId).addPathComponent(id)
+        return id ? this.chat(teamId).addPathComponent(id) : this.chat(teamId)
     }
 
     public chatConversationMessages(id: ChatConversation['id'], teamId?: TeamType['id']): ApiRequest {
