@@ -344,7 +344,7 @@ def value(
     """
     metadata = {META_KEY: MetaConfig(prefix=prefix, alias=alias, converter=converter)}
 
-    if default:
+    if default is not None:
         return dataclasses.field(
             default=default,
             hash=hash,
