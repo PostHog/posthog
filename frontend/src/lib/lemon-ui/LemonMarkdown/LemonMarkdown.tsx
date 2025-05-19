@@ -23,12 +23,14 @@ export interface LemonMarkdownProps {
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
     className?: string
+    wrapCode?: boolean
 }
 
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    wrapCode = false,
 }: LemonMarkdownProps): JSX.Element {
     const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
         () => ({
@@ -38,7 +40,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 </Link>
             ),
             code: ({ language, value }: any): JSX.Element => (
-                <CodeSnippet language={language || Language.Text} compact>
+                <CodeSnippet language={language || Language.Text} wrap={wrapCode} compact>
                     {value}
                 </CodeSnippet>
             ),
@@ -48,7 +50,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                   }
                 : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode]
     )
 
     return (
@@ -67,11 +69,16 @@ function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    wrapCode = false,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
         <LemonMarkdownContainer className={className}>
-            <LemonMarkdownRenderer lowKeyHeadings={lowKeyHeadings} disableDocsRedirect={disableDocsRedirect}>
+            <LemonMarkdownRenderer
+                lowKeyHeadings={lowKeyHeadings}
+                disableDocsRedirect={disableDocsRedirect}
+                wrapCode={wrapCode}
+            >
                 {children}
             </LemonMarkdownRenderer>
         </LemonMarkdownContainer>
