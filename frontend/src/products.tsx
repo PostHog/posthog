@@ -282,7 +282,7 @@ export const fileSystemTypes = {
 }
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsNew = [
+export const getTreeItemsNew = (): FileSystemImport[] => [
     { type: 'action', path: 'Action', icon: <IconRocket />, href: () => urls.createAction() },
     {
         path: `Broadcast`,
@@ -310,13 +310,10 @@ export const treeItemsNew = [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsExplore = [
-    { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
-    { path: 'Explore/Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
-    { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
-    { path: 'Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
-    { path: 'Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
-    { path: 'Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
-    { path: 'Recordings/What to watch', href: () => urls.replay(ReplayTabs.Templates), icon: <IconRewindPlay /> },
-    { path: 'Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
-]
+export const getTreeItemsProducts = (): FileSystemImport[] => []
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsGames = (): FileSystemImport[] => []
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({})
