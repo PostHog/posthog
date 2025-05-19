@@ -166,25 +166,27 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
 
             <div className="space-y-4">
                 <div className="flex gap-8">
-                    <div className="flex-1 space-y-6">
-                        {displayForm ? (
-                            <LemonField name="redirect_url" label="Destination URL">
-                                <LemonInput
-                                    placeholder="https://loooooooooooooong.posthog.com/blog/"
-                                    fullWidth
-                                    autoWidth={false}
-                                />
-                            </LemonField>
-                        ) : (
-                            <div>
-                                <b>Long link</b>
-                                <Link to={link.redirect_url} target="_blank">
+                    <div className="flex-1 space-y-4">
+                        <div className="flex flex-col">
+                            <LemonLabel>Destination URL</LemonLabel>
+                            {displayForm ? (
+                                <div className="flex gap-1 items-center">
+                                    <LemonField name="redirect_url" label="Destination URL">
+                                        <LemonInput
+                                            placeholder="https://loooooooooooooong.posthog.com/"
+                                            fullWidth
+                                            autoWidth={false}
+                                        />
+                                    </LemonField>
+                                </div>
+                            ) : (
+                                <Link to={link.redirect_url} className="text-muted" target="_blank">
                                     {link.redirect_url}
                                 </Link>
-                            </div>
-                        )}
+                            )}
+                        </div>
 
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col">
                             <LemonLabel>Short Link</LemonLabel>
                             {displayForm ? (
                                 <div className="flex gap-1 items-center">
@@ -202,23 +204,27 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                     </LemonField>
                                 </div>
                             ) : (
-                                <Link to={fullLink}>{fullLink}</Link>
+                                <Link to={fullLink} target="_blank">
+                                    {fullLink}
+                                </Link>
                             )}
                         </div>
 
-                        {displayForm ? (
-                            <LemonField name="description" label="Description" showOptional>
-                                <LemonTextArea
-                                    placeholder="Add a description so that you can easily identify this link"
-                                    minRows={2}
-                                />
-                            </LemonField>
-                        ) : (
-                            <div className="mb-2">
-                                <b>Description</b>
-                                <div>{link.description || <span className="text-secondary">No description</span>}</div>
-                            </div>
-                        )}
+                        <div className="flex flex-col">
+                            <LemonLabel>Description</LemonLabel>
+                            {displayForm ? (
+                                <div className="flex gap-1 items-center">
+                                    <LemonField name="description" label="Description" showOptional>
+                                        <LemonTextArea
+                                            placeholder="Add a description so that you can easily identify this link"
+                                            minRows={2}
+                                        />
+                                    </LemonField>
+                                </div>
+                            ) : (
+                                <div>{link.description || <span className="text-muted">No description</span>}</div>
+                            )}
+                        </div>
                     </div>
 
                     <LemonDivider vertical />
