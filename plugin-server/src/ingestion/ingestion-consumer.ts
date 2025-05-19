@@ -80,7 +80,7 @@ export class IngestionConsumer {
     protected testingTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
-    protected promises: Set<Promise<any>> = new Set()
+    public readonly promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
@@ -279,7 +279,7 @@ export class IngestionConsumer {
 
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        logger.debug('🔁', `Processed batch`)
+        await this.hogTransformer.logger.debug('🔁', `Processed batch`)
 
         personsStoreForBatch.reportBatch()
 

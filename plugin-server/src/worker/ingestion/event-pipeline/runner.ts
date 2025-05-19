@@ -248,16 +248,11 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
-        const { event: transformedEvent, scheduledPromises } = await this.runStep(
+        const { event: transformedEvent } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
-
-        // Add message promises to kafkaAcks
-        if (scheduledPromises) {
-            kafkaAcks.push(...scheduledPromises)
-        }
 
         if (transformedEvent === null) {
             return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)

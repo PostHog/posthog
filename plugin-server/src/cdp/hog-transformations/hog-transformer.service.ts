@@ -44,13 +44,9 @@ export const hogWatcherLatency = new Histogram({
     labelNames: ['operation'],
 })
 
-export interface TransformationResultPure {
+export interface TransformationResult {
     event: PluginEvent | null
     invocationResults: HogFunctionInvocationResult[]
-}
-
-export interface TransformationResult extends TransformationResultPure {
-    scheduledPromises: Promise<void>[]
 }
 
 export class HogTransformerService {
@@ -62,6 +58,7 @@ export class HogTransformerService {
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
     private cachedStates: Record<string, HogWatcherState> = {}
+    protected promises: Set<Promise<any>> = new Set()
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -78,10 +75,17 @@ export class HogTransformerService {
     }
 
     public async stop(): Promise<void> {
+        await Promise.allSettled(this.promises)
         await this.hogFunctionManager.stop()
         await this.redis.useClient({ name: 'cleanup' }, async (client) => {
             await client.quit()
         })
+    }
+
+    private scheduleWork<T>(promise: Promise<T>): Promise<T> {
+        this.promises.add(promise)
+        void promise.finally(() => this.promises.delete(promise))
+        return promise
     }
 
     private async getTransformationFunctions() {
@@ -124,15 +128,18 @@ export class HogTransformerService {
                 ])
 
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
-                await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
-                const scheduledPromises: Promise<void>[] = [this.hogFunctionMonitoringService.produceQueuedMessages()]
+                void this.scheduleWork(
+                    this.hogFunctionMonitoringService
+                        .processInvocationResults(transformationResult.invocationResults)
+                        .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
+                )
 
                 const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
                 if (shouldRunHogWatcher) {
                     const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
-                    scheduledPromises.push(
+                    void this.scheduleWork(
                         this.hogWatcher
                             .observeResults(transformationResult.invocationResults)
                             .catch((error) => {
@@ -147,13 +154,12 @@ export class HogTransformerService {
                 hogTransformationCompleted.inc({ type: 'with_messages' })
                 return {
                     ...transformationResult,
-                    scheduledPromises,
                 }
             },
         })
     }
 
-    public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResultPure> {
+    public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
             func: async () => {
