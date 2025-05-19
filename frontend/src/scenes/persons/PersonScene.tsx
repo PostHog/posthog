@@ -45,6 +45,7 @@ import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { useState } from 'react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import React from 'react'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -157,24 +158,15 @@ function SessionSegmentCollapse({
 
     return (
         <div className="border rounded">
-            <div
-                className="cursor-pointer"
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
+            <div className="cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
                 <div className="p-2">
                     <div className="flex items-center justify-between">
                         {header}
-                        <IconChevronDown
-                            className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                        />
+                        <IconChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                     </div>
                 </div>
             </div>
-            {isExpanded && (
-                <div className="border-t p-2">
-                    {content}
-                </div>
-            )}
+            {isExpanded && <div className="border-t p-2">{content}</div>}
         </div>
     )
 }
@@ -197,13 +189,15 @@ function PersonSummariesTable(): JSX.Element {
                                 id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
                                 timestamp: '2024-03-15 09:15:23',
                                 hasRecording: true,
-                                summary: 'User attempted to log in 3 times, each attempt timed out after 30 seconds. Network latency was high during these attempts.',
+                                summary:
+                                    'User attempted to log in 3 times, each attempt timed out after 30 seconds. Network latency was high during these attempts.',
                             },
                             {
                                 id: '0196d2bd-288d-73ea-970d-3d7f38e1707f',
                                 timestamp: '2024-03-14 09:30:45',
                                 hasRecording: true,
-                                summary: 'Similar timeout pattern observed. User switched networks after second attempt.',
+                                summary:
+                                    'Similar timeout pattern observed. User switched networks after second attempt.',
                             },
                         ],
                     },
@@ -214,7 +208,8 @@ function PersonSummariesTable(): JSX.Element {
                                 id: '0196d2bd-515c-7230-9e15-a2a437f2e3e3',
                                 timestamp: '2024-03-13 14:20:10',
                                 hasRecording: false,
-                                summary: 'User hit paywall while trying to access data from Q4 2023. Attempted to refresh page multiple times.',
+                                summary:
+                                    'User hit paywall while trying to access data from Q4 2023. Attempted to refresh page multiple times.',
                             },
                         ],
                     },
@@ -241,13 +236,15 @@ function PersonSummariesTable(): JSX.Element {
                                 id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
                                 timestamp: '2024-03-12 15:30:22',
                                 hasRecording: true,
-                                summary: 'User attempted to export 12 months of data in one go, hitting the 100MB limit. Repeated the attempt 3 times with different date ranges.',
+                                summary:
+                                    'User attempted to export 12 months of data in one go, hitting the 100MB limit. Repeated the attempt 3 times with different date ranges.',
                             },
                             {
                                 id: '0196d2bd-515c-7230-9e15-a2a437f2e3e5',
                                 timestamp: '2024-03-11 14:15:33',
                                 hasRecording: true,
-                                summary: 'Similar bulk export attempt with 6 months of data. System warned about size but user proceeded anyway.',
+                                summary:
+                                    'Similar bulk export attempt with 6 months of data. System warned about size but user proceeded anyway.',
                             },
                         ],
                     },
@@ -258,7 +255,8 @@ function PersonSummariesTable(): JSX.Element {
                                 id: '0196d2bd-515c-7230-9e15-a2a437f2e3e6',
                                 timestamp: '2024-03-10 11:45:12',
                                 hasRecording: true,
-                                summary: 'User manually split a 3-month export into 3 separate 1-month exports. Took 15 minutes to complete all exports.',
+                                summary:
+                                    'User manually split a 3-month export into 3 separate 1-month exports. Took 15 minutes to complete all exports.',
                             },
                         ],
                     },
@@ -269,7 +267,8 @@ function PersonSummariesTable(): JSX.Element {
                                 id: '0196d2bd-515c-7230-9e15-a2a437f2e3e7',
                                 timestamp: '2024-03-09 16:20:45',
                                 hasRecording: true,
-                                summary: 'User hit paywall, used back button 3 times to try different navigation paths. Eventually found a way to access the data through a different route.',
+                                summary:
+                                    'User hit paywall, used back button 3 times to try different navigation paths. Eventually found a way to access the data through a different route.',
                             },
                         ],
                     },
@@ -339,9 +338,14 @@ function PersonSummariesTable(): JSX.Element {
                                 <LemonDivider />
                             </div>
 
-                            <div className="space-y-4">
+                            <div className="space-y-8">
                                 <div>
-                                    <h4 className="font-semibold mb-2">Critical Issues</h4>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <h4 className="text-lg font-semibold m-0">Critical Issues</h4>
+                                        <LemonTag type="danger" size="small">
+                                            {record.details.criticalIssues.length} issues
+                                        </LemonTag>
+                                    </div>
                                     <div className="space-y-2">
                                         {record.details.criticalIssues.map((issue: CriticalIssue, i: number) => (
                                             <SessionSegmentCollapse
@@ -349,7 +353,9 @@ function PersonSummariesTable(): JSX.Element {
                                                 isFailed={true}
                                                 header={
                                                     <div className="flex flex-row gap-2 items-center">
-                                                        <h3 className="text-sm font-medium mb-0">{issue.description}</h3>
+                                                        <h3 className="text-sm font-medium mb-0">
+                                                            {issue.description}
+                                                        </h3>
                                                         <LemonTag size="small" type="default">
                                                             {issue.sessions.length} sessions
                                                         </LemonTag>
@@ -362,9 +368,13 @@ function PersonSummariesTable(): JSX.Element {
                                                                 <div className="text-sm py-2">
                                                                     <div className="flex items-center justify-between mb-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="text-muted">{session.timestamp}</span>
+                                                                            <span className="text-muted">
+                                                                                {session.timestamp}
+                                                                            </span>
                                                                             <span className="text-muted">•</span>
-                                                                            <span className="text-muted">{session.id}</span>
+                                                                            <span className="text-muted">
+                                                                                {session.id}
+                                                                            </span>
                                                                         </div>
                                                                         <div className="flex gap-1">
                                                                             <LemonButton
@@ -375,13 +385,9 @@ function PersonSummariesTable(): JSX.Element {
                                                                                 <span>View moment</span>
                                                                             </LemonButton>
                                                                             <LemonButton
+                                                                                sideIcon={<IconPlayCircle />}
                                                                                 size="xsmall"
                                                                                 type="secondary"
-                                                                                disabledReason={
-                                                                                    session.hasRecording
-                                                                                        ? undefined
-                                                                                        : 'No recording available'
-                                                                                }
                                                                             >
                                                                                 View recording
                                                                             </LemonButton>
@@ -402,15 +408,20 @@ function PersonSummariesTable(): JSX.Element {
                                 </div>
 
                                 <div>
-                                    <h4 className="font-semibold mb-2">Common User Journeys</h4>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <h4 className="text-lg font-semibold m-0">Common User Journeys</h4>
+                                        <LemonTag type="default" size="small">
+                                            {record.details.commonJourneys.length} patterns
+                                        </LemonTag>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         {record.details.commonJourneys.map(
                                             (journey: { name: string; path: string }, i: number) => (
                                                 <div key={i} className="bg-bg-light border rounded p-3">
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <h3 className="text-sm font-medium mb-0">{journey.name}</h3>
-                                                        <LemonTag size="small" type="primary">
-                                                            Common
+                                                        <LemonTag size="small" type="default">
+                                                            common
                                                         </LemonTag>
                                                     </div>
                                                     <div className="flex items-center gap-1 text-sm">
@@ -430,14 +441,21 @@ function PersonSummariesTable(): JSX.Element {
                                 </div>
 
                                 <div>
-                                    <h4 className="font-semibold mb-2">Interesting Edge Cases</h4>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <h4 className="text-lg font-semibold m-0">Interesting Edge Cases</h4>
+                                        <LemonTag type="default" size="small">
+                                            {record.details.edgeCases.length} cases
+                                        </LemonTag>
+                                    </div>
                                     <div className="space-y-2">
                                         {record.details.edgeCases.map((edgeCase: EdgeCase, i: number) => (
                                             <SessionSegmentCollapse
                                                 key={i}
                                                 header={
                                                     <div className="flex flex-row gap-2 items-center">
-                                                        <h3 className="text-sm font-medium mb-0">{edgeCase.description}</h3>
+                                                        <h3 className="text-sm font-medium mb-0">
+                                                            {edgeCase.description}
+                                                        </h3>
                                                         <LemonTag size="small" type="default">
                                                             {edgeCase.sessions.length} sessions
                                                         </LemonTag>
@@ -450,9 +468,13 @@ function PersonSummariesTable(): JSX.Element {
                                                                 <div className="text-sm py-2">
                                                                     <div className="flex items-center justify-between mb-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="text-muted">{session.timestamp}</span>
+                                                                            <span className="text-muted">
+                                                                                {session.timestamp}
+                                                                            </span>
                                                                             <span className="text-muted">•</span>
-                                                                            <span className="text-muted">{session.id}</span>
+                                                                            <span className="text-muted">
+                                                                                {session.id}
+                                                                            </span>
                                                                         </div>
                                                                         <div className="flex gap-1">
                                                                             <LemonButton
@@ -463,13 +485,9 @@ function PersonSummariesTable(): JSX.Element {
                                                                                 <span>View moment</span>
                                                                             </LemonButton>
                                                                             <LemonButton
+                                                                                sideIcon={<IconPlayCircle />}
                                                                                 size="xsmall"
                                                                                 type="secondary"
-                                                                                disabledReason={
-                                                                                    session.hasRecording
-                                                                                        ? undefined
-                                                                                        : 'No recording available'
-                                                                                }
                                                                             >
                                                                                 View recording
                                                                             </LemonButton>
