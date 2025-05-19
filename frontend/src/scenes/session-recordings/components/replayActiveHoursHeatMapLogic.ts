@@ -1,4 +1,4 @@
-import { afterMount, defaults, kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -7,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
-import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ReplayTabs } from '~/types'
 
@@ -30,45 +30,67 @@ const columnLabels = (now: Dayjs): string[] => [
     'Today',
 ]
 
+// does not need to be on the logic yet, since it's stateless for now
+export const getOnClickTooltip = (colIndex: number, rowIndex: number | undefined): string => {
+    const day = columnLabels(now())[colIndex]
+    const timeRange = rowIndex === undefined ? undefined : rowLabels[rowIndex]
+    return `View recordings for ${day}${timeRange ? ` ${timeRange}` : ''}`
+}
+
+// does not need to be on the logic yet, since it's stateless for now
+export const onCellClick = (colIndex: number, rowIndex: number | undefined): void => {
+    const daysToSubtract = 6 - colIndex
+    let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc(true)
+    let endDate = startDate.clone()
+
+    if (rowIndex !== undefined) {
+        const startHour = rowIndex * 4
+        const endHour = startHour + 4
+        startDate = startDate.hour(startHour)
+        endDate = endDate.hour(endHour)
+    } else {
+        endDate = endDate.add(1, 'day')
+    }
+
+    router.actions.push(
+        urls.replay(ReplayTabs.Home, {
+            date_from: startDate.toISOString(),
+            date_to: endDate.toISOString(),
+        })
+    )
+}
+
 export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicType>([
     path(['scenes', 'session-recordings', 'components', 'replayActiveHoursHeatMapLogic']),
     props({} as ReplayActiveHoursHeatMapLogicProps),
     key((props) => props.scene || 'default'),
-    defaults({
-        recordingsPerHour: null as HogQLQueryResponse | null,
-    }),
     loaders(() => ({
         recordingsPerHour: {
-            loadRecordingsPerHour: async (_, breakpoint): Promise<HogQLQueryResponse> => {
+            loadRecordingsPerHour: async (_, breakpoint): Promise<number[][]> => {
                 const q = hogql`
-SELECT
-    hour_block,
-    countIf(_toDate(mints) = today() - 6) AS "Day -6",
-    countIf(_toDate(mints) = today() - 5) AS "Day -5",
-    countIf(_toDate(mints) = today() - 4) AS "Day -4",
-    countIf(_toDate(mints) = today() - 3) AS "Day -3",
-    countIf(_toDate(mints) = today() - 2) AS "Day -2",
-    countIf(_toDate(mints) = today() - 1) AS "Day -1",
-    countIf(_toDate(mints) = today()) AS "Day 0"
-FROM (
-    SELECT
-        intDiv(toHour(mints), 4) * 4 AS real_hour_block,
-        mints
-    FROM (
-        SELECT min(min_first_timestamp) AS mints
-        FROM raw_session_replay_events
-        WHERE min_first_timestamp >= now() - INTERVAL 7 day
-          AND min_first_timestamp <= now()
-        GROUP BY session_id
-        having dateDiff('SECOND', min(min_first_timestamp), max(max_last_timestamp)) > 5
-    )
-) AS data
-RIGHT JOIN (
-    SELECT arrayJoin([0, 4, 8, 12, 16, 20]) AS hour_block
-) AS hours
-ON data.real_hour_block = hours.hour_block
-GROUP BY hour_block
-ORDER BY hour_block`
+                    SELECT hour_block,
+                           countIf(_toDate(mints) = today() - 6) AS "Day -6",
+                           countIf(_toDate(mints) = today() - 5) AS "Day -5",
+                           countIf(_toDate(mints) = today() - 4) AS "Day -4",
+                           countIf(_toDate(mints) = today() - 3) AS "Day -3",
+                           countIf(_toDate(mints) = today() - 2) AS "Day -2",
+                           countIf(_toDate(mints) = today() - 1) AS "Day -1",
+                           countIf(_toDate(mints) = today())     AS "Day 0"
+                    FROM (SELECT intDiv(toHour(mints), 4) * 4 AS real_hour_block,
+                                 mints
+                          FROM (SELECT min(min_first_timestamp) AS mints
+                                FROM raw_session_replay_events
+                                WHERE min_first_timestamp >= now() - INTERVAL 7 day
+                                  AND min_first_timestamp <= now()
+                                GROUP BY session_id
+                                having dateDiff('SECOND'
+                                     , min (min_first_timestamp)
+                                     , max (max_last_timestamp))
+                                     > 5)) AS data
+                             RIGHT JOIN (SELECT arrayJoin([0, 4, 8, 12, 16, 20]) AS hour_block) AS hours
+                                        ON data.real_hour_block = hours.hour_block
+                    GROUP BY hour_block
+                    ORDER BY hour_block`
 
                 const qResponse = await api.query<HogQLQuery>({
                     kind: NodeKind.HogQLQuery,
@@ -84,7 +106,7 @@ ORDER BY hour_block`
 
                 breakpoint()
 
-                return qResponse
+                return qResponse.results as number[][]
             },
         },
     })),
@@ -92,9 +114,9 @@ ORDER BY hour_block`
         calendarHeatmapProps: [
             (s) => [s.recordingsPerHour],
             (
-                recordingsPerHour: HogQLQueryResponse | null
+                recordingsPerHour: number[][]
             ): Pick<CalendarHeatMapProps, 'rowLabels' | 'columnLabels' | 'processedData'> => {
-                if (!recordingsPerHour || !recordingsPerHour.results) {
+                if (!recordingsPerHour || recordingsPerHour.length === 0 || recordingsPerHour[0].length === 0) {
                     return {
                         rowLabels: [],
                         columnLabels: [],
@@ -113,7 +135,7 @@ ORDER BY hour_block`
                     }
                 }
 
-                const dataWithoutHourBlock = recordingsPerHour.results.map((row) => row.slice(1))
+                const dataWithoutHourBlock = recordingsPerHour.map((row) => row.slice(1))
 
                 const columnsAggregations = dataWithoutHourBlock.reduce((acc, row) => {
                     row.forEach((value: number, index: number) => {
@@ -150,38 +172,6 @@ ORDER BY hour_block`
                     columnLabels: columnLabels(now()),
                     processedData: processedData,
                 }
-            },
-        ],
-        getOnClickTooltip: [
-            () => [],
-            () => (colIndex: number, rowIndex: number) => {
-                const day = columnLabels(now())[colIndex]
-                const timeRange = rowIndex === undefined ? undefined : rowLabels[rowIndex]
-                return `View recordings for ${day}${timeRange ? ` ${timeRange}` : ''}`
-            },
-        ],
-        onCellClick: [
-            () => [],
-            () => (colIndex: number, rowIndex: number) => {
-                const daysToSubtract = 6 - colIndex
-                let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc(true)
-                let endDate = startDate.clone()
-
-                if (rowIndex !== undefined) {
-                    const startHour = rowIndex * 4
-                    const endHour = startHour + 4
-                    startDate = startDate.hour(startHour)
-                    endDate = endDate.hour(endHour)
-                } else {
-                    endDate = endDate.add(1, 'day')
-                }
-
-                router.actions.push(
-                    urls.replay(ReplayTabs.Home, {
-                        date_from: startDate.toISOString(),
-                        date_to: endDate.toISOString(),
-                    })
-                )
             },
         ],
     })),

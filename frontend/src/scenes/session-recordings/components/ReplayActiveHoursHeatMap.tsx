@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
-import { replayActiveHoursHeatMapLogic } from './replayActiveHoursHeatMapLogic'
+import { getOnClickTooltip, onCellClick, replayActiveHoursHeatMapLogic } from './replayActiveHoursHeatMapLogic'
 
 export const ReplayActiveHoursHeatMap = (): JSX.Element => {
-    const { calendarHeatmapProps, recordingsPerHourLoading, getOnClickTooltip, onCellClick } = useValues(
+    const { calendarHeatmapProps, recordingsPerHourLoading } = useValues(
         replayActiveHoursHeatMapLogic({ scene: 'templates' })
     )
+
     return (
         <div className="w-full flex flex-col">
             <h2>When are your users most active?</h2>
