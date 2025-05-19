@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { getDefaultInterval } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -301,4 +301,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             })
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.allEvents !== null && values.allDataWarehouseSources !== null) {
+            actions.setRevenueSources({
+                events: values.allEvents,
+                dataWarehouseSources: values.allDataWarehouseSources.results.filter(
+                    (source) => source.revenue_analytics_enabled
+                ),
+            })
+        }
+    }),
 ])
