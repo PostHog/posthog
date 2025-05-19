@@ -2,8 +2,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { parseJSON } from '~/src/utils/json-parse'
-
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
