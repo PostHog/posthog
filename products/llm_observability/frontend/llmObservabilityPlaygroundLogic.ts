@@ -193,6 +193,8 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                         messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                         model: requestModel,
                         thinking: values.thinking,
+                        temperature: values.temperature,
+                        max_tokens: values.maxTokens,
                     },
                     headers: { 'Content-Type': 'application/json' },
                     onMessage: (event) => {
