@@ -1,5 +1,5 @@
 import { IconAIText, IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -101,6 +101,92 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 </Link>
             </div>
         </div>
+    )
+}
+
+interface SummaryData {
+    id: number
+    period: string
+    sessionsAnalyzed: number
+    keyInsights: number
+    pains: number
+    status: 'success' | 'failure'
+    details: string
+}
+
+function PersonSummariesTable(): JSX.Element {
+    const sampleData: SummaryData[] = [
+        {
+            id: 1,
+            period: '2024-03-01 to 2024-03-15',
+            sessionsAnalyzed: 12,
+            keyInsights: 5,
+            pains: 2,
+            status: 'success',
+            details:
+                'User showed high engagement with the checkout process but abandoned cart twice. Most common path was homepage -> product page -> cart. Average session duration was 8 minutes.',
+        },
+        {
+            id: 2,
+            period: '2024-02-15 to 2024-02-29',
+            sessionsAnalyzed: 8,
+            keyInsights: 3,
+            pains: 1,
+            status: 'success',
+            details:
+                'User primarily used mobile device. Most active during evening hours. Completed one purchase with total value of $89.99. Showed interest in premium features.',
+        },
+    ]
+
+    return (
+        <LemonTable
+            dataSource={sampleData}
+            columns={[
+                {
+                    title: 'Summary Period',
+                    dataIndex: 'period',
+                    width: 200,
+                },
+                {
+                    title: 'Sessions Analyzed',
+                    dataIndex: 'sessionsAnalyzed',
+                    width: 150,
+                },
+                {
+                    title: 'Key Insights',
+                    dataIndex: 'keyInsights',
+                    width: 120,
+                },
+                {
+                    title: 'Pains',
+                    dataIndex: 'pains',
+                    width: 100,
+                },
+                {
+                    title: 'Status',
+                    dataIndex: 'status',
+                    width: 120,
+                    render: (dataValue: string | number | undefined, record: SummaryData) => {
+                        const status = record.status
+                        return (
+                            <LemonTag type={status === 'success' ? 'success' : 'danger'}>
+                                {status.charAt(0).toUpperCase() + status.slice(1)}
+                            </LemonTag>
+                        )
+                    },
+                },
+            ]}
+            expandable={{
+                expandedRowRender: (record) => (
+                    <div className="px-4 py-2 bg-bg-light">
+                        <h4 className="font-semibold mb-2">Detailed Analysis</h4>
+                        <p>{record.details}</p>
+                    </div>
+                ),
+                rowExpandable: () => true,
+                noIndent: true,
+            }}
+        />
     )
 }
 
@@ -328,7 +414,7 @@ export function PersonScene(): JSX.Element | null {
                                       </Tooltip>
                                   </span>
                               ),
-                              content: <div>Summaries</div>,
+                              content: <PersonSummariesTable />,
                           }
                         : false,
                     person.uuid
