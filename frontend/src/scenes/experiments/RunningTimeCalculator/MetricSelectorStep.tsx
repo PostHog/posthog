@@ -13,7 +13,6 @@ import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep
 type MetricOption = {
     metric: ExperimentMetric
     index: number
-    label: string
     isSharedMetric: boolean
 }
 
@@ -37,7 +36,6 @@ export const MetricSelectorStep = ({
         ...experiment.metrics.map((metric, index) => ({
             metric: metric as ExperimentMetric,
             index,
-            label: `Metric ${index + 1}`,
             isSharedMetric: false,
         })),
         // Shared metrics with primary type
