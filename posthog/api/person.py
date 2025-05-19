@@ -49,6 +49,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -380,12 +381,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "distinct_ids",
                 OpenApiTypes.OBJECT,
-                description="A list of distinct IDs, up to 100 of them. We'll delete all persons associated with those distinct IDs.",
+                description="A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.",
             ),
             OpenApiParameter(
                 "ids",
                 OpenApiTypes.OBJECT,
-                description="A list of PostHog person IDs, up to 100 of them. We'll delete all the persons listed.",
+                description="A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.",
             ),
         ],
     )
@@ -860,6 +861,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
+
+    @extend_schema(
+        description="Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
+    def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_id = request.data.get("distinct_id")
+        if not distinct_id or not isinstance(distinct_id, str):
+            raise ValidationError(detail="distinct_id is required")
+
+        reset_deleted_person_distinct_ids(self.team_id, distinct_id)
+
+        return response.Response(status=202)
 
 
 def paginated_result(

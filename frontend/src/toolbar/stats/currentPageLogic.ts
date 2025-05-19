@@ -75,11 +75,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
             // Iterate over query params and do the same for their values
             if (urlParts.length > 1) {
                 const queryParams = urlParts[1].split('&')
+
                 for (let i = 0; i < queryParams.length; i++) {
                     const [key, value] = queryParams[i].split('=')
                     queryParams[i] = `${key}=${replaceWithWildcard(value)}`
                 }
-                url = `${url}?${queryParams.join('&')}`
+
+                url = `${url}\\?${queryParams.join('&')}`
             }
 
             actions.setWildcardHref(url)

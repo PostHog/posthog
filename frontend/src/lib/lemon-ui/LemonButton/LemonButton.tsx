@@ -55,6 +55,8 @@ export interface LemonButtonPropsBase
     loading?: boolean
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
+    /** Documentation link to show in the tooltip. */
+    tooltipDocLink?: string
     tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
@@ -71,10 +73,13 @@ export interface LemonButtonPropsBase
     truncate?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+    /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
+    tooltipArrowOffset?: number
 }
 
 export type SideAction = Pick<
     LemonButtonProps,
+    | 'id'
     | 'onClick'
     | 'to'
     | 'loading'
@@ -131,6 +136,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
+                tooltipArrowOffset,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -139,6 +145,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 onClick,
                 truncate = false,
                 buttonWrapper,
+                tooltipDocLink,
                 ...buttonProps
             },
             ref
@@ -245,9 +252,14 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 workingButton = buttonWrapper(workingButton)
             }
 
-            if (tooltipContent) {
+            if (tooltipContent || tooltipDocLink) {
                 workingButton = (
-                    <Tooltip title={tooltipContent} placement={tooltipPlacement}>
+                    <Tooltip
+                        title={tooltipContent}
+                        placement={tooltipPlacement}
+                        arrowOffset={tooltipArrowOffset}
+                        docLink={tooltipDocLink}
+                    >
                         {workingButton}
                     </Tooltip>
                 )

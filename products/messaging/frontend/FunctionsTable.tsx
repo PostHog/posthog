@@ -4,9 +4,9 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
-import { HogFunctionStatusIndicator } from 'scenes/pipeline/hogfunctions/HogFunctionStatusIndicator'
-import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { HogFunctionStatusIndicator } from 'scenes/hog-functions/misc/HogFunctionStatusIndicator'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionKind, HogFunctionType, HogFunctionTypeType } from '~/types'
 
@@ -23,7 +23,7 @@ export function FunctionsTableFilters(): JSX.Element | null {
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -65,12 +65,7 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
                             render: function RenderPluginName(_, hogFunction) {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(
-                                            hogFunction.type,
-                                            hogFunction.id,
-                                            hogFunction.template?.id,
-                                            hogFunction.kind
-                                        )}
+                                        to={urls.hogFunction(hogFunction.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
@@ -102,6 +97,10 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
                                         overlay={
                                             <LemonMenuOverlay
                                                 items={[
+                                                    {
+                                                        label: 'Create template',
+                                                        to: urls.messagingLibraryTemplateFromMessage(hogFunction.id),
+                                                    },
                                                     {
                                                         label: 'Delete',
                                                         status: 'danger' as const, // for typechecker happiness

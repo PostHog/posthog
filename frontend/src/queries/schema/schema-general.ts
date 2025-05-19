@@ -80,6 +80,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    LogsQuery = 'LogsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -105,7 +106,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
+    EventsHeatMapQuery = 'EventsHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -161,12 +162,13 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | EventsHeatMapQuery
 
 /**
  * @discriminator kind
@@ -204,7 +206,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | EventsHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -228,6 +230,7 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+    | LogsQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -266,6 +269,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | LogsQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -296,6 +300,7 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     usePresortedEventsTable?: boolean
+    useWebAnalyticsPreAggregatedTables?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -707,7 +712,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | WebActiveHoursHeatMapQuery
+                    | EventsHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -737,7 +742,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | WebActiveHoursHeatMapQuery
+        | EventsHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -987,6 +992,7 @@ export type TrendsFilter = {
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1600,6 +1606,9 @@ export enum WebAnalyticsOrderByFields {
     UniqueConversions = 'UniqueConversions',
     ConversionRate = 'ConversionRate',
     ConvertingUsers = 'ConvertingUsers',
+    RageClicks = 'RageClicks',
+    DeadClicks = 'DeadClicks',
+    Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
@@ -1642,6 +1651,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
+    usedPreAggregatedTables?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -1669,6 +1679,7 @@ export enum WebStatsBreakdown {
     City = 'City',
     Timezone = 'Timezone',
     Language = 'Language',
+    FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
@@ -1828,6 +1839,15 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
  */
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
+    revenueSources: RevenueSources
+}
+
+export interface RevenueSources {
+    // These represent the IDs we're interested in from the data warehouse sources
+    dataWarehouseSources: string[]
+
+    // This is a list of strings that represent the event names we're interested in
+    events: string[]
 }
 
 export interface RevenueAnalyticsOverviewQuery
@@ -1855,9 +1875,11 @@ export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryR
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
+export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
 export interface RevenueAnalyticsTopCustomersQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
     kind: NodeKind.RevenueAnalyticsTopCustomersQuery
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
 
 export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -1883,7 +1905,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingIssueAssignee {
-    type: 'user_group' | 'user'
+    type: 'user_group' | 'user' | 'role'
     id: integer | string
 }
 
@@ -1921,6 +1943,45 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+    orderBy: 'latest' | 'earliest'
+    searchTerm?: string
+    resource?: string
+    severityLevels: LogSeverityLevel[]
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
+
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: string
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource: string
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface FileSystemCount {
     count: number
 }
@@ -1946,11 +2007,10 @@ export interface FileSystemEntry {
     _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
-    icon?: any // Setting as "any" to keep Python schema.py in check
+export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
+    iconType?: string
     flag?: string
-    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =
@@ -2339,6 +2399,7 @@ export interface DatabaseSchemaTableCommon {
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
+    row_count?: number
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -2393,6 +2454,7 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
 export type DatabaseSerializedFieldType =
     | 'integer'
     | 'float'
+    | 'decimal'
     | 'string'
     | 'datetime'
     | 'date'
@@ -2859,7 +2921,7 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
-export interface RevenueTrackingEventItem {
+export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
 
@@ -2867,18 +2929,29 @@ export interface RevenueTrackingEventItem {
      * @default {"static": "USD"}
      */
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+
+    /**
+     * If true, the revenue will be divided by the smallest unit of the currency.
+     *
+     * For example, in case this is set to true,
+     * if the revenue is 1089 and the currency is USD, the revenue will be $10.89,
+     * but if the currency is JPY, the revenue will be ¥1089.
+     *
+     * @default false
+     */
+    currencyAwareDecimal: boolean
 }
 
-export interface RevenueTrackingConfig {
+export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
      */
-    baseCurrency: CurrencyCode
+    base_currency: CurrencyCode
 
     /**
      * @default []
      */
-    events: RevenueTrackingEventItem[]
+    events: RevenueAnalyticsEventItem[]
 }
 
 export interface PageURL {
@@ -2900,19 +2973,39 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
-    kind: NodeKind.WebActiveHoursHeatMapQuery
+export type HeatMapQuerySource = EventsNode
+
+export interface EventsHeatMapQuery extends WebAnalyticsQueryBase<EventsHeatMapQueryResponse> {
+    kind: NodeKind.EventsHeatMapQuery
+    source: HeatMapQuerySource
 }
 
-export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapResult[]> {
+export interface EventsHeatMapQueryResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapResult {
-    day: integer
-    hour: integer
-    total: integer
+export interface EventsHeatMapDataResult {
+    row: integer
+    column: integer
+    value: integer
 }
 
-export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>
+export interface EventsHeatMapRowAggregationResult {
+    row: integer
+    value: integer
+}
+
+export interface EventsHeatMapColumnAggregationResult {
+    column: integer
+    value: integer
+}
+
+export interface EventsHeatMapStructuredResult {
+    data: EventsHeatMapDataResult[]
+    rowAggregations: EventsHeatMapRowAggregationResult[]
+    columnAggregations: EventsHeatMapColumnAggregationResult[]
+    allAggregations: integer
+}
+
+export type CachedEventsHeatMapQueryResponse = CachedQueryResponse<EventsHeatMapQueryResponse>

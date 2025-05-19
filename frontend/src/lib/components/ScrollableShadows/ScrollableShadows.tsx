@@ -2,7 +2,7 @@ import './ScrollableShadows.scss'
 
 import { clsx } from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
-import React, { MutableRefObject } from 'react'
+import React, { CSSProperties, MutableRefObject } from 'react'
 
 export type ScrollableShadowsProps = {
     children: React.ReactNode
@@ -17,6 +17,7 @@ export type ScrollableShadowsProps = {
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onBlur?: () => void
     styledScrollbars?: boolean
+    style?: CSSProperties
 }
 
 export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
@@ -47,7 +48,11 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             {...props}
         >
             <div
-                className={clsx('ScrollableShadows__inner', styledScrollbars && 'styled-scrollbars', innerClassName)}
+                className={clsx(
+                    'ScrollableShadows__inner',
+                    styledScrollbars && 'show-scrollbar-on-hover',
+                    innerClassName
+                )}
                 ref={(refValue) => {
                     scrollRefScrollable.current = refValue
                     if (scrollRef) {

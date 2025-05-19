@@ -1,10 +1,8 @@
-import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
 import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
-import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
 import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -12,15 +10,13 @@ import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
+import { TeamManager } from '../../../utils/team-manager'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
-
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
 
 export const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
@@ -68,21 +64,14 @@ export async function eachBatchWebhooksHandlers(
     hookCannon: HookCommander,
     concurrency: number,
     groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager,
+    teamManager: TeamManager,
     postgres: PostgresRouter
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
         (teamId) => actionMatcher.hasWebhooks(teamId),
         (event) =>
-            eachMessageWebhooksHandlers(
-                event,
-                actionMatcher,
-                hookCannon,
-                groupTypeManager,
-                organizationManager,
-                postgres
-            ),
+            eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, groupTypeManager, teamManager, postgres),
         concurrency,
         'webhooks'
     )
@@ -102,64 +91,54 @@ export async function eachBatchHandlerHelper(
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
-    const transaction = Sentry.startTransaction({ name: `eachBatch${stats_key}` })
+    const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
-    try {
-        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
+    ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
+    ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
 
-        ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
-        ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
-
-        for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
-            const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
-
-            if (!isRunning() || isStale()) {
-                logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
-                    isRunning: isRunning(),
-                    isStale: isStale(),
-                    msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                })
-                await heartbeat()
-                return
-            }
-
-            await Promise.all(
-                eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
-            )
-
-            resolveOffset(lastOffset)
-            await commitOffsetsIfNecessary()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
-            latestOffsetTimestampGauge
-                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
-                .set(Number.parseInt(lastTimestamp))
-
+    for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
+        if (!isRunning() || isStale()) {
+            logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
+                isRunning: isRunning(),
+                isStale: isStale(),
+                msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
+            })
             await heartbeat()
-
-            batchSpan.finish()
+            return
         }
 
-        logger.debug(
-            '🧩',
-            `Kafka batch of ${batch.messages.length} events completed in ${
-                new Date().valueOf() - batchStartTimer.valueOf()
-            }ms (${loggingKey})`
+        await Promise.all(
+            eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
         )
-    } finally {
-        transaction.finish()
+
+        resolveOffset(lastOffset)
+        await commitOffsetsIfNecessary()
+
+        // Record that latest messages timestamp, such that we can then, for
+        // instance, alert on if this value is too old.
+        latestOffsetTimestampGauge
+            .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
+            .set(Number.parseInt(lastTimestamp))
+
+        await heartbeat()
     }
+
+    logger.debug(
+        '🧩',
+        `Kafka batch of ${batch.messages.length} events completed in ${
+            new Date().valueOf() - batchStartTimer.valueOf()
+        }ms (${loggingKey})`
+    )
 }
 
 async function addGroupPropertiesToPostIngestionEvent(
     event: PostIngestionEvent,
     groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager,
+    teamManager: TeamManager,
     postgres: PostgresRouter
 ): Promise<PostIngestionEvent> {
     let groupTypes: GroupTypeToColumnIndex | null = null
-    if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
+    if (await teamManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
         groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)
     }
@@ -207,7 +186,7 @@ export async function eachMessageWebhooksHandlers(
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
     groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager,
+    teamManager: TeamManager,
     postgres: PostgresRouter
 ): Promise<void> {
     if (!actionMatcher.hasWebhooks(kafkaEvent.team_id)) {
@@ -223,7 +202,7 @@ export async function eachMessageWebhooksHandlers(
     const event = await addGroupPropertiesToPostIngestionEvent(
         eventWithoutGroups,
         groupTypeManager,
-        organizationManager,
+        teamManager,
         postgres
     )
 

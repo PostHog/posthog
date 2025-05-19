@@ -34,7 +34,8 @@ import {
     createPlugin,
     createPluginConfig,
     createTeam,
-    POSTGRES_DELETE_TABLES_QUERY,
+    POSTGRES_DELETE_OTHER_TABLES_QUERY,
+    POSTGRES_DELETE_PERSON_TABLES_QUERY,
 } from '../../helpers/sql'
 
 jest.setTimeout(10000)
@@ -56,7 +57,13 @@ describe('runAppsOnEventPipeline()', () => {
         jest.useFakeTimers({ advanceTimers: true })
         hub = await createHub()
         redis = await hub.redisPool.acquire()
-        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, [], 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            POSTGRES_DELETE_PERSON_TABLES_QUERY,
+            [],
+            'deletePersonTables'
+        ) // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, [], 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterEach(async () => {
@@ -104,7 +111,7 @@ describe('runAppsOnEventPipeline()', () => {
             isRetriable: true,
         })
 
-        jest.spyOn(hub.kafkaProducer.producer, 'produce').mockImplementation(
+        jest.spyOn(hub.kafkaProducer['producer'], 'produce').mockImplementation(
             (topic, partition, message, key, timestamp, headers, cb) => cb(error)
         )
 

@@ -2156,6 +2156,23 @@ class TestPrinter(BaseTest):
             # Verify the utility function was called with correct parameters
             mock_get_survey_response.assert_called_once_with(2, "abc123", True)
 
+    def test_unique_survey_submissions_filter(self):
+        with patch(
+            "posthog.hogql.printer.filter_survey_sent_events_by_unique_submission"
+        ) as mock_filter_survey_sent_events_by_unique_submission:
+            mock_filter_survey_sent_events_by_unique_submission.return_value = (
+                "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
+            )
+            query = parse_select("select uuid from events where uniqueSurveySubmissionsFilter('survey123')")
+            printed = print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123")
+            self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
+
     def test_override_timezone(self):
         context = HogQLContext(
             team_id=self.team.pk,
@@ -2306,3 +2323,14 @@ class TestPrinter(BaseTest):
         query = parse_expr("avgArray([1, 2, 3])")
         printed = print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
         assert printed == "avgArray([1, 2, 3])"
+
+    def test_print_percentage_call_alias(self):
+        select = parse_select("SELECT concat('%', 'word', '%') LIMIT 1")
+        printed = print_ast(
+            select, HogQLContext(team_id=self.team.pk, enable_select_queries=True), dialect="clickhouse"
+        )
+
+        assert (
+            printed
+            == "SELECT concat(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s) AS `concat('', 'word', '')` LIMIT 1"
+        )

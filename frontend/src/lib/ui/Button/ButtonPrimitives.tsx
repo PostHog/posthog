@@ -1,4 +1,4 @@
-import './ButtonPrimitives.css'
+import './ButtonPrimitives.scss'
 
 import { cva, type VariantProps } from 'cva'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -9,9 +9,9 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline' | 'default-group' | 'side-action-group'
+type ButtonVariant = 'default' | 'outline'
 
-export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit'
+export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -29,18 +29,18 @@ type ButtonGroupProps = {
     children: ReactNode
     className?: string
     groupVariant?: ButtonVariant
-} & VariantProps<typeof buttonVariants>
+} & VariantProps<typeof buttonPrimitiveVariants>
 
 type ButtonBaseProps = {
     iconOnly?: boolean
     showDivider?: boolean
-    external?: boolean
     disabled?: boolean
     active?: boolean
     tooltip?: TooltipProps['title']
+    tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
-} & VariantProps<typeof buttonVariants>
+} & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
 /*                              Button Group Variants                         */
@@ -53,7 +53,7 @@ type ButtonBaseProps = {
 export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>((props, ref) => {
     const {
         className,
-        groupVariant = 'default-group',
+        groupVariant = 'default',
         variant = 'default',
         size = 'base',
         fullWidth = false,
@@ -67,13 +67,16 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         sizeContext: size,
     }
 
-    let buttonHeight = 'button-primitive-height-base'
+    let buttonHeight = 'button-primitive--height-base'
     switch (size) {
         case 'sm':
-            buttonHeight = 'button-primitive-height-sm'
+            buttonHeight = 'button-primitive--height-sm'
+            break
+        case 'base-tall':
+            buttonHeight = 'button-primitive--height-base-tall'
             break
         case 'lg':
-            buttonHeight = 'button-primitive-height-lg'
+            buttonHeight = 'button-primitive--height-lg'
             break
         case 'fit':
             buttonHeight = ''
@@ -84,7 +87,8 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         <ButtonContext.Provider value={setContext}>
             <Comp
                 className={cn(
-                    buttonVariants({
+                    'button-primitive-group',
+                    buttonPrimitiveVariants({
                         size: 'fit',
                         variant: groupVariant,
                         fullWidth,
@@ -108,89 +112,42 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-interface ButtonAsButtonProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
-    href?: never
-}
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
 
-interface ButtonAsAnchorProps extends ButtonBaseProps, Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
-    href: string
-}
-
-type ButtonProps = ButtonAsButtonProps | ButtonAsAnchorProps
-
-const buttonVariants = cva({
-    base: `
-        button-primitive
-        group/button-primitive
-        cursor-pointer
-        inline-flex
-        w-fit
-        relative
-        items-center
-        rounded-md
-        font-normal
-        aria-disabled:cursor-not-allowed
-        aria-disabled:opacity-50
-        text-current
-        [&_svg]:shrink-0
-    `,
+export const buttonPrimitiveVariants = cva({
+    base: 'button-primitive group/button-primitive',
     variants: {
         variant: {
             // Bordereless variant (aka posthog tertiary button)
-            default: `
-                border border-transparent
-                text-primary 
-                max-w-full
-                not-disabled:hover:bg-fill-button-tertiary-hover 
-                not-disabled:data-[focused=true]:bg-fill-button-tertiary-hover 
-                not-disabled:data-[active=true]:bg-fill-button-tertiary-active 
-                not-disabled:data-[current=true]:bg-fill-button-tertiary-active 
-                not-disabled:data-[state=open]:bg-fill-button-tertiary-active 
-                not-disabled:data-[state=checked]:bg-fill-button-tertiary-active
-                not-disabled:data-highlighted:bg-fill-button-tertiary-active
-            `,
+            default: 'button-primitive--variant-default',
             // Outline variant (aka posthog secondary button)
-            outline: `
-                border border-secondary
-                not-disabled:hover:border-tertiary
-                hover:bg-fill-button-tertiary-active
-            `,
-            // Buttons next to each other
-            'default-group': `
-                border border-transparent
-                text-primary 
-                max-w-full
-                [&_.button-primitive]:rounded-none
-                [&_.button-primitive]:first:rounded-l-md
-                [&_.button-primitive]:last:rounded-r-md
-                [&_.button-primitive:not(:first-child)]:border-l-0
-            `,
-            'side-action-group': `
-                border border-transparent
-                text-primary 
-                max-w-full
-            `,
+            outline: 'button-primitive--variant-outline',
         },
         size: {
-            sm: `button-primitive-size-sm button-primitive-height-sm text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)]`,
-            base: `button-primitive-size-base button-primitive-height-base text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)]`,
-            lg: `button-primitive-size-lg button-primitive-height-lg text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)]`,
+            sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
+            base: `button-primitive--size-base button-primitive--height-base text-sm`,
+            'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
+            lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
             fit: 'px-0',
         },
         iconOnly: {
-            true: 'p-0 justify-center items-center shrink-0',
+            true: 'icon-only p-0 justify-center items-center shrink-0',
             false: '',
         },
         fullWidth: {
-            true: 'w-full',
+            true: 'button-primitive--full-width',
             false: '',
         },
         isGroup: {
             true: '',
             false: 'gap-1.5',
         },
+        active: {
+            true: 'button-primitive--active',
+            false: '',
+        },
         menuItem: {
-            true: 'w-full justify-start', // @TODO this isn't working
+            true: 'button-primitive--full-width justify-start',
             false: '',
         },
         truncate: {
@@ -201,11 +158,11 @@ const buttonVariants = cva({
             true: 'disabled:pointer-events-none disabled:opacity-50',
             false: '',
         },
-        sideActionLeft: {
+        hasSideActionRight: {
             true: 'rounded-md',
             false: '',
         },
-        sideActionRight: {
+        isSideActionRight: {
             true: 'absolute right-0 -top-px -bottom-px rounded-l-none',
         },
     },
@@ -218,121 +175,80 @@ const buttonVariants = cva({
     },
     compoundVariants: [
         {
-            iconOnly: true,
-            size: 'sm',
-            className: 'w-[var(--button-height-sm)]',
-        },
-        {
-            iconOnly: true,
-            size: 'base',
-            className: 'w-[var(--button-height-base)]',
-        },
-        {
-            iconOnly: true,
-            size: 'lg',
-            className: 'w-[var(--button-height-lg)]',
-        },
-        {
-            sideActionLeft: true,
+            hasSideActionRight: true,
             size: 'sm',
             className: `
                 pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]
             `,
         },
         {
-            sideActionLeft: true,
+            hasSideActionRight: true,
             size: 'base',
             className: `
                 pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]
             `,
         },
         {
-            sideActionLeft: true,
+            hasSideActionRight: true,
             size: 'lg',
             className: `
                 pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]
             `,
         },
-        // {
-        //     sideActionRight: true,
-        //     className: `
-        //         rounded-l-none
-        //     `,
-        // },
     ],
 })
 
-export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>((props, ref) => {
+export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProps>((props, ref) => {
     const {
         className,
         variant,
         size,
         fullWidth,
-        href,
-        external,
         children,
         iconOnly,
         menuItem,
         disabled,
         active,
         buttonWrapper,
-        sideActionLeft,
-        sideActionRight,
+        hasSideActionRight,
+        isSideActionRight,
         tooltip,
         tooltipPlacement,
+        tooltipDocLink,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
     const context = useButtonGroupContext()
     const effectiveSize = context?.sizeContext || size
     const effectiveVariant = context?.variantContext || variant
-    // Determine the component type
-    const Comp = href ? 'a' : 'button'
-    // Determine the external props
-    const externalProps = external && href ? { target: '_blank' } : {}
-    // Determine the element props
-    const elementProps = href ? { href, ...rest } : rest
-
-    // If the button is an anchor and has an onClick, and is not external, prevent the default action and call the onClick
-    if (href && rest.onClick && !external) {
-        const handleClick = (e: React.MouseEvent): void => {
-            // Allow command/ctrl click to open in new tab
-            if (!e.metaKey && !e.ctrlKey) {
-                e.preventDefault()
-            }
-            rest?.onClick?.(e as any)
-        }
-        elementProps.onClick = handleClick
-    }
 
     let buttonComponent: JSX.Element = React.createElement(
-        Comp,
+        'button',
         {
             className: cn(
-                buttonVariants({
+                buttonPrimitiveVariants({
                     variant: effectiveVariant,
                     size: effectiveSize,
                     fullWidth,
                     iconOnly,
                     menuItem,
                     disabled,
-                    sideActionLeft,
-                    sideActionRight,
+                    hasSideActionRight,
+                    isSideActionRight,
                     className,
                 })
             ),
             ref,
-            ...externalProps,
-            ...elementProps,
+            ...rest,
             'aria-disabled': disabled,
             'data-active': active,
         },
         children
     )
 
-    if (tooltip) {
+    if (tooltip || tooltipDocLink) {
         buttonComponent = (
-            <Tooltip title={tooltip} placement={tooltipPlacement}>
+            <Tooltip title={tooltip} placement={tooltipPlacement} docLink={tooltipDocLink}>
                 {buttonComponent}
             </Tooltip>
         )

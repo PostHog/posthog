@@ -22,6 +22,7 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
+from products.messaging.backend.providers.mailjet import MailjetProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -632,7 +633,7 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                return []
+                return accounts
 
             data = response.json()
 
@@ -792,11 +793,42 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
-class MailIntegration:
+class EmailIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
+        if integration.kind != "email":
+            raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+
+    @property
+    def mailjet_provider(self) -> MailjetProvider:
+        return MailjetProvider()
+
+    @classmethod
+    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+        mailjet = MailjetProvider()
+        mailjet.create_email_domain(domain, team_id=team_id)
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="email",
+            integration_id=domain,
+            defaults={
+                "config": {
+                    "domain": domain,
+                    "mailjet_verified": False,
+                    "aws_ses_verified": False,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
 
     @classmethod
     def integration_from_keys(
@@ -809,7 +841,6 @@ class MailIntegration:
             defaults={
                 "config": {
                     "api_key": api_key,
-                    # TODO: Add support for other email vendors
                     "vendor": "mailjet",
                 },
                 "sensitive_config": {
@@ -818,12 +849,26 @@ class MailIntegration:
                 "created_by": created_by,
             },
         )
-
         if integration.errors:
             integration.errors = ""
             integration.save()
 
         return integration
+
+    def verify(self):
+        domain = self.integration.config.get("domain")
+
+        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+
+        if verification_result.get("status") == "success":
+            updated_config = {"mailjet_verified": True}
+
+            # Merge the new config with existing config
+            updated_config = {**self.integration.config, **updated_config}
+            self.integration.config = updated_config
+            self.integration.save()
+
+        return verification_result
 
 
 class LinearIntegration:

@@ -1,6 +1,7 @@
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
@@ -41,12 +42,12 @@ def create_clickhouse_tables():
     if num_tables == num_expected_tables:
         return
 
+    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(table_queries)
+
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
         run_clickhouse_statement_in_parallel(kafka_table_queries)
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
 
     mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(mv_queries)
@@ -94,7 +95,7 @@ def reset_clickhouse_tables():
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    TABLES_TO_CREATE_DROP = [
+    TABLES_TO_CREATE_DROP: list[str] = [
         TRUNCATE_EVENTS_TABLE_SQL(),
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
@@ -111,7 +112,7 @@ def reset_clickhouse_tables():
         TRUNCATE_APP_METRICS_TABLE_SQL,
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
-        TRUNCATE_EXCHANGE_RATE_TABLE_SQL,
+        TRUNCATE_EXCHANGE_RATE_TABLE_SQL(),
         TRUNCATE_SESSIONS_TABLE_SQL(),
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
@@ -163,12 +164,11 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     yield
 
     if django_db_keepdb:
-        reset_clickhouse_tables()
+        # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
+        if not settings.IN_EVAL_TESTING:
+            reset_clickhouse_tables()
     else:
-        try:
-            database.drop_database()
-        except:
-            pass
+        database.drop_database()
 
 
 @pytest.fixture
@@ -205,3 +205,18 @@ def cache():
     yield django_cache
 
     django_cache.clear()
+
+
+@pytest.fixture(scope="package", autouse=True)
+def load_hog_function_templates(django_db_setup, django_db_blocker):
+    with django_db_blocker.unblock():
+        from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+
+        with patch(
+            "posthog.management.commands.sync_hog_function_templates.get_hog_function_templates"
+        ) as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            from django.core.management import call_command
+
+            call_command("sync_hog_function_templates")

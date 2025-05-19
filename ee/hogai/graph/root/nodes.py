@@ -1,5 +1,7 @@
 import datetime
+import importlib
 import math
+import pkgutil
 from typing import Literal, TypeVar, cast
 from uuid import uuid4
 
@@ -15,25 +17,24 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 
-from .prompts import (
-    ROOT_HARD_LIMIT_REACHED_PROMPT,
-    ROOT_SYSTEM_PROMPT,
-)
-from ..base import AssistantNode
+import products
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    HumanMessage,
     FailureMessage,
+    HumanMessage,
 )
-import importlib
-import pkgutil
-import products
+
+from ..base import AssistantNode
+from .prompts import (
+    ROOT_HARD_LIMIT_REACHED_PROMPT,
+    ROOT_SYSTEM_PROMPT,
+)
 
 # TRICKY: Dynamically import max_tools from all products
 for module_info in pkgutil.iter_modules(products.__path__):
@@ -113,9 +114,11 @@ class RootNode(AssistantNode):
         )
 
     def _get_model(self, state: AssistantState, config: RunnableConfig):
-        # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
-        # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
+        # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
+        # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
+        # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
+        # only made evals less useful precisely because of the false determinism.
+        base_model = ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True)
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.

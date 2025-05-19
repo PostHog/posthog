@@ -4,7 +4,6 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::info;
@@ -41,16 +40,11 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 /// * `f64` - A number between 0 and 1
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
-    let mut hasher = Sha1::new();
-    hasher.update(hash_key.as_bytes());
-    let result = hasher.finalize();
-    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
-        let _ = write!(acc, "{:02x}", byte);
-        acc
-    })[..15]
-        .to_string();
-    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    let hash_value = Sha1::digest(hash_key.as_bytes());
+    // We use the first 8 bytes of the hash and shift right by 4 bits
+    // This is equivalent to using the first 15 hex characters (7.5 bytes) of the hash
+    // as was done in the previous implementation, ensuring consistent feature flag distribution
+    let hash_val: u64 = u64::from_be_bytes(hash_value[..8].try_into().unwrap()) >> 4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
@@ -72,6 +66,13 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     conn_timer.fin();
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
+    // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
+    // distinct_id. There's two cases for that:
+    // 1. there's a race condition between person ingestion and flag evaluation.  In that case, only the first flag request
+    // be missing a person id, and all subsequent requests will have a person id.  That means the first flag evaluation could be wrong, but all subsequent ones will be correct.  Not a huge problem.
+    // 2. the distinct_id is associated with an anonymous or cookieless user.  In that case, it's fine to not return a person ID and to never return person properties.  This is handled by just
+    // returning an empty HashMap for person properties whenever I actually need them, and then obviously any condition that depends on person properties will return false.
+    // That's fine though, we shouldn't error out just because we can't find a person ID.
     let person_query = r#"
         SELECT DISTINCT ON (ppd.distinct_id)
             p.id as person_id,
@@ -95,6 +96,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
+        // NB: this is where we actually set our person ID in the flag evaluation state.
         flag_evaluation_state.set_person_id(person_id);
         // If we have static cohort IDs to check and a valid person_id, do the cohort query
         if !static_cohort_ids.is_empty() {
@@ -155,7 +157,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
     person_processing_timer.fin();
 
-    // Only fetch group data if we have group types to look up
+    // Only fetch group property data if we have group types to look up
     if !group_type_indexes.is_empty() {
         let group_query = r#"
             SELECT 
@@ -577,7 +579,7 @@ mod tests {
         let property_filters = vec![
             PropertyFilter {
                 key: "email".to_string(),
-                value: json!("test@example.com"),
+                value: Some(json!("test@example.com")),
                 operator: None,
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -585,7 +587,7 @@ mod tests {
             },
             PropertyFilter {
                 key: "age".to_string(),
-                value: json!(25),
+                value: Some(json!(25)),
                 operator: Some(OperatorType::Gte),
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -599,7 +601,7 @@ mod tests {
         let property_filters_with_cohort = vec![
             PropertyFilter {
                 key: "email".to_string(),
-                value: json!("test@example.com"),
+                value: Some(json!("test@example.com")),
                 operator: None,
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -607,7 +609,7 @@ mod tests {
             },
             PropertyFilter {
                 key: "cohort".to_string(),
-                value: json!(1),
+                value: Some(json!(1)),
                 operator: None,
                 prop_type: "cohort".to_string(),
                 group_type_index: None,

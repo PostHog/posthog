@@ -1,4 +1,3 @@
-import { IconPiggyBank } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -10,7 +9,7 @@ export const manifest: ProductManifest = {
             name: 'Revenue Analytics',
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/revenue-analytics',
+            defaultDocsPath: '/docs/web-analytics/revenue-analytics',
             activityScope: 'RevenueAnalytics',
         },
     },
@@ -20,11 +19,16 @@ export const manifest: ProductManifest = {
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'Explore/Revenue analytics',
-            icon: <IconPiggyBank />,
-            href: () => urls.revenueAnalytics(),
+            path: 'Revenue analytics',
+            iconType: 'piggyBank',
+            href: urls.revenueAnalytics(),
+        },
+        {
+            path: 'Revenue settings',
+            iconType: 'handMoney',
+            href: urls.revenueSettings(),
         },
     ],
 }

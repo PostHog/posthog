@@ -4,6 +4,7 @@ from django.core.management import call_command
 from django.utils.html import format_html
 from django.urls import reverse
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
+from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
@@ -15,8 +16,6 @@ from django.urls import path
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django import forms
-from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 
 
 class UsageReportForm(forms.Form):
@@ -44,7 +43,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "is_hipaa",
     ]
-    inlines = [ProjectInline, TeamInline, OrganizationMemberInline]
+    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline]
     readonly_fields = [
         "id",
         "created_at",
@@ -96,16 +95,6 @@ class OrganizationAdmin(admin.ModelAdmin):
             path(
                 "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
             ),
-            path(
-                "<str:organization_id>/run-rbac-team-migration/",
-                self.admin_site.admin_view(self.run_rbac_team_migration),
-                name="run-rbac-team-migration",
-            ),
-            path(
-                "<str:organization_id>/run-rbac-feature-flag-migration/",
-                self.admin_site.admin_view(self.run_rbac_feature_flag_migration),
-                name="run-rbac-feature-flag-migration",
-            ),
         ]
         return custom_urls + urls
 
@@ -131,35 +120,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         extra_context["show_usage_report_button"] = True
         return super().changelist_view(request, extra_context=extra_context)
 
-    def run_rbac_team_migration(self, request, organization_id):
-        if not request.user.groups.filter(name="Billing Team").exists():
-            messages.error(request, "You are not authorized to run RBAC team migrations.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        try:
-            organization = Organization.objects.get(id=organization_id)
-            rbac_team_access_control_migration(organization.id)
-            messages.success(request, f"RBAC team migration completed successfully for {organization.name}")
-        except Exception as e:
-            messages.error(request, f"Error running RBAC team migration: {str(e)}")
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def run_rbac_feature_flag_migration(self, request, organization_id):
-        if not request.user.groups.filter(name="Billing Team").exists():
-            messages.error(request, "You are not authorized to run RBAC feature flag migrations.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        try:
-            organization = Organization.objects.get(id=organization_id)
-            rbac_feature_flag_role_access_migration(organization.id)
-            messages.success(request, f"RBAC feature flag migration completed successfully for {organization.name}")
-        except Exception as e:
-            messages.error(request, f"Error running RBAC feature flag migration: {str(e)}")
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
-        if request.user.groups.filter(name="Billing Team").exists():
-            extra_context["show_rbac_migration_buttons"] = True
-
         return super().change_view(request, object_id, form_url, extra_context=extra_context)

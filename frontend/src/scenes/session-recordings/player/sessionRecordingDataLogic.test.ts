@@ -1,7 +1,6 @@
 import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/rrweb-types'
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
@@ -21,6 +20,7 @@ import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } f
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
 import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
@@ -99,7 +99,7 @@ describe('sessionRecordingDataLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([eventUsageLogic, teamLogic, userLogic])
+            await expectLogic(logic).toMount([sessionRecordingEventUsageLogic, teamLogic, userLogic])
         })
         it('has default values', () => {
             expect(logic.values).toMatchObject({
@@ -267,7 +267,7 @@ describe('sessionRecordingDataLogic', () => {
                     'loadEvents',
                     'loadEventsSuccess',
                 ])
-                .toDispatchActions([eventUsageLogic.actionTypes.reportRecording])
+                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecording])
         })
         it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
@@ -275,9 +275,9 @@ describe('sessionRecordingDataLogic', () => {
             })
                 .toDispatchActions(['loadSnapshotsForSourceSuccess'])
                 .toDispatchActionsInAnyOrder([
-                    eventUsageLogic.actionTypes.reportRecording, // loaded
-                    eventUsageLogic.actionTypes.reportRecording, // viewed
-                    eventUsageLogic.actionTypes.reportRecording, // analyzed
+                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // loaded
+                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // viewed
+                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
         })
         it('clears the cache after unmounting', async () => {

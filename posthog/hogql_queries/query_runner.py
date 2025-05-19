@@ -12,12 +12,13 @@ from sentry_sdk import get_traceparent, push_scope, set_tag
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
+from posthog.clickhouse.client.limit import get_api_personal_rate_limiter, get_app_org_rate_limiter
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -26,12 +27,12 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
-    WebActiveHoursHeatMapQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
+    EventsHeatMapQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -210,11 +211,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "WebActiveHoursHeatMapQuery":
-        from .web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+    if kind == "EventsHeatMapQuery":
+        from .web_analytics.web_active_hours_heatmap_query_runner import EventsHeatMapQueryRunner
 
-        return WebActiveHoursHeatMapQueryRunner(
-            query=cast(WebActiveHoursHeatMapQuery | dict[str, Any], query),
+        return EventsHeatMapQueryRunner(
+            query=cast(EventsHeatMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -630,12 +631,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
-        _modifiers = modifiers or (query.modifiers if hasattr(query, "modifiers") else None)
-        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query_id = query_id
 
         if not self.is_query_node(query):
@@ -651,6 +651,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             else:
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
+
+        _modifiers = modifiers or extract_modifiers(query)
+        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
 
     @property
@@ -857,15 +860,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if self.is_query_service:
                 tag_queries(chargeable=1)
 
-            fresh_response_dict = {
-                **self.calculate().model_dump(),
-                "is_cached": False,
-                "last_refresh": last_refresh,
-                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                "cache_key": cache_key,
-                "timezone": self.team.timezone,
-                "cache_target_age": target_age,
-            }
+            with get_app_org_rate_limiter().run(
+                org_id=self.team.organization_id, task_id=self.query_id, team_id=self.team.id
+            ):
+                fresh_response_dict = {
+                    **self.calculate().model_dump(),
+                    "is_cached": False,
+                    "last_refresh": last_refresh,
+                    "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                    "cache_key": cache_key,
+                    "timezone": self.team.timezone,
+                    "cache_target_age": target_age,
+                }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)
@@ -1020,6 +1026,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+
+
+class QueryRunnerWithHogQLContext(QueryRunner):
+    database: Database
+    hogql_context: HogQLContext
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # We create a new context here because we need to access the database
+        # below in the to_query method and creating a database is pretty heavy
+        # so we'll reuse this database for the query once it eventually runs
+        self.database = create_hogql_database(team=self.team)
+        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

@@ -15,10 +15,12 @@ from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+
+
+webhook_template = MOCK_NODE_TEMPLATES[0]
 
 
 EXAMPLE_FULL = {
@@ -131,7 +133,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
     def test_free_users_cannot_create_non_free_templates(self):
         response = self._create_slack_function(
             {
-                "template_id": template_webhook.id,
+                "template_id": "template-webhook",
             }
         )
 
@@ -146,22 +148,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         response = self._create_slack_function(
             {
-                "name": template_webhook.name,
-                "template_id": template_webhook.id,
+                "name": "Webhook",
+                "template_id": "template-webhook",
                 "inputs": {
                     "url": {"value": "https://example.com"},
                 },
             }
         )
 
-        assert response.json()["template"]["status"] == template_webhook.status
+        assert response.json()["template"]["status"] == "beta"
 
         self.organization.available_product_features = []
         self.organization.save()
 
         payload = {
-            "name": template_webhook.name,
-            "template_id": template_webhook.id,
+            "name": "Webhook",
+            "template_id": "template-webhook",
             "inputs": {
                 "url": {"value": "https://example.com/posthog-webhook-updated"},
             },
@@ -288,7 +290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
                 "inputs": {"url": {"value": "https://example.com"}},
-                "template_id": template_webhook.id,
+                "template_id": "template-webhook",
                 "type": "destination",
             },
         )
@@ -299,24 +301,23 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "destination",
             "kind": None,
             "free": False,
-            "name": template_webhook.name,
-            "description": template_webhook.description,
-            "id": template_webhook.id,
-            "status": template_webhook.status,
-            "icon_url": template_webhook.icon_url,
-            "category": template_webhook.category,
-            "inputs_schema": template_webhook.inputs_schema,
-            "hog": template_webhook.hog,
+            "name": webhook_template["name"],
+            "description": webhook_template["description"],
+            "id": "template-webhook",
+            "status": "beta",
+            "icon_url": webhook_template["icon_url"],
+            "category": webhook_template["category"],
+            "inputs_schema": webhook_template["inputs_schema"],
+            "hog": webhook_template["hog"].strip(),
             "filters": None,
             "masking": None,
             "mappings": None,
             "mapping_templates": None,
-            "sub_templates": response.json()["template"]["sub_templates"],
         }
 
     def test_creates_with_template_values_if_not_provided(self, *args):
         payload: dict = {
-            "template_id": template_webhook.id,
+            "template_id": "template-webhook",
             "type": "destination",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
@@ -332,11 +333,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == template_webhook.hog
-        assert response.json()["inputs_schema"] == template_webhook.inputs_schema
-        assert response.json()["name"] == template_webhook.name
-        assert response.json()["description"] == template_webhook.description
-        assert response.json()["icon_url"] == template_webhook.icon_url
+        assert response.json()["hog"] == webhook_template["hog"].strip()
+        assert response.json()["inputs_schema"] == webhook_template["inputs_schema"]
+        assert response.json()["name"] == webhook_template["name"]
+        assert response.json()["description"] == webhook_template["description"]
+        assert response.json()["icon_url"] == webhook_template["icon_url"]
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
@@ -2252,3 +2253,105 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert names_in_order[0] == "Transform B", "B should be first (order 1, most recently updated)"
             assert names_in_order[1] == "Transform A", "A should be second (order 1, updated earlier)"
             assert names_in_order[2] == "Transform C", "C should be last (order 3)"
+
+    def test_create_in_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL With Folder",
+                "hog": "fetch(inputs.url);",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                },
+                "_create_in_folder": "Special/Hog Destinations",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        hog_function_id = response.json()["id"]
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            type="hog_function/destination",
+            ref=str(hog_function_id),
+        ).first()
+        assert fs_entry is not None, "No FileSystem entry was created for this HogFunction."
+        assert "Special/Hog Destinations" in fs_entry.path
+
+    def test_hog_function_template_fk_set_on_create(self):
+        """
+        When creating a HogFunction with a template_id, the hog_function_template FK should be set to the latest template.
+        When creating without a template_id, the FK should be null.
+        """
+        from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        # Create a template in the DB
+        db_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-fk-test",
+            sha="abcdef",
+            name="FK Test Template",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="alpha",
+            category=[],
+        )
+
+        # Create a HogFunction with template_id
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "FK Test Function",
+                "hog": "return event",
+                "type": "destination",
+                "template_id": "template-fk-test",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 201, response.json()
+        hog_function_id = response.json()["id"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.hog_function_template is not None, "FK should be set when template_id is provided"
+        assert hog_function.hog_function_template.id == db_template.id, "FK should point to the correct template"
+
+        # Create a HogFunction without template_id
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "No Template FK",
+                "hog": "return event",
+                "type": "destination",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 201, response.json()
+        hog_function_id = response.json()["id"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.hog_function_template is None, "FK should be null when template_id is not provided"
+
+    def test_hog_function_template_fk_validation_error_on_missing_template(self):
+        """
+        Creating a HogFunction with a template_id that does not exist in the DB should raise a validation error and not create the object.
+        """
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        initial_count = HogFunction.objects.count()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Should Fail",
+                "hog": "return event",
+                "type": "destination",
+                "template_id": "nonexistent-template-id",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "template_id"
+        assert "No template found for id 'nonexistent-template-id'" in response.json()["detail"]
+        assert HogFunction.objects.count() == initial_count, "No HogFunction should be created on error"

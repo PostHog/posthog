@@ -428,10 +428,6 @@ BULK_INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) VALUES
 """
 
-INSERT_PERSON_OVERRIDE = """
-INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version, merged_at, oldest_event) SELECT %(team_id)s, %(old_person_id)s, %(override_person_id)s, %(version)s, %(merged_at)s, %(oldest_event)s VALUES
-"""
-
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
@@ -474,24 +470,6 @@ GET_DISTINCT_IDS_BY_PERSON_ID_FILTER = """
 SELECT distinct_id
 FROM ({GET_TEAM_PERSON_DISTINCT_IDS})
 WHERE {filters}
-"""
-
-GET_PERSON_PROPERTIES_COUNT = """
-SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
-FROM person
-ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
-WHERE team_id = %(team_id)s
-GROUP BY tupleElement(keysAndValues, 1)
-ORDER BY count DESC, key ASC
-"""
-
-GET_EVENT_PROPERTIES_COUNT = """
-SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
-FROM events
-ARRAY JOIN JSONExtractKeysAndValuesRaw({column_name}) as keysAndValues
-WHERE team_id = %(team_id)s
-GROUP BY tupleElement(keysAndValues, 1)
-ORDER BY count DESC, key ASC
 """
 
 GET_ACTORS_FROM_EVENT_QUERY = """

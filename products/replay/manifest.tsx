@@ -29,26 +29,21 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.replayPlaylist(ref),
         },
     },
-    treeItemsExplore: [
+    treeItemsNew: [
         {
-            path: 'Recordings/Recordings',
-            href: () => urls.replay(ReplayTabs.Home),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/What to watch',
-            href: () => urls.replay(ReplayTabs.Templates),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/Playlists',
-            href: () => urls.replay(ReplayTabs.Playlists),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/Settings',
-            href: () => urls.replay(ReplayTabs.Settings),
-            icon: <IconRewindPlay />,
+            path: `Replay playlist`,
+            type: 'session_recording_playlist',
+            href: urls.replayPlaylist('new'),
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Session replay',
+            href: urls.replay(ReplayTabs.Home),
+            type: 'session_recording_playlist',
+        },
+    ],
+    fileSystemFilterTypes: {
+        session_recording_playlist: { name: 'Replay playlists' },
+    },
 }

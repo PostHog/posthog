@@ -17,6 +17,7 @@ from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
@@ -26,6 +27,7 @@ from posthog.hogql.functions.mapping import (
     validate_function_args,
 )
 from posthog.hogql.functions.recording_button import recording_button
+from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
@@ -214,7 +216,7 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = print_prepared_ast(node=new_expr, context=self.context, dialect="hogql")
+                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
             else:
                 alias = None
 
@@ -484,8 +486,15 @@ class Resolver(CloningVisitor):
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":
                 return self.visit(recording_button(node=node, args=node.args))
+            if node.name == "explain_csp_report":
+                return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
-                return self.visit(matches_action(node=node, args=node.args, context=self.context))
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesAction can only be used with the events table")
+                return self.visit(
+                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+                )
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -843,6 +852,21 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    # Used to find events table in current scope for action functions
+    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+        scope = self.scopes[-1]
+        for alias, table_type in scope.tables.items():
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+                return alias, table_type.table
+
+            if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type.table_type, ast.TableType) and isinstance(
+                    table_type.table_type.table, EventsTable
+                ):
+                    return alias, table_type.table_type.table
+
+        return None, None
 
     def _is_events_table(self, node: ast.Expr) -> bool:
         while isinstance(node, ast.Alias):

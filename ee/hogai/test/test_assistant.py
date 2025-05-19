@@ -10,18 +10,19 @@ from langchain_core import messages
 from langchain_core.agents import AgentAction
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-from langgraph.errors import NodeInterrupt, GraphRecursionError
+from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
+from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import AssistantNodeName, AssistantMode, AssistantState, PartialAssistantState
+from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
+from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
 from posthog.schema import (
@@ -44,6 +45,11 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
+
+title_generator_mock = patch(
+    "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
+    return_value=FakeChatOpenAI(responses=[messages.AIMessage(content="Title")]),
+)
 
 
 class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -108,11 +114,31 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
             zip(output, expected_output)
         ):
-            self.assertEqual(output_msg_type, expected_msg_type, f"Message type mismatch at index {i}")
-            msg_dict = (
-                expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
-            )
-            self.assertDictContainsSubset(msg_dict, output_msg, f"Message content mismatch at index {i}")
+            if output_msg_type == "conversation" and expected_msg_type == "conversation":
+                self.assertConversationDictsEqual(output_msg, expected_msg)
+            else:
+                self.assertEqual(output_msg_type, expected_msg_type, f"Message type mismatch at index {i}")
+                msg_dict = (
+                    expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
+                )
+                self.assertDictContainsSubset(msg_dict, output_msg, f"Message content mismatch at index {i}")
+
+    def assertConversationDictsEqual(self, dict1: dict[str, Any], dict2: dict[str, Any]):
+        self.assertEqual(dict1["id"], dict2["id"])
+        self.assertEqual(dict1["status"], dict2["status"])
+        self.assertEqual(dict1["title"], dict2["title"])
+        self.assertIn("created_at", dict1)
+        self.assertIn("created_at", dict2)
+        self.assertIn("updated_at", dict1)
+        self.assertIn("updated_at", dict2)
+
+    def _serialize_conversation(self, conversation: Conversation | None = None) -> dict[str, Any]:
+        conversation = conversation or self.conversation
+        return {
+            **ConversationMinimalSerializer(conversation).data,
+            # Status is set in progress because conversation was generating.
+            "status": Conversation.Status.IN_PROGRESS,
+        }
 
     @patch(
         "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
@@ -441,7 +467,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
         )
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
         ]
         self.assertConversationEqual(output[:1], expected_output)
 
@@ -496,11 +522,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 actual_output.append(self._parse_stringified_message(message))
         self.assertConversationEqual(actual_output, expected_output)
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_trends_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_trends_flow(
+        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+    ):
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
@@ -538,7 +567,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -560,11 +589,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_funnel_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_funnel_flow(
+        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+    ):
         res1 = FakeChatOpenAI(
             responses=[
                 messages.AIMessage(
@@ -609,7 +641,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -631,11 +663,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_retention_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_retention_flow(
+        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+    ):
         action = Action.objects.create(team=self.team, name="Marius Tech Tips")
 
         res1 = FakeRunnableLambdaWithTokenCounter(
@@ -680,7 +715,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -702,11 +737,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock):
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
@@ -744,7 +780,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -771,7 +807,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run - get the product description
         output = self._run_assistant_graph(graph, is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             (
                 "message",
@@ -817,7 +853,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run - get the product description
         output = self._run_assistant_graph(graph, is_new_conversation=True)
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="Hello")),
             (
                 "message",
@@ -885,7 +921,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
         )
         expected_output = [
-            ("conversation", {"id": str(self.conversation.id)}),
+            ("conversation", self._serialize_conversation()),
             ("message", HumanMessage(content="We use a subscription model")),
         ]
         self.assertConversationEqual(output, expected_output)
@@ -894,12 +930,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.core_memory.refresh_from_db()
         self.assertIn("The product uses a subscription model.", self.core_memory.text)
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_exits_infinite_loop_after_fourth_attempt(
-        self, memory_collector_mock, get_model_mock, planner_mock, generator_mock
+        self, memory_collector_mock, get_model_mock, planner_mock, generator_mock, title_node_mock
     ):
         """Test that the assistant exits an infinite loop of tool calls after the 4th attempt."""
 
@@ -1142,3 +1179,134 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 mode=AssistantMode.INSIGHTS_TOOL,
             )
         self.assertEqual(str(cm.exception), "Invalid insight type: invalid_type")
+
+    @patch("ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model")
+    def test_conversation_metadata_updated(self, title_generator_model_mock):
+        """Test that metadata (title, created_at, updated_at) is generated and set for a new conversation."""
+        # Create a test graph with only the title generator node
+        graph = AssistantGraph(self.team).add_title_generator().compile()
+        initial_updated_at = self.conversation.updated_at
+        initial_created_at = self.conversation.created_at
+
+        self.assertIsNone(self.conversation.title)
+
+        # Mock the title generator to return "Generated Conversation Title"
+        title_generator_model_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Generated Conversation Title")]
+        )
+
+        # Run the assistant
+        self._run_assistant_graph(
+            graph,
+            message="This is the first message in the conversation",
+            is_new_conversation=True,
+        )
+
+        # Assert the conversation doesn't have a title yet
+        self.conversation.refresh_from_db()
+        # Verify the title has been set
+        self.assertEqual(self.conversation.title, "Generated Conversation Title")
+        assert self.conversation.updated_at is not None
+        assert initial_updated_at is not None
+        self.assertGreater(self.conversation.updated_at, initial_updated_at)
+        self.assertEqual(self.conversation.created_at, initial_created_at)
+
+    def test_merges_messages_with_same_id(self):
+        """Test that messages with the same ID are merged into one."""
+        message_id = str(uuid4())
+
+        # Create a simple graph that will return messages with the same ID but different content
+        first_content = "First version of message"
+        updated_content = "Updated version of message"
+
+        class MessageUpdatingNode:
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, state):
+                self.call_count += 1
+                content = first_content if self.call_count == 1 else updated_content
+                return {"messages": [AssistantMessage(id=message_id, content=content)]}
+
+        updater = MessageUpdatingNode()
+        graph = (
+            AssistantGraph(self.team)
+            .add_node(AssistantNodeName.ROOT, updater)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+        config = {"configurable": {"thread_id": self.conversation.id}}
+
+        # First run should add the message with initial content
+        output = self._run_assistant_graph(graph, conversation=self.conversation)
+        self.assertEqual(len(output), 2)  # Human message + AI message
+        self.assertEqual(output[1][1]["id"], message_id)
+        self.assertEqual(output[1][1]["content"], first_content)
+
+        # Second run should update the message with new content
+        output = self._run_assistant_graph(graph, conversation=self.conversation)
+        self.assertEqual(len(output), 2)  # Human message + AI message
+        self.assertEqual(output[1][1]["id"], message_id)
+        self.assertEqual(output[1][1]["content"], updated_content)
+
+        # Verify the message was actually replaced, not duplicated
+        messages = graph.get_state(config).values["messages"]
+
+        # Count messages with our test ID
+        messages_with_id = [msg for msg in messages if msg.id == message_id]
+        self.assertEqual(len(messages_with_id), 1, "There should be exactly one message with the test ID")
+        self.assertEqual(
+            messages_with_id[0].content,
+            updated_content,
+            "The merged message should have the content of the last message",
+        )
+
+    def test_assistant_filters_messages_correctly(self):
+        """Test that the Assistant class correctly filters messages based on should_output_assistant_message."""
+
+        output_messages = [
+            # Should be output (has content)
+            (AssistantMessage(content="This message has content", id="1"), True),
+            # Should be filtered out (empty content)
+            (AssistantMessage(content="", id="2"), False),
+            # Should be output (has UI payload)
+            (
+                AssistantToolCallMessage(
+                    content="Tool result", tool_call_id="123", id="3", ui_payload={"some": "data"}
+                ),
+                True,
+            ),
+            # Should be filtered out (no UI payload)
+            (AssistantToolCallMessage(content="Tool result", tool_call_id="456", id="4", ui_payload=None), False),
+        ]
+
+        for test_message, expected_in_output in output_messages:
+            # Create a simple graph that produces different message types to test filtering
+            class MessageFilteringNode:
+                def __init__(self, message_to_return):
+                    self.message_to_return = message_to_return
+
+                def __call__(self, *args, **kwargs):
+                    # Return a set of messages that should be filtered differently
+                    return PartialAssistantState(messages=[self.message_to_return])
+
+            # Create a graph with our test node
+            graph = (
+                AssistantGraph(self.team)
+                .add_node(AssistantNodeName.ROOT, MessageFilteringNode(test_message))
+                .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+                .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+                .compile()
+            )
+
+            # Run the assistant and capture output
+            output = self._run_assistant_graph(graph, conversation=self.conversation)
+            expected_output: list = [
+                ("message", HumanMessage(content="Hello")),
+            ]
+
+            if expected_in_output:
+                expected_output.append(("message", test_message))
+
+            self.assertConversationEqual(output, expected_output)

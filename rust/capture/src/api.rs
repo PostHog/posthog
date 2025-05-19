@@ -27,6 +27,8 @@ pub enum CaptureError {
 
     #[error("request holds no event")]
     EmptyBatch,
+    #[error("request missing data payload")]
+    EmptyPayload,
     #[error("event submitted with an empty event name")]
     MissingEventName,
     #[error("event submitted without a distinct_id")]
@@ -51,8 +53,8 @@ pub enum CaptureError {
 
     #[error("transient error, please retry")]
     RetryableSinkError,
-    #[error("maximum event size exceeded")]
-    EventTooBig,
+    #[error("maximum event size exceeded: {0}")]
+    EventTooBig(String),
     #[error("invalid event could not be processed")]
     NonRetryableSinkError,
 
@@ -69,21 +71,49 @@ impl From<serde_json::Error> for CaptureError {
     }
 }
 
+impl CaptureError {
+    pub fn to_metric_tag(&self) -> &'static str {
+        match self {
+            CaptureError::RequestDecodingError(_) => "req_decoding",
+            CaptureError::RequestParsingError(_) => "req_parsing",
+            CaptureError::EmptyBatch => "empty_batch",
+            CaptureError::EmptyPayload => "empty_payload",
+            CaptureError::MissingEventName => "no_event_name",
+            CaptureError::MissingDistinctId => "no_distinct_id",
+            CaptureError::InvalidCookielessMode => "invalid_cookieless",
+            CaptureError::MissingSnapshotData => "no_snapshot",
+            CaptureError::MissingSessionId => "no_session_id",
+            CaptureError::MissingWindowId => "no_window_id",
+            CaptureError::InvalidSessionId => "invalid_session",
+            CaptureError::NoTokenError => "no_token",
+            CaptureError::MultipleTokensError => "multiple_tokens",
+            CaptureError::TokenValidationError(_) => "invalid_token",
+            CaptureError::RetryableSinkError => "retryable_sink",
+            CaptureError::EventTooBig(_) => "oversize_event",
+            CaptureError::NonRetryableSinkError => "non_retry_sink",
+            CaptureError::BillingLimit => "billing_limit",
+            CaptureError::RateLimited => "rate_limited",
+        }
+    }
+}
+
 impl IntoResponse for CaptureError {
     fn into_response(self) -> Response {
         match self {
             CaptureError::RequestDecodingError(_)
             | CaptureError::RequestParsingError(_)
             | CaptureError::EmptyBatch
+            | CaptureError::EmptyPayload
             | CaptureError::MissingEventName
             | CaptureError::MissingDistinctId
             | CaptureError::InvalidCookielessMode
-            | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError
             | CaptureError::MissingSessionId
             | CaptureError::MissingWindowId
             | CaptureError::InvalidSessionId
             | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
+
+            CaptureError::EventTooBig(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
 
             CaptureError::NoTokenError
             | CaptureError::MultipleTokensError

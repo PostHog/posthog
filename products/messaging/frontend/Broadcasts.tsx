@@ -3,8 +3,8 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
-import { HogFunctionLogs } from 'scenes/pipeline/hogfunctions/logs/HogFunctionLogs'
+import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
+import { HogFunctionLogs } from 'scenes/hog-functions/logs/HogFunctionLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -32,6 +32,11 @@ const Broadcast = ({ broadcastId }: { broadcastId: string }): JSX.Element => {
                 <HogFunctionConfiguration
                     id={broadcastId === 'new' ? null : broadcastId}
                     templateId={broadcastId === 'new' ? 'template-new-broadcast' : ''}
+                    displayOptions={{
+                        showStatus: false,
+                        showEnabled: false,
+                        canEditSource: false,
+                    }}
                 />
             )}
             {currentTab === 'logs' && <HogFunctionLogs hogFunctionId={broadcastId} />}
@@ -46,7 +51,7 @@ export function Broadcasts(): JSX.Element {
         <Broadcast broadcastId={broadcastId} />
     ) : (
         <>
-            <MessagingTabs />
+            <MessagingTabs key="broadcasts-tabs" />
             <PageHeader
                 caption="Send one time communications to your users"
                 buttons={

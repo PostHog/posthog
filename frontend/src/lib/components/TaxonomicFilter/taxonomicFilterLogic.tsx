@@ -376,6 +376,27 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
+                        name: 'Issues',
+                        searchPlaceholder: 'issues',
+                        type: TaxonomicFilterGroupType.ErrorTrackingIssues,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssues]
+                        )
+                            .map(([key, { label }]) => ({
+                                value: key,
+                                name: label,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.ErrorTrackingIssues]?.includes(o.value)
+                            ),
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        valuesEndpoint: (key) =>
+                            `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
+                        getPopoverHeader: () => 'Issues',
+                    },
+                    {
                         name: 'Numerical event properties',
                         searchPlaceholder: 'numerical event properties',
                         type: TaxonomicFilterGroupType.NumericalEventProperties,

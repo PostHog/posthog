@@ -7,9 +7,9 @@ import { SurveyQuestionType } from 'posthog-js'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveyQuestion } from '~/types'
+import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '~/types'
 
-import { createAnswerFilterHogQLExpression } from './utils'
+import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
 
 interface SurveySQLHelperProps {
     isOpen: boolean
@@ -31,8 +31,10 @@ export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.
 FROM
     events
 WHERE
-    event = 'survey sent'
-    AND properties.$survey_id = '${survey.id}' ${filterConditions ? '\n' + filterConditions : ''}
+    event = '${SurveyEventName.SENT}'
+    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+    ${buildPartialResponsesFilter(survey as Survey)}
+    ${filterConditions ? filterConditions : ''}
 ORDER BY
     timestamp DESC
 LIMIT
@@ -55,8 +57,10 @@ ${questionSelects},
 FROM
     events
 WHERE
-    event = 'survey sent'
-    AND properties.$survey_id = '${survey.id}' ${filterConditions ? '\n' + filterConditions : ''}
+    event = '${SurveyEventName.SENT}'
+    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+    ${buildPartialResponsesFilter(survey as Survey)}
+    ${filterConditions ? filterConditions : ''}
 ORDER BY
     timestamp DESC
 LIMIT
