@@ -88,7 +88,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
                                 const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
                                 if (pluginConfigs.length === 0) {
-                                    return []
+                                    return
                                 }
                                 events.push(
                                     convertToHogFunctionInvocationGlobals(
