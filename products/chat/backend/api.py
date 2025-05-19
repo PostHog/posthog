@@ -7,7 +7,6 @@ from loginas.utils import is_impersonated_session
 from posthog.api.person import PersonSerializer
 from rest_framework import request, serializers, status, viewsets, filters
 from rest_framework.decorators import action
-from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -106,13 +105,22 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         persons = get_persons_by_distinct_ids(team_id=self.team.id, distinct_ids=[distinct_id])
         if not persons.exists():
             return cors_response(
-                request,
+                self.request._request,
                 JsonResponse(
                     {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
                     status=status.HTTP_404_NOT_FOUND,
                 ),
             )
         person = persons.first()
+
+        if not person:
+            return cors_response(
+                self.request._request,
+                JsonResponse(
+                    {"status": "error", "message": f"Person with distinct_id {distinct_id} could not be retrieved"},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
 
         person_uuid = person.uuid
 
@@ -131,7 +139,7 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user=cast(User, self.request.user),
             was_impersonated=is_impersonated_session(self.request),
             item_id=serializer.instance.id,
-            scope="ChatConversation",
+            scope="chat_conversation",
             activity="created",
             detail=Detail(name=serializer.instance.title or f"Chat {serializer.instance.id}"),
         )
@@ -153,7 +161,7 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, self.request.user),
                 was_impersonated=is_impersonated_session(self.request),
                 item_id=serializer.instance.id,
-                scope="ChatConversation",
+                scope="chat_conversation",
                 activity="updated",
                 detail=Detail(changes=changes, name=serializer.instance.title or f"Chat {serializer.instance.id}"),
             )
@@ -167,7 +175,7 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user=cast(User, self.request.user),
             was_impersonated=is_impersonated_session(request),
             item_id=instance.id,
-            scope="ChatConversation",
+            scope="chat_conversation",
             activity="deleted",
             detail=Detail(name=instance.title or f"Chat {instance.id}"),
         )
@@ -179,7 +187,7 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        activity_page = load_activity(scope="ChatConversation", team_id=self.team_id, limit=limit, page=page)
+        activity_page = load_activity(scope="chat_conversation", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
@@ -193,7 +201,7 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
-            scope="ChatConversation",
+            scope="chat_conversation",
             team_id=self.team_id,
             item_ids=[item_id],
             limit=limit,
@@ -242,29 +250,29 @@ class ChatMessageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 @csrf_exempt
-def chat_endpoints(request: Request):
+def chat_endpoints(http_request: HttpResponse):
     """
     This endpoint is the unified entry point for chat functionality, handling both
     internal authenticated requests and external client-side widget requests.
     """
-    token = get_token(None, request)
+    token = get_token(None, http_request)
 
-    if not token and request.method == "POST":
+    if not token and http_request.method == "POST":
         try:
-            if request.content_type == "application/json":
+            if http_request.content_type == "application/json":
                 import json
 
-                body_data = json.loads(request.body)
+                body_data = json.loads(http_request.body)
                 token = body_data.get("token") or body_data.get("api_key")
         except Exception:
             pass
 
-    if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
+    if http_request.method == "OPTIONS":
+        return cors_response(http_request, HttpResponse(""))
 
     if not token:
         return cors_response(
-            request,
+            http_request,
             generate_exception_response(
                 "chat",
                 "API key not provided. You can find your project API key in your PostHog project settings.",
@@ -277,7 +285,7 @@ def chat_endpoints(request: Request):
     team = Team.objects.get_team_from_cache_or_token(token)
     if team is None:
         return cors_response(
-            request,
+            http_request,
             generate_exception_response(
                 "chat",
                 "Project API key invalid. You can find your project API key in your PostHog project settings.",
@@ -287,11 +295,11 @@ def chat_endpoints(request: Request):
             ),
         )
 
-    if request.method == "POST":
+    if http_request.method == "POST":
         try:
             import json
 
-            data = json.loads(request.body) if request.content_type == "application/json" else {}
+            data = json.loads(http_request.body) if http_request.content_type == "application/json" else {}
             action = data.get("action")
 
             if action == "create_conversation":
@@ -299,7 +307,7 @@ def chat_endpoints(request: Request):
 
                 if not distinct_id:
                     return cors_response(
-                        request,
+                        http_request,
                         JsonResponse(
                             {"status": "error", "message": "Missing distinct_id"}, status=status.HTTP_400_BAD_REQUEST
                         ),
@@ -309,18 +317,29 @@ def chat_endpoints(request: Request):
                     persons = get_persons_by_distinct_ids(team_id=team.id, distinct_ids=[distinct_id])
                     if not persons.exists():
                         return cors_response(
-                            request,
+                            http_request,
                             JsonResponse(
                                 {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
                                 status=status.HTTP_404_NOT_FOUND,
                             ),
                         )
                     person = persons.first()
+                    if not person:
+                        return cors_response(
+                            http_request,
+                            JsonResponse(
+                                {
+                                    "status": "error",
+                                    "message": f"Person with distinct_id {distinct_id} could not be retrieved",
+                                },
+                                status=status.HTTP_404_NOT_FOUND,
+                            ),
+                        )
 
                     person_uuid = person.uuid
                 except Exception as e:
                     return cors_response(
-                        request,
+                        http_request,
                         JsonResponse(
                             {"status": "error", "message": f"Error finding person: {str(e)}"},
                             status=status.HTTP_400_BAD_REQUEST,
@@ -345,7 +364,7 @@ def chat_endpoints(request: Request):
                     )
 
                 return cors_response(
-                    request, JsonResponse({"status": "success", "conversation_id": str(conversation.id)})
+                    http_request, JsonResponse({"status": "success", "conversation_id": str(conversation.id)})
                 )
 
             elif action == "send_message":
@@ -354,7 +373,7 @@ def chat_endpoints(request: Request):
 
                 if not conversation_id or not message:
                     return cors_response(
-                        request,
+                        http_request,
                         JsonResponse(
                             {"status": "error", "message": "Missing conversation_id or message"},
                             status=status.HTTP_400_BAD_REQUEST,
@@ -365,7 +384,7 @@ def chat_endpoints(request: Request):
                     conversation = ChatConversation.objects.get(id=conversation_id, team=team)
                 except ChatConversation.DoesNotExist:
                     return cors_response(
-                        request,
+                        http_request,
                         JsonResponse(
                             {"status": "error", "message": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND
                         ),
@@ -380,7 +399,7 @@ def chat_endpoints(request: Request):
                 )
 
                 return cors_response(
-                    request,
+                    http_request,
                     JsonResponse(
                         {
                             "status": "success",
@@ -396,7 +415,7 @@ def chat_endpoints(request: Request):
 
                 if not conversation_id:
                     return cors_response(
-                        request,
+                        http_request,
                         JsonResponse(
                             {"status": "error", "message": "Missing conversation_id"},
                             status=status.HTTP_400_BAD_REQUEST,
@@ -407,7 +426,7 @@ def chat_endpoints(request: Request):
                     conversation = ChatConversation.objects.get(id=conversation_id, team=team)
                 except ChatConversation.DoesNotExist:
                     return cors_response(
-                        request,
+                        http_request,
                         JsonResponse(
                             {"status": "error", "message": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND
                         ),
@@ -442,7 +461,7 @@ def chat_endpoints(request: Request):
                 conversation.save(update_fields=["unread_count"])
 
                 return cors_response(
-                    request,
+                    http_request,
                     JsonResponse(
                         {
                             "status": "success",
@@ -459,7 +478,7 @@ def chat_endpoints(request: Request):
 
             else:
                 return cors_response(
-                    request,
+                    http_request,
                     JsonResponse(
                         {"status": "error", "message": f"Invalid action: {action}"}, status=status.HTTP_400_BAD_REQUEST
                     ),
@@ -467,10 +486,10 @@ def chat_endpoints(request: Request):
 
         except Exception as e:
             return cors_response(
-                request,
+                http_request,
                 JsonResponse({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR),
             )
-    elif request.method == "GET":
+    elif http_request.method == "GET":
         conversations = ChatConversation.objects.filter(team=team).order_by("-updated_at")
         conversations_data = []
 
@@ -486,9 +505,9 @@ def chat_endpoints(request: Request):
                 }
             )
 
-        return cors_response(request, JsonResponse({"status": "success", "conversations": conversations_data}))
+        return cors_response(http_request, JsonResponse({"status": "success", "conversations": conversations_data}))
 
     return cors_response(
-        request,
+        http_request,
         JsonResponse({"status": "error", "message": "Method not allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED),
     )
