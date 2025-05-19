@@ -2429,6 +2429,7 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
 }
+
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
     type: 'batch_export'
 }
