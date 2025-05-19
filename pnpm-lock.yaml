@@ -572,6 +572,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-chat':
+        specifier: workspace:*
+        version: link:../products/chat
       '@posthog/products-cohorts':
         specifier: workspace:*
         version: link:../products/cohorts

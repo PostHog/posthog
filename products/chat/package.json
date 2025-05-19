@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/chat",
+    "name": "@posthog/products-chat",
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
