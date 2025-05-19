@@ -1,10 +1,7 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from datetime import datetime, UTC
 
 from posthog.hogql import ast
-
-if TYPE_CHECKING:
-    pass
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
@@ -15,7 +12,6 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     def can_use_preaggregated_tables(self) -> bool:
         query = self.runner.query
 
-        # Only works for properties we know are in the pre-aggregated tables
         for prop in query.properties:
             if hasattr(prop, "key") and prop.key not in self.supported_props_filters:
                 return False
@@ -23,7 +19,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         if query.conversionGoal:
             return False
 
-        # Only work for fixed-dates that don't include current-date in the filters.
+        # Only work for fixed-dates that don't include current-date in the filters while we test the pre-aggregated tables
         today = datetime.now(UTC).date()
         if self.runner.query_date_range.date_to().date() >= today:
             return False
@@ -33,20 +29,16 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     # We can probably use the hogql general filters somehow but it was not working by default and it was a lot of moving parts to debug at once so
     # TODO: come back to this later to make sure we're not overcomplicating things
     def _get_filters(self):
-        """Generate property filters for pre-aggregated tables"""
         if not self.runner.query.properties:
             return None
 
-        # Build filter expressions
         filter_parts = []
 
-        # Only process properties that we know how to map to pre-aggregated tables
         for posthog_field, table_field in self.SUPPORTED_PROPERTIES.items():
             for prop in self.runner.query.properties:
                 if hasattr(prop, "key") and prop.key == posthog_field and hasattr(prop, "value"):
                     value = prop.value
 
-                    # Extract ID if present
                     if value is not None and hasattr(value, "id"):
                         value = value.id
 
@@ -69,7 +61,6 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
                         filter_parts.append(filter_expr)
 
-        # If we have multiple filters, combine with AND
         if len(filter_parts) > 1:
             return ast.Call(name="and", args=cast(list[ast.Expr], filter_parts))
         elif len(filter_parts) == 1:
@@ -81,17 +72,16 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         current_date_from = self.runner.query_date_range.date_from_str
         current_date_to = self.runner.query_date_range.date_to_str
 
-        # Handle previous period
         if self.runner.query_compare_to_date_range:
             previous_date_from = self.runner.query_compare_to_date_range.date_from_str
             previous_date_to = self.runner.query_compare_to_date_range.date_to_str
         else:
             # If we don't have a previous period, we can just use the same data as the values won't be used
             # and our query stays simpler.
+            # TODO: Make sure the frontend handles this correctly for every case
             previous_date_from = current_date_from
             previous_date_to = current_date_from
 
-        # Define date filter conditions first
         current_period_filter = f"day_bucket >= '{current_date_from}' AND day_bucket <= '{current_date_to}'"
         previous_period_filter = f"day_bucket >= '{previous_date_from}' AND day_bucket <= '{previous_date_to}'"
 
