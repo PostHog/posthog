@@ -276,6 +276,7 @@ jobs:
               id: diff
               # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
+              shell: bash
               run: |
                   echo "Current directory: $(pwd)"
                   FRONTEND_DIFF_OUTPUT=$(git diff --name-status frontend/__snapshots__)
