@@ -12,7 +12,7 @@ import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
 
 /**
- * This isa temporary consumer that hooks into the existing onevent consumer group
+ * This is a temporary consumer that hooks into the existing onevent consumer group
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
  * We can then use this to gradually move over to the new hog functions
  */
