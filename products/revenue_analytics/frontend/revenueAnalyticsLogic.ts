@@ -166,11 +166,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (dateFilter): boolean => dateFilter.interval !== 'month',
         ],
 
-        // TODO: Update how we detect whether we have revenue tables or not
-        // There are more cases because we might have revenue sources,
-        // but they might be simply disabled
-        // We should probably wait until `loadSourcesSuccess` is properly called
-        // to guarantee we include all revenue tables
+        hasRevenueEvents: [(s) => [s.allEvents], (allEvents): boolean => allEvents.length > 0],
+
         hasRevenueTables: [
             (s) => [s.database, s.dataWarehouseTablesBySourceType],
             (database, dataWarehouseTablesBySourceType): boolean | null => {

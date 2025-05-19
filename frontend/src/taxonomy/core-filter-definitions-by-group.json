@@ -20,24 +20,6 @@
             "label": "Text"
         }
     },
-    "error_tracking_issue_properties": {
-        "$exception_functions": {
-            "description": "A function contained in the exception.",
-            "label": "Exception function"
-        },
-        "$exception_messages": {
-            "description": "The description of the exception.",
-            "label": "Exception message"
-        },
-        "$exception_sources": {
-            "description": "A source file included in the exception.",
-            "label": "Exception source"
-        },
-        "$exception_types": {
-            "description": "The type of the exception.",
-            "label": "Exception type"
-        }
-    },
     "error_tracking_issues": {
         "assignee": {
             "description": "The current assignee of an issue.",
@@ -364,6 +346,80 @@
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
             "label": "Creator event ID"
         },
+        "$csp_blocked_url": {
+            "description": "The URL that was blocked by the CSP policy.",
+            "examples": ["https://malicious-site.com/script.js"],
+            "label": "Blocked URL"
+        },
+        "$csp_column_number": {
+            "description": "The column number in the source file where the violation occurred.",
+            "examples": ["13"],
+            "label": "Column number"
+        },
+        "$csp_disposition": {
+            "description": "The disposition of the CSP policy that was violated (enforce or report).",
+            "examples": ["enforce", "report"],
+            "label": "Disposition"
+        },
+        "$csp_document_url": {
+            "description": "The URL of the document where the violation occurred.",
+            "examples": ["https://example.com/page"],
+            "label": "Document URL"
+        },
+        "$csp_effective_directive": {
+            "description": "The CSP directive that was effectively violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+            "label": "Effective directive"
+        },
+        "$csp_line_number": {
+            "description": "The line number in the source file where the violation occurred.",
+            "examples": ["42"],
+            "label": "Line number"
+        },
+        "$csp_original_policy": {
+            "description": "The CSP policy that was active when the violation occurred.",
+            "examples": ["default-src 'self'; script-src 'self' example.com"],
+            "label": "Original policy"
+        },
+        "$csp_raw_report": {
+            "description": "The raw CSP report as received from the browser.",
+            "label": "Raw CSP report",
+            "system": true
+        },
+        "$csp_referrer": {
+            "description": "The referrer of the CSP report if available.",
+            "examples": ["https://example.com/referrer"],
+            "label": "CSP Referrer"
+        },
+        "$csp_report_type": {
+            "description": "The type of CSP report.",
+            "label": "Report type"
+        },
+        "$csp_script_sample": {
+            "description": "An escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "examples": ["eval('alert(1)')"],
+            "label": "Script sample"
+        },
+        "$csp_source_file": {
+            "description": "The source file where the violation occurred.",
+            "examples": ["script.js"],
+            "label": "Source file"
+        },
+        "$csp_status_code": {
+            "description": "The HTTP status code that was returned when trying to load the blocked resource.",
+            "examples": ["200", "404"],
+            "label": "Status code"
+        },
+        "$csp_version": {
+            "description": "The version of the CSP policy. Must be provided in the report URL.",
+            "examples": ["1.0"],
+            "label": "CSP Policy version"
+        },
+        "$csp_violated_directive": {
+            "description": "The CSP directive that was violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+            "label": "Violated directive"
+        },
         "$current_url": {
             "description": "The URL visited at the time of the event.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
@@ -500,6 +556,10 @@
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
         },
+        "$exception_functions": {
+            "description": "A function contained in the exception.",
+            "label": "Exception function"
+        },
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
@@ -543,6 +603,10 @@
             "examples": ["JS file"],
             "label": "Exception source"
         },
+        "$exception_sources": {
+            "description": "A source file included in the exception.",
+            "label": "Exception source"
+        },
         "$exception_stack_trace_raw": {
             "description": "The exceptions stack trace, as a string.",
             "label": "Exception raw stack trace"
@@ -551,6 +615,15 @@
             "description": "Exception categorized into types.",
             "examples": ["Error"],
             "label": "Exception type"
+        },
+        "$exception_types": {
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+            "label": "Exception type"
+        },
+        "$exception_values": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
@@ -1273,6 +1346,10 @@
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },
+        "$survey_completed": {
+            "description": "If a survey was fully completed (all questions answered), this will be true.",
+            "label": "Survey completed"
+        },
         "$survey_id": {
             "description": "The unique identifier for the survey.",
             "label": "Survey ID"
@@ -1290,6 +1367,10 @@
             "examples": ["Product Feedback for New Product", "Home page NPS"],
             "label": "Survey name"
         },
+        "$survey_partially_completed": {
+            "description": "If a survey was partially completed (some questions answered) on dismissal, this will be true.",
+            "label": "Survey partially completed"
+        },
         "$survey_questions": {
             "description": "The questions asked in the survey.",
             "label": "Survey questions"
@@ -1298,6 +1379,10 @@
             "description": "The response value for the first question in the survey.",
             "examples": ["I love it!", 5, "['choice 1', 'choice 3']"],
             "label": "Survey response"
+        },
+        "$survey_submission_id": {
+            "description": "The unique identifier for the survey submission. Relevant for partial submissions, as they submit multiple 'survey sent' events. This is what allows us to count them as a single submission.",
+            "label": "Survey submission ID"
         },
         "$surveys_activated": {
             "description": "The surveys that were activated for this event.",
@@ -1599,6 +1684,11 @@
             "ignored_in_assistant": true,
             "label": "Alias"
         },
+        "$csp_violation": {
+            "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
+            "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
+            "label": "CSP violation"
+        },
         "$dead_click": {
             "description": "A user has clicked on something that is probably not clickable.",
             "label": "Dead click"
@@ -1635,7 +1725,7 @@
         },
         "$identify": {
             "description": "A user has been identified with properties.",
-            "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
+            "ignored_in_assistant": true,
             "label": "Identify"
         },
         "$merge_dangerously": {
@@ -2033,6 +2123,80 @@
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
             "label": "Creator event ID"
         },
+        "$csp_blocked_url": {
+            "description": "The URL that was blocked by the CSP policy.",
+            "examples": ["https://malicious-site.com/script.js"],
+            "label": "Blocked URL"
+        },
+        "$csp_column_number": {
+            "description": "The column number in the source file where the violation occurred.",
+            "examples": ["13"],
+            "label": "Column number"
+        },
+        "$csp_disposition": {
+            "description": "The disposition of the CSP policy that was violated (enforce or report).",
+            "examples": ["enforce", "report"],
+            "label": "Disposition"
+        },
+        "$csp_document_url": {
+            "description": "The URL of the document where the violation occurred.",
+            "examples": ["https://example.com/page"],
+            "label": "Document URL"
+        },
+        "$csp_effective_directive": {
+            "description": "The CSP directive that was effectively violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+            "label": "Effective directive"
+        },
+        "$csp_line_number": {
+            "description": "The line number in the source file where the violation occurred.",
+            "examples": ["42"],
+            "label": "Line number"
+        },
+        "$csp_original_policy": {
+            "description": "The CSP policy that was active when the violation occurred.",
+            "examples": ["default-src 'self'; script-src 'self' example.com"],
+            "label": "Original policy"
+        },
+        "$csp_raw_report": {
+            "description": "The raw CSP report as received from the browser.",
+            "label": "Raw CSP report",
+            "system": true
+        },
+        "$csp_referrer": {
+            "description": "The referrer of the CSP report if available.",
+            "examples": ["https://example.com/referrer"],
+            "label": "CSP Referrer"
+        },
+        "$csp_report_type": {
+            "description": "The type of CSP report.",
+            "label": "Report type"
+        },
+        "$csp_script_sample": {
+            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "examples": ["eval('alert(1)')"],
+            "label": "Script sample"
+        },
+        "$csp_source_file": {
+            "description": "The source file where the violation occurred.",
+            "examples": ["script.js"],
+            "label": "Source file"
+        },
+        "$csp_status_code": {
+            "description": "The HTTP status code that was returned when trying to load the blocked resource.",
+            "examples": ["200", "404"],
+            "label": "Status code"
+        },
+        "$csp_version": {
+            "description": "The version of the CSP policy. Must be provided in the report URL.",
+            "examples": ["1.0"],
+            "label": "CSP Policy version"
+        },
+        "$csp_violated_directive": {
+            "description": "The CSP directive that was violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+            "label": "Violated directive"
+        },
         "$current_url": {
             "description": "The URL visited at the time of the event. Data from the last time this user was seen.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
@@ -2169,6 +2333,10 @@
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
         },
+        "$exception_functions": {
+            "description": "A function contained in the exception.",
+            "label": "Exception function"
+        },
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
@@ -2212,6 +2380,10 @@
             "examples": ["JS file"],
             "label": "Exception source"
         },
+        "$exception_sources": {
+            "description": "A source file included in the exception.",
+            "label": "Exception source"
+        },
         "$exception_stack_trace_raw": {
             "description": "The exceptions stack trace, as a string.",
             "label": "Exception raw stack trace"
@@ -2220,6 +2392,15 @@
             "description": "Exception categorized into types.",
             "examples": ["Error"],
             "label": "Exception type"
+        },
+        "$exception_types": {
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+            "label": "Exception type"
+        },
+        "$exception_values": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
@@ -3108,6 +3289,10 @@
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },
+        "$survey_completed": {
+            "description": "If a survey was fully completed (all questions answered), this will be true.",
+            "label": "Survey completed"
+        },
         "$survey_id": {
             "description": "The unique identifier for the survey.",
             "label": "Survey ID"
@@ -3125,6 +3310,10 @@
             "examples": ["Product Feedback for New Product", "Home page NPS"],
             "label": "Survey name"
         },
+        "$survey_partially_completed": {
+            "description": "If a survey was partially completed (some questions answered) on dismissal, this will be true.",
+            "label": "Survey partially completed"
+        },
         "$survey_questions": {
             "description": "The questions asked in the survey.",
             "label": "Survey questions"
@@ -3133,6 +3322,10 @@
             "description": "The response value for the first question in the survey.",
             "examples": ["I love it!", 5, "['choice 1', 'choice 3']"],
             "label": "Survey response"
+        },
+        "$survey_submission_id": {
+            "description": "The unique identifier for the survey submission. Relevant for partial submissions, as they submit multiple 'survey sent' events. This is what allows us to count them as a single submission.",
+            "label": "Survey submission ID"
         },
         "$surveys_activated": {
             "description": "The surveys that were activated for this event.",
