@@ -69,9 +69,6 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
             },
         }),
         bodyUsed: false,
-        bytes: () => {
-            throw new Error('Not implemented')
-        },
         arrayBuffer: () => {
             throw new Error('Not implemented')
         },
