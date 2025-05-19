@@ -12,6 +12,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { currencyFormatter } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
+import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { billingSpendLogic } from './billingSpendLogic'
@@ -40,6 +41,7 @@ export function BillingSpendView(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <BillingEarlyAccessBanner />
             <div className="border rounded p-4 bg-bg-light space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Products */}

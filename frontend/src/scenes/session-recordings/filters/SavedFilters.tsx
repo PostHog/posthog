@@ -1,7 +1,10 @@
+import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
 
@@ -16,7 +19,7 @@ export function SavedFilters({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    const { savedFilters, savedFiltersLoading, pagination } = useValues(savedFiltersLogic)
+    const { savedFilters, savedFiltersLoading, paginationSavedFilters } = useValues(savedFiltersLogic)
     const { deletePlaylist } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
@@ -61,25 +64,29 @@ export function SavedFilters({
             width: 0,
             render: function Render(_, playlist) {
                 return (
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        deletePlaylist(playlist)
-                                        if (savedFilters.results?.length === 1) {
-                                            setActiveFilterTab('filters')
-                                        }
-                                    }}
-                                    fullWidth
-                                    loading={savedFiltersLoading}
-                                >
-                                    Delete saved filter
-                                </LemonButton>
-                            </>
-                        }
-                    />
+                    <div className="flex flex-row gap-1">
+                        <LemonButton
+                            onClick={() => {
+                                const combinedURL = urls.absolute(
+                                    combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
+                                )
+                                void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
+                            }}
+                            title="Copy link to saved filter"
+                            icon={<IconCopy />}
+                        />
+                        <LemonButton
+                            status="danger"
+                            onClick={() => {
+                                deletePlaylist(playlist)
+                                if (savedFilters.results?.length === 1) {
+                                    setActiveFilterTab('filters')
+                                }
+                            }}
+                            title="Delete saved filter"
+                            icon={<IconTrash />}
+                        />
+                    </div>
                 )
             },
         },
@@ -90,7 +97,7 @@ export function SavedFilters({
             loading={savedFiltersLoading}
             dataSource={savedFilters.results}
             columns={columns}
-            pagination={pagination}
+            pagination={paginationSavedFilters}
             noSortingCancellation
         />
     )
