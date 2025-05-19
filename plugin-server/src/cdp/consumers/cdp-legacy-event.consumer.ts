@@ -1,12 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { runOnEvent } from '~/src/worker/plugins/run'
-
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { runOnEvent } from '../../worker/plugins/run'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
