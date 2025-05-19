@@ -305,39 +305,42 @@ function PersonSummariesTable(): JSX.Element {
                                                     </div>
                                                 }
                                                 content={
-                                                    <div className="space-y-2">
+                                                    <div className="space-y-0">
                                                         {issue.sessions.map((session, j) => (
-                                                            <div key={j} className="text-sm">
-                                                                <div className="flex items-center justify-between mb-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="text-muted">{session.timestamp}</span>
-                                                                        <span className="text-muted">•</span>
-                                                                        <span className="text-muted">{session.id}</span>
+                                                            <div key={j}>
+                                                                <div className="text-sm py-2">
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-muted">{session.timestamp}</span>
+                                                                            <span className="text-muted">•</span>
+                                                                            <span className="text-muted">{session.id}</span>
+                                                                        </div>
+                                                                        <div className="flex gap-1">
+                                                                            <LemonButton
+                                                                                sideIcon={<IconTarget />}
+                                                                                size="xsmall"
+                                                                                type="secondary"
+                                                                            >
+                                                                                <span>View moment</span>
+                                                                            </LemonButton>
+                                                                            <LemonButton
+                                                                                size="xsmall"
+                                                                                type="secondary"
+                                                                                disabledReason={
+                                                                                    session.hasRecording
+                                                                                        ? undefined
+                                                                                        : 'No recording available'
+                                                                                }
+                                                                            >
+                                                                                View recording
+                                                                            </LemonButton>
+                                                                        </div>
                                                                     </div>
-                                                                    <div className="flex gap-1">
-                                                                        <LemonButton
-                                                                            sideIcon={<IconTarget />}
-                                                                            size="xsmall"
-                                                                            type="secondary"
-                                                                            className="px-2"
-                                                                        >
-                                                                            <span>View moment</span>
-                                                                        </LemonButton>
-                                                                        <LemonButton
-                                                                            size="xsmall"
-                                                                            type="secondary"
-                                                                            className="px-2"
-                                                                            disabledReason={
-                                                                                session.hasRecording
-                                                                                    ? undefined
-                                                                                    : 'No recording available'
-                                                                            }
-                                                                        >
-                                                                            View recording
-                                                                        </LemonButton>
-                                                                    </div>
+                                                                    <p className="mb-0">{session.summary}</p>
                                                                 </div>
-                                                                <p className="mb-0">{session.summary}</p>
+                                                                {j < issue.sessions.length - 1 && (
+                                                                    <div className="h-px bg-border" />
+                                                                )}
                                                             </div>
                                                         ))}
                                                     </div>
