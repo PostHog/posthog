@@ -17,18 +17,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import (
-    QueryPreviousPeriodDateRange,
-)
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
+    ActionConversionGoal,
     ActionsNode,
     CachedCalendarHeatmapQueryResponse,
     CustomEventConversionGoal,
@@ -38,7 +34,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     CalendarHeatmapQuery,
-    TrendsFormulaNode,
     CalendarHeatmapResponse,
     EventsHeatMapDataResult,
     EventsHeatMapRowAggregationResult,
@@ -122,9 +117,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
     ):
         if isinstance(query, dict):
             query = CalendarHeatmapQuery.model_validate(query)
-
-        # Use the new function to handle WAU/MAU conversions
-        query = convert_active_user_math_based_on_interval(query)
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
@@ -233,7 +225,9 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             return ast.Constant(value=True)
 
     def _all_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties, team=self.team)
+        if self.query.properties is not None and self.query.properties != []:
+            return property_to_expr(self.query.properties, team=self.team)
+        return ast.Constant(value=True)
 
     def _current_period_expression(self, field="start_timestamp"):
         return ast.Call(
@@ -265,9 +259,15 @@ class CalendarHeatmapQueryRunner(QueryRunner):
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
+                # Support for insights with actions
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.conversionGoal.customEventName),
             )
+
+        # Support for web analytics
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            return action_to_expr(action)
         else:
             return None
 
@@ -296,23 +296,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    @cached_property
-    def query_previous_date_range(self):
-        if self.query.compareFilter is not None and isinstance(self.query.compareFilter.compare_to, str):
-            return QueryCompareToDateRange(
-                date_range=self.query.dateRange,
-                team=self.team,
-                interval=self.query.interval,
-                now=datetime.now(),
-                compare_to=self.query.compareFilter.compare_to,
-            )
-        return QueryPreviousPeriodDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=self.query.interval,
-            now=datetime.now(),
-        )
-
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
@@ -326,19 +309,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-        if (
-            self.query.compareFilter is not None
-            and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
-        ):
-            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
-            # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.compareFilter.compare = False
-
-    @cached_property
-    def formula_nodes(self) -> list[TrendsFormulaNode]:
-        return []
 
     def _event_property(
         self,
