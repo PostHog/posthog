@@ -55,7 +55,6 @@ class TableSerializer(serializers.ModelSerializer):
             "columns",
             "external_data_source",
             "external_schema",
-            "managed",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 

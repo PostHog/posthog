@@ -61,6 +61,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
+    soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -78,7 +79,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "edited_history_id",
             "latest_history_id",
-            "managed",
+            "soft_update",
         ]
         read_only_fields = [
             "id",
@@ -89,6 +90,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "last_run_at",
             "latest_error",
             "latest_history_id",
+        ]
+        write_only_fields = [
+            "soft_update",
         ]
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
@@ -144,28 +148,30 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+        soft_update = validated_data.pop("soft_update", False)
 
         view = DataWarehouseSavedQuery(**validated_data)
 
-        try:
-            # The columns will be inferred from the query
-            client_types = self.context["request"].data.get("types", [])
-            if len(client_types) == 0:
-                view.columns = view.get_columns()
-            else:
-                columns = {
-                    str(item[0]): {
-                        "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                        "clickhouse": item[1],
-                        "valid": True,
+        if not soft_update:
+            try:
+                # The columns will be inferred from the query
+                client_types = self.context["request"].data.get("types", [])
+                if len(client_types) == 0:
+                    view.columns = view.get_columns()
+                else:
+                    columns = {
+                        str(item[0]): {
+                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                            "clickhouse": item[1],
+                            "valid": True,
+                        }
+                        for item in client_types
                     }
-                    for item in client_types
-                }
-                view.columns = columns
+                    view.columns = columns
 
-            view.external_tables = view.s3_tables
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
+                view.external_tables = view.s3_tables
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
 
         with transaction.atomic():
             view.save()
@@ -247,29 +253,30 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                try:
-                    # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.columns = view.get_columns()
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                "clickhouse": item[1],
-                                "valid": True,
+                if "soft_update" not in validated_data:
+                    try:
+                        # The columns will be inferred from the query
+                        client_types = self.context["request"].data.get("types", [])
+                        if len(client_types) == 0:
+                            view.columns = view.get_columns()
+                        else:
+                            columns = {
+                                str(item[0]): {
+                                    "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                    "clickhouse": item[1],
+                                    "valid": True,
+                                }
+                                for item in client_types
                             }
-                            for item in client_types
-                        }
-                        view.columns = columns
+                            view.columns = columns
 
-                    view.external_tables = view.s3_tables
-                    view.status = DataWarehouseSavedQuery.Status.MODIFIED
-                except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
-                except Exception as err:
-                    raise serializers.ValidationError(str(err))
+                        view.external_tables = view.s3_tables
+                    except RecursionError:
+                        raise serializers.ValidationError("Model contains a cycle")
+                    except Exception as err:
+                        raise serializers.ValidationError(str(err))
 
+                view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
 
             try:
@@ -415,7 +422,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_saved_query:write"])
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         saved_query = self.get_object()

@@ -114,7 +114,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     )
 
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
-    managed = models.BooleanField(null=True, blank=True, help_text="Whether this table is managed by PostHog")
 
     __repr__ = sane_repr("name")
 
