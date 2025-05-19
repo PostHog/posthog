@@ -158,7 +158,7 @@ export function RevenueAnalyticsSceneContent(): JSX.Element {
         <div>
             <LemonBanner
                 type="info"
-                dismissKey="revenue-analytics-beta"
+                dismissKey="revenue-analytics-beta-banner"
                 className="mb-2"
                 action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
             >

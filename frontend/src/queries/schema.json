@@ -7337,6 +7337,9 @@
                 "id": {
                     "type": "string"
                 },
+                "kind": {
+                    "$ref": "#/definitions/DatabaseSchemaManagedViewTableKind"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -7346,13 +7349,20 @@
                 "row_count": {
                     "type": "number"
                 },
+                "source_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": ["fields", "id", "kind", "name", "query", "type"],
             "type": "object"
+        },
+        "DatabaseSchemaManagedViewTableKind": {
+            "const": "revenue_analytics",
+            "type": "string"
         },
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,

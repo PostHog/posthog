@@ -8666,9 +8666,11 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
+    kind: Literal["revenue_analytics"] = "revenue_analytics"
     name: str
     query: HogQLQuery
     row_count: Optional[float] = None
+    source_id: Optional[str] = None
     type: Literal["managed_view"] = "managed_view"
 
 
