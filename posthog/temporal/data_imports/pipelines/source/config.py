@@ -1,4 +1,8 @@
+import builtins
 import dataclasses
+import functools
+import importlib
+import operator
 import types
 import typing
 
@@ -71,7 +75,9 @@ class MetaConfig:
 
 
 def to_config(
-    config_cls: type[ConfigProtocol], d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None
+    config_cls: type[ConfigProtocol],
+    d: dict[str, typing.Any],
+    prefixes: tuple[str, ...] | None = None,
 ) -> ConfigProtocol:
     """Initialize a class from dict.
 
@@ -95,9 +101,10 @@ def to_config(
     inputs = {}
 
     fields = dataclasses.fields(config_cls)
+    module_path = config_cls.__module__
 
     for field in fields:
-        field_type = _resolve_field_type(field)
+        field_type = _resolve_field_type(field, module_path=module_path)
         field_meta = field.metadata.get(META_KEY, None)
 
         field_flat_key = _get_flat_key(field, prefixes or ())
@@ -113,9 +120,12 @@ def to_config(
         else:
             convert = _noop_convert
 
-        if is_config(field.type) or _is_union_of_config(field.type):
+        if is_config(field_type) or _is_union_of_config(field_type):
             # We are dealing with a nested config, which could be part of a union
-            config_types = typing.get_args(field.type) or (field_type,)
+            if is_config(field_type):
+                config_types = typing.get_args(field.type) or (field_type,)
+            else:
+                config_types = typing.get_args(field_type)
 
             for config_type in config_types:
                 if not is_config(config_type):
@@ -145,11 +155,11 @@ def to_config(
                 else:
                     # Assuming a flat structure
                     field_prefixes = _resolve_field_prefixes(
-                        field_type, field_type_meta, field_meta, top_level_prefixes
+                        config_type, field_type_meta, field_meta, top_level_prefixes
                     )
 
                     try:
-                        value = to_config(field_type, d, field_prefixes)
+                        value = to_config(config_type, d, field_prefixes)
                     except TypeError:
                         # We want to try all possible config types
                         continue
@@ -168,26 +178,41 @@ def to_config(
     return config_cls(**inputs)
 
 
-def _resolve_field_type(field: dataclasses.Field[typing.Any]) -> type:
+def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
     """Resolve a field's type."""
     if isinstance(field.type, str):
-        field_type = _lookup_type(field.type, locals(), globals())  # type: ignore
+        module = importlib.import_module(module_path)
+        lookup_type = functools.partial(_lookup_str_type, module=module)
+
+        if "|" in field.type:
+            field_type = functools.reduce(operator.ior, map(lookup_type, field.type.split("|")))
+
+        else:
+            field_type = lookup_type(field.type)
     else:
         field_type = field.type
 
     return field_type
 
 
-def _lookup_type(type_to_resolve: str, locals: dict[str, typing.Any], globals: dict[str, typing.Any]) -> type:
+def _lookup_str_type(type_to_resolve: str, module) -> type:
     """Lookup a type in provided locals and globals.
 
     Used to resolve any type hints that are strings.
     """
+    type_to_resolve = type_to_resolve.strip()
+
+    if type_to_resolve == "None":
+        return type(None)
+
+    if hasattr(builtins, type_to_resolve) and isinstance(getattr(builtins, type_to_resolve), type):
+        return getattr(builtins, type_to_resolve)
+
     try:
-        return locals[type_to_resolve]
-    except KeyError:
+        return getattr(module, type_to_resolve)
+    except AttributeError:
         try:
-            return globals[type_to_resolve]
+            return globals()[type_to_resolve]
         except KeyError:
             raise TypeError(f"Unknown type: '{type_to_resolve}'")
 
