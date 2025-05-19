@@ -204,26 +204,28 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     return (
         <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
-            <PayGateMini
-                feature={AvailableFeature.AUDIT_LOGS}
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
-            >
-                {activityLoading && humanizedActivity.length === 0 ? (
-                    <Loading />
-                ) : humanizedActivity.length === 0 ? (
-                    <Empty scope={scope} />
-                ) : (
-                    <>
-                        <div className="deprecated-space-y-2">
-                            {humanizedActivity.map((logItem, index) => (
-                                <ActivityLogRow key={index} logItem={logItem} />
-                            ))}
-                        </div>
-                        <LemonDivider />
-                        <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                    </>
-                )}
-            </PayGateMini>
+            {activityLoading && humanizedActivity.length === 0 ? (
+                <Loading />
+            ) : (
+                <PayGateMini
+                    feature={AvailableFeature.AUDIT_LOGS}
+                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                >
+                    {humanizedActivity.length === 0 ? (
+                        <Empty scope={scope} />
+                    ) : (
+                        <>
+                            <div className="deprecated-space-y-2">
+                                {humanizedActivity.map((logItem, index) => (
+                                    <ActivityLogRow key={index} logItem={logItem} />
+                                ))}
+                            </div>
+                            <LemonDivider />
+                            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                        </>
+                    )}
+                </PayGateMini>
+            )}
         </div>
     )
 }
