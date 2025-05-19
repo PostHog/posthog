@@ -14,16 +14,16 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect, useState } from 'react'
+import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
+import { HogFunctionIcon } from '../../hog-functions/configuration/HogFunctionIcon'
+import { HogFunctionStatusIndicator } from '../../hog-functions/misc/HogFunctionStatusIndicator'
+import { hogFunctionTypeToPipelineStage } from '../../hog-functions/misc/urls'
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { FrontendApps } from '../FrontendApps'
-import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
-import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
-import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
-import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
@@ -133,7 +133,7 @@ export function DestinationsTable({
             />
 
             {types.includes('transformation') && enabledTransformations.length > 1 && !hideChangeOrderButton && (
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2 items-center">
                     Processed sequentially.
                     <LemonButton
                         onClick={() => openReorderTransformationsModal()}
@@ -259,7 +259,7 @@ export function DestinationsTable({
                                               )}
                                           >
                                               {destination.backend === PipelineBackend.HogFunction ? (
-                                                  <AppMetricSparkLineV2 id={destination.hog_function.id} />
+                                                  <HogFunctionMetricSparkLine id={destination.hog_function.id} />
                                               ) : (
                                                   <AppMetricSparkLine pipelineNode={destination} />
                                               )}

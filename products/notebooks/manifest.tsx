@@ -20,7 +20,10 @@ export const manifest: ProductManifest = {
         {
             path: `Notebook`,
             type: 'notebook',
-            href: () => urls.notebook('new'),
+            href: urls.notebook('new'),
         },
     ],
+    fileSystemFilterTypes: {
+        notebook: { name: 'Notebooks' },
+    },
 }

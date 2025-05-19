@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableLambda
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
-from ee.hogai.utils.test import FakeChatOpenAI
+from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin

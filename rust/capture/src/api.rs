@@ -71,6 +71,32 @@ impl From<serde_json::Error> for CaptureError {
     }
 }
 
+impl CaptureError {
+    pub fn to_metric_tag(&self) -> &'static str {
+        match self {
+            CaptureError::RequestDecodingError(_) => "req_decoding",
+            CaptureError::RequestParsingError(_) => "req_parsing",
+            CaptureError::EmptyBatch => "empty_batch",
+            CaptureError::EmptyPayload => "empty_payload",
+            CaptureError::MissingEventName => "no_event_name",
+            CaptureError::MissingDistinctId => "no_distinct_id",
+            CaptureError::InvalidCookielessMode => "invalid_cookieless",
+            CaptureError::MissingSnapshotData => "no_snapshot",
+            CaptureError::MissingSessionId => "no_session_id",
+            CaptureError::MissingWindowId => "no_window_id",
+            CaptureError::InvalidSessionId => "invalid_session",
+            CaptureError::NoTokenError => "no_token",
+            CaptureError::MultipleTokensError => "multiple_tokens",
+            CaptureError::TokenValidationError(_) => "invalid_token",
+            CaptureError::RetryableSinkError => "retryable_sink",
+            CaptureError::EventTooBig(_) => "oversize_event",
+            CaptureError::NonRetryableSinkError => "non_retry_sink",
+            CaptureError::BillingLimit => "billing_limit",
+            CaptureError::RateLimited => "rate_limited",
+        }
+    }
+}
+
 impl IntoResponse for CaptureError {
     fn into_response(self) -> Response {
         match self {
