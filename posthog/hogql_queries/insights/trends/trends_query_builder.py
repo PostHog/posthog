@@ -128,7 +128,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         date_from_start_of_interval_for_addition = (
             ast.Call(name="toDate", args=[self.query_date_range.date_from_as_hogql()])
             if self.query_date_range.interval_name == "day"
-            else self.query_date_range.date_from_start_of_interval()
+            else self.query_date_range.date_from_to_start_of_interval_hogql()
         )
 
         return parse_expr(
