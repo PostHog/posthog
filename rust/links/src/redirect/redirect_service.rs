@@ -389,7 +389,6 @@ mod tests {
     }
 
     #[tokio::test]
-
     async fn test_should_fail_when_url_exists() {
         let mut redis_client = MockRedisClient::new();
         let redirect_url = "https://example.com";

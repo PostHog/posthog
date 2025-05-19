@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::{
     extract::{Host, Path, State},
     http::StatusCode,
@@ -8,12 +6,8 @@ use axum::{
 };
 
 use crate::{
-    redirect::{
-        redirect_cache::RedisRedirectCacheManager,
-        redirect_service::{
-            ExternalRedirectService, InternalRedirectService, RedirectError, RedirectServiceTrait,
-        },
-        redis_utils::RedisRedirectKeyPrefix,
+    redirect::redirect_service::{
+        ExternalRedirectService, InternalRedirectService, RedirectError, RedirectServiceTrait,
     },
     router::AppState,
     utils::generator::generate_base62_string,
@@ -26,10 +20,7 @@ pub async fn internal_redirect_url(
 ) -> impl IntoResponse {
     let redirect_service = InternalRedirectService::new(
         state.db_reader_client.clone(),
-        Arc::new(RedisRedirectCacheManager::new(
-            state.internal_redis_client.clone(),
-            RedisRedirectKeyPrefix::Internal,
-        )),
+        state.internal_link_cache.clone(),
     );
     match redirect_service.redirect_url(&short_code, &hostname).await {
         Ok(redirect_url) => {
@@ -57,10 +48,7 @@ pub async fn external_redirect_url(
     let host = lowcase_host.strip_prefix("www.").unwrap_or(&lowcase_host);
 
     let redirect_service = ExternalRedirectService::new(
-        Arc::new(RedisRedirectCacheManager::new(
-            state.external_redis_client.clone(),
-            RedisRedirectKeyPrefix::External,
-        )),
+        state.external_link_cache.clone(),
         state.default_domain_for_public_store.clone(),
     );
 
@@ -107,10 +95,7 @@ pub async fn external_store_url(
 ) -> impl IntoResponse {
     let short_string = generate_base62_string();
     let redirect_service = ExternalRedirectService::new(
-        Arc::new(RedisRedirectCacheManager::new(
-            state.external_redis_client.clone(),
-            RedisRedirectKeyPrefix::External,
-        )),
+        state.external_link_cache.clone(),
         state.default_domain_for_public_store.clone(),
     );
 

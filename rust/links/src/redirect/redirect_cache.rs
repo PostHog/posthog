@@ -151,21 +151,14 @@ impl RedirectCacheManager for RedisRedirectCacheManager {
         {
             Ok(true) => {
                 // Cache locally
-                self.local_cache
-                    .insert(cache_key.clone(), redirect_url.clone())
-                    .await;
+                self.local_cache.insert(cache_key, redirect_url).await;
                 Ok(())
             }
             Ok(false) => Err(RedirectError::InvalidOperation(
                 "URL already exists".to_string(),
             )),
             Err(e) => Err(RedirectError::from(e)),
-        }?;
-
-        // Cache locallys
-        self.local_cache.insert(cache_key, redirect_url).await;
-
-        Ok(())
+        }
     }
 }
 
