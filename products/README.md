@@ -10,7 +10,7 @@ This is the (future) home for all PostHog products ([RFC](https://github.com/Pos
 - Each product has a few required files / folders:
   - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` on build.
   - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
-  - `__init__.py` - marks the directory as a python pacakge, needed if you include the backend.
+  - `__init__.py` - marks the directory as a python package, needed if you include the backend.
   - `frontend/` - React frontend code. We run prettier/eslint only on files in the `frontend` folder on commit.
   - `backend/` - Python backend code. It's treated as a separate django app. 
 
@@ -24,7 +24,7 @@ This is the (future) home for all PostHog products ([RFC](https://github.com/Pos
   - NOTE: if you want to add a link to the old pre-project-tree navbar, do so manually in `frontend/src/layout/navigation-3000/navigationLogic.tsx` 
 - Create a `package.json` file:
   - Keep the package name as `@posthog/products-your-product-name`. Include `@posthog/products-` in the name.
-  - Update the global `frontend/pacakge.json`: add your new npm pacakge under `dependencies`.
+  - Update the global `frontend/package.json`: add your new npm package under `dependencies`.
   - If your scenes are linked up with the right paths, things should just work.
   - Each scene can either export a React component as its default export, or define a `export const scene: SceneExport = { logic, component }` object to export both a logic and a component. This way the logic stays mounted when you move away from the page. This is useful if you don't want to reload everything each time the scene is loaded.
 - Create a `__init__.py` file if your product has python backend code.
