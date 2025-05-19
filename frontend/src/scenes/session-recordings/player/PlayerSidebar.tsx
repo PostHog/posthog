@@ -6,7 +6,6 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
 import { useRef } from 'react'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
@@ -14,6 +13,14 @@ import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/t
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
+
+const tabLabels: Record<SessionRecordingSidebarTab, string> = {
+    [SessionRecordingSidebarTab.OVERVIEW]: 'Overview',
+    [SessionRecordingSidebarTab.INSPECTOR]: 'Inspector',
+    [SessionRecordingSidebarTab.NETWORK_WATERFALL]: 'Network waterfall',
+    [SessionRecordingSidebarTab.DEBUGGER]: 'Debugger',
+    [SessionRecordingSidebarTab.SESSION_SUMMARY]: 'AI summary',
+}
 
 export function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
@@ -83,7 +90,7 @@ export function PlayerSidebar(): JSX.Element {
                             onChange={(tabId) => setTab(tabId)}
                             tabs={sidebarTabs.map((tabId) => ({
                                 key: tabId,
-                                label: capitalizeFirstLetter(splitKebabCase(tabId)),
+                                label: tabLabels[tabId],
                             }))}
                             barClassName="!mb-0"
                             size="small"
