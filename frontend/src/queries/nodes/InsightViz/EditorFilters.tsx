@@ -381,7 +381,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     name="create_and_query_insight"
                     displayName="Edit insight"
                     context={{
-                        current_schema: querySource,
+                        current_query: querySource,
                     }}
                     callback={(
                         toolOutput:

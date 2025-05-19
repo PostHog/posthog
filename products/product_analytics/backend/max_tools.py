@@ -39,16 +39,14 @@ class EditCurrentInsightTool(MaxTool):
         "Update the insight the user is currently working on, based on the current insight's JSON schema."
     )
     thinking_message: str = "Editing your insight"
-    root_system_prompt_template: str = (
-        "The user is currently editing an insight with this JSON schema: {current_schema}"
-    )
+    root_system_prompt_template: str = "The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n```json\n{current_query}\n```"
     args_schema: type[BaseModel] = EditCurrentInsightArgs
 
     def _run_impl(self, query_kind: str, query_description: str) -> tuple[str, None]:
         from ee.hogai.graph.graph import InsightsAssistantGraph  # avoid circular import
 
-        if "current_schema" not in self.context:
-            raise ValueError("Context `current_schema` is required for the `create_and_query_insight` tool")
+        if "current_query" not in self.context:
+            raise ValueError("Context `current_query` is required for the `create_and_query_insight` tool")
 
         team = Team.objects.get(id=self._team_id)
         graph = InsightsAssistantGraph(team).compile_full_graph()
