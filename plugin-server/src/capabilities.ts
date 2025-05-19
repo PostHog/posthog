@@ -19,7 +19,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
-                cdpLegacyOnEvent: true,
+                // cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
                 cdpCyclotronWorkerFetch: true,

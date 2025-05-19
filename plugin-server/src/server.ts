@@ -228,6 +228,7 @@ export class PluginServer {
 
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
+                    await initPlugins()
                     const consumer = new CdpLegacyEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
