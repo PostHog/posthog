@@ -1,4 +1,4 @@
-import { IconCode, IconCopy } from '@posthog/icons'
+import { IconCode, IconCopy, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -216,7 +216,7 @@ function _SurveyResponseFilters(): JSX.Element {
                 <LemonButton
                     size="small"
                     type="secondary"
-                    icon={<IconCode />}
+                    icon={<IconRefresh />}
                     onClick={handleResetFilters}
                     className="self-start"
                 >
