@@ -87,3 +87,54 @@ test('event properties are empty when no properties are given', () => {
     expect(event.properties).not.toHaveProperty('$set')
     expect(event.properties).not.toHaveProperty('foo')
 })
+
+const geoProperties = {
+    properties: {
+        $latitude: 40.7128,
+        $longitude: -74.006,
+        $geoip_latitude: 40.7128,
+        $geoip_longitude: -74.006,
+        $set: {
+            $geoip_latitude: 40.7128,
+            $geoip_longitude: -74.006,
+            geoip_latitude: 40.7128,
+            geoip_longitude: -74.006,
+        },
+        $set_once: {
+            $initial_geoip_latitude: 40.7128,
+            $initial_geoip_longitude: -74.006,
+        },
+        other_prop: 'should remain',
+    },
+}
+
+test('geo properties are filtered', () => {
+    const geoGlobal = {
+        propertiesToFilter: [
+            '$latitude',
+            '$longitude',
+            '$geoip_latitude',
+            '$geoip_longitude',
+            '$set.$geoip_latitude',
+            '$set.$geoip_longitude',
+            '$set.geoip_latitude',
+            '$set.geoip_longitude',
+            '$set_once.$initial_geoip_latitude',
+            '$set_once.$initial_geoip_longitude',
+        ],
+    }
+    const geoMeta = { ...meta, global: geoGlobal }
+    const event = processEvent(createEvent(geoProperties), geoMeta)
+
+    expect(event.properties).not.toHaveProperty('$latitude')
+    expect(event.properties).not.toHaveProperty('$longitude')
+    expect(event.properties).not.toHaveProperty('$geoip_latitude')
+    expect(event.properties).not.toHaveProperty('$geoip_longitude')
+    expect(event.properties.$set).not.toHaveProperty('$geoip_latitude')
+    expect(event.properties.$set).not.toHaveProperty('$geoip_longitude')
+    expect(event.properties.$set).not.toHaveProperty('geoip_latitude')
+    expect(event.properties.$set).not.toHaveProperty('geoip_longitude')
+    expect(event.properties.$set_once).not.toHaveProperty('$initial_geoip_latitude')
+    expect(event.properties.$set_once).not.toHaveProperty('$initial_geoip_longitude')
+    expect(event.properties).toHaveProperty('other_prop', 'should remain')
+})
