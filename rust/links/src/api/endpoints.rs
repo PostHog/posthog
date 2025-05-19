@@ -15,14 +15,22 @@ use crate::{
 
 pub async fn internal_redirect_url(
     state: State<AppState>,
-    Host(hostname): Host,
+    Host(host): Host,
     Path(short_code): Path<String>,
 ) -> impl IntoResponse {
+    let host = lowcase_host.strip_prefix("www.").unwrap_or(&lowcase_host);
     let redirect_service = InternalRedirectService::new(
         state.db_reader_client.clone(),
         state.internal_redis_client.clone(),
     );
-    match redirect_service.redirect_url(&short_code, &hostname).await {
+
+    // This needs to be removed once we have a proper domain setup
+    let short_link_domain = match host {
+        "eu.posthog.com" => "eu.posthog.com/redirect",
+        _ => host,
+    };
+
+    match redirect_service.redirect_url(&short_code, &host).await {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
             (
@@ -52,7 +60,16 @@ pub async fn external_redirect_url(
         state.default_domain_for_public_store.clone(),
     );
 
-    match redirect_service.redirect_url(&short_code, host).await {
+    // This needs to be removed once we have a proper domain setup
+    let short_link_domain = match host {
+        "eu.posthog.com" => "eu.posthog.com/redirect",
+        _ => host,
+    };
+
+    match redirect_service
+        .redirect_url(&short_code, short_link_domain)
+        .await
+    {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
             (
