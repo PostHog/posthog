@@ -1,5 +1,5 @@
-import { IconX } from '@posthog/icons'
-import { Popover, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { IconWarning } from '@posthog/icons'
+import { Popover, Spinner } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -17,7 +17,7 @@ export const ExplainCSPViolationButton = ({
 }: ExplainCSPViolationButtonProps): JSX.Element => {
     const [loading, setLoading] = useState(false)
     const [isOpen, setIsOpen] = useState(false)
-    const [result, setResult] = useState({})
+    const [result, setResult] = useState<JSX.Element | null>(null)
 
     const handleClick = async (): Promise<void> => {
         setLoading(true)
@@ -25,11 +25,23 @@ export const ExplainCSPViolationButton = ({
         try {
             const r = await api.cspReporting.explain(properties)
             if (r) {
-                setResult(<LemonMarkdown>{r.response}</LemonMarkdown>)
+                setResult(
+                    <div className="CodeSnippet__no-wrap">
+                        <LemonMarkdown wrapCode={true}>{r.response}</LemonMarkdown>
+                        <div className="flex items-center mt-2 p-2 border border-border-light rounded bg-bg-light">
+                            <IconWarning className="text-warning-dark flex-shrink-0 mr-2" />
+                            <span className="text-xs text-muted">
+                                Security advice from robots should always be double-checked by humans
+                            </span>
+                        </div>
+                    </div>
+                )
             } else {
-                setResult(<div className="flex items-center justify-center min-h-40 gap-4 text-l">
-                    Sorry! We failed to get a CSP explanation. Please try again later
-            </div>)
+                setResult(
+                    <div className="flex items-center justify-center min-h-40 gap-4 text-l">
+                        Sorry! We failed to get a CSP explanation. Please try again later
+                    </div>
+                )
             }
         } finally {
             setLoading(false)
@@ -41,28 +53,16 @@ export const ExplainCSPViolationButton = ({
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <div className="p-4 min-w-140 max-w-140 min-h-40 max-h-80 overflow-auto">
-                    <div className="flex items-center justify-between mb-2 border-b pb-2">
-                        {/** We're not a MaxTool... yet */}
-                        <ProfilePicture
-                            user={{ hedgehog_config: { use_as_profile: true } }}
-                            size="md"
-                            className="border bg-bg-light"
-                        />
-                        <h5 className="font-semibold m-0">CSP Violation Explanation</h5>
-                        <LemonButton
-                            type="tertiary"
-                            onClick={() => setIsOpen(false)}
-                            size="small"
-                            icon={<IconX />}
-                            className="ml-2"
-                        />
-                    </div>
-
-                    {loading ?
+                <div className="p-4 min-w-160 max-w-200 min-h-40 max-h-160">
+                    {loading ? (
                         <div className="flex items-center justify-center min-h-40 gap-4">
-                            <div className="text-l"><Spinner /> Thinking about security sheeps </div>
-                        </div> : result}
+                            <div className="text-l">
+                                <Spinner /> The security hogs are sniffing the violation{' '}
+                            </div>
+                        </div>
+                    ) : (
+                        result
+                    )}
                 </div>
             }
         >
