@@ -18,7 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeNew, getDefaultTreeProducts } from './defaultTree'
+import { getDefaultTreeGames, getDefaultTreeNew, getDefaultTreeProducts } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
@@ -903,6 +903,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: getDefaultTreeProducts().filter(
+                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
+                    ),
+                    checkedItems: {},
+                    folderStates,
+                    root: 'explore',
+                    users,
+                    foldersFirst: false,
+                }),
+        ],
+        treeItemsGames: [
+            (s) => [s.featureFlags, s.folderStates, s.users],
+            (featureFlags, folderStates, users): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem({
+                    imports: getDefaultTreeGames().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
                     ),
                     checkedItems: {},
