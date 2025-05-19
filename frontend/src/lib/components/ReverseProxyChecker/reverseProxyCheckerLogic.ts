@@ -31,9 +31,8 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                                 WHERE timestamp >= now() - INTERVAL 1 DAY 
                                 AND timestamp <= now()
                                 AND properties.$lib_custom_api_host IS NOT NULL
-                                AND event = '$pageview'
-                                ORDER BY timestamp DESC
-                                limit 10`,
+                                AND event IN ('$pageview', '$screen')
+                                LIMIT 10`,
                     }
 
                     const res = await api.query(query)
