@@ -71,7 +71,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/links': ['Links', 'links'],
-    '/link': ['Link', 'link'],
+    '/link/:id': ['Link', 'link'],
     '/llm-observability': ['LLMObservability', 'llmObservability'],
     '/llm-observability/dashboard': ['LLMObservability', 'llmObservabilityDashboard'],
     '/llm-observability/generations': ['LLMObservability', 'llmObservabilityGenerations'],

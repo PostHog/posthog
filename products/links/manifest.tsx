@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/links': ['Links', 'links'],
-        '/link': ['Link', 'link'],
+        '/link/:id': ['Link', 'link'],
     },
     urls: {
         links: (): string => '/links',
