@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     distinct_id VARCHAR,
     min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+    -- session recording v2 blocks
+    block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+    block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+    block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
     -- store the first url of the session so we can quickly show that in playlists
     first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
     -- but also store each url so we can query by visited page without having to scan all events

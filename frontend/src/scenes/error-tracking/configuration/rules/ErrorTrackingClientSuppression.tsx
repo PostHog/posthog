@@ -23,11 +23,11 @@ export function ErrorTrackingClientSuppression(): JSX.Element {
                             <ErrorTrackingRules.Filters
                                 rule={rule}
                                 editable={editable}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]}
-                                excludedProperties={{
-                                    [TaxonomicFilterGroupType.ErrorTrackingIssueProperties]: [
-                                        '$exception_sources',
-                                        '$exception_functions',
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                propertyAllowList={{
+                                    [TaxonomicFilterGroupType.EventProperties]: [
+                                        '$exception_types',
+                                        '$exception_values',
                                     ],
                                 }}
                             />

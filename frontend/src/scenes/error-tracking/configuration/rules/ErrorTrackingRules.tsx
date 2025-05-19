@@ -112,8 +112,8 @@ const Filters = ({
     rule,
     editable,
     taxonomicGroupTypes,
-    excludedProperties,
-}: {
+    ...props
+}: Pick<PropertyFiltersProps, 'taxonomicGroupTypes' | 'propertyAllowList'> & {
     rule: ErrorTrackingRule
     editable: boolean
     taxonomicGroupTypes: PropertyFiltersProps['taxonomicGroupTypes']
@@ -134,7 +134,7 @@ const Filters = ({
             propertyGroupType={rule.filters.type}
             hasRowOperator={false}
             disablePopover
-            excludedProperties={excludedProperties}
+            {...props}
         />
     )
 }

@@ -23,10 +23,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                         <LemonDivider className="my-0" />
                         <div className="p-2">
                             <ErrorTrackingRules.Filters
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
-                                    TaxonomicFilterGroupType.EventProperties,
-                                ]}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                 rule={rule}
                                 editable={editable}
                             />

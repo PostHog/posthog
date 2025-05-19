@@ -4,11 +4,13 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonLabel,
     LemonModal,
     LemonSelect,
     LemonSkeleton,
     LemonTag,
     LemonTagType,
+    LemonTextArea,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -39,11 +41,12 @@ import {
     AnyPropertyFilter,
     Experiment,
     Experiment as ExperimentType,
+    ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
 } from '~/types'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
@@ -276,11 +279,11 @@ export function PageHeaderCustom(): JSX.Element {
     } = useValues(experimentLogic)
     const {
         launchExperiment,
-        endExperiment,
         archiveExperiment,
         createExposureCohort,
         openShipVariantModal,
         createExperimentDashboard,
+        openStopExperimentModal,
     } = useActions(experimentLogic)
 
     const exposureCohortId = experiment?.exposure_cohort
@@ -338,28 +341,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     type="secondary"
                                     data-attr="stop-experiment"
                                     status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Stop this experiment?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action will end data collection. The experiment can be
-                                                    restarted later if needed.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Stop',
-                                                type: 'primary',
-                                                onClick: () => endExperiment(),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
+                                    onClick={() => openStopExperimentModal()}
                                 >
                                     Stop
                                 </LemonButton>
@@ -409,6 +391,155 @@ export function PageHeaderCustom(): JSX.Element {
                 </>
             }
         />
+    )
+}
+
+export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment } = useValues(experimentLogic({ experimentId }))
+    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <LemonLabel>Conclusion</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    dropdownMaxContentWidth={true}
+                    value={experiment.conclusion}
+                    options={Object.values(ExperimentConclusion).map((conclusion) => ({
+                        value: conclusion,
+                        label: (
+                            <div className="py-2 px-1">
+                                <div className="font-semibold mb-1.5">
+                                    <div className="font-semibold flex items-center gap-2">
+                                        <div
+                                            className={clsx(
+                                                'w-2 h-2 rounded-full',
+                                                CONCLUSION_DISPLAY_CONFIG[conclusion].color
+                                            )}
+                                        />
+                                        <span>{CONCLUSION_DISPLAY_CONFIG[conclusion].title}</span>
+                                    </div>
+                                </div>
+                                <div className="text-xs text-muted">
+                                    {CONCLUSION_DISPLAY_CONFIG[conclusion].description}
+                                </div>
+                            </div>
+                        ),
+                    }))}
+                    onChange={(value) => {
+                        setExperiment({
+                            conclusion: value || undefined,
+                        })
+                    }}
+                />
+            </div>
+            <div>
+                <LemonLabel>Comment (optional)</LemonLabel>
+                <LemonTextArea
+                    className="w-full border rounded p-2"
+                    minRows={6}
+                    maxLength={400}
+                    placeholder="Optional details about why this conclusion was selected..."
+                    value={experiment.conclusion_comment || ''}
+                    onChange={(value) =>
+                        setExperiment({
+                            conclusion_comment: value,
+                        })
+                    }
+                />
+            </div>
+        </div>
+    )
+}
+
+export function EditConclusionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, isEditConclusionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeEditConclusionModal, updateExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+
+    return (
+        <LemonModal
+            isOpen={isEditConclusionModalOpen}
+            onClose={closeEditConclusionModal}
+            title="Edit conclusion"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => {
+                            restoreUnmodifiedExperiment()
+                            closeEditConclusionModal()
+                        }}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => {
+                            updateExperiment({
+                                conclusion: experiment.conclusion,
+                                conclusion_comment: experiment.conclusion_comment,
+                            })
+                            closeEditConclusionModal()
+                        }}
+                        type="primary"
+                        disabledReason={!experiment.conclusion && 'Select a conclusion'}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            }
+        >
+            <ConclusionForm experimentId={experimentId} />
+        </LemonModal>
+    )
+}
+
+export function StopExperimentModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, isStopExperimentModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeStopExperimentModal, endExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+
+    return (
+        <LemonModal
+            isOpen={isStopExperimentModalOpen}
+            onClose={() => {
+                restoreUnmodifiedExperiment()
+                closeStopExperimentModal()
+            }}
+            title="Stop experiment"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => {
+                            restoreUnmodifiedExperiment()
+                            closeStopExperimentModal()
+                        }}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => endExperiment()}
+                        type="primary"
+                        disabledReason={!experiment.conclusion && 'Select a conclusion'}
+                    >
+                        Stop experiment
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div>
+                <div className="mb-2">
+                    Stopping the experiment will end data collection. You can restart it later if needed.
+                </div>
+                <ConclusionForm experimentId={experimentId} />
+            </div>
+        </LemonModal>
     )
 }
 

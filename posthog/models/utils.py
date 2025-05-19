@@ -225,6 +225,15 @@ def generate_random_token_secret() -> str:
     return "phs_" + generate_random_token(35)  # "s" standing for "secret"
 
 
+def mask_key_value(value: str) -> str:
+    """Turn 'phx_123456abcd' into 'phx_...abcd'."""
+    if len(value) < 16:
+        # If the token is less than 16 characters, mask the whole token.
+        # This should never happen, but want to be safe.
+        return "********"
+    return f"{value[:4]}...{value[-4:]}"
+
+
 def int_to_base(number: int, base: int) -> str:
     if base > 62:
         raise ValueError("Cannot convert integer to base above 62")
