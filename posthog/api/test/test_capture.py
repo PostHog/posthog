@@ -2422,7 +2422,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp?token={self.team.api_token}",
+            f"/report?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
