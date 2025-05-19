@@ -54,6 +54,9 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             })
         )
 
+        // NOTE: We _could_ consider moving this to a background task to improve throughput with a max concurrency of 2 for example
+        // but we should avoid it if possible
+
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.resolve(),
