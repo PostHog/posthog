@@ -291,7 +291,7 @@ jobs:
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
-                    optipng -clobber -o4 -strip all
+                    optipng -clobber -o4 -strip all frontend/__snapshots__/*.png
 
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
@@ -308,9 +308,9 @@ jobs:
                     if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                         echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
                         git add frontend/__snapshots__/ playwright/
-                        snapshots_changed_now=($(git diff --name-only HEAD))
+                        snapshots_changed_now=$(git diff --name-only HEAD)
                         last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
-                        for snapshot_path in "${snapshots_changed_now[@]}"; do
+                        for snapshot_path in $snapshots_changed_now; do
                             number_of_times_snapshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
                             if [ "$number_of_times_snapshot_has_changed_since_last_human_commit" -gt 0 ]; then
                                 PATHS_FLAPPING+=($snapshot_path)
@@ -323,12 +323,12 @@ jobs:
                   echo "Modified: $MODIFIED"
                   echo "Deleted: $DELETED"
                   echo "Total: $TOTAL"
-                  echo "Paths flapping: $PATHS_FLAPPING"
+                  echo "Paths flapping: ${PATHS_FLAPPING[*]}"
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
-                  echo "${{ matrix.browser }}-${{ matrix.shard }}-pathsFlapping=$PATHS_FLAPPING" >> $GITHUB_OUTPUT
+                  echo "${{ matrix.browser }}-${{ matrix.shard }}-pathsFlapping=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
                   echo
 
             - name: Commit updated snapshots
