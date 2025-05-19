@@ -1915,6 +1915,80 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertIn("not_a_field", str(response.content))
 
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_seq_event_types(self, patch_capture):
+        # Test with string seq_event
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with string seq_event",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "seq_event": "reauthentication_completed",
+                                "seq_event_type": "events",
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        # Test with integer seq_event (action ID)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with integer seq_event",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "seq_event": 1,  # action ID
+                                "seq_event_type": "actions",
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        # Test with null seq_event
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with null seq_event",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "seq_event": None,
+                                "seq_event_type": None,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
     def test_create_cohort_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -1937,6 +2011,53 @@ email@example.org,
         assert (
             "Special Folder/Cohorts" in fs_entry.path
         ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_with_hogql_event_filter_and_null_value(self, patch_capture):
+        payload = {
+            "name": "Cohort with HogQL Event Filter and Null Value",
+            "filters": {
+                "properties": {  # CohortFilters.properties -> Group
+                    "type": "OR",
+                    "values": [  # Group.values -> list[Union[PropertyFilter, Group]]
+                        {
+                            "type": "OR",  # Inner Group
+                            "values": [
+                                {  # PropertyFilter -> BehavioralFilter
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "key": "PaymentSuccess",
+                                    "event_type": "events",
+                                    "event_filters": [  # BehavioralFilter.event_filters
+                                        {
+                                            "key": "to_date(timestamp) = current_date() - INTERVAL '3 days'",
+                                            "type": "hogql",  # HogQLFilter
+                                            "value": None,  # Testing this null value
+                                        },
+                                        {
+                                            "key": "planId",
+                                            "type": "event",  # EventPropFilter
+                                            "value": ["UPSC26STARTERV1"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                    "explicit_datetime": "-30d",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data=payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        cohort_data = response.json()
+        self.assertIsNotNone(cohort_data.get("id"))
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

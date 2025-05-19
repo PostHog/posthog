@@ -14,6 +14,7 @@ from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
 )
+from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE
 
 logger = structlog.get_logger(__name__)
 
@@ -236,12 +237,12 @@ class HogFunctionTemplate(UUIDModel):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
 
         # Determine code_language type (default to hog if not present)
-        code_language = getattr(dataclass_template, "code_language", "hog")
+        code_language = "javascript" if dataclass_template.type in TYPES_WITH_JAVASCRIPT_SOURCE else "hog"
 
         # Calculate sha based on content hash
         template_dict = {
             "id": dataclass_template.id,
-            "code": dataclass_template.hog,  # still using hog for now
+            "code": dataclass_template.hog,
             "code_language": code_language,
             "inputs_schema": dataclass_template.inputs_schema,
             "status": dataclass_template.status,

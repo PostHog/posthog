@@ -336,7 +336,18 @@
          COUNT() as count
   FROM events
   WHERE event = 'survey sent'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+         AND event = 'survey sent'
+       GROUP BY team_id,
+                JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY team_id
   '''
 # ---

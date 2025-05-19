@@ -6,7 +6,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
+import {
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    SurveyEventName,
+} from '~/types'
 
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -340,7 +346,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             )
         },
         reportSurveyShown: ({ surveyID }) => {
-            posthog.capture('survey shown', {
+            posthog.capture(SurveyEventName.SHOWN, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID(surveyID)
@@ -351,14 +357,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             // $survey_response_1: this is the product type
             // $survey_response_2: list of reasons
             // The order is due to the form being built before reasons we're supported. Please do not change the order.
-            posthog.capture('survey sent', {
+            posthog.capture(SurveyEventName.SENT, {
                 $survey_id: surveyID,
                 ...surveyResponse,
             })
             actions.setSurveyID('')
         },
         reportSurveyDismissed: ({ surveyID }) => {
-            posthog.capture('survey dismissed', {
+            posthog.capture(SurveyEventName.DISMISSED, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')

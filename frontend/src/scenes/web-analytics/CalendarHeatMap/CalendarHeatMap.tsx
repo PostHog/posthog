@@ -1,19 +1,17 @@
 import './CalendarHeatMap.scss'
 
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
-import { QueryContext } from '~/queries/types'
 
 import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
+
 export interface CalendarHeatMapProps {
-    context: QueryContext
     isLoading: boolean
-    queryId: string | null
     rowLabels: string[]
     columnLabels: string[]
     allAggregationsLabel: string
@@ -30,6 +28,10 @@ export interface CalendarHeatMapProps {
     getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string
     getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string
     getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string
+    showRowAggregations?: boolean
+    showColumnAggregations?: boolean
+    getOnClickTooltip?: (colIndex: number, rowIndex?: number) => string
+    onClick?: (colIndex: number, rowIndex?: number) => void
 }
 
 interface ProcessedData {
@@ -46,7 +48,6 @@ interface ProcessedData {
 }
 
 export function CalendarHeatMap({
-    context,
     backgroundColorsOverride,
     initialFontSize,
     thresholdFontSize,
@@ -54,12 +55,15 @@ export function CalendarHeatMap({
     columnLabels,
     allAggregationsLabel,
     isLoading,
-    queryId,
     processedData,
     getDataTooltip,
     getColumnAggregationTooltip,
     getRowAggregationTooltip,
     getOverallAggregationTooltip,
+    showRowAggregations = true,
+    showColumnAggregations = true,
+    getOnClickTooltip,
+    onClick,
 }: CalendarHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
@@ -90,14 +94,6 @@ export function CalendarHeatMap({
         updateSize()
     }, [elementRef, updateSize])
 
-    if (isLoading) {
-        return (
-            <InsightsWrapper>
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
-            </InsightsWrapper>
-        )
-    }
-
     const {
         matrix,
         maxOverall,
@@ -117,73 +113,126 @@ export function CalendarHeatMap({
                 className="CalendarHeatMap"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--heatmap-table-color': heatmapColor } as React.CSSProperties}
+                data-attr="calendar-heatmap"
             >
-                <tbody>
-                    {/* Header row */}
-                    <tr>
-                        <th className="bg" />
-                        {columnLabels.map((label, i) => (
-                            <th key={i}>{label}</th>
-                        ))}
-                        {rowsAggregations[0] !== undefined && (
-                            <th className="aggregation-border">{allAggregationsLabel}</th>
-                        )}
-                    </tr>
-
-                    {/* Data rows */}
-                    {rowLabels.map((rowLabel, yIndex) => (
-                        <tr key={yIndex}>
-                            <td className="CalendarHeatMap__TextTab">{rowLabel}</td>
-                            {renderDataCells(
-                                columnLabels,
-                                matrix[yIndex],
-                                maxOverall,
-                                minOverall,
-                                rowLabel,
-                                fontSize,
-                                heatmapColor,
-                                getDataTooltip
-                            )}
-                            {renderRowsAggregationCell(
-                                {
-                                    value: rowsAggregations[yIndex],
-                                    maxValue: maxRowAggregation,
-                                    minValue: minRowAggregation,
-                                },
-                                rowLabel,
-                                fontSize,
-                                rowAggregationColor,
-                                allAggregationsLabel,
-                                getRowAggregationTooltip
+                {isLoading ? (
+                    <LoadingRow />
+                ) : (
+                    <thead>
+                        <tr>
+                            <th className="bg" />
+                            {columnLabels.map((label, i) => {
+                                const headerContents = onClick ? (
+                                    <Tooltip title={getOnClickTooltip ? getOnClickTooltip(i) : ''} delayMs={100}>
+                                        {label}
+                                    </Tooltip>
+                                ) : (
+                                    label
+                                )
+                                return (
+                                    <th
+                                        key={i}
+                                        className={cn(onClick ? 'rounded cursor-pointer hover:bg-highlight' : '')}
+                                        onClick={
+                                            onClick
+                                                ? () => {
+                                                      onClick(i)
+                                                  }
+                                                : undefined
+                                        }
+                                    >
+                                        {headerContents}
+                                    </th>
+                                )
+                            })}
+                            {rowsAggregations?.[0] !== undefined && showRowAggregations && (
+                                <th className="aggregation-border">{allAggregationsLabel}</th>
                             )}
                         </tr>
-                    ))}
+                    </thead>
+                )}
+                {isLoading ? (
+                    <LoadingRow />
+                ) : (
+                    <tbody>
+                        {/* Data rows */}
+                        {rowLabels.map((rowLabel, rowIndex) => (
+                            <tr key={rowIndex}>
+                                <td className="CalendarHeatMap__TextTab">{rowLabel}</td>
+                                {renderDataCells(
+                                    columnLabels,
+                                    matrix[rowIndex],
+                                    maxOverall,
+                                    minOverall,
+                                    rowLabel,
+                                    fontSize,
+                                    heatmapColor,
+                                    getDataTooltip,
+                                    onClick && getOnClickTooltip
+                                        ? (colIndex: number) => getOnClickTooltip?.(colIndex, rowIndex)
+                                        : undefined,
+                                    onClick ? (colIndex: number) => onClick(colIndex, rowIndex) : undefined
+                                )}
+                                {showRowAggregations &&
+                                    renderRowsAggregationCell(
+                                        {
+                                            value: rowsAggregations[rowIndex],
+                                            maxValue: maxRowAggregation,
+                                            minValue: minRowAggregation,
+                                        },
+                                        rowLabel,
+                                        fontSize,
+                                        rowAggregationColor,
+                                        allAggregationsLabel,
+                                        getRowAggregationTooltip
+                                    )}
+                            </tr>
+                        ))}
 
-                    {/* Aggregation column */}
-                    <tr className="aggregation-border">
-                        {columnsAggregations[0] !== undefined && (
-                            <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
+                        {/* Aggregation column */}
+                        {showColumnAggregations && (
+                            <tr className="aggregation-border" data-attr="column-aggregations">
+                                {columnsAggregations?.[0] !== undefined && (
+                                    <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
+                                )}
+                                {renderColumnsAggregationCells(
+                                    columnsAggregations,
+                                    columnLabels,
+                                    maxColumnAggregation,
+                                    minColumnAggregation,
+                                    fontSize,
+                                    columnAggregationColor,
+                                    allAggregationsLabel,
+                                    getColumnAggregationTooltip
+                                )}
+                                {showColumnAggregations &&
+                                    showRowAggregations &&
+                                    renderOverallCell(
+                                        overallValue,
+                                        fontSize,
+                                        backgroundColorOverall,
+                                        allAggregationsLabel,
+                                        getOverallAggregationTooltip
+                                    )}
+                            </tr>
                         )}
-                        {renderColumnsAggregationCells(
-                            columnsAggregations,
-                            columnLabels,
-                            maxColumnAggregation,
-                            minColumnAggregation,
-                            fontSize,
-                            columnAggregationColor,
-                            allAggregationsLabel,
-                            getColumnAggregationTooltip
-                        )}
-                        {renderOverallCell(
-                            overallValue,
-                            fontSize,
-                            backgroundColorOverall,
-                            allAggregationsLabel,
-                            getOverallAggregationTooltip
-                        )}
-                    </tr>
-                </tbody>
+                    </tbody>
+                )}
             </table>
+        </div>
+    )
+}
+
+function LoadingRow({ cellCount = 14 }: { cellCount?: number }): JSX.Element {
+    return (
+        <div className="flex items-center justify-center min-h-8 p-0.5 m-0.5">
+            <div className="flex gap-1">
+                {Array(cellCount)
+                    .fill(0)
+                    .map((_, i) => (
+                        <LemonSkeleton key={i} className="h-8 w-8 rounded" />
+                    ))}
+            </div>
         </div>
     )
 }
@@ -265,19 +314,27 @@ function renderDataCells(
     rowLabel: string,
     fontSize: number,
     bg: string,
-    getDataTooltip: (rowLabel: string, columnLabel: string, value: number) => string
+    getDataTooltip: (rowLabel: string, columnLabel: string, value: number) => string,
+    // on click and getonClickToolTip don't take params here to avoid having to pass more info down
+    getOnClickTooltip?: (colIndex: number) => string,
+    onClick?: (colIndex: number) => void
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
             <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
-                    value: rowData[index],
+                    value: rowData?.[index] ?? 0,
                     maxValue,
                     minValue,
                 }}
                 bg={bg}
-                tooltip={getDataTooltip(rowLabel, columnLabel, rowData[index])}
+                tooltip={
+                    onClick && getOnClickTooltip
+                        ? getOnClickTooltip(index)
+                        : getDataTooltip(rowLabel, columnLabel, rowData?.[index] ?? 0)
+                }
+                onClick={onClick ? () => onClick(index) : undefined}
             />
         </td>
     ))

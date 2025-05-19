@@ -9,11 +9,20 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonPropsBase,
+    LemonInput,
+    LemonSkeleton,
+    ProfilePicture,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
@@ -31,6 +40,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
+import { ProductKey } from '~/types'
 
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -45,13 +55,66 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { threadGrouped } = useValues(maxLogic)
+    const { threadGrouped, conversationLoading, conversationId } = useValues(maxLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
-            {threadGrouped.map((group, index) => (
-                <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
-            ))}
+            {conversationLoading ? (
+                <>
+                    <MessageGroupSkeleton groupType="human" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-80" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-65" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-40" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-20" />
+                    <MessageGroupSkeleton groupType="ai" className="opacity-10" />
+                    <MessageGroupSkeleton groupType="human" className="opacity-5" />
+                </>
+            ) : threadGrouped.length > 0 ? (
+                threadGrouped.map((group, index) => (
+                    <MessageGroup
+                        key={index}
+                        messages={group}
+                        index={index}
+                        isFinal={index === threadGrouped.length - 1}
+                    />
+                ))
+            ) : (
+                conversationId && (
+                    <div className="flex flex-1 items-center justify-center">
+                        <ProductIntroduction
+                            isEmpty
+                            productName="Max"
+                            productKey={ProductKey.MAX}
+                            thingName="message"
+                            titleOverride="Start chatting with Max"
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                            docsURL="https://posthog.com/docs/data/max-ai"
+                        />
+                    </div>
+                )
+            )}
+        </div>
+    )
+}
+
+function MessageGroupContainer({
+    groupType,
+    children,
+    className,
+}: {
+    groupType: 'human' | 'ai'
+    children: React.ReactNode
+    className?: string
+}): JSX.Element {
+    return (
+        <div
+            className={twMerge(
+                'relative flex gap-2',
+                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
+                className
+            )}
+        >
+            {children}
         </div>
     )
 }
@@ -68,12 +131,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
-        <div
-            className={clsx(
-                'relative flex gap-2',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
-            )}
-        >
+        <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
@@ -151,7 +209,22 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     </MessageTemplate>
                 )}
             </div>
-        </div>
+        </MessageGroupContainer>
+    )
+}
+
+function MessageGroupSkeleton({
+    groupType,
+    className,
+}: {
+    groupType: 'human' | 'ai'
+    className?: string
+}): JSX.Element {
+    return (
+        <MessageGroupContainer className={clsx('mb-4 items-center', className)} groupType={groupType}>
+            <LemonSkeleton className="w-8 h-8 rounded-full hidden @md/thread:flex" />
+            <LemonSkeleton className="h-10 w-3/5" />
+        </MessageGroupContainer>
     )
 }
 

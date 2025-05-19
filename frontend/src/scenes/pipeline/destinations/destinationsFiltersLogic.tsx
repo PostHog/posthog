@@ -15,7 +15,6 @@ import type { destinationsFiltersLogicType } from './destinationsFiltersLogicTyp
 export type DestinationsFilters = {
     search?: string
     kind?: PipelineBackend | null
-    sub_template?: string
     showPaused?: boolean
 }
 

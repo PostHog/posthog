@@ -611,8 +611,7 @@
     --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
-
-    // --project-panel-width: 320px;
+    --project-panel-width: 320px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
     --resizer-thickness: 8px;
 
@@ -1071,12 +1070,9 @@
             }
         }
 
-        .styled-scrollbars {
-            --scrollbar-background: transparent transparent;
-
+        .show-scrollbar-on-hover {
             scrollbar-color: transparent transparent;
             scrollbar-width: thin;
-            scrollbar-gutter: stable;
 
             &::-webkit-scrollbar {
                 width: 0.5rem;
