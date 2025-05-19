@@ -50,3 +50,6 @@ This is the (future) home for all PostHog products ([RFC](https://github.com/Pos
   - Move all operations into `state_operations = []` and keep the `database_operations = []` empty in both migrations.
   - Run and test this a few times before merging. Data loss is irreversible.
 
+## TODO:
+
+- [ ] A story for Python testing - run tests automatically, only test apps that changed, etc 
