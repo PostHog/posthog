@@ -19,6 +19,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
+                // cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
                 cdpCyclotronWorkerSegment: true,
@@ -81,6 +82,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_cyclotron_worker_fetch:
             return {
                 cdpCyclotronWorkerFetch: true,
+            }
+        case PluginServerMode.cdp_legacy_on_event:
+            return {
+                cdpLegacyOnEvent: true,
             }
         case PluginServerMode.cdp_api:
             return {

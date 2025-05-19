@@ -559,7 +559,7 @@ class FunnelBase(ABC):
 
         for cohort in self.breakdown_cohorts:
             query = parse_select(
-                f"select id as cohort_person_id, {cohort.pk} as value from persons where id in cohort {cohort.pk}"
+                f"select person_id as cohort_person_id, {cohort.pk} as value from cohort_people where person_id in cohort {cohort.pk}"
             )
             assert isinstance(query, ast.SelectQuery)
             cohort_queries.append(query)

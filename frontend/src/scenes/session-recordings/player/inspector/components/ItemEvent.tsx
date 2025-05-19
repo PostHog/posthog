@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { IconShare } from '@posthog/icons'
+import { IconShare, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
@@ -153,6 +153,19 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
                 <div className="flex justify-end gap-2">
+                    {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
+                        <LemonButton
+                            targetBlank
+                            sideIcon={<IconOpenInNew />}
+                            data-attr="replay-inspector-issue-link"
+                            to={urls.errorTrackingIssue(
+                                item.data.properties.$exception_issue_id,
+                                item.data.properties.$exception_fingerprint
+                            )}
+                        >
+                            View issue
+                        </LemonButton>
+                    ) : null}
                     <LemonMenu
                         items={[
                             {
@@ -167,6 +180,25 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     )
                                 },
                             },
+                            item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
+                                ? {
+                                      label: 'Copy link to issue',
+                                      icon: <IconWarning />,
+                                      onClick: () => {
+                                          void copyToClipboard(
+                                              urls.absolute(
+                                                  urls.currentProject(
+                                                      urls.errorTrackingIssue(
+                                                          item.data.properties.$exception_issue_id,
+                                                          item.data.properties.$exception_fingerprint
+                                                      )
+                                                  )
+                                              ),
+                                              'issue link'
+                                          )
+                                      },
+                                  }
+                                : null,
                             insightUrl
                                 ? {
                                       label: 'Try out in Insights',
