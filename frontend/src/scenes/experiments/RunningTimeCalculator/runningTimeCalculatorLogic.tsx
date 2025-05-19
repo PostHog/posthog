@@ -222,7 +222,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         values: [experimentLogic({ experimentId }), ['experiment']],
     })),
     actions({
-        setMetricIndex: (value: number) => ({ value }),
+        setSelectedMetric: (value: ExperimentMetric) => ({ value }),
         setMetricResult: (value: {
             uniqueUsers: number
             averageEventsPerUser?: number
@@ -239,10 +239,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             null as ExposureEstimateConfig | null,
             { setExposureEstimateConfig: (_, { value }) => value },
         ],
-        _metricIndex: [
-            null as number | null,
+        _selectedMetric: [
+            null as ExperimentMetric | null,
             {
-                setMetricIndex: (_, { value }) => value,
+                setSelectedMetric: (_, { value }) => value,
             },
         ],
         _conversionRateInputType: [
@@ -255,11 +255,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     loaders(({ values }) => ({
         metricResult: {
             loadMetricResult: async () => {
-                if (values.metricIndex === null) {
-                    return null
-                }
-
-                const metric = values.metric as ExperimentMetric
+                // Check both _selectedMetric and defaultSelectedMetric
+                const metric =
+                    values._selectedMetric ??
+                    (values.experiment?.metrics?.length > 0 ? (values.experiment.metrics[0] as ExperimentMetric) : null)
 
                 if (!metric) {
                     return null
@@ -308,12 +307,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        setMetricIndex: () => {
-            // When metric index changes, update exposure estimate config with the new metric
-            if (values.metric) {
+        setSelectedMetric: ({ value }) => {
+            // When selected metric changes, update exposure estimate config
+            if (value) {
                 actions.setExposureEstimateConfig({
                     ...(values.exposureEstimateConfig ?? defaultExposureEstimateConfig),
-                    metric: values.metric,
+                    metric: value,
                 })
             }
             actions.loadMetricResult()
@@ -357,36 +356,64 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         },
     })),
     selectors({
-        defaultMetricIndex: [
-            (s) => [s.experiment, s.exposureEstimateConfig],
-            (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
-                if (!experiment?.metrics || !exposureEstimateConfig?.metric) {
+        // Get all available metrics (both regular and shared)
+        availableMetrics: [
+            (s) => [s.experiment],
+            (experiment: Experiment): ExperimentMetric[] => {
+                // Regular metrics
+                const regularMetrics = experiment.metrics.map((m) => m as ExperimentMetric)
+
+                // Shared primary metrics
+                const sharedMetrics = experiment.saved_metrics
+                    .filter((m) => m.metadata.type === 'primary')
+                    .map((m) => m.query as ExperimentMetric)
+                    .filter((m) => !!m) // Filter out any potentially invalid metrics
+
+                return [...regularMetrics, ...sharedMetrics]
+            },
+        ],
+
+        // Get default metric from exposure config or first available metric
+        defaultSelectedMetric: [
+            // Use the selector reference to avoid circular dependency
+            (s) => [(state) => s.availableMetrics(state), s.experiment],
+            (availableMetrics: ExperimentMetric[], experiment: Experiment): ExperimentMetric | null => {
+                if (!availableMetrics?.length) {
                     return null
                 }
 
-                // First check regular metrics
-                const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
-                if (metricIndex >= 0) {
-                    return metricIndex
+                // Use metric from experiment parameters if available
+                if (experiment.parameters.exposure_estimate_config?.metric) {
+                    // Try to find a matching metric in available metrics
+                    const configMetric = experiment.parameters.exposure_estimate_config.metric
+                    const matchingMetric = availableMetrics.find((m) => equal(m, configMetric))
+                    if (matchingMetric) {
+                        return matchingMetric
+                    }
                 }
 
-                // If not found, check shared metrics
-                const primarySharedMetrics = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')
-                const sharedMetricIndex = primarySharedMetrics.findIndex((m) =>
-                    equal(m.query, exposureEstimateConfig.metric)
-                )
+                // Otherwise use first available metric
+                return availableMetrics[0]
+            },
+        ],
 
-                return sharedMetricIndex >= 0 ? experiment.metrics.length + sharedMetricIndex : null
+        // Selected metric (manually selected or default)
+        selectedMetric: [
+            (s) => [s._selectedMetric, (state) => s.defaultSelectedMetric(state)],
+            (
+                selectedMetric: ExperimentMetric | null,
+                defaultMetric: ExperimentMetric | null
+            ): ExperimentMetric | null => {
+                return selectedMetric ?? defaultMetric
             },
         ],
-        metricIndex: [
-            (s) => [s._metricIndex, s.defaultMetricIndex],
-            (metricIndex: number | null, defaultMetricIndex: number | null): number | null => {
-                // If metricIndex was manually set, use that
-                // Otherwise use the default from exposureEstimateConfig if available
-                return metricIndex ?? defaultMetricIndex
-            },
+
+        // For backwards compatibility - other parts of the code use 'metric'
+        metric: [
+            (s) => [(state) => s._selectedMetric(state) ?? s.defaultSelectedMetric(state)],
+            (selectedMetric: ExperimentMetric | null): ExperimentMetric | null => selectedMetric,
         ],
+
         exposureEstimateConfig: [
             (s) => [s._exposureEstimateConfig, s.experiment],
             (
@@ -411,6 +438,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return defaultExposureEstimateConfig
             },
         ],
+
         conversionRateInputType: [
             (s) => [s._conversionRateInputType, s.exposureEstimateConfig],
             (conversionRateInputType: string, exposureEstimateConfig: ExposureEstimateConfig | null): string => {
@@ -425,6 +453,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return ConversionRateInputType.AUTOMATIC
             },
         ],
+
         manualConversionRate: [
             (s) => [s._manualConversionRate, s.exposureEstimateConfig],
             (manualConversionRate: number, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
@@ -434,31 +463,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return manualConversionRate
             },
         ],
+
         minimumDetectableEffect: [
             (s) => [s._minimumDetectableEffect, s.experiment],
             (minimumDetectableEffect: number | null, experiment: Experiment) =>
                 minimumDetectableEffect ?? experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
-        ],
-        metric: [
-            (s) => [s.metricIndex, s.experiment],
-            (metricIndex: number | null, experiment: Experiment): ExperimentMetric | null => {
-                if (metricIndex === null) {
-                    return null
-                }
-
-                // Check if the index is within the regular metrics array
-                if (metricIndex < experiment.metrics.length) {
-                    return experiment.metrics[metricIndex] as ExperimentMetric
-                }
-
-                // If not, check shared metrics with primary type
-                const sharedMetricIndex = metricIndex - experiment.metrics.length
-                const sharedMetric = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')[
-                    sharedMetricIndex
-                ]
-
-                return sharedMetric?.query as ExperimentMetric
-            },
         ],
         uniqueUsers: [
             (s) => [s.metricResult, s.exposureEstimateConfig],

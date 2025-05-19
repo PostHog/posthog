@@ -52,7 +52,7 @@ describe('runningTimeCalculatorLogic', () => {
                     } as unknown as FeatureFlagBasicType,
                 })
 
-                logic.actions.setMetricIndex(0)
+                logic.actions.setSelectedMetric(logic.values.experiment.metrics[0] as ExperimentMetric)
             })
 
             it('calculates recommended sample size and running time correctly', async () => {
@@ -105,7 +105,7 @@ describe('runningTimeCalculatorLogic', () => {
                     } as unknown as FeatureFlagBasicType,
                 })
 
-                logic.actions.setMetricIndex(0)
+                logic.actions.setSelectedMetric(logic.values.experiment.metrics[0] as ExperimentMetric)
             })
 
             it('calculates recommended sample size and running time correctly', async () => {
@@ -161,7 +161,7 @@ describe('runningTimeCalculatorLogic', () => {
                     } as unknown as FeatureFlagBasicType,
                 })
 
-                logic.actions.setMetricIndex(0)
+                logic.actions.setSelectedMetric(logic.values.experiment.metrics[0] as ExperimentMetric)
             })
 
             it('calculates recommended sample size and running time correctly', async () => {
@@ -215,7 +215,7 @@ describe('runningTimeCalculatorLogic', () => {
                     } as unknown as FeatureFlagBasicType,
                 })
 
-                logic.actions.setMetricIndex(0)
+                logic.actions.setSelectedMetric(logic.values.experiment.metrics[0] as ExperimentMetric)
             })
 
             it('calculates recommended sample size and running time correctly', async () => {
@@ -275,7 +275,7 @@ describe('runningTimeCalculatorLogic', () => {
                     } as unknown as FeatureFlagBasicType,
                 })
 
-                logic.actions.setMetricIndex(0)
+                logic.actions.setSelectedMetric(logic.values.experiment.metrics[0] as ExperimentMetric)
             })
 
             it('calculates recommended sample size and running time correctly', async () => {
@@ -337,7 +337,7 @@ describe('runningTimeCalculatorLogic', () => {
                     } as unknown as FeatureFlagBasicType,
                 })
 
-                logic.actions.setMetricIndex(0)
+                logic.actions.setSelectedMetric(logic.values.experiment.metrics[0] as ExperimentMetric)
             })
 
             it('calculates recommended sample size and running time correctly', async () => {
