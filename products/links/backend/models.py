@@ -28,12 +28,10 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel)
     )
     description = models.TextField(null=True, blank=True)
 
-    # created_at, created_by, updated_at are inherited from CreatedMetaFields and UpdatedMetaFields
-
     class Meta:
         indexes = [
-            models.Index(fields=["short_link_domain", "short_code"]),
-            models.Index(fields=["team_id"]),
+            models.Index(fields=["short_link_domain", "short_code"], name="domain_short_code_idx"),
+            models.Index(fields=["team_id"], name="team_id_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
