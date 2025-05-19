@@ -14,6 +14,7 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
@@ -198,13 +199,14 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     const { humanizedActivity, activityLoading, pagination } = useValues(logic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billingLoading } = useValues(billingLogic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
         <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
-            {activityLoading && humanizedActivity.length === 0 ? (
+            {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
                 <Loading />
             ) : (
                 <PayGateMini
