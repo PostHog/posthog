@@ -49,7 +49,7 @@ export const manifest: ProductManifest = {
     },
     treeItemsNew: [
         {
-            path: `Chat`,
+            path: 'Chat',
             type: 'chat_feature',
             href: urls.chat('new'),
         },

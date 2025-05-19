@@ -360,7 +360,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.messagingCampaignNew(),
         flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
-    { path: `Chat`, type: 'chat_feature', href: urls.chat('new') },
+    { path: 'Chat', type: 'chat_feature', href: urls.chat('new') },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
     { path: `Early access feature`, type: 'early_access_feature', href: urls.earlyAccessFeature('new') },
