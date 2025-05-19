@@ -1529,8 +1529,7 @@ email@example.org,
             response.json(),
         )
 
-    @patch("posthog.api.cohort.report_user_action")
-    def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
+    def test_duplicating_dynamic_cohort_as_static(self):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1620,8 +1619,7 @@ email@example.org,
         self.assertEqual(new_cohort.errors_calculating, 0)
         self.assertEqual(new_cohort.count, 2)
 
-    @patch("posthog.api.cohort.report_user_action")
-    def test_duplicating_dynamic_cohort_as_dynamic(self, patch_capture):
+    def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
