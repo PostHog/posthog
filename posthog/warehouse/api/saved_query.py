@@ -149,7 +149,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         soft_update = validated_data.pop("soft_update", False)
-
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -222,12 +221,14 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
 
+        soft_update = validated_data.pop("soft_update", False)
+
         with transaction.atomic():
             locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
 
             # Get latest activity log for this model
 
-            if validated_data.get("query", None) and not validated_data.get("name", "").startswith("dbt_"):
+            if validated_data.get("query", None) and not soft_update:
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
                     ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
@@ -253,7 +254,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                if "soft_update" not in validated_data:
+                if not soft_update:
                     try:
                         # The columns will be inferred from the query
                         client_types = self.context["request"].data.get("types", [])

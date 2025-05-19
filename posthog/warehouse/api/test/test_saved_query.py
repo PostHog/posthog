@@ -58,6 +58,7 @@ class TestSavedQuery(APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
                 },
+                "soft_update": True,
             },
         )
         self.assertEqual(response.status_code, 200)
