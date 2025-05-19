@@ -1,5 +1,7 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PersonPropType } from 'scenes/persons/person-utils'
 
 import type { chatListLogicType } from './chatListLogicType'
@@ -28,6 +30,9 @@ export type ChatMessage = {
 
 export const chatListLogic = kea<chatListLogicType>([
     path(['products', 'chat', 'frontend', 'chatListLogic']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         setSelectedChatId: (selectedChatId: string | null) => ({ selectedChatId }),
         setChats: (chats: Chat[]) => ({ chats }),
@@ -86,7 +91,9 @@ export const chatListLogic = kea<chatListLogicType>([
                     })
                 )
             }
-            actions.loadChat(selectedChatId)
+            if (selectedChatId) {
+                actions.loadChat(selectedChatId)
+            }
         },
         loadChats: async () => {
             const chats = await api.chat.list()
@@ -99,22 +106,24 @@ export const chatListLogic = kea<chatListLogicType>([
             await api.chat.get(chatId)
         },
         createZendDeskTicket: async ({ subject, uuid, message }) => {
-            const chat = await api.chat.create({
-                //person_uuid: uuid,
-                distinct_id: uuid,
-                title: subject,
-                source_url: 'zendesk',
-            })
-            if (chat && chat.id) {
-                const newMessage: ChatMessage = {
-                    content: message,
-                    created_at: new Date().toISOString(),
-                    read: false,
-                    is_assistant: false,
-                }
+            if (values.featureFlags[FEATURE_FLAGS.FEATURE_CHAT]) {
+                const chat = await api.chat.create({
+                    //person_uuid: uuid,
+                    distinct_id: uuid,
+                    title: subject,
+                    source_url: 'zendesk',
+                })
+                if (chat && chat.id) {
+                    const newMessage: ChatMessage = {
+                        content: message,
+                        created_at: new Date().toISOString(),
+                        read: false,
+                        is_assistant: false,
+                    }
 
-                await api.chat.sendMessage(chat.id, newMessage)
-                actions.loadChats()
+                    await api.chat.sendMessage(chat.id, newMessage)
+                    actions.loadChats()
+                }
             }
         },
     })),
