@@ -3,11 +3,14 @@ import structlog
 from django.db import models
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from django.db.models import QuerySet
 
 logger = structlog.get_logger(__name__)
 
 
-class Link(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """
     Links that redirect to a specified destination URL.
     These are used for sharing URLs across the application.
@@ -53,3 +56,22 @@ class Link(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             A queryset of links for the team
         """
         return cls.objects.filter(team_id=team_id).order_by("-created_at")[offset : offset + limit]
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Link"]:
+        base_qs = cls.objects.filter(team=team)
+        return cls._filter_unfiled_queryset(base_qs, team, type="link", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._create_in_folder or "Unfiled/Links",
+            type="link",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.short_code or "Untitled",
+            href=f"/links/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=False,
+        )

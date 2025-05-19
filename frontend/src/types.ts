@@ -5404,4 +5404,5 @@ export type LinkType = {
     created_by: UserBasicType
     created_at: string
     updated_at: string
+    _create_in_folder?: string | null
 }

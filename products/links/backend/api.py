@@ -19,6 +19,7 @@ logger = structlog.get_logger(__name__)
 class LinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     short_code = serializers.CharField(required=True, allow_null=False)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Link
@@ -31,6 +32,7 @@ class LinkSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
@@ -42,11 +44,8 @@ class LinkSerializer(serializers.ModelSerializer):
 
         link = Link.objects.create(
             team=team,
-            redirect_url=validated_data["redirect_url"],
-            short_link_domain=validated_data["short_link_domain"],
-            short_code=validated_data["short_code"],
-            description=validated_data.get("description"),
             created_by=self.context["request"].user,
+            **validated_data,
         )
 
         logger.info("link_created", id=link.id, team_id=team.id)
