@@ -138,3 +138,46 @@ test('geo properties are filtered', () => {
     expect(event.properties.$set_once).not.toHaveProperty('$initial_geoip_longitude')
     expect(event.properties).toHaveProperty('other_prop', 'should remain')
 })
+
+const ipAndGeoProperties = {
+    properties: {
+        $ip: '1.2.3.4',
+        $geoip_latitude: 40.7128,
+        $geoip_longitude: -74.006,
+        $set: {
+            $geoip_latitude: 40.7128,
+            $geoip_longitude: -74.006,
+        },
+        $set_once: {
+            $initial_geoip_latitude: 40.7128,
+            $initial_geoip_longitude: -74.006,
+        },
+        other_prop: 'should remain',
+    },
+}
+
+test('ip and geo properties are filtered', () => {
+    const ipAndGeoGlobal = {
+        propertiesToFilter: [
+            '$ip',
+            '$geoip_latitude',
+            '$geoip_longitude',
+            '$set.$geoip_latitude',
+            '$set.$geoip_longitude',
+            '$set_once.$initial_geoip_latitude',
+            '$set_once.$initial_geoip_longitude',
+        ],
+    }
+    const ipAndGeoMeta = { ...meta, global: ipAndGeoGlobal }
+    const event = processEvent(createEvent(ipAndGeoProperties), ipAndGeoMeta)
+
+    expect(event.ip).toBeNull()
+    expect(event.properties).not.toHaveProperty('$ip')
+    expect(event.properties).not.toHaveProperty('$geoip_latitude')
+    expect(event.properties).not.toHaveProperty('$geoip_longitude')
+    expect(event.properties.$set).not.toHaveProperty('$geoip_latitude')
+    expect(event.properties.$set).not.toHaveProperty('$geoip_longitude')
+    expect(event.properties.$set_once).not.toHaveProperty('$initial_geoip_latitude')
+    expect(event.properties.$set_once).not.toHaveProperty('$initial_geoip_longitude')
+    expect(event.properties).toHaveProperty('other_prop', 'should remain')
+})
