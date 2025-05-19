@@ -412,7 +412,6 @@ posthog/user_permissions.py:0: error: Incompatible return value type (got "int",
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "Level | None")  [return-value]
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "RestrictionLevel")  [return-value]
 posthog/utils.py:0: error: No overload variant of "asdict" matches argument type "type[DataclassInstance]"  [call-overload]
-posthog/warehouse/api/external_data_schema.py:0: error: Argument 1 to "get_sql_schemas_for_source_type" has incompatible type "str"; expected "Type"  [arg-type]
 posthog/warehouse/api/external_data_schema.py:0: error: Incompatible return value type (got "str | None", expected "SyncType | None")  [return-value]
 posthog/warehouse/api/external_data_schema.py:0: error: No overload variant of "get" of "dict" matches argument type "str"  [call-overload]
 posthog/warehouse/api/test/test_table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
