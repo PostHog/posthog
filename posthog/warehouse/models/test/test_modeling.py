@@ -45,10 +45,10 @@ from posthog.warehouse.models.modeling import (
             from (
               select number from numbers(5)
               union all
-              select number from numbers(5)
+              select event from events
             )
             """,
-            {"numbers"},
+            {"numbers", "events"},
         ),
     ],
 )
