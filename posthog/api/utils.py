@@ -151,7 +151,7 @@ def is_csp_report(request) -> bool:
     return (
         request.path == "/report"
         or request.path == "/report/"
-        or request.headers.get("Content-Type") == "application/reports+json"
+        or request.headers.get("Content-Type") in {"application/reports+json", "application/csp-report"}
     )
 
 
