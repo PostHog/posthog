@@ -986,7 +986,9 @@ class RunWorkflow(PostHogWorkflow):
 
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
-                FailJobsActivityInputs(workflow_id=workflow_id, workflow_run_id=workflow_run_id, error=str(e)),
+                FailJobsActivityInputs(
+                    workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id, error=str(e)
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
