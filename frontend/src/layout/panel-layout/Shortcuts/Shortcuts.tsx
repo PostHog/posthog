@@ -85,6 +85,7 @@ export function Shortcuts(): JSX.Element {
             ) : null}
 
             <div className="mt-[-0.25rem]">
+                {/* TODO: move this tree into popover if isLayoutNavCollapsed is true */}
                 <LemonTree
                     ref={treeRef}
                     contentRef={mainContentRef as RefObject<HTMLElement>}

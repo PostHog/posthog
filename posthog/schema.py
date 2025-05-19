@@ -66,6 +66,7 @@ class AssistantContextualTool(StrEnum):
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
+    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
 
 
 class AssistantDateRange(BaseModel):
@@ -243,6 +244,7 @@ class AssistantToolCallMessage(BaseModel):
             " without a ui_payload are not passed through to the frontend."
         ),
     )
+    visible: Optional[bool] = None
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1742,6 +1744,7 @@ class RootAssistantMessage1(BaseModel):
             " without a ui_payload are not passed through to the frontend."
         ),
     )
+    visible: Optional[bool] = None
 
 
 class SamplingRate(BaseModel):
@@ -3603,6 +3606,7 @@ class WebOverviewQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebPageURLSearchQueryResponse(BaseModel):
@@ -5066,6 +5070,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class CachedWebPageURLSearchQueryResponse(BaseModel):
@@ -5268,6 +5273,7 @@ class Response4(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class Response5(BaseModel):
@@ -6190,6 +6196,7 @@ class QueryResponseAlternative18(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class QueryResponseAlternative19(BaseModel):
@@ -6461,6 +6468,7 @@ class QueryResponseAlternative32(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class QueryResponseAlternative33(BaseModel):
@@ -8661,9 +8669,11 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
+    kind: Literal["revenue_analytics"] = "revenue_analytics"
     name: str
     query: HogQLQuery
     row_count: Optional[float] = None
+    source_id: Optional[str] = None
     type: Literal["managed_view"] = "managed_view"
 
 
