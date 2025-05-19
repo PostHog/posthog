@@ -146,7 +146,7 @@ mod tests {
     use axum::http::StatusCode;
 
     #[test]
-    fn test_capture_response_into_response() {
+    fn test_capture_response_into_response_ok() {
         // Test Ok response
         let response = CaptureResponse {
             status: CaptureResponseCode::Ok,
@@ -154,7 +154,10 @@ mod tests {
         };
         let response = response.into_response();
         assert_eq!(response.status(), StatusCode::OK);
+    }
 
+    #[test]
+    fn test_capture_response_into_response_no_content() {
         // Test NoContent response
         let response = CaptureResponse {
             status: CaptureResponseCode::NoContent,
