@@ -25,8 +25,16 @@ from posthog.admin.admins import (
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
     EventIngestionRestrictionConfigAdmin,
+)
+
+from products.link.backend.admin import (
     LinkAdmin,
 )
+
+from products.link.backend.models import (
+    Link,
+)
+
 from posthog.models import (
     Organization,
     User,
@@ -52,7 +60,6 @@ from posthog.models import (
     HogFunction,
     GroupTypeMapping,
     EventIngestionRestrictionConfig,
-    Link,
 )
 
 admin.site.register(Organization, OrganizationAdmin)

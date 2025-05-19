@@ -27,11 +27,7 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
-PRODUCTS_APPS = [
-    "products.early_access_features",
-    "products.editor",
-    "products.revenue_analytics",
-]
+PRODUCTS_APPS = ["products.early_access_features", "products.editor", "products.revenue_analytics", "products.link"]
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development

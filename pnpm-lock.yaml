@@ -593,6 +593,9 @@ importers:
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
+      '@posthog/products-link':
+        specifier: workspace:*
+        version: link:../products/link
       '@posthog/products-llm-observability':
         specifier: workspace:*
         version: link:../products/llm_observability
@@ -875,9 +878,6 @@ importers:
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
-      qrcode.react:
-        specifier: ^4.2.0
-        version: 4.2.0(react@18.2.0)
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1769,6 +1769,39 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/link:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: '*'
+        version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      qrcode.react:
+        specifier: ^4.2.0
+        version: 4.2.0(react@18.2.0)
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/llm_observability:
     dependencies:
       '@posthog/icons':
@@ -1842,7 +1875,7 @@ importers:
         version: link:../../common/eslint_rules
       jest:
         specifier: '*'
-        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
       kea:
         specifier: '*'
         version: 3.1.5(react@18.2.0)
@@ -15605,8 +15638,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.261.0:
-    resolution: {integrity: sha512-aSJTrqXQIClOSar5PENIrjRoHEiq5LRLLb9Z1k5D0g42FKiZVHQVolhPzN1ilw9FCl3lRNm1Ke000zDHiDSGGg==}
+  unlayer-types@1.263.0:
+    resolution: {integrity: sha512-dOpGPj8P6WkpR1lSRJqprPh8KzFTLdXN7TQAJWjPeSw+RwnIyGtiBRH80efV21S/gjBVT5UL7K1g12S3zTEL6w==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -31379,7 +31412,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.261.0
+      unlayer-types: 1.263.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33501,7 +33534,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.261.0: {}
+  unlayer-types@1.263.0: {}
 
   unpipe@1.0.0: {}
 

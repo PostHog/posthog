@@ -8,7 +8,7 @@ from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import Link
+from .models import Link
 import structlog
 
 from posthog.models.team.team import Team

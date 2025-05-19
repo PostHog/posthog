@@ -1,4 +1,4 @@
-import { actions, actions, afterMount, connect, kea, listeners, path } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'

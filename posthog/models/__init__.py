@@ -54,7 +54,6 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
-from .link import Link
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
@@ -141,7 +140,6 @@ __all__ = [
     "GroupTypeMapping",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
     "HostDefinition",
     "Insight",
     "InsightCachingState",

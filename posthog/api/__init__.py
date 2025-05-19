@@ -49,7 +49,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    link,
     notebook,
     organization,
     organization_domain,
@@ -611,8 +610,6 @@ register_grandfathered_environment_nested_viewset(
     "environment_hog_functions",
     ["team_id"],
 )
-
-projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
     r"hog_function_templates",

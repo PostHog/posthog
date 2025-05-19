@@ -29,6 +29,8 @@ class Link(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # created_at, created_by, updated_at are inherited from CreatedMetaFields and UpdatedMetaFields
 
     class Meta:
+        db_table = "posthog_link"
+        managed = True
         indexes = [
             models.Index(fields=["short_link_domain", "short_code"]),
             models.Index(fields=["team_id"]),
