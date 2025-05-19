@@ -1,4 +1,5 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconAIText } from '@posthog/icons'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
@@ -78,7 +79,20 @@ export function StacktraceGenericExceptionHeader({
                 })}
             >
                 {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value || 'Unknown message'}
+                <br />
+                dfasdasfsddfs
             </div>
+            {!loading && (
+                <div className="flex items-center gap-1 my-1 text-tertiary leading-6">
+                    <span>
+                        <IconAIText className="mr-0.5" /> User tried to create a new product, failed, but succeeded
+                        after reload.
+                    </span>
+                    <LemonTag size="medium" type="danger">
+                        blocking
+                    </LemonTag>
+                </div>
+            )}
         </div>
     )
 }

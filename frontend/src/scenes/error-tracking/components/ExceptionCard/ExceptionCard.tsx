@@ -1,5 +1,5 @@
-import { IconBox, IconDocument, IconList } from '@posthog/icons'
-import { LemonCard } from '@posthog/lemon-ui'
+import { IconBox, IconDocument, IconList, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'
@@ -49,7 +49,7 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
         useValues(errorPropertiesLogic)
     return (
         <LemonCard hoverEffect={false} className="group py-2 px-3 relative overflow-hidden">
-            <Collapsible isExpanded={isExpanded} className="pb-1 flex w-full" minHeight="calc(var(--spacing) * 12)">
+            <Collapsible isExpanded={isExpanded} className="pb-1 flex w-full" minHeight="calc(var(--spacing) * 20)">
                 <StacktraceIssueDisplay
                     className={cn('flex-grow', showContext && isExpanded ? 'w-2/3' : 'w-full')}
                     truncateMessage={!isExpanded}
@@ -70,6 +70,11 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
                 <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 <ExceptionCardActions>
                     {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
+                    <LemonButton sideIcon={<IconTarget />} size="xsmall" type="secondary">
+                        <div className="flex items-center gap-2">
+                            <span>View moment</span>
+                        </div>
+                    </LemonButton>
                     <ViewRecordingButton
                         sessionId={sessionId}
                         timestamp={timestamp ?? undefined}
