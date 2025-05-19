@@ -11,7 +11,7 @@ class _Dataclass(typing.Protocol):
     __dataclass_fields__: typing.ClassVar[dict[str, typing.Any]]
 
 
-class Config(_Dataclass, typing.Protocol):
+class ConfigProtocol(_Dataclass, typing.Protocol):
     """Protocol for config dataclasses.
 
     Unfortunately, we cannot convince type checkers that the classes we decorate
@@ -19,8 +19,18 @@ class Config(_Dataclass, typing.Protocol):
     any of the methods, add this protocol to your config's parent classes as a
     way to tell type checkers everything is fine.
 
-    Finally, a `Config` is also a dataclass, which is useful if you are going to
+    Finally, a `ConfigProtocol` is also a dataclass, which is useful if you are going to
     keep passing this around.
+    """
+
+    @classmethod
+    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+
+
+@dataclasses.dataclass
+class Config(ConfigProtocol):
+    """
+    Concrete protocol implementation for type checking.
 
     Examples:
         This works but mypy and other type checkers will complain:
@@ -30,7 +40,7 @@ class Config(_Dataclass, typing.Protocol):
         >>> MyConfig.from_dict({})
         MyConfig()
 
-        Subclass from this protocol as an offering to the type gods:
+        Subclass from this class as an offering to the type gods:
 
         >>> @config
         ... class MyConfig(Config): pass
@@ -42,7 +52,8 @@ class Config(_Dataclass, typing.Protocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
+        raise NotImplementedError
 
 
 def _noop_convert(x: typing.Any) -> typing.Any:
@@ -59,7 +70,9 @@ class MetaConfig:
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert
 
 
-def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None) -> Config:
+def to_config(
+    config_cls: type[ConfigProtocol], d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None
+) -> ConfigProtocol:
     """Initialize a class from dict.
 
     This function recursively initializes any nested classes.
@@ -408,6 +421,11 @@ def config(
                 prefixes = None
 
             return to_config(cls, d, prefixes=prefixes)
+
+        try:
+            delattr(cls, "__dataclass_fields__")
+        except AttributeError:
+            pass
 
         cls = dataclasses.dataclass(cls)
         setattr(cls, "from_dict", classmethod(from_dict))  # noqa: B010

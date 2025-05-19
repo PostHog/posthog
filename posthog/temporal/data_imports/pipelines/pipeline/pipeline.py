@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 import deltalake as deltalake
+import posthoganalytics
 import pyarrow as pa
 from django.db.models import F
 from dlt.sources import DltSource
@@ -25,8 +26,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_column_hints,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
-    _notify_revenue_analytics_that_sync_has_completed,
-    _update_job_row_count,
     append_partition_key_to_table,
     normalize_column_name,
     normalize_table_column_names,
@@ -36,12 +35,16 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import (
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
 )
 
 
@@ -417,3 +420,31 @@ def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     the approach.
     """
     return schema.source.source_type == ExternalDataSource.Type.STRIPE
+
+
+def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    try:
+        if (
+            schema.name == STRIPE_CHARGE_RESOURCE_NAME
+            and schema.source.source_type == ExternalDataSource.Type.STRIPE
+            and schema.source.revenue_analytics_enabled
+            and not schema.team.revenue_analytics_config.notified_first_sync
+        ):
+            # For every admin in the org, send a revenue analytics ready event
+            # This will trigger a Campaign in PostHog and send an email
+            for user in schema.team.all_users_with_access():
+                if user.distinct_id is not None:
+                    posthoganalytics.capture(
+                        user.distinct_id,
+                        "revenue_analytics_ready",
+                        {"source_type": schema.source.source_type},
+                    )
+
+            # Mark the team as notified, avoiding spamming emails
+            schema.team.revenue_analytics_config.notified_first_sync = True
+            schema.team.revenue_analytics_config.save()
+    except Exception as e:
+        # Silently fail, we don't want this to crash the pipeline
+        # Sending an email is not critical to the pipeline
+        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
+        capture_exception(e)

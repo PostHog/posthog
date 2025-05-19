@@ -17,8 +17,24 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
 )
+from posthog.temporal.data_imports.pipelines.mssql import (
+    MSSQLSourceConfig,
+    get_schemas as get_mssql_schemas,
+)
+from posthog.temporal.data_imports.pipelines.mysql import (
+    MySQLSourceConfig,
+    get_schemas as get_mysql_schemas,
+)
+from posthog.temporal.data_imports.pipelines.postgres import (
+    PostgreSQLSourceConfig,
+    get_schemas as get_postgres_schemas,
+)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
+)
+from posthog.temporal.data_imports.pipelines.snowflake import (
+    SnowflakeSourceConfig,
+    get_schemas as get_snowflake_schemas,
 )
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
