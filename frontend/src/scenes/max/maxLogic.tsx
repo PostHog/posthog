@@ -312,10 +312,12 @@ export const maxLogic = kea<maxLogicType>([
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     values.toolMap[toolName]?.callback(toolResult)
                                 }
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: 'completed',
-                                })
+                                if (parsedResponse.visible) {
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: 'completed',
+                                    })
+                                }
                             } else if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
                                 actions.addMessage({
                                     ...parsedResponse,
@@ -548,6 +550,9 @@ export const maxLogic = kea<maxLogicType>([
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
                     const previousMessage: ThreadMessage | undefined = thread[i - 1]
+                    if (currentMessage.type === AssistantMessageType.ToolCall && !currentMessage.visible) {
+                        continue
+                    }
                     if (isHumanMessage(currentMessage) === isHumanMessage(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
                         if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
