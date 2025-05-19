@@ -20,7 +20,8 @@ type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
     | 'createPerson'
-    | 'updatePersonDeprecated'
+    | 'updatePersonForUpdate'
+    | 'updatePersonForMerge'
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
@@ -32,7 +33,8 @@ const ALL_METHODS: MethodName[] = [
     'fetchForChecking',
     'fetchForUpdate',
     'createPerson',
-    'updatePersonDeprecated',
+    'updatePersonForUpdate',
+    'updatePersonForMerge',
     'deletePerson',
     'addDistinctId',
     'moveDistinctIds',
@@ -224,17 +226,31 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         )
     }
 
-    async updatePersonDeprecated(
+    async updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        this.incrementCount('updatePersonDeprecated')
+        this.incrementCount('updatePersonForUpdate')
         this.clearCache()
-        this.incrementDatabaseOperation('updatePersonDeprecated')
+        this.incrementDatabaseOperation('updatePersonForUpdate')
         const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx)
-        observeLatencyByVersion(person, start, 'updatePersonDeprecated')
+        const response = await this.db.updatePersonDeprecated(person, update, tx, 'forUpdate')
+        observeLatencyByVersion(person, start, 'updatePersonForUpdate')
+        return response
+    }
+
+    async updatePersonForMerge(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        this.incrementCount('updatePersonForMerge')
+        this.clearCache()
+        this.incrementDatabaseOperation('updatePersonForMerge')
+        const start = performance.now()
+        const response = await this.db.updatePersonDeprecated(person, update, tx, 'forMerge')
+        observeLatencyByVersion(person, start, 'updatePersonForMerge')
         return response
     }
 
