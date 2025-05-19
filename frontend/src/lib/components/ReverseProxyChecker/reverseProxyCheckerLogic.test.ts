@@ -38,6 +38,9 @@ describe('reverseProxyCheckerLogic', () => {
         useMockedValues([])
 
         logic.mount()
+
+        await logic.asyncActions.loadHasReverseProxy()
+
         await expectLogic(logic).toFinishAllListeners().toMatchValues({
             hasReverseProxy: false,
         })
@@ -47,6 +50,9 @@ describe('reverseProxyCheckerLogic', () => {
         useMockedValues(doesNotHaveReverseProxyValues)
 
         logic.mount()
+
+        await logic.asyncActions.loadHasReverseProxy()
+
         await expectLogic(logic).toFinishAllListeners().toMatchValues({
             hasReverseProxy: false,
         })
@@ -56,6 +62,9 @@ describe('reverseProxyCheckerLogic', () => {
         useMockedValues(hasReverseProxyValues)
 
         logic.mount()
+
+        await logic.asyncActions.loadHasReverseProxy()
+
         await expectLogic(logic).toFinishAllListeners().toMatchValues({
             hasReverseProxy: true,
         })

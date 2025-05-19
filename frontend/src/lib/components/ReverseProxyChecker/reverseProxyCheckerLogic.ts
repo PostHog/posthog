@@ -1,4 +1,4 @@
-import { kea, listeners, path, reducers } from 'kea'
+import { kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -13,14 +13,16 @@ const CHECK_INTERVAL_MS = 1000 * 60 * 60 // 1 hour
 
 export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         hasReverseProxy: [
             false as boolean | null,
             {
                 loadHasReverseProxy: async () => {
-                    if (values.lastCheckedTimestamp < Date.now() - CHECK_INTERVAL_MS) {
+                    if (cache.lastCheckedTimestamp > Date.now() - CHECK_INTERVAL_MS) {
                         return values.hasReverseProxy
                     }
+
+                    cache.lastCheckedTimestamp = Date.now()
 
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
@@ -47,13 +49,4 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             }
         },
     })),
-    reducers({
-        lastCheckedTimestamp: [
-            0,
-            { persist: true },
-            {
-                loadHasReverseProxySuccess: () => Date.now(),
-            },
-        ],
-    }),
 ])
