@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
@@ -51,6 +52,11 @@ export const onCellClick = (colIndex: number, rowIndex: number | undefined): voi
     } else {
         endDate = endDate.add(1, 'day')
     }
+
+    posthog.capture('clicked_replay_active_hours_heatmap_cell', {
+        isColumnHeader: rowIndex == undefined,
+        isIndividualCell: rowIndex != undefined,
+    })
 
     router.actions.push(
         urls.replay(ReplayTabs.Home, {
