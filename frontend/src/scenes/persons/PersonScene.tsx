@@ -116,10 +116,20 @@ interface CriticalIssue {
     }[]
 }
 
+interface EdgeCase {
+    description: string
+    sessions: {
+        id: string
+        timestamp: string
+        hasRecording: boolean
+        summary: string
+    }[]
+}
+
 interface SummaryDetails {
     criticalIssues: CriticalIssue[]
     commonJourneys: { name: string; path: string }[]
-    edgeCases: string[]
+    edgeCases: EdgeCase[]
     summary: string
 }
 
@@ -219,9 +229,45 @@ function PersonSummariesTable(): JSX.Element {
                     },
                 ],
                 edgeCases: [
-                    'Consistently attempts to bulk export data despite size limitations',
-                    'Regular workaround: splits large date ranges into smaller chunks',
-                    'Often uses browser back button when encountering paywalls',
+                    {
+                        description: 'Consistently attempts to bulk export data despite size limitations',
+                        sessions: [
+                            {
+                                id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
+                                timestamp: '2024-03-12 15:30:22',
+                                hasRecording: true,
+                                summary: 'User attempted to export 12 months of data in one go, hitting the 100MB limit. Repeated the attempt 3 times with different date ranges.',
+                            },
+                            {
+                                id: '0196d2bd-515c-7230-9e15-a2a437f2e3e5',
+                                timestamp: '2024-03-11 14:15:33',
+                                hasRecording: true,
+                                summary: 'Similar bulk export attempt with 6 months of data. System warned about size but user proceeded anyway.',
+                            },
+                        ],
+                    },
+                    {
+                        description: 'Regular workaround: splits large date ranges into smaller chunks',
+                        sessions: [
+                            {
+                                id: '0196d2bd-515c-7230-9e15-a2a437f2e3e6',
+                                timestamp: '2024-03-10 11:45:12',
+                                hasRecording: true,
+                                summary: 'User manually split a 3-month export into 3 separate 1-month exports. Took 15 minutes to complete all exports.',
+                            },
+                        ],
+                    },
+                    {
+                        description: 'Often uses browser back button when encountering paywalls',
+                        sessions: [
+                            {
+                                id: '0196d2bd-515c-7230-9e15-a2a437f2e3e7',
+                                timestamp: '2024-03-09 16:20:45',
+                                hasRecording: true,
+                                summary: 'User hit paywall, used back button 3 times to try different navigation paths. Eventually found a way to access the data through a different route.',
+                            },
+                        ],
+                    },
                 ],
                 summary:
                     'User shows consistent morning activity patterns with focus on data analysis. Regularly encounters authentication and data size limitations, but has developed workarounds. Most productive during early sessions before encountering performance issues.',
@@ -366,13 +412,62 @@ function PersonSummariesTable(): JSX.Element {
 
                                 <div>
                                     <h4 className="font-semibold mb-2">Interesting Edge Cases</h4>
-                                    <ul className="list-disc pl-4 space-y-1">
-                                        {record.details.edgeCases.map((edgeCase: string, i: number) => (
-                                            <li key={i} className="text-sm">
-                                                {edgeCase}
-                                            </li>
+                                    <div className="space-y-2">
+                                        {record.details.edgeCases.map((edgeCase: EdgeCase, i: number) => (
+                                            <SessionSegmentCollapse
+                                                key={i}
+                                                header={
+                                                    <div className="flex flex-row gap-2 items-center">
+                                                        <h3 className="text-sm font-medium mb-0">{edgeCase.description}</h3>
+                                                        <LemonTag size="small" type="default">
+                                                            {edgeCase.sessions.length} sessions
+                                                        </LemonTag>
+                                                    </div>
+                                                }
+                                                content={
+                                                    <div className="space-y-0">
+                                                        {edgeCase.sessions.map((session, j) => (
+                                                            <div key={j}>
+                                                                <div className="text-sm py-2">
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-muted">{session.timestamp}</span>
+                                                                            <span className="text-muted">•</span>
+                                                                            <span className="text-muted">{session.id}</span>
+                                                                        </div>
+                                                                        <div className="flex gap-1">
+                                                                            <LemonButton
+                                                                                sideIcon={<IconTarget />}
+                                                                                size="xsmall"
+                                                                                type="secondary"
+                                                                            >
+                                                                                <span>View moment</span>
+                                                                            </LemonButton>
+                                                                            <LemonButton
+                                                                                size="xsmall"
+                                                                                type="secondary"
+                                                                                disabledReason={
+                                                                                    session.hasRecording
+                                                                                        ? undefined
+                                                                                        : 'No recording available'
+                                                                                }
+                                                                            >
+                                                                                View recording
+                                                                            </LemonButton>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p className="mb-0">{session.summary}</p>
+                                                                </div>
+                                                                {j < edgeCase.sessions.length - 1 && (
+                                                                    <div className="h-px bg-border" />
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                }
+                                            />
                                         ))}
-                                    </ul>
+                                    </div>
                                 </div>
                             </div>
                         </div>
