@@ -30,7 +30,7 @@ while (i <= length(propertiesToFilter)) {
         // Navigate to the parent object
         let j := 1
         while (j < length(parts) and found) {
-            if (not current[parts[j]]) {
+            if (not has(keys(current), parts[j])) {
                 found := false
             } else {
                 current := current[parts[j]]
@@ -41,7 +41,7 @@ while (i <= length(propertiesToFilter)) {
         // Handle the last part if we found the parent object
         if (found and j == length(parts)) {
             let lastPart := parts[length(parts)]
-            if (current[lastPart] != null) {
+            if (has(keys(current), lastPart)) {
                 current[lastPart] := null 
             }
         }

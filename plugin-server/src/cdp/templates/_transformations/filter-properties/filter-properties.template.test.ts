@@ -256,4 +256,39 @@ describe('filter-properties.template', () => {
             },
         })
     })
+
+    it('should handle falsy values correctly', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $set: {
+                        zero: 0,
+                        false_value: false,
+                        empty_string: '',
+                        null_value: null,
+                    },
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                propertiesToFilter: '$set.zero, $set.false_value, $set.empty_string, $set.null_value',
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+        expect(response.execResult).toMatchObject({
+            properties: {
+                $set: {
+                    zero: null,
+                    false_value: null,
+                    empty_string: null,
+                    null_value: null,
+                },
+            },
+        })
+    })
 })
