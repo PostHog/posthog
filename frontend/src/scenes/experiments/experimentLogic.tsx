@@ -270,8 +270,10 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExposureCriteriaModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
-        openConclusionModal: true,
-        closeConclusionModal: true,
+        openStopExperimentModal: true,
+        closeStopExperimentModal: true,
+        openEditConclusionModal: true,
+        closeEditConclusionModal: true,
         openDistributionModal: true,
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
@@ -614,11 +616,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
-        isConclusionModalOpen: [
+        isStopExperimentModalOpen: [
             false,
             {
-                openConclusionModal: () => true,
-                closeConclusionModal: () => false,
+                openStopExperimentModal: () => true,
+                closeStopExperimentModal: () => false,
+            },
+        ],
+        isEditConclusionModalOpen: [
+            false,
+            {
+                openEditConclusionModal: () => true,
+                closeEditConclusionModal: () => false,
             },
         ],
         isDistributionModalOpen: [
@@ -961,7 +970,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     duration,
                     values.isPrimaryMetricSignificant(0)
                 )
-            actions.closeConclusionModal()
+            actions.closeStopExperimentModal()
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })

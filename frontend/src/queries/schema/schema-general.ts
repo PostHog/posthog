@@ -81,6 +81,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    LogsQuery = 'LogsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -162,6 +163,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -229,6 +231,7 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+    | LogsQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -267,6 +270,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | LogsQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -1966,6 +1970,45 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+    orderBy: 'latest' | 'earliest'
+    searchTerm?: string
+    resource?: string
+    severityLevels: LogSeverityLevel[]
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
+
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: string
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource: string
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface FileSystemCount {
     count: number
 }
@@ -1991,11 +2034,10 @@ export interface FileSystemEntry {
     _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
-    icon?: any // Setting as "any" to keep Python schema.py in check
+export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
+    iconType?: string
     flag?: string
-    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =

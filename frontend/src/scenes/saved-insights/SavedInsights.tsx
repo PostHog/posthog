@@ -10,6 +10,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLive,
     IconPerson,
     IconPieChart,
     IconPiggyBank,
@@ -437,6 +438,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.VectorSearchQuery]: {
         name: 'Vector Search',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.LogsQuery]: {
+        name: 'Logs',
+        icon: IconLive,
         inMenu: false,
     },
 }

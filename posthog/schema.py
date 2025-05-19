@@ -65,6 +65,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
+    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
 
 
 class AssistantDateRange(BaseModel):
@@ -1088,17 +1089,6 @@ class FileSystemEntry(BaseModel):
     )
 
 
-class NamedArgs(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ref: Optional[str] = None
-
-
-class Href(BaseModel):
-    namedArgs: Optional[NamedArgs] = None
-
-
 class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1110,8 +1100,8 @@ class FileSystemImport(BaseModel):
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     flag: Optional[str] = None
-    href: Href
-    icon: Optional[Any] = None
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    iconType: Optional[str] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
@@ -1375,6 +1365,18 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LogSeverityLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"
+
+
+class OrderBy1(StrEnum):
+    LATEST = "latest"
+    EARLIEST = "earliest"
+
+
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1412,6 +1414,7 @@ class NodeKind(StrEnum):
     REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
     REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
+    LOGS_QUERY = "LogsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
@@ -1535,7 +1538,6 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
-    ERROR_TRACKING_ISSUE_PROPERTY = "error_tracking_issue_property"
 
 
 class PropertyMathType(StrEnum):
@@ -1602,7 +1604,7 @@ class QueryResponseAlternative17(BaseModel):
     total_exposures: dict[str, float]
 
 
-class QueryResponseAlternative55(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1867,7 +1869,6 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
-    ERROR_TRACKING_ISSUE_PROPERTIES = "error_tracking_issue_properties"
     REPLAY = "replay"
     RESOURCES = "resources"
 
@@ -2869,6 +2870,25 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
+
+
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attributes: str
+    body: str
+    event_name: str
+    instrumentation_scope: str
+    level: LogSeverityLevel
+    observed_timestamp: datetime
+    resource: str
+    severity_number: float
+    severity_text: LogSeverityLevel
+    span_id: str
+    timestamp: datetime
+    trace_id: str
+    uuid: str
 
 
 class MatchedRecording(BaseModel):
@@ -4492,6 +4512,40 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
 
 
+class CachedLogsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: Any
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5515,19 +5569,6 @@ class ErrorTrackingIssueFilter(BaseModel):
     ] = None
 
 
-class ErrorTrackingIssuePropertyFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str
-    label: Optional[str] = None
-    operator: PropertyOperator
-    type: Literal["error_tracking_issue_property"] = "error_tracking_issue_property"
-    value: Optional[
-        Union[list[Union[str, float, ErrorTrackingIssueAssignee]], Union[str, float, ErrorTrackingIssueAssignee]]
-    ] = None
-
-
 class ErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5854,6 +5895,31 @@ class LogEntryPropertyFilter(BaseModel):
     value: Optional[
         Union[list[Union[str, float, ErrorTrackingIssueAssignee]], Union[str, float, ErrorTrackingIssueAssignee]]
     ] = None
+
+
+class LogsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class MultipleBreakdownOptions(BaseModel):
@@ -6692,22 +6758,26 @@ class QueryResponseAlternative53(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative56(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[TeamTaxonomyItem]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6728,7 +6798,7 @@ class QueryResponseAlternative57(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[EventTaxonomyItem]
+    results: list[TeamTaxonomyItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6749,13 +6819,34 @@ class QueryResponseAlternative58(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: ActorsPropertyTaxonomyResponse
+    results: list[EventTaxonomyItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
 class QueryResponseAlternative59(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: ActorsPropertyTaxonomyResponse
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6780,7 +6871,7 @@ class QueryResponseAlternative59(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7220,6 +7311,7 @@ class AnyResponseType(
             Any,
             EventsQueryResponse,
             ErrorTrackingQueryResponse,
+            LogsQueryResponse,
         ]
     ]
 ):
@@ -7232,6 +7324,7 @@ class AnyResponseType(
         Any,
         EventsQueryResponse,
         ErrorTrackingQueryResponse,
+        LogsQueryResponse,
     ]
 
 
@@ -7418,7 +7511,6 @@ class DashboardFilter(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -7503,7 +7595,6 @@ class DataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7549,7 +7640,6 @@ class DataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7581,7 +7671,6 @@ class EntityNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7625,7 +7714,6 @@ class EntityNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7671,7 +7759,6 @@ class EventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7717,7 +7804,6 @@ class EventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7749,7 +7835,6 @@ class ExperimentDataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7793,7 +7878,6 @@ class ExperimentDataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7825,7 +7909,6 @@ class ExperimentEventExposureConfig(BaseModel):
             DataWarehousePropertyFilter,
             DataWarehousePersonPropertyFilter,
             ErrorTrackingIssueFilter,
-            ErrorTrackingIssuePropertyFilter,
         ]
     ]
 
@@ -7861,7 +7944,6 @@ class FunnelExclusionActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7908,7 +7990,6 @@ class FunnelExclusionActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7939,7 +8020,6 @@ class FunnelExclusionEventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7987,7 +8067,6 @@ class FunnelExclusionEventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8040,7 +8119,6 @@ class HogQLFilters(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8080,6 +8158,24 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
+class LogsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    kind: Literal["LogsQuery"] = "LogsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    orderBy: OrderBy1
+    resource: Optional[str] = None
+    response: Optional[LogsQueryResponse] = None
+    searchTerm: Optional[str] = None
+    severityLevels: list[LogSeverityLevel]
+
+
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8104,7 +8200,6 @@ class PersonsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -8135,7 +8230,6 @@ class PersonsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8167,7 +8261,6 @@ class PropertyGroupFilterValue(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ],
         ]
     ]
@@ -8223,7 +8316,6 @@ class RecordingsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8254,7 +8346,6 @@ class RecordingsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8290,7 +8381,6 @@ class RetentionEntity(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="filters on the event")
@@ -8415,7 +8505,6 @@ class TracesQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8483,7 +8572,6 @@ class ActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -8528,7 +8616,6 @@ class ActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8733,7 +8820,6 @@ class RetentionQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8784,7 +8870,6 @@ class StickinessQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8842,7 +8927,6 @@ class TrendsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8928,7 +9012,6 @@ class CalendarHeatmapQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9098,7 +9181,6 @@ class FunnelsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9144,7 +9226,6 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9187,7 +9268,6 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9230,7 +9310,6 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9273,7 +9352,6 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9316,7 +9394,6 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9359,7 +9436,6 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9409,7 +9485,6 @@ class LifecycleQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9576,6 +9651,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative58,
             QueryResponseAlternative59,
             QueryResponseAlternative60,
+            QueryResponseAlternative61,
         ]
     ]
 ):
@@ -9632,10 +9708,11 @@ class QueryResponseAlternative(
         QueryResponseAlternative58,
         QueryResponseAlternative59,
         QueryResponseAlternative60,
+        QueryResponseAlternative61,
     ]
 
 
-class NamedArgs1(BaseModel):
+class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9643,11 +9720,11 @@ class NamedArgs1(BaseModel):
 
 
 class IsExperimentFunnelMetric(BaseModel):
-    namedArgs: Optional[NamedArgs1] = None
+    namedArgs: Optional[NamedArgs] = None
 
 
 class IsExperimentMeanMetric(BaseModel):
-    namedArgs: Optional[NamedArgs1] = None
+    namedArgs: Optional[NamedArgs] = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -9868,7 +9945,6 @@ class PathsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -10015,7 +10091,6 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -10130,7 +10205,6 @@ class EventsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
-                    ErrorTrackingIssuePropertyFilter,
                 ],
             ]
         ]
@@ -10164,7 +10238,6 @@ class EventsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
-                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -10316,6 +10389,7 @@ class HogQLAutocomplete(BaseModel):
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            LogsQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             CalendarHeatmapQuery,
@@ -10372,6 +10446,7 @@ class HogQLMetadata(BaseModel):
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            LogsQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             CalendarHeatmapQuery,
@@ -10443,6 +10518,7 @@ class QueryRequest(BaseModel):
         LifecycleQuery,
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
+        LogsQuery,
         SuggestedQuestionsQuery,
         TeamTaxonomyQuery,
         EventTaxonomyQuery,
@@ -10524,6 +10600,7 @@ class QuerySchemaRoot(
             LifecycleQuery,
             FunnelCorrelationQuery,
             DatabaseSchemaQuery,
+            LogsQuery,
             SuggestedQuestionsQuery,
             TeamTaxonomyQuery,
             EventTaxonomyQuery,
@@ -10579,6 +10656,7 @@ class QuerySchemaRoot(
         LifecycleQuery,
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
+        LogsQuery,
         SuggestedQuestionsQuery,
         TeamTaxonomyQuery,
         EventTaxonomyQuery,

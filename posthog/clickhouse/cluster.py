@@ -406,6 +406,13 @@ class Query:
     def __call__(self, client: Client):
         return client.execute(self.query, self.parameters, settings=self.settings)
 
+    def __repr__(self) -> str:
+        if self.parameters and isinstance(self.parameters, list):
+            params_repr = f"{self.parameters[:50]!r} (showing first 50 out of {len(self.parameters)} parameters)"
+        else:
+            params_repr = f"{self.parameters!r}"
+        return f"Query(query={self.query!r}, parameters={params_repr}, settings={self.settings!r})"
+
 
 @dataclass
 class ExponentialBackoff:
