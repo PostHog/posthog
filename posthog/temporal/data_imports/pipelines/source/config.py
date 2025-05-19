@@ -229,7 +229,6 @@ def _get_flat_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...
     if config_meta.alias is not None:
         name = config_meta.alias
 
-    prefixes = prefixes
     if config_meta.prefix is not None:
         prefixes = config_meta.prefix
 
