@@ -12,7 +12,9 @@ logger = structlog.get_logger(__name__)
 
 class RawKeyActionSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
-    failure = serializers.BooleanField(required=False, default=None, allow_null=True)
+    abandonment = serializers.BooleanField(required=False, default=False, allow_null=True)
+    confusion = serializers.BooleanField(required=False, default=False, allow_null=True)
+    exception = serializers.ChoiceField(choices=["blocking", "non-blocking"], required=False, allow_null=True)
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
@@ -72,6 +74,9 @@ class SegmentMetaSerializer(serializers.Serializer):
     events_percentage = serializers.FloatField(min_value=0, max_value=1, required=False, allow_null=True)
     key_action_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     failure_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    abandonment_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    confusion_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    exception_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
 class EnrichedSegmentSerializer(RawSegmentSerializer):
@@ -209,27 +214,65 @@ def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> Session
     return session_summary
 
 
+def _pick_start_end_events(
+    start_event_id: str,
+    end_event_id: str,
+    event_index_index: int,
+    simplified_events_mapping: dict[str, list[Any]],
+) -> tuple[list[Any], list[Any]]:
+    start_event = simplified_events_mapping[start_event_id]
+    end_event = simplified_events_mapping[end_event_id]
+    # If events are in the correct order - return them as is
+    if start_event[event_index_index] < end_event[event_index_index]:
+        return start_event, end_event
+    # If events are in the wrong order - swap them
+    return end_event, start_event
+
+
 def _calculate_segment_duration(
     start_event_id: str,
     end_event_id: str,
     timestamp_index: int,
+    event_index_index: int,
     simplified_events_mapping: dict[str, list[Any]],
     session_total_duration: int,
 ) -> tuple[int, float]:
-    start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
+    start_event, end_event = _pick_start_end_events(
+        start_event_id=start_event_id,
+        end_event_id=end_event_id,
+        event_index_index=event_index_index,
+        simplified_events_mapping=simplified_events_mapping,
+    )
     start_event_timestamp = prepare_datetime(start_event[timestamp_index])
     end_event_timestamp = prepare_datetime(end_event[timestamp_index])
     duration = int((end_event_timestamp - start_event_timestamp).total_seconds())
-    duration_percentage = duration / session_total_duration
+    # Round to avoid floating point precision issues (like 1.0000000002)
+    duration_percentage = round(duration / session_total_duration, 4)
+    if duration_percentage > 1 and duration_percentage < 1.1:  # Round up to 100%
+        return duration, 1.0
+    # If miscalculation is too large (probably, a hallucination) - keep it 0 and hope for the fallback recalculation
+    if duration_percentage > 1 or duration_percentage < 0:
+        return 0, 0.0
     return duration, duration_percentage
 
 
 def _calculate_segment_events_count(
-    start_event_id: str, end_event_id: str, event_index_index: int, simplified_events_mapping: dict[str, list[Any]]
+    start_event_id: str,
+    end_event_id: str,
+    event_index_index: int,
+    simplified_events_mapping: dict[str, list[Any]],
 ) -> tuple[int, float]:
-    start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
-    events_count = end_event[event_index_index] - start_event[event_index_index]
-    events_percentage = events_count / len(simplified_events_mapping)
+    start_event, end_event = _pick_start_end_events(
+        start_event_id=start_event_id,
+        end_event_id=end_event_id,
+        event_index_index=event_index_index,
+        simplified_events_mapping=simplified_events_mapping,
+    )
+    events_count = end_event[event_index_index] - start_event[event_index_index] + 1
+    # Round to avoid floating point precision issues (like 1.0000000002)
+    events_percentage = round(events_count / len(simplified_events_mapping), 4)
+    if events_percentage > 1 and events_percentage < 1.1:  # Round up to 100%
+        events_percentage = 1.0
     return events_count, events_percentage
 
 
@@ -247,20 +290,34 @@ def _calculate_segment_meta(
     start_event_id = raw_segment.get("start_event_id")
     end_event_id = raw_segment.get("end_event_id")
     segment_meta_data: dict[str, Any] = {}
-    if segment_index is None or start_event_id is None or end_event_id is None:
+    if (
+        segment_index is None
+        or start_event_id is None
+        or end_event_id is None
+        # All the proper event IDs are 8 characters long
+        # If shorter - could still not fully streamed yet
+        or len(start_event_id) != 8
+        or len(end_event_id) != 8
+    ):
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate duration of the segment
     if not session_metadata.duration:
         raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
-    duration, duration_percentage = _calculate_segment_duration(
-        start_event_id=start_event_id,
-        end_event_id=end_event_id,
-        timestamp_index=timestamp_index,
-        simplified_events_mapping=simplified_events_mapping,
-        session_total_duration=session_metadata.duration,
-    )
-    # If the end event is before the start event - avoid enriching the segment, for now
+    # If both events aren't hallucinated - calculate the meta
+    if start_event_id in simplified_events_mapping and end_event_id in simplified_events_mapping:
+        duration, duration_percentage = _calculate_segment_duration(
+            start_event_id=start_event_id,
+            end_event_id=end_event_id,
+            timestamp_index=timestamp_index,
+            event_index_index=event_index_index,
+            simplified_events_mapping=simplified_events_mapping,
+            session_total_duration=session_metadata.duration,
+        )
+    # If hallucinated - avoid calculating it now and hope for the fallback from the key actions
+    else:
+        duration, duration_percentage = 0, 0.0
+    # If the end event is before the start event (or start/end event ids are hallucinated) - avoid enriching the segment, for now
     # The goal is to fill it later from the key actions (better have part of the data than none)
     if duration <= 0:
         segment_meta_data["duration"] = 0
@@ -287,15 +344,14 @@ def _calculate_segment_meta(
     segment_key_actions_group = None
     # Find a relevant key actions group for the segment
     for key_actions_group in raw_key_actions:
-        failure_count = 0
         key_group_segment_index = key_actions_group.get("segment_index")
         if key_group_segment_index is None or key_group_segment_index != segment_index:
             # If key group segment index isn't generated yet or doesn't match the segment index - skip this group
             continue
         segment_key_actions_group = key_actions_group
         break
+    # If no relevant key actions group is found
     if not segment_key_actions_group:
-        # If no relevant key actions group is found
         return SegmentMetaSerializer(data=segment_meta_data)
     # Process the relevant events from the key actions group
     key_group_events = segment_key_actions_group.get("events", [])
@@ -304,43 +360,72 @@ def _calculate_segment_meta(
         return SegmentMetaSerializer(data=segment_meta_data)
     segment_meta_data["key_action_count"] = len(key_group_events)
     # Calculate failure count
+    failure_count = 0
+    abandonment_count = 0
+    confusion_count = 0
+    exception_count = 0
     for key_action_event in key_group_events:
-        if_failure = key_action_event.get("failure")
-        if if_failure is None:
-            # If failure isn't generated yet - skip this event
-            continue
-        if if_failure:
+        abandonment = key_action_event.get("abandonment")
+        confusion = key_action_event.get("confusion")
+        exception = key_action_event.get("exception")
+        # Count each type of issue
+        if abandonment:
+            abandonment_count += 1
+        if confusion:
+            confusion_count += 1
+        if exception:
+            exception_count += 1
+        # If any of the fields indicate a failure, increment the total count
+        if abandonment or confusion or exception:
             failure_count += 1
     segment_meta_data["failure_count"] = failure_count
+    segment_meta_data["abandonment_count"] = abandonment_count
+    segment_meta_data["confusion_count"] = confusion_count
+    segment_meta_data["exception_count"] = exception_count
     # Fallback - if enough events processed and the data drastically changes - calculate the meta from the key actions
-    if len(key_group_events) < 3:
+    if len(key_group_events) < 2:
         # If not enough events yet
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate key action count and failure count
-    start_event_index = key_group_events[0].get("event_index")
-    end_event_index = key_group_events[-1].get("event_index")
-    if start_event_index is None or end_event_index is None:
-        # If event indexes aren't generated yet
+    fallback_start_event_id = key_group_events[0].get("event_id")
+    fallback_end_event_id = key_group_events[-1].get("event_id")
+    if (
+        fallback_start_event_id is None
+        or fallback_end_event_id is None
+        # All the proper event IDs are 8 characters long
+        # If shorter - could still not fully streamed yet
+        or len(fallback_start_event_id) != 8
+        or len(fallback_end_event_id) != 8
+    ):
+        # If event ids aren't generated yet
+        return SegmentMetaSerializer(data=segment_meta_data)
+    if (
+        fallback_start_event_id not in simplified_events_mapping
+        or fallback_end_event_id not in simplified_events_mapping
+    ):
+        # If event ids are hallucinated and fallback can't be calculated also
         return SegmentMetaSerializer(data=segment_meta_data)
     fallback_duration, fallback_duration_percentage = _calculate_segment_duration(
-        start_event_id=start_event_id,
-        end_event_id=end_event_id,
+        start_event_id=fallback_start_event_id,
+        end_event_id=fallback_end_event_id,
         timestamp_index=timestamp_index,
+        event_index_index=event_index_index,
         simplified_events_mapping=simplified_events_mapping,
         session_total_duration=session_metadata.duration,
     )
     fallback_events_count, fallback_events_percentage = _calculate_segment_events_count(
-        start_event_id=start_event_id,
-        end_event_id=end_event_id,
+        start_event_id=fallback_start_event_id,
+        end_event_id=fallback_end_event_id,
         event_index_index=event_index_index,
         simplified_events_mapping=simplified_events_mapping,
     )
-    if fallback_duration == 0 or duration == 0:
-        # If data is 0, calculations are not reliable
+    if fallback_duration == 0:
+        # If fallback_duration is also 0, calculations are not reliable
         return SegmentMetaSerializer(data=segment_meta_data)
-    # If the change is drastic (in both directions) - use the fallback data to avoid reader's confusion
+    # If the change is drastic, or no duration at all - use the fallback data to avoid reader's confusion
+    # Avoiding downsizing the segment as larger segments make more sense visually
     # TODO: Factor of two is arbitrary, find a better solution
-    if fallback_duration // duration > 2 or duration // fallback_duration > 2:
+    if duration <= 0 or fallback_duration // duration > 2:
         # Checking only duration as events are sorted chronologically
         logger.warning(
             f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}"

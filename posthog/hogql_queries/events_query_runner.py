@@ -1,6 +1,7 @@
 from datetime import timedelta
 from functools import cached_property
 from typing import Optional, cast
+import re
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -71,8 +72,14 @@ class EventsQueryRunner(QueryRunner):
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                props = [f"person.properties.{key}" for key in property_keys]
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), distinct_id)"  # we always need distinct_id for the URL, and we can't rely on it being selected elsewhere
+                # Only use backticks for property names with spaces or special chars
+                props = []
+                for key in property_keys:
+                    if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                        props.append(f"toString(person.properties.{key})")
+                    else:
+                        props.append(f"toString(person.properties.`{key}`)")
+                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
                 select_input.append(expr)
             else:
                 select_input.append(col)
@@ -285,10 +292,11 @@ class EventsQueryRunner(QueryRunner):
                     row = list(self.paginator.results[index])
                     row[column_index] = {
                         "display_name": result[column_index][0],
-                        "distinct_id": str(result[column_index][1]),
+                        "id": str(result[column_index][1]),
                     }
                     self.paginator.results[index] = row
 
+        # TODO: get rid of this logic once we don't use `person` columns anywhere
         if len(person_indices) > 0 and len(self.paginator.results) > 0:
             with self.timings.measure("person_column_extra_query"):
                 # Make a query into postgres to fetch person

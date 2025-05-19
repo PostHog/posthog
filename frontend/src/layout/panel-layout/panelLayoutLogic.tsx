@@ -1,12 +1,13 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { LemonTreeRef, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' // Add more identifiers here for more panels
+export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' | 'Games'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
+export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
@@ -28,6 +29,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setVisibleSideAction: (sideAction: string) => ({ sideAction }),
         setProjectTreeMode: (mode: TreeMode) => ({ mode }),
+        setPanelWidth: (width: number) => ({ width }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -120,7 +122,20 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setProjectTreeMode: (_, { mode }) => mode,
             },
         ],
+        panelWidth: [
+            PANEL_LAYOUT_DEFAULT_WIDTH,
+            { persist: true },
+            {
+                setPanelWidth: (_, { width }) => width,
+            },
+        ],
     }),
+    listeners(({ actions }) => ({
+        setActivePanelIdentifier: () => {
+            // clear search term when changing panel
+            actions.clearSearch()
+        },
+    })),
     selectors({
         isLayoutNavCollapsed: [
             (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],

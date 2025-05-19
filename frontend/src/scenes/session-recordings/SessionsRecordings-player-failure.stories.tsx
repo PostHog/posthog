@@ -12,7 +12,7 @@ import { recordingPlaylists } from './__mocks__/recording_playlists'
 import { recordings } from './__mocks__/recordings'
 
 const meta: Meta = {
-    title: 'Replay/Player/Failure',
+    title: 'Replay/Tabs/Home/Failure',
     tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',

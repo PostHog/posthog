@@ -1,6 +1,5 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
-use crate::client::database::Client as DatabaseClient;
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -18,6 +17,7 @@ use crate::metrics::consts::{
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use anyhow::Result;
+use common_database::Client as DatabaseClient;
 use common_metrics::inc;
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
@@ -433,14 +433,12 @@ impl FeatureFlagMatcher {
         let mut flags_needing_db_properties = Vec::new();
 
         // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
-        let type_indexes: HashSet<GroupTypeIndex> = feature_flags
+        let has_type_indexes = feature_flags
             .flags
             .iter()
-            .filter(|flag| flag.active && !flag.deleted)
-            .filter_map(|flag| flag.get_group_type_index())
-            .collect();
+            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
 
-        if !type_indexes.is_empty() {
+        if has_type_indexes {
             let group_type_mapping_timer =
                 common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
 

@@ -104,3 +104,19 @@ export function openSaveToModal(props: OpenSaveToProps): void {
         props.callback?.(props.folder ?? props.defaultFolder ?? '')
     }
 }
+
+export async function asyncSaveToModal(
+    props: Omit<OpenSaveToProps, 'callback' | 'cancelCallback'>
+): Promise<string | null> {
+    return new Promise((resolve) => {
+        openSaveToModal({
+            ...props,
+            callback: (folder) => {
+                resolve(folder)
+            },
+            cancelCallback: () => {
+                resolve(null)
+            },
+        })
+    })
+}

@@ -115,7 +115,6 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
-        [PropertyFilterType.ErrorTrackingIssueProperty]: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
     }
 
 export function formatPropertyLabel(
@@ -225,6 +224,9 @@ export function isLogEntryPropertyFilter(filter?: AnyFilterLike | null): filter 
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
+export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
+    return filter?.type === PropertyFilterType.ErrorTrackingIssue
+}
 export function isDataWarehousePropertyFilter(filter?: AnyFilterLike | null): filter is DataWarehousePropertyFilter {
     return filter?.type === PropertyFilterType.DataWarehouse
 }
@@ -307,6 +309,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
+    [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
 }
 
 export const filterToTaxonomicFilterType = (
@@ -393,10 +396,6 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssues) {
         return PropertyFilterType.ErrorTrackingIssue
-    }
-
-    if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssueProperties) {
-        return PropertyFilterType.ErrorTrackingIssueProperty
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

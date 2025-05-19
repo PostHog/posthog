@@ -7,9 +7,9 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
@@ -33,6 +33,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     pinned: boolean
+    type?: 'collection' | 'saved_filters'
 }
 
 export interface SavedSessionRecordingPlaylistsLogicProps {
@@ -50,7 +51,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
     connect(() => ({
-        actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
 
     actions(() => ({
@@ -65,6 +66,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         ) => ({ shortId, properties }),
         deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
+        checkForSavedFilterRedirect: true,
     })),
     reducers(() => ({
         filters: [
@@ -72,9 +74,8 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             {
                 setSavedPlaylistsFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...Object.fromEntries(Object.entries(state || {}).filter(([key]) => key in filters)),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page that's being updated
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
@@ -103,7 +104,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     date_from: undefined,
                     date_to: undefined,
                     pinned: undefined,
-                    type: 'saved_filters',
+                    type: 'filters',
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))
@@ -131,6 +132,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     date_from: filters.dateFrom && filters.dateFrom != 'all' ? filters.dateFrom : undefined,
                     date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
+                    type: 'collection',
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))
@@ -183,6 +185,16 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         setSavedPlaylistsFilters: () => {
             actions.loadPlaylists()
         },
+        checkForSavedFilterRedirect: async () => {
+            //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL
+            const { savedFilterId } = router.values.searchParams
+            if (savedFilterId) {
+                const savedFilter = await api.recordings.getPlaylist(savedFilterId)
+                if (savedFilter) {
+                    router.actions.push(urls.replay(ReplayTabs.Home, savedFilter.filters))
+                }
+            }
+        },
     })),
 
     selectors(({ actions }) => ({
@@ -226,6 +238,33 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                               actions.setSavedPlaylistsFilters({
                                   page: filters.page + 1,
                               })
+                        : undefined,
+                }
+            },
+        ],
+        paginationSavedFilters: [
+            (s) => [s.filters, s.savedFilters],
+            (filters, savedFilters): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: PLAYLISTS_PER_PAGE,
+                    currentPage: filters.page,
+                    entryCount: savedFilters.count,
+                    onBackward: savedFilters.previous
+                        ? () => {
+                              actions.setSavedPlaylistsFilters({
+                                  page: filters.page - 1,
+                              })
+                              actions.loadSavedFilters()
+                          }
+                        : undefined,
+                    onForward: savedFilters.next
+                        ? () => {
+                              actions.setSavedPlaylistsFilters({
+                                  page: filters.page + 1,
+                              })
+                              actions.loadSavedFilters()
+                          }
                         : undefined,
                 }
             },
@@ -290,5 +329,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     afterMount(({ actions }) => {
         actions.loadPlaylists()
         actions.loadSavedFilters()
+        actions.checkForSavedFilterRedirect()
     }),
 ])

@@ -3,6 +3,9 @@
 exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
 [
   {
+    "headers": {
+      "event-id": "<REPLACED-UUID-0>",
+    },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
     "topic": "events_plugin_ingestion_dlq_test",
     "value": {
@@ -20,6 +23,9 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
 exports[`IngestionConsumer general overflow force overflow should force events with matching token:distinct_id to overflow: force overflow messages 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:team1-user",
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
@@ -37,6 +43,9 @@ exports[`IngestionConsumer general overflow force overflow should force events w
 exports[`IngestionConsumer general overflow force overflow should handle multiple token:distinct_id pairs in force overflow setting: force overflow messages multiple pairs 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user1",
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
@@ -49,6 +58,9 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>:user2",
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
@@ -66,6 +78,9 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
 exports[`IngestionConsumer general overflow should emit to overflow if token and distinct_id are overflowed 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": null,
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
@@ -83,7 +98,36 @@ exports[`IngestionConsumer general overflow should emit to overflow if token and
 exports[`IngestionConsumer general should process a standard event 1`] = `
 [
   {
-    "key": "<REPLACED-UUID-0>",
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_person_test",
+    "value": {
+      "created_at": "2025-01-01 00:00:00",
+      "id": "<REPLACED-UUID-0>",
+      "is_deleted": 0,
+      "is_identified": 0,
+      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
+    "headers": undefined,
+    "key": null,
+    "topic": "clickhouse_person_distinct_id_test",
+    "value": {
+      "distinct_id": "user-1",
+      "is_deleted": 0,
+      "person_id": "<REPLACED-UUID-0>",
+      "team_id": 2,
+      "version": 0,
+    },
+  },
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
       "created_at": "2025-01-01 00:00:00.000",
@@ -91,38 +135,14 @@ exports[`IngestionConsumer general should process a standard event 1`] = `
       "elements_chain": "",
       "event": "$pageview",
       "person_created_at": "2025-01-01 00:00:00",
-      "person_id": "<REPLACED-UUID-1>",
+      "person_id": "<REPLACED-UUID-0>",
       "person_mode": "full",
-      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
+      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
       "project_id": 2,
       "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
-      "uuid": "<REPLACED-UUID-0>",
-    },
-  },
-  {
-    "key": null,
-    "topic": "clickhouse_person_test",
-    "value": {
-      "created_at": "2025-01-01 00:00:00",
-      "id": "<REPLACED-UUID-1>",
-      "is_deleted": 0,
-      "is_identified": 0,
-      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
-      "team_id": 2,
-      "version": 0,
-    },
-  },
-  {
-    "key": null,
-    "topic": "clickhouse_person_distinct_id_test",
-    "value": {
-      "distinct_id": "user-1",
-      "is_deleted": 0,
-      "person_id": "<REPLACED-UUID-1>",
-      "team_id": 2,
-      "version": 0,
+      "uuid": "<REPLACED-UUID-1>",
     },
   },
 ]
@@ -131,6 +151,7 @@ exports[`IngestionConsumer general should process a standard event 1`] = `
 exports[`IngestionConsumer typical event processing $identify event 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -144,6 +165,9 @@ exports[`IngestionConsumer typical event processing $identify event 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -163,6 +187,7 @@ exports[`IngestionConsumer typical event processing $identify event 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -179,6 +204,7 @@ exports[`IngestionConsumer typical event processing $identify event 1`] = `
 exports[`IngestionConsumer typical event processing ai event 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -192,6 +218,9 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -204,13 +233,14 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
       "person_mode": "full",
       "person_properties": "{"$creator_event_uuid":"<REPLACED-UUID-1>"}",
       "project_id": 2,
-      "properties": "{"$ai_model":"gpt-4","$ai_provider":"openai","$ai_input_tokens":100,"$ai_output_tokens":50,"$ip":"127.0.0.1","$ai_input_cost_usd":0.003,"$ai_output_cost_usd":0.003,"$ai_total_cost_usd":0.006}",
+      "properties": "{"$ai_model":"gpt-4","$ai_provider":"openai","$ai_input_tokens":100,"$ai_output_tokens":50,"$ip":"127.0.0.1","$ai_model_cost_used":"gpt-4","$ai_input_cost_usd":0.003,"$ai_output_cost_usd":0.003,"$ai_total_cost_usd":0.006}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-1>",
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -227,6 +257,7 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
 exports[`IngestionConsumer typical event processing client ingestion warning 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_ingestion_warnings_test",
     "value": {
@@ -243,6 +274,9 @@ exports[`IngestionConsumer typical event processing client ingestion warning 1`]
 exports[`IngestionConsumer typical event processing event with common distinct_id that gets dropped 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -262,6 +296,7 @@ exports[`IngestionConsumer typical event processing event with common distinct_i
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -273,6 +308,7 @@ exports[`IngestionConsumer typical event processing event with common distinct_i
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -291,6 +327,7 @@ exports[`IngestionConsumer typical event processing event with common distinct_i
 exports[`IngestionConsumer typical event processing forced person upgrade 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -304,6 +341,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -317,6 +355,9 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -336,6 +377,9 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-3>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -355,6 +399,9 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -374,6 +421,9 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":3,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -393,6 +443,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -409,6 +460,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
 exports[`IngestionConsumer typical event processing groups 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -422,6 +474,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_groups_test",
     "value": {
@@ -434,6 +487,9 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -453,6 +509,9 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-3>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -472,6 +531,9 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -491,6 +553,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -507,6 +570,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
 exports[`IngestionConsumer typical event processing malformed event 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -520,6 +584,9 @@ exports[`IngestionConsumer typical event processing malformed event 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -539,6 +606,7 @@ exports[`IngestionConsumer typical event processing malformed event 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -555,6 +623,9 @@ exports[`IngestionConsumer typical event processing malformed event 1`] = `
 exports[`IngestionConsumer typical event processing malformed person information 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -574,6 +645,7 @@ exports[`IngestionConsumer typical event processing malformed person information
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -585,6 +657,7 @@ exports[`IngestionConsumer typical event processing malformed person information
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -603,6 +676,9 @@ exports[`IngestionConsumer typical event processing malformed person information
 exports[`IngestionConsumer typical event processing multiple events 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -622,6 +698,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -633,6 +710,9 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -652,6 +732,9 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -671,6 +754,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -682,6 +766,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -695,6 +780,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -708,6 +794,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -726,6 +813,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
 exports[`IngestionConsumer typical event processing normal event 1`] = `
 [
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -739,6 +827,9 @@ exports[`IngestionConsumer typical event processing normal event 1`] = `
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -758,6 +849,7 @@ exports[`IngestionConsumer typical event processing normal event 1`] = `
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -774,6 +866,9 @@ exports[`IngestionConsumer typical event processing normal event 1`] = `
 exports[`IngestionConsumer typical event processing person processing off 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -798,6 +893,9 @@ exports[`IngestionConsumer typical event processing person processing off 1`] = 
 exports[`IngestionConsumer typical event processing person property merging via alias 1`] = `
 [
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -817,6 +915,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -828,6 +927,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -839,6 +939,9 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -858,6 +961,9 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
     "key": "<REPLACED-UUID-6>",
     "topic": "clickhouse_events_json_test",
     "value": {
@@ -877,6 +983,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_distinct_id_test",
     "value": {
@@ -888,6 +995,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -901,6 +1009,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -914,6 +1023,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
@@ -927,6 +1037,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     },
   },
   {
+    "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {

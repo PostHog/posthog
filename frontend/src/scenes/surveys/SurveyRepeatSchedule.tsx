@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils'
+import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -181,7 +182,6 @@ function SurveyIterationOptions(): JSX.Element {
 
 export function SurveyRepeatSchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { setSelectedSection } = useActions(surveyLogic)
 
     const canSurveyBeRepeated = Boolean(
         survey.conditions?.events?.repeatedActivation && survey.conditions?.events?.values?.length > 0
@@ -196,10 +196,7 @@ export function SurveyRepeatSchedule(): JSX.Element {
                     <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>{' '}
                     <span>{survey.conditions?.events?.values.length === 1 ? 'event is' : 'events are'}</span> triggered.
                     So these settings are not applicable. If you want, remove the event targeting in the{' '}
-                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
-                        display conditions section
-                    </Link>
-                    .
+                    <LinkToSurveyFormSection section={SurveyEditSection.DisplayConditions} />.
                 </span>
             ) : (
                 <SurveyIterationOptions />

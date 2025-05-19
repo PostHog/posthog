@@ -16,6 +16,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
@@ -48,6 +49,8 @@ import {
     QueryStatus,
     QueryTiming,
     RefreshType,
+    TracesQuery,
+    TracesQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
@@ -58,6 +61,7 @@ import {
     isInsightActorsQuery,
     isInsightQueryNode,
     isPersonsNode,
+    isTracesQuery,
 } from '~/queries/utils'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
@@ -151,13 +155,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     !('results' in props.cachedResults)))
         ) {
             // For normal loads, use appropriate refresh type
-            const refreshType = queryVarsHaveChanged
-                ? isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                    ? 'force_async'
-                    : 'force_blocking'
-                : isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                ? 'async'
-                : 'blocking'
+            let refreshType: RefreshType
+            if (queryVarsHaveChanged) {
+                refreshType =
+                    isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
+            } else {
+                refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
+            }
+
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
@@ -199,7 +204,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const query = overrideQuery ?? props.query
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
-                    const refresh = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING] && !pollOnly) {
+                        refresh =
+                            refresh === 'force_async' ? 'force_blocking' : refresh === 'async' ? 'blocking' : refresh
+                    }
 
                     if (props.doNotLoad) {
                         return props.cachedResults
@@ -337,7 +346,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isEventsQuery(props.query) ||
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
-                        isErrorTrackingQuery(props.query)
+                        isErrorTrackingQuery(props.query) ||
+                        isTracesQuery(props.query)
                     ) {
                         const newResponse =
                             (await performQuery(
@@ -351,6 +361,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | ActorsQueryResponse
                             | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
+                            | TracesQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -586,7 +597,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||
                         isGroupsQuery(query) ||
-                        isErrorTrackingQuery(query)) &&
+                        isErrorTrackingQuery(query) ||
+                        isTracesQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
@@ -597,9 +609,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | ActorsQueryResponse
                                 | GroupsQueryResponse
                                 | ErrorTrackingQueryResponse
+                                | TracesQueryResponse
                         )?.hasMore
                     ) {
-                        const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
+                        const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
                             const sortColumnIndex = query.select
@@ -626,12 +639,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | ActorsQueryResponse
                                     | GroupsQueryResponse
                                     | ErrorTrackingQueryResponse
+                                    | TracesQueryResponse
                             )?.results
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery
+                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery
                         }
                     }
                 }
