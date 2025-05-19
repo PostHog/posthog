@@ -38,7 +38,7 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
     const headers = new Headers() as ModifiedResponse['headers']
     Object.entries(response.headers).forEach(([key, value]) => {
         headers.set(key, value)
-    });
+    })
 
     headers.toJSON = () => {
         return Object.fromEntries(headers.entries())
@@ -139,7 +139,7 @@ export class SegmentDestinationExecutorService {
                 }
 
                 await action.perform(
-                    // @ts-ignore
+                    // @ts-expect-error can't figure out unknown extends Data
                     async (endpoint, options) => {
                         addLog('warn', 'endpoint', endpoint)
                         addLog('warn', 'options', options)
@@ -221,13 +221,22 @@ export class SegmentDestinationExecutorService {
 
                         fetchOptions.headers = {
                             ...fetchOptions.headers,
-                            'endpoint': endpoint + '?' + params.toString()
+                            endpoint: endpoint + '?' + params.toString(),
                         }
 
                         addLog('warn', 'fetchOptions', fetchOptions)
-                        const fetchResponse = await this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
+                        const fetchResponse = await this.fetch(
+                            `${endpoint}${params.toString() ? '?' + params.toString() : ''}`,
+                            fetchOptions
+                        )
                         const convertedResponse = await convertFetchResponse(fetchResponse)
-                        addLog('warn', 'convertedResponse', convertedResponse.data, convertedResponse.content, convertedResponse.body)
+                        addLog(
+                            'warn',
+                            'convertedResponse',
+                            convertedResponse.data,
+                            convertedResponse.content,
+                            convertedResponse.body
+                        )
                         return convertedResponse
                     },
                     {
