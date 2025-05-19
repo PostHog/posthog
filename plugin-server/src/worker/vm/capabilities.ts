@@ -1,3 +1,5 @@
+import { logger } from '~/src/utils/logger'
+
 import { PluginCapabilities, PluginMethods } from '../../types'
 import { PluginServerCapabilities } from './../../types'
 
@@ -18,10 +20,11 @@ export function getVMPluginCapabilities(methods: PluginMethods): PluginCapabilit
 }
 
 function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, pluginCapabilities: PluginCapabilities) {
+    logger.info('shouldSetupPlugin', serverCapability, pluginCapabilities)
     if (PROCESS_EVENT_CAPABILITIES.has(serverCapability)) {
         return pluginCapabilities.methods?.includes('processEvent')
     }
-    if (serverCapability === 'processAsyncOnEventHandlers') {
+    if (serverCapability === 'processAsyncOnEventHandlers' || serverCapability === 'cdpLegacyOnEvent') {
         return pluginCapabilities.methods?.some((method) => ['onEvent', 'composeWebhook'].includes(method))
     }
 
