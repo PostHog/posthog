@@ -117,6 +117,7 @@ class ConversationCheckpointWrite(UUIDModel):
 
 
 MAX_ONBOARDING_QUESTIONS = 3
+ONBOARDING_TIMEOUT_MINUTES = 10
 
 
 class CoreMemory(UUIDModel):
@@ -143,7 +144,8 @@ class CoreMemory(UUIDModel):
     @property
     def is_scraping_pending(self) -> bool:
         return self.scraping_status == CoreMemory.ScrapingStatus.PENDING and (
-            self.scraping_started_at is None or (self.scraping_started_at + timedelta(minutes=10)) > timezone.now()
+            self.scraping_started_at is None
+            or (self.scraping_started_at + timedelta(minutes=ONBOARDING_TIMEOUT_MINUTES)) > timezone.now()
         )
 
     @property
@@ -183,8 +185,7 @@ class CoreMemory(UUIDModel):
 
     @property
     def answers_left(self) -> int:
-        answers_asked = self.initial_text.count("\nAnswer:")
-        answers_left = MAX_ONBOARDING_QUESTIONS - answers_asked
+        answers_given = self.initial_text.count("\nAnswer:")
         if self.initial_text.endswith("\nAnswer:"):
-            answers_left += 1
-        return answers_left
+            answers_given -= 1
+        return MAX_ONBOARDING_QUESTIONS - answers_given

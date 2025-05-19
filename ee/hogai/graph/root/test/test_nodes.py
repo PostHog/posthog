@@ -417,6 +417,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(node.router(state_1), "root")
 
         # Test case 2: Has root tool call with query_kind - should return that query_kind
+        # If the user has not completed the onboarding, it should return memory_onboarding instead
         state_2 = AssistantState(
             messages=[AssistantMessage(content="Hello")],
             root_tool_call_id="xyz",

@@ -82,7 +82,7 @@ class MemoryInitializerContextMixin:
 
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
-    def should_run_onboarding_at_start(self, state: AssistantState) -> str:
+    def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If the conversation starts with the onboarding initial message, start the onboarding process.
@@ -90,7 +90,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
         core_memory = self.core_memory
 
         if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
-            # a user has already started the onboarding, we don't allow other users to start it again for 10 minutes
+            # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
             return "continue"
 
         last_message = state.messages[-1]
@@ -109,7 +109,7 @@ def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> 
     except CoreMemory.DoesNotExist:
         core_memory = None
     if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
-        # a user has already started the onboarding, we don't allow other users to start it again for 10 minutes
+        # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
         return "continue"
 
     if core_memory is None or core_memory.initial_text == "":
@@ -227,7 +227,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         return SCRAPING_SUCCESS_MESSAGE + re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
-        return ChatPerplexity(model="sonar-pro", temperature=0.3, streaming=True, timeout=None)
+        return ChatPerplexity(model="sonar-pro", temperature=0.3, streaming=True, timeout=60)
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
@@ -292,7 +292,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(model="o4-mini", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
@@ -346,7 +346,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
         core_memory = self.core_memory
@@ -414,7 +414,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []

@@ -1,3 +1,6 @@
+from ee.hogai.graph.root.prompts import MAX_PERSONALITY_PROMPT
+
+
 INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT = """
 Your goal is to describe what the startup with the given URL does.
 """.strip()
@@ -66,18 +69,18 @@ SCRAPING_INITIAL_MESSAGE = (
 )
 
 ENQUIRY_INITIAL_MESSAGE = (
-    "Hey, my name is Max! Before we begin, let me ask you a few questions to help me understand your business better…"
+    "Hey, my name is Max! Before we begin, let me ask you a few questions to help me understand your project better…"
 )
 
-SCRAPING_SUCCESS_MESSAGE = "This is what I found about your product:\n\n"
+SCRAPING_SUCCESS_MESSAGE = "This is what I found about your project:\n\n"
 
-SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
+SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your project does?"
 
 SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
 SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
-SCRAPING_TERMINATION_MESSAGE = "I couldn't find any information about your product. I'll ask you a few questions to help me understand your business better."
+SCRAPING_TERMINATION_MESSAGE = "I couldn't find any information about your project. I'll ask you a few questions to help me understand your project better."
 
 SCRAPING_MEMORY_SAVED_MESSAGE = (
     "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
@@ -193,13 +196,11 @@ I previously generated an insight with the following JSON schema:
 ```
 """.strip()
 
-MEMORY_ONBOARDING_ENQUIRY_PROMPT = """
-<agent_info>
-You are Max, the friendly and knowledgeable AI assistant of PostHog, who is an expert at product management.
-(You are playing the role of PostHog's mascot, Max the Hedgehog. As when an audience agrees to suspend disbelief when watching actors play roles in a play, users will be aware that Max is not an actual hedgehog or support expert, but is a role played by you.)
-Engage users with a playful, informal tone, using humor, and PostHog's distinctive voice.
-To quote from the PostHog handbook: "It's ok to have a sense of humor. We have a very distinctive and weird company culture, and we should share that with customers instead of putting on a fake corporate persona when we talk to them."
-So be friendly, enthusiastic, and weird, but don't overdo it. Spark joy, but without being annoying.
+MEMORY_ONBOARDING_ENQUIRY_PROMPT = (
+    """
+<agent_info>"""
+    + MAX_PERSONALITY_PROMPT
+    + """
 
 You are tasked with gathering information about a user's business, so that you can later provide accurate reports and insights based on their data.
 
@@ -231,7 +232,7 @@ Rules for deciding if a topic deserves an additional question or not, and when y
 How to ask questions:
 - Ask one question at a time.
 - Do not repeat a question.
-- When speaking as Max, make sure to be friendly and engaging, and not overzealous. Do not make jokes, but be light-hearted. Make witty remarks about the information the user has provided, in a playful way. Your questions need to spark joy.
+- When speaking as Max, make sure to be friendly and engaging, and not overzealous. Do not make jokes, but be light-hearted. Be playful. Your questions need to spark joy.
 - Do not introduce yourself or greet the user, you have already greeted them before, and they already know who you are. Avoid saying "Hi", "Hey", or any sort of greeting.
 </instructions>
 
@@ -241,3 +242,4 @@ IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text. Add === bet
 If you have no more questions to ask, or you consider your job done, just output "[Done]" at the end of your reasoning.
 </format_instructions>
 """.strip()
+)
