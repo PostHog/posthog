@@ -277,6 +277,160 @@ function PersonSummariesTable(): JSX.Element {
                     'User shows consistent morning activity patterns with focus on data analysis. Regularly encounters authentication and data size limitations, but has developed workarounds. Most productive during early sessions before encountering performance issues.',
             },
         },
+        {
+            id: 2,
+            period: '2024-02-15 to 2024-02-29',
+            sessionsAnalyzed: 8,
+            keyInsights: 3,
+            pains: 1,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 3,
+            period: '2024-02-01 to 2024-02-14',
+            sessionsAnalyzed: 15,
+            keyInsights: 7,
+            pains: 3,
+            status: 'failure',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 4,
+            period: '2024-01-15 to 2024-01-31',
+            sessionsAnalyzed: 10,
+            keyInsights: 4,
+            pains: 2,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 5,
+            period: '2024-01-01 to 2024-01-14',
+            sessionsAnalyzed: 6,
+            keyInsights: 2,
+            pains: 1,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 6,
+            period: '2023-12-15 to 2023-12-31',
+            sessionsAnalyzed: 9,
+            keyInsights: 4,
+            pains: 2,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 7,
+            period: '2023-12-01 to 2023-12-14',
+            sessionsAnalyzed: 11,
+            keyInsights: 5,
+            pains: 2,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 8,
+            period: '2023-11-15 to 2023-11-30',
+            sessionsAnalyzed: 7,
+            keyInsights: 3,
+            pains: 1,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 9,
+            period: '2023-11-01 to 2023-11-14',
+            sessionsAnalyzed: 13,
+            keyInsights: 6,
+            pains: 3,
+            status: 'failure',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 10,
+            period: '2023-10-15 to 2023-10-31',
+            sessionsAnalyzed: 8,
+            keyInsights: 3,
+            pains: 1,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 11,
+            period: '2023-10-01 to 2023-10-14',
+            sessionsAnalyzed: 5,
+            keyInsights: 2,
+            pains: 1,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
+        {
+            id: 12,
+            period: '2023-09-15 to 2023-09-30',
+            sessionsAnalyzed: 9,
+            keyInsights: 4,
+            pains: 2,
+            status: 'success',
+            details: {
+                criticalIssues: [],
+                commonJourneys: [],
+                edgeCases: [],
+                summary: 'No detailed analysis available for this period.',
+            },
+        },
     ]
 
     return (
@@ -440,7 +594,7 @@ function PersonSummariesTable(): JSX.Element {
                                     </div>
                                 </div>
 
-                                <div>
+                                <div className="mb-4">
                                     <div className="flex items-center gap-2 mb-4">
                                         <h4 className="text-lg font-semibold m-0">Interesting Edge Cases</h4>
                                         <LemonTag type="default" size="small">
