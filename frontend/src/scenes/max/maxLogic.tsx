@@ -547,11 +547,16 @@ export const maxLogic = kea<maxLogicType>([
         threadGrouped: [
             (s) => [s.threadRaw, s.threadLoading],
             (thread, threadLoading): ThreadMessage[][] => {
+                const isHumanMessageType = (message?: ThreadMessage): boolean =>
+                    message?.type === AssistantMessageType.Human
                 const threadGrouped: ThreadMessage[][] = []
+
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
-                    const previousMessage: ThreadMessage | undefined = thread[i - 1]
-                    if (isHumanMessage(currentMessage) === isHumanMessage(previousMessage)) {
+                    const previousMessage = thread[i - 1] as ThreadMessage | undefined
+
+                    // Do not use the human message type guard here, as it incorrectly infers the type
+                    if (previousMessage && isHumanMessageType(currentMessage) === isHumanMessageType(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
                         if (
                             currentMessage.id &&
@@ -562,13 +567,12 @@ export const maxLogic = kea<maxLogicType>([
                             lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
                         } else if (lastThreadSoFar) {
                             lastThreadSoFar.push(currentMessage)
-                        } else {
-                            threadGrouped.push([currentMessage])
                         }
                     } else {
                         threadGrouped.push([currentMessage])
                     }
                 }
+
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
                     const thinkingMessage: ReasoningMessage & ThreadMessage = {

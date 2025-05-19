@@ -1,7 +1,7 @@
 import { ReadableStream } from 'node:stream/web'
 
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -189,6 +189,321 @@ describe('maxLogic', () => {
                         status: 'completed',
                         id: 'mock-assistant-msg-1',
                     },
+                ],
+            ],
+        })
+    })
+
+    it('preserves only the latest reasoning message in threadGrouped', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Reasoning,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'reasoning-1',
+                },
+                {
+                    type: AssistantMessageType.Reasoning,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'reasoning-2',
+                },
+            ])
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ],
+                [
+                    {
+                        type: AssistantMessageType.Reasoning,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'reasoning-2',
+                    },
+                ],
+            ],
+        })
+    })
+
+    it('groups thread correctly', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Reasoning,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'reasoning-1',
+                },
+                {
+                    type: AssistantMessageType.Reasoning,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'reasoning-2',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'assistant-1',
+                },
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-2',
+                },
+            ])
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ],
+                [
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ],
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-2',
+                    },
+                ],
+            ],
+        })
+    })
+
+    it('preserves the reasoning message when the assistant message is without id', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Reasoning,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'reasoning-1',
+                },
+                {
+                    type: AssistantMessageType.Reasoning,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'reasoning-2',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                },
+            ])
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ],
+                [
+                    {
+                        type: AssistantMessageType.Reasoning,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'reasoning-2',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'hello',
+                        status: 'completed',
+                    },
+                ],
+            ],
+        })
+    })
+
+    it('adds a thinking message to an ephemeral group', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        // Only a human message–should create an ephemeral group
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+            ])
+            logic.actions.setThreadLoading(true)
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ],
+                [
+                    partial({
+                        type: AssistantMessageType.Reasoning,
+                        status: 'completed',
+                        id: 'loader',
+                    }),
+                ],
+            ],
+        })
+    })
+
+    it('adds a thinking message to the last group of messages with IDs', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        // Human and assistant messages with IDs–should append to the last group
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'assistant-1',
+                },
+            ])
+            logic.actions.setThreadLoading(true)
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ],
+                [
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                    partial({
+                        type: AssistantMessageType.Reasoning,
+                        status: 'completed',
+                        id: 'loader',
+                    }),
+                ],
+            ],
+        })
+    })
+
+    it('does not add a thinking message when the last message is without ID', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        // Human with ID and assistant messages without ID–should not add the message
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                },
+            ])
+            logic.actions.setThreadLoading(true)
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ],
+                [
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'hello',
+                        status: 'completed',
+                    },
+                ],
+            ],
+        })
+    })
+
+    it('adds a thinking message when the thread is completely empty', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setThreadLoading(true)
+        }).toMatchValues({
+            threadGrouped: [
+                [
+                    partial({
+                        type: AssistantMessageType.Reasoning,
+                        status: 'completed',
+                        id: 'loader',
+                    }),
                 ],
             ],
         })
