@@ -65,17 +65,24 @@ export function Shortcuts(): JSX.Element {
                         <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
                         {shortcutsLoading && shortcuts.length > 0 ? <Spinner /> : null}
                     </div>
-                    <ButtonPrimitive onClick={showModal}>
+                    <ButtonPrimitive onClick={showModal} iconOnly>
                         <IconPlus className="size-3 text-secondary" />
                     </ButtonPrimitive>
                 </div>
             )}
 
-            {shortcuts.length === 0 ? (
-                <div className="pl-3 text-muted">{shortcutsLoading ? <Spinner /> : 'No shortcuts added'}</div>
+            {isLayoutNavCollapsed && (
+                <ButtonPrimitive onClick={showModal} iconOnly tooltip="Add shortcut" tooltipPlacement="right">
+                    <IconPlus className="size-3 text-secondary" />
+                </ButtonPrimitive>
+            )}
+
+            {!isLayoutNavCollapsed && shortcuts.length === 0 ? (
+                <div className="pl-3 text-secondary">{shortcutsLoading ? <Spinner /> : 'No shortcuts added'}</div>
             ) : null}
 
             <div className="mt-[-0.25rem]">
+                {/* TODO: move this tree into popover if isLayoutNavCollapsed is true */}
                 <LemonTree
                     ref={treeRef}
                     contentRef={mainContentRef as RefObject<HTMLElement>}
