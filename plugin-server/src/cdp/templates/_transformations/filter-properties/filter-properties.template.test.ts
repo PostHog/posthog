@@ -128,7 +128,6 @@ describe('filter-properties.template', () => {
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
-        console.log(response.execResult)
         expect(response.execResult).toMatchObject({
             properties: {
                 $set: null,
