@@ -1,5 +1,6 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     HogFunctionInvocation,
@@ -30,9 +31,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
     }
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processBatch(
+        invocations: HogFunctionInvocation[]
+    ): Promise<{ backgroundTask: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
         if (!invocations.length) {
-            return []
+            return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
         const invocationResults = await this.runInstrumented(
@@ -40,16 +43,28 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             async () => await this.processInvocations(invocations)
         )
 
-        await this.queueInvocationResults(invocationResults)
-        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
+        // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
+        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
+            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+            return Promise.allSettled([
+                this.hogFunctionMonitoringService.processInvocationResults(invocationResults).catch((err) => {
+                    captureException(err)
+                    logger.error('Error processing invocation results', { err })
+                }),
 
-        // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
-        await Promise.allSettled([
-            this.hogWatcher.observeResults(invocationResults),
-            this.hogFunctionMonitoringService.produceQueuedMessages(),
-        ])
+                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                    captureException(err)
+                    logger.error('Error observing results', { err })
+                }),
 
-        return invocationResults
+                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
+                    captureException(err)
+                    logger.error('Error producing queued messages for monitoring', { err })
+                }),
+            ])
+        })
+
+        return { backgroundTask, invocationResults }
     }
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {

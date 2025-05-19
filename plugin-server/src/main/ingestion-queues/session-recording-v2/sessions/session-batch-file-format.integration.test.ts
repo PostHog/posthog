@@ -92,7 +92,13 @@ describe('session recording integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+        recorder = new SessionBatchRecorder(
+            mockOffsetManager,
+            mockStorage,
+            mockMetadataStore,
+            mockConsoleLogStore,
+            new Date('2025-01-01T10:00:00.000Z')
+        )
     })
 
     const createMessage = (

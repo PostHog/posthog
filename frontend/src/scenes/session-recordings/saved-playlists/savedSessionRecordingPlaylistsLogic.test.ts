@@ -169,5 +169,20 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
                     },
                 })
         })
+
+        it('can remove search param', async () => {
+            router.actions.push(urls.replay(ReplayTabs.Playlists))
+            await expectLogic(logic, () => {
+                logic.actions.setSavedPlaylistsFilters({ search: 'test', page: 1 })
+                logic.actions.setSavedPlaylistsFilters({ search: undefined })
+            }).toMatchValues({
+                filters: {
+                    page: 1,
+                },
+            })
+
+            expect(router.values.searchParams).not.toHaveProperty('search')
+            expect(router.values.searchParams).toHaveProperty('page', 1)
+        })
     })
 })

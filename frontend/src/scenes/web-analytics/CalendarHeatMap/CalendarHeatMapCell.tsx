@@ -1,11 +1,13 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, humanFriendlyLargeNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 interface HeatMapCellProps {
     values: HeatMapValues
     bg: string
     fontSize: number
     tooltip: string
+    onClick?: () => void
 }
 
 export interface HeatMapValues {
@@ -14,17 +16,18 @@ export interface HeatMapValues {
     minValue: number
 }
 
-export function CalendarHeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCellProps): JSX.Element {
+export function CalendarHeatMapCell({ values, bg, fontSize, tooltip, onClick }: HeatMapCellProps): JSX.Element {
     const { backgroundColor, color } = getBackgroundAndTextColor({ values, backgroundColor: bg })
 
     return (
         <Tooltip delayMs={100} title={tooltip}>
             <div
-                className="CalendarHeatMap__Cell"
+                className={cn('CalendarHeatMap__Cell', onClick ? 'cursor-pointer hover:bg-highlight' : '')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ fontSize, backgroundColor, color }}
+                onClick={onClick}
             >
-                {humanFriendlyLargeNumber(values.value)}
+                {values.value == undefined ? '' : humanFriendlyLargeNumber(values.value)}
             </div>
         </Tooltip>
     )
