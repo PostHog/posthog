@@ -835,6 +835,7 @@ class CancelJobsActivityInputs:
 class FailJobsActivityInputs:
     workflow_id: str
     workflow_run_id: str
+    team_id: int
     error: str
 
 
