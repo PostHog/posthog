@@ -75,8 +75,7 @@ export const maxLogic = kea<maxLogicType>([
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
-        completeThreadGeneration: (testOnlyOverride = false) => ({ testOnlyOverride }),
-        setThreadLoading: (isLoading: boolean) => ({ isLoading }),
+        completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
         setThread: (thread: ThreadMessage[]) => ({ thread }),
@@ -94,9 +93,18 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: true,
         toggleConversationHistory: (visible?: boolean) => ({ visible }),
         loadThread: (conversation: ConversationDetail) => ({ conversation }),
-        pollConversation: (currentRecursionDepth: number = 0) => ({ currentRecursionDepth }),
+        pollConversation: (
+            conversationId: string,
+            currentRecursionDepth: number = 0,
+            leadingTimeout: number = 2500
+        ) => ({
+            conversationId,
+            currentRecursionDepth,
+            leadingTimeout,
+        }),
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
+        setInProgressConversationId: (conversationId: string | null) => ({ conversationId }),
     }),
 
     reducers({
@@ -159,13 +167,12 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        threadLoading: [
-            false,
+        inProgressConversationId: [
+            null as string | null,
             {
-                askMax: () => true,
-                completeThreadGeneration: (_, { testOnlyOverride }) => testOnlyOverride,
-                cleanThread: () => false,
-                setThreadLoading: (_, { isLoading }) => isLoading,
+                setInProgressConversationId: (_, { conversationId }) => conversationId,
+                completeThreadGeneration: () => null,
+                cleanThread: () => null,
             },
         ],
 
@@ -261,6 +268,10 @@ export const maxLogic = kea<maxLogicType>([
         },
 
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+            if (values.inProgressConversationId !== values.conversationId) {
+                actions.setInProgressConversationId(values.conversationId || 'new')
+            }
+
             if (generationAttempt === 0) {
                 actions.addMessage({
                     type: AssistantMessageType.Human,
@@ -345,6 +356,7 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
                             actions.setConversation(parsedResponse)
+                            actions.setInProgressConversationId(parsedResponse.id)
                         }
                     },
                 })
@@ -435,7 +447,7 @@ export const maxLogic = kea<maxLogicType>([
 
         startNewConversation: () => {
             if (values.conversation) {
-                if (values.threadLoading) {
+                if (values.inProgressConversationId) {
                     actions.stopGeneration()
                 }
                 actions.cleanThread()
@@ -454,7 +466,15 @@ export const maxLogic = kea<maxLogicType>([
 
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
 
-            if (payload?.doNotUpdateCurrentThread) {
+            if (
+                // Don't update the thread if we have explicitly marked
+                payload?.doNotUpdateCurrentThread ||
+                // Or if the conversation has just been streamed
+                values.inProgressConversationId === 'new' ||
+                values.inProgressConversationId === values.conversationId ||
+                // Or if the current thread has the latest messages
+                (conversation && values.threadRaw.length >= conversation?.messages.length)
+            ) {
                 // Update conversation title
                 if (conversation) {
                     actions.setConversation(conversation)
@@ -468,9 +488,8 @@ export const maxLogic = kea<maxLogicType>([
             if (conversation) {
                 actions.loadThread(conversation)
             } else {
-                // If the conversation is not found, clean the thread so that the UI is consistent
-                actions.cleanThread()
-                lemonToast.error('Conversation has not been found.')
+                // If the conversation is not found, poll the conversation status and reset if 404.
+                actions.pollConversation(values.conversationId, 0, 0)
             }
         },
 
@@ -486,36 +505,46 @@ export const maxLogic = kea<maxLogicType>([
             actions.setThread(messages.map((message) => ({ ...message, status: 'completed' })))
 
             if (conversation.status === ConversationStatus.Idle) {
-                actions.setThreadLoading(false)
+                actions.setInProgressConversationId(null)
                 actions.scrollThreadToBottom('instant')
             } else {
                 // If the conversation is not idle, we need to show a loader and poll the conversation status.
-                actions.setThreadLoading(true)
-                actions.pollConversation()
+                actions.setInProgressConversationId(conversation.id)
+                actions.pollConversation(conversation.id)
             }
         },
 
         /**
          * Polls the conversation status until it's idle or reaches a max recursion depth.
          */
-        pollConversation: async ({ currentRecursionDepth }, breakpoint) => {
-            if (!values.conversation?.id || currentRecursionDepth > 10) {
+        pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
+            if (currentRecursionDepth > 10) {
                 return
             }
 
-            await breakpoint(2500)
+            if (leadingTimeout) {
+                await breakpoint(leadingTimeout)
+            }
+
             let conversation: ConversationDetail | null = null
 
             try {
-                conversation = await api.conversations.get(values.conversation.id)
+                conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
-                lemonToast.error(err?.data?.detail || 'Failed to load conversation.')
+                // If conversation is not found, reset the thread completely.
+                if (err.status === 404) {
+                    actions.cleanThread()
+                    lemonToast.error('The chat has not been found.')
+                    return
+                }
+
+                lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 
             if (conversation && conversation.status === ConversationStatus.Idle) {
                 actions.loadThread(conversation)
             } else {
-                actions.pollConversation(currentRecursionDepth + 1)
+                actions.pollConversation(conversationId, currentRecursionDepth + 1)
             }
         },
 
@@ -545,8 +574,8 @@ export const maxLogic = kea<maxLogicType>([
 
     selectors({
         threadGrouped: [
-            (s) => [s.threadRaw, s.threadLoading],
-            (thread, threadLoading): ThreadMessage[][] => {
+            (s) => [s.threadRaw, s.inProgressConversationId],
+            (thread, inProgressConversationId): ThreadMessage[][] => {
                 const isHumanMessageType = (message?: ThreadMessage): boolean =>
                     message?.type === AssistantMessageType.Human
                 const threadGrouped: ThreadMessage[][] = []
@@ -573,7 +602,7 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 }
 
-                if (threadLoading) {
+                if (inProgressConversationId) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
                     const thinkingMessage: ReasoningMessage & ThreadMessage = {
                         type: AssistantMessageType.Reasoning,
@@ -617,9 +646,9 @@ export const maxLogic = kea<maxLogicType>([
         inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
-            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined => {
-                if (threadLoading) {
+            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.inProgressConversationId],
+            (formPending, dataProcessingAccepted, question, inProgressConversationId): string | undefined => {
+                if (inProgressConversationId) {
                     return undefined
                 }
 
@@ -675,15 +704,16 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [
-                s.conversationHistory,
-                s.conversationHistoryLoading,
-                s.conversationId,
-                s.conversation,
-                s.threadLoading,
-            ],
+            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
                 return !conversationHistory.length && conversationHistoryLoading && conversationId && !conversation
+            },
+        ],
+
+        threadLoading: [
+            (s) => [s.inProgressConversationId],
+            (inProgressConversationId) => {
+                return !!inProgressConversationId
             },
         ],
 
@@ -745,7 +775,7 @@ export const maxLogic = kea<maxLogicType>([
         }
 
         // Load conversation history on mount
-        actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
+        actions.loadConversationHistory()
     }),
 
     urlToAction(({ actions, values }) => ({

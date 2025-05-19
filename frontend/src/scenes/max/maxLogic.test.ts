@@ -6,11 +6,25 @@ import api from 'lib/api'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { AssistantEventType, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationStatus } from '~/types'
 
 import { maxLogic } from './maxLogic'
+
+const maxMocks: Mocks = {
+    get: {
+        '/api/environments/:team_id/conversations/': { results: [] },
+        '/api/environments/:team_id/core_memory/': { results: [] },
+    },
+    post: {
+        'api/environments/:team_id/query': { questions: ['Question'] },
+        '/api/environments/:team_id/conversations/': {},
+    },
+}
+
+const MOCK_CONVERSATION_ID = 'mock-conversation-id-from-stream'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
@@ -25,7 +39,7 @@ describe('maxLogic', () => {
                     }
 
                     const conversation: Conversation = {
-                        id: 'mock-conversation-id-from-stream',
+                        id: MOCK_CONVERSATION_ID,
                         status: ConversationStatus.InProgress,
                         title: '',
                         created_at: new Date().toISOString(),
@@ -69,16 +83,7 @@ describe('maxLogic', () => {
     }
 
     beforeEach(() => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/conversations/': { results: [] },
-                '/api/environments/:team_id/core_memory/': { results: [] },
-            },
-            post: {
-                'api/environments/:team_id/query': { questions: ['Question'] },
-                '/api/environments/:team_id/conversations/': {},
-            },
-        })
+        useMocks(maxMocks)
         initKeaTests()
     })
 
@@ -129,6 +134,14 @@ describe('maxLogic', () => {
     })
 
     it('does not reset the thread when it was already opened after conversations have been loaded', async () => {
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                [`/api/environments/:team_id/conversations/${MOCK_CONVERSATION_ID}`]: [404, { detail: 'Not found' }],
+            },
+        })
+
         const streamSpy = mockStream()
 
         // mount logic
@@ -145,7 +158,7 @@ describe('maxLogic', () => {
         expect(streamSpy).toHaveBeenCalledTimes(1)
 
         await expectLogic(logic).toMatchValues({
-            threadLoading: false,
+            inProgressConversationId: null,
             threadGrouped: [
                 [
                     {
@@ -163,6 +176,41 @@ describe('maxLogic', () => {
                     },
                 ],
             ],
+        })
+    })
+
+    it('resets the thread when a conversation has not been found', async () => {
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                [`/api/environments/:team_id/conversations/${MOCK_CONVERSATION_ID}`]: () => [
+                    404,
+                    { detail: 'Not found' },
+                ],
+            },
+        })
+
+        const streamSpy = mockStream()
+
+        // mount logic
+        logic = maxLogic()
+
+        // Wait for all the microtasks to finish
+        await expectLogic(logic, () => {
+            logic.mount()
+
+            // start a thread
+            logic.actions.setConversationId(MOCK_CONVERSATION_ID)
+        }).delay(200)
+
+        expect(streamSpy).not.toHaveBeenCalled()
+
+        await expectLogic(logic).toMatchValues({
+            inProgressConversationId: null,
+            conversationId: null,
+            conversation: null,
+            threadGrouped: [],
         })
     })
 
@@ -379,7 +427,7 @@ describe('maxLogic', () => {
                     id: 'human-1',
                 },
             ])
-            logic.actions.setThreadLoading(true)
+            logic.actions.setInProgressConversationId('new')
         }).toMatchValues({
             threadGrouped: [
                 [
@@ -421,7 +469,7 @@ describe('maxLogic', () => {
                     id: 'assistant-1',
                 },
             ])
-            logic.actions.setThreadLoading(true)
+            logic.actions.setInProgressConversationId('new')
         }).toMatchValues({
             threadGrouped: [
                 [
@@ -468,7 +516,7 @@ describe('maxLogic', () => {
                     status: 'completed',
                 },
             ])
-            logic.actions.setThreadLoading(true)
+            logic.actions.setInProgressConversationId('new')
         }).toMatchValues({
             threadGrouped: [
                 [
@@ -495,7 +543,7 @@ describe('maxLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.setThreadLoading(true)
+            logic.actions.setInProgressConversationId('new')
         }).toMatchValues({
             threadGrouped: [
                 [

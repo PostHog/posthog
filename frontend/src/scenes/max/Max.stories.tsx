@@ -8,7 +8,6 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 import {
     chatResponseChunk,
-    CONVERSATION_ID,
     failureChunk,
     formChunk,
     generationFailureChunk,
@@ -117,7 +116,7 @@ WelcomeLoadingSuggestions.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { askMax } = useActions(maxLogic)
 
     useEffect(() => {
         askMax(humanMessage.content)
@@ -133,7 +132,7 @@ export const EmptyThreadLoading: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { askMax } = useActions(maxLogic)
 
     useEffect(() => {
         askMax(humanMessage.content)
@@ -154,8 +153,8 @@ export const GenerationFailureThread: StoryFn = () => {
         },
     })
 
-    const { askMax, setMessageStatus } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
-    const { threadRaw, threadLoading } = useValues(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { askMax, setMessageStatus } = useActions(maxLogic)
+    const { threadRaw, threadLoading } = useValues(maxLogic)
 
     useEffect(() => {
         askMax(humanMessage.content)
@@ -177,7 +176,7 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { askMax } = useActions(maxLogic)
 
     useEffect(() => {
         askMax(humanMessage.content)
@@ -194,7 +193,7 @@ export const ThreadWithRateLimit: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { askMax } = useActions(maxLogic)
 
     useEffect(() => {
         askMax('Is Bielefeld real?')
@@ -210,7 +209,7 @@ export const ThreadWithForm: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { askMax } = useActions(maxLogic)
 
     useEffect(() => {
         askMax(humanMessage.content)
@@ -226,7 +225,7 @@ export const ThreadWithConversationLoading: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
         setConversationId('test')
@@ -247,7 +246,7 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
         setConversationId('empty')
@@ -264,7 +263,7 @@ export const ThreadWithInProgressConversation: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
         setConversationId('in_progress')
@@ -295,7 +294,7 @@ export const ChatHistory: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -316,7 +315,7 @@ export const ChatHistoryEmpty: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -337,7 +336,7 @@ export const ChatHistoryLoading: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     useEffect(() => {
         toggleConversationHistory(true)
