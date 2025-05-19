@@ -2352,14 +2352,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type:
-        | 'posthog'
-        | 'data_warehouse'
-        | 'view'
-        | 'batch_export'
-        | 'materialized_view'
-        | 'managed_view'
-        | 'managed_data_warehouse'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -2394,14 +2387,6 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
 }
-
-export interface DatabaseSchemaManagedDataWarehouseTable extends DatabaseSchemaTableCommon {
-    type: 'managed_data_warehouse'
-    format: string
-    url_pattern: string
-    schema?: DatabaseSchemaSchema
-    source?: DatabaseSchemaSource
-}
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
     type: 'batch_export'
 }
@@ -2413,7 +2398,6 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
-    | DatabaseSchemaManagedDataWarehouseTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>

@@ -770,7 +770,6 @@ class Type1(StrEnum):
     BATCH_EXPORT = "batch_export"
     MATERIALIZED_VIEW = "materialized_view"
     MANAGED_VIEW = "managed_view"
-    MANAGED_DATA_WAREHOUSE = "managed_data_warehouse"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -2589,21 +2588,6 @@ class DatabaseSchemaField(BaseModel):
     schema_valid: bool
     table: Optional[str] = None
     type: DatabaseSerializedFieldType
-
-
-class DatabaseSchemaManagedDataWarehouseTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    fields: dict[str, DatabaseSchemaField]
-    format: str
-    id: str
-    name: str
-    row_count: Optional[float] = None
-    schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
-    source: Optional[DatabaseSchemaSource] = None
-    type: Literal["managed_data_warehouse"] = "managed_data_warehouse"
-    url_pattern: str
 
 
 class DatabaseSchemaPostHogTable(BaseModel):
@@ -9460,7 +9444,6 @@ class QueryResponseAlternative55(BaseModel):
             DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
-            DatabaseSchemaManagedDataWarehouseTable,
         ],
     ]
 
@@ -9681,7 +9664,6 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
-            DatabaseSchemaManagedDataWarehouseTable,
         ],
     ]
 
