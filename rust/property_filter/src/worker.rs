@@ -351,3 +351,29 @@ async fn get_next_batch(
         }
     }
 }
+
+mod test {
+    use super::*;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn test_trie_size_200k() {
+        let mut t = Trie::<BString, bool>::new();
+
+        for _ in 0..200_000 {
+            let key = {
+                let vals = Faker.fake::<(char, char, String)>();
+                format!("{}_{}_{}", vals.0, vals.1, vals.2)
+            };
+            t.insert_str(&key, true);
+        }
+
+        let data: Value = to_value::<&Trie<BString, bool>>(&t).expect("JSON serialize");
+        let result = data.to_string().bytes().collect::<Vec<u8>>().len();
+        assert!(
+            5_000_000 == result,
+            "trie with 200k entries is >5mb got: {} bytes",
+            result
+        );
+    }
+}

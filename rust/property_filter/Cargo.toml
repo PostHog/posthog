@@ -22,6 +22,7 @@ rand = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
 qp-trie = { workspace = true }
+fake = "4.3.0"
 
 [lints]
 workspace = true
