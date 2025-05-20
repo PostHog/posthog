@@ -31,6 +31,15 @@ export function SurveyAppearancePreview({ survey, previewPageIndex, onPreviewSub
                 previewPageIndex,
                 forceDisableHtml: !surveysHTMLAvailable,
                 onPreviewSubmit,
+                positionStyles: {
+                    position: 'relative',
+                    left: 'unset',
+                    right: 'unset',
+                    top: 'unset',
+                    bottom: 'unset',
+                    transform: 'unset',
+                    maxWidth: '100%',
+                },
             })
         }
 
