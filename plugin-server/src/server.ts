@@ -314,6 +314,8 @@ export class PluginServer {
             captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
+
+            void this.stop(error)
         })
 
         process.on('uncaughtException', async (error: Error) => {
