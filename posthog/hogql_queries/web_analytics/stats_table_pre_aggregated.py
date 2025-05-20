@@ -8,20 +8,20 @@ from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFiel
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
-# Check frontend fields
+# We can enable more filters here, but keeping the same as web_overview while we test in
 STATS_TABLE_SUPPORTED_FILTERS = {
     "$host": "host",
     "$device_type": "device_type",
-    "$browser": "browser",
-    "$os": "os",
-    "$viewport": "viewport",
-    "$referring_domain": "referring_domain",
-    "$utm_source": "utm_source",
-    "$utm_medium": "utm_medium",
-    "$utm_campaign": "utm_campaign",
-    "$utm_term": "utm_term",
-    "$utm_content": "utm_content",
-    "$country": "country",
+    # "$browser": "browser",
+    # "$os": "os",
+    # "$viewport": "viewport",
+    # "$referring_domain": "referring_domain",
+    # "$utm_source": "utm_source",
+    # "$utm_medium": "utm_medium",
+    # "$utm_campaign": "utm_campaign",
+    # "$utm_term": "utm_term",
+    # "$utm_content": "utm_content",
+    # "$country": "country",
 }
 
 
@@ -44,7 +44,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS, **kwargs)
 
     def can_use_preaggregated_tables(self) -> bool:
-        if not super(self).can_use_preaggregated_tables():
+        if not super().can_use_preaggregated_tables():
             return False
 
         return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
@@ -52,7 +52,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
         breakdown_field = self._get_breakdown_field()
-        order_by = self._get_get_order_by()
+        order_by = self._get_order_by()
 
         query_str = f"""
         SELECT
@@ -79,11 +79,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return query
 
     def _get_order_by(self):
-        if self.query.orderBy:
+        if self.runner.query.orderBy:
             column = None
             direction: Literal["ASC", "DESC"] = "DESC"
-            field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
+            field = cast(WebAnalyticsOrderByFields, self.runner.query.orderBy[0])
+            direction = cast(WebAnalyticsOrderByDirection, self.runner.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -95,7 +95,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return ""
 
     def _get_breakdown_field(self):
-        match self.query.breakdownBy:
+        match self.runner.query.breakdownBy:
             case WebStatsBreakdown.DEVICE_TYPE:
                 return "device_type"
             case WebStatsBreakdown.BROWSER:

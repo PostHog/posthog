@@ -2,20 +2,20 @@ from typing import TYPE_CHECKING, cast
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 
+SUPPORTED_PROPERTIES = {
+    "$host": "host",
+    "$device_type": "device_type",
+}
 
-class WebOverviewPreAggregatedQueryBuilder:
-    # Supported property keys and their mapping to pre-aggregated table fields
-    SUPPORTED_PROPERTIES = {
-        "$host": "host",
-        "$device_type": "device_type",
-    }
 
+class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebOverviewQueryRunner") -> None:
-        self.runner = runner
+        super().__init__(runner, supported_props_filters=SUPPORTED_PROPERTIES)
 
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()

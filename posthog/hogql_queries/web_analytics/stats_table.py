@@ -35,6 +35,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     response: WebStatsTableQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
+    preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
