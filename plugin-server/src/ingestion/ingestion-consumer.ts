@@ -277,12 +277,6 @@ export class IngestionConsumer {
             )
         })
 
-        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
-        await this.runInstrumented('awaitScheduledWork', () => {
-            return Promise.all([...this.promises, ...this.hogTransformer.promises])
-        })
-        logger.debug('🔁', `Processed batch`)
-
         personsStoreForBatch.reportBatch()
 
         for (const message of messages) {
@@ -292,6 +286,13 @@ export class IngestionConsumer {
                     .set(message.timestamp)
             }
         }
+
+        // TODO: Return this for the consumer to wait for in the background
+        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
+        await this.runInstrumented('awaitScheduledWork', () => {
+            return Promise.all([...this.promises, ...this.hogTransformer.promises])
+        })
+        logger.debug('🔁', `Processed batch`)
     }
 
     /**
