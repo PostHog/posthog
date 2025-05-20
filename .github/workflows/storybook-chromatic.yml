@@ -185,7 +185,7 @@ jobs:
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
-                  fetch-depth: 1
+                  fetch-depth: 0
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
@@ -323,8 +323,7 @@ jobs:
               shell: bash
               run: |
                   PATHS_FLAPPING=()
-                  git log --pretty=oneline --abbrev-commit | head -10 # Debug history
-                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1 HEAD~1) # HEAD~1 is to ignore the merge-with-target commit
+                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
                   echo "Last human commit identified: $last_human_commit"
                   for snapshot_path in $(git diff --name-only frontend/__snapshots__); do
                       echo "Checking snapshot path: $snapshot_path"
