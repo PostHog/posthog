@@ -24,9 +24,42 @@ pytestmark = pytest.mark.usefixtures("minio_client")
 POSTGRES_TABLE_NAME = "test_table"
 
 TEST_DATA = [
-    (1, "John Doe", "john@example.com", dt.datetime(2025, 1, 1, tzinfo=dt.UTC), 100),
-    (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC), 2000000),
-    (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC), 3409892966),
+    (
+        1,
+        "John Doe",
+        "john@example.com",
+        dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+        100,
+        "[0,2)",
+        '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
+    ),
+    (
+        2,
+        "Jane Smith",
+        "jane@example.com",
+        dt.datetime(2025, 1, 2, tzinfo=dt.UTC),
+        2000000,
+        "[2,4)",
+        '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
+    ),
+    (
+        3,
+        "Bob Wilson",
+        "bob@example.com",
+        dt.datetime(2025, 1, 3, tzinfo=dt.UTC),
+        3409892966,
+        "[4,6)",
+        '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
+    ),
+    (
+        4,
+        "Wob Bilson",
+        "wob@example.com",
+        dt.datetime(2025, 1, 3, tzinfo=dt.UTC),
+        4,
+        "[5,7)",
+        None,
+    ),
 ]
 
 
@@ -75,16 +108,18 @@ async def postgres_source_table(
                 name VARCHAR(255),
                 email VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                big_int BIGINT
+                big_int BIGINT,
+                int_range INT4RANGE,
+                tstz_range TSTZRANGE NULL
             )
         """).format(full_table_name)
         )
 
         # Insert test data
         await cursor.executemany(
-            sql.SQL("INSERT INTO {} (id, name, email, created_at, big_int) VALUES (%s, %s, %s, %s, %s)").format(
-                full_table_name
-            ),
+            sql.SQL(
+                "INSERT INTO {} (id, name, email, created_at, big_int, int_range, tstz_range) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+            ).format(full_table_name),
             TEST_DATA,
         )
 
@@ -140,7 +175,7 @@ async def test_postgres_source_full_refresh(
         table_name=table_name,
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
-        expected_columns=["id", "name", "email", "created_at", "big_int"],
+        expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "tstz_range"],
     )
 
     assert res.results == TEST_DATA
