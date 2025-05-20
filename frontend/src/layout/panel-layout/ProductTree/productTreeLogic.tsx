@@ -2,15 +2,16 @@ import { connect, kea, path, selectors } from 'kea'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+
 import { getDefaultTreeProducts } from '../ProjectTree/defaultTree'
-import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 import { convertFileSystemEntryToTreeDataItem } from '../ProjectTree/utils'
 import type { productTreeLogicType } from './productTreeLogicType'
 
 export const productTreeLogic = kea<productTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'productTreeLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], projectTreeLogic, ['folderStates', 'users']],
+        values: [featureFlagLogic, ['featureFlags'], projectTreeDataLogic, ['folderStates', 'users']],
         actions: [],
     })),
     selectors({

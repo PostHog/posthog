@@ -66,7 +66,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         selectMode,
         projectTreeRef,
         projectTreeRefEntry,
-    } = useValues(projectTreeLogic)
+    } = useValues(projectTreeLogic({ key: 'project-tree' }))
     const { treeItemsNew } = useValues(projectTreeDataLogic)
 
     const {
@@ -91,7 +91,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
-    } = useActions(projectTreeLogic)
+    } = useActions(projectTreeLogic({ key: 'project-tree' }))
     const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =

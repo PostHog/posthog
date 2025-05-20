@@ -30,8 +30,8 @@ function getAllFolderIds(path?: string): string[] {
 
 /** Input component for selecting a folder */
 export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
-    const { projectTreeOnlyFolders, treeTableKeys } = useValues(projectTreeLogic)
-    const { createFolder, loadFolderIfNotLoaded, rename } = useActions(projectTreeLogic)
+    const { projectTreeOnlyFolders, treeTableKeys } = useValues(projectTreeLogic({ key: 'project-tree' }))
+    const { createFolder, loadFolderIfNotLoaded, rename } = useActions(projectTreeLogic({ key: 'project-tree' }))
 
     const treeRef = useRef<LemonTreeRef>(null)
     const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)

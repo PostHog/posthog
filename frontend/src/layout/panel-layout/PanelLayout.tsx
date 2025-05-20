@@ -125,7 +125,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
         useActions(panelLayoutLogic)
-    useMountedLogic(projectTreeLogic)
+    useMountedLogic(projectTreeLogic({ key: 'project-tree' }))
 
     useEffect(() => {
         if (mainRef.current) {

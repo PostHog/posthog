@@ -13,7 +13,7 @@ export function CombinedTree(): JSX.Element {
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { selectedItem, treeItemsCombined } = useValues(shortcutsLogic)
     const { setSelectedItem } = useActions(shortcutsLogic)
-    const { loadFolderIfNotLoaded } = useActions(projectTreeLogic)
+    const { loadFolderIfNotLoaded } = useActions(projectTreeLogic({ key: 'project-tree' }))
 
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])

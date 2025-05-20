@@ -56,6 +56,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         deleteTypeAndRef: (type: string, ref: string) => ({ type, ref }),
+
+        setLastNewFolder: (folder: string | null) => ({ folder }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -306,6 +308,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             {
                 queueAction: (state, { action }) => [...state, action],
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
+            },
+        ],
+        lastNewFolder: [
+            null as string | null,
+            {
+                setLastNewFolder: (_, { folder }) => {
+                    return folder ?? null
+                },
             },
         ],
     }),

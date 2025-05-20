@@ -34,8 +34,8 @@ export function TopBar(): JSX.Element | null {
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
-    const { projectTreeRefEntry, projectTreeRefBreadcrumbs } = useValues(projectTreeLogic)
-    const { setMovingItems } = useActions(projectTreeLogic)
+    const { projectTreeRefEntry, projectTreeRefBreadcrumbs } = useValues(projectTreeLogic({ key: 'project-tree' }))
+    const { setMovingItems } = useActions(projectTreeLogic({ key: 'project-tree' }))
     const [compactionRate, setCompactionRate] = useState(0)
 
     const breadcrumbs = featureFlags[FEATURE_FLAGS.TREE_VIEW]
@@ -166,7 +166,7 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
-    const { assureVisibility } = useActions(projectTreeLogic)
+    const { assureVisibility } = useActions(projectTreeLogic({ key: 'project-tree' }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
