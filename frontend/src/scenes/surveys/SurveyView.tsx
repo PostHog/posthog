@@ -466,7 +466,14 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     >
                         Explore results
                     </LemonButton>
-                    {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
+                    {!disableEventsTable &&
+                        (surveyLoading ? (
+                            <LemonSkeleton />
+                        ) : (
+                            <div className="survey-table-results">
+                                <Query query={dataTableQuery} />
+                            </div>
+                        ))}
                 </>
             ) : (
                 <LemonBanner type="info">

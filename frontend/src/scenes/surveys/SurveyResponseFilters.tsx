@@ -1,6 +1,7 @@
-import { IconCode, IconCopy } from '@posthog/icons'
+import { IconCode, IconCopy, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -8,7 +9,7 @@ import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useState } from 'react'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
+import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
 
 import {
     EventPropertyFilter,
@@ -73,13 +74,17 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 }
 
 function _SurveyResponseFilters(): JSX.Element {
-    const { survey, answerFilters, propertyFilters, defaultAnswerFilters } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
+    const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange } = useValues(surveyLogic)
+    const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
     const handleResetFilters = (): void => {
         setAnswerFilters(defaultAnswerFilters)
         setPropertyFilters([])
+        setDateRange({
+            date_from: getSurveyStartDateForQuery(survey as Survey),
+            date_to: getSurveyEndDateForQuery(survey as Survey),
+        })
     }
 
     const handleUpdateFilter = (questionId: string, field: 'operator' | 'value', value: any): void => {
@@ -195,16 +200,23 @@ function _SurveyResponseFilters(): JSX.Element {
                 </div>
             )}
             <div className="flex gap-2 justify-between">
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    onChange={setPropertyFilters}
-                    pageKey="survey-results"
-                    buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
-                />
+                <div className="flex gap-2 flex-wrap">
+                    <DateFilter
+                        dateFrom={dateRange?.date_from}
+                        dateTo={dateRange?.date_to}
+                        onChange={(dateFrom, dateTo) => setDateRange({ date_from: dateFrom, date_to: dateTo })}
+                    />
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        onChange={setPropertyFilters}
+                        pageKey="survey-results"
+                        buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
+                    />
+                </div>
                 <LemonButton
                     size="small"
                     type="secondary"
-                    icon={<IconCode />}
+                    icon={<IconRefresh />}
                     onClick={handleResetFilters}
                     className="self-start"
                 >
