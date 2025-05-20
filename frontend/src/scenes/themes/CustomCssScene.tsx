@@ -78,6 +78,149 @@ body[theme=light] {
     --secondary-3000-button-border-hover: #d40b76;
 }`
 
+const DOS_THEME = `/* === DOS-style font & pixel render === */
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root {
+  --dos-bg:        #000030;
+  --dos-fg:        #FFFFFF;
+  --dos-blue:      #0000AA;
+  --dos-cyan:      #00FFFF;
+  --dos-gray:      #888888;
+}
+* {
+  border-radius: 0 !important;
+  box-shadow:    none !important;
+}
+
+/* === Global body === */
+body {
+  background:        var(--dos-bg)   !important;
+  color:             var(--dos-fg)   !important;
+  font-family:       'VT323', monospace !important;
+  font-size:         14px            !important;
+  -webkit-font-smoothing: none       !important;
+  image-rendering:   pixelated       !important;
+  margin:            0;
+  padding:           0;
+  overflow:          hidden;
+}
+/* === Full-screen container === */
+#root, .App, .LemonLayout {
+  background: var(--dos-blue) !important;
+  border:     2px solid var(--dos-fg) !important;
+  padding:    0 !important;
+  margin:     0;
+}
+
+/* === Top bar / menu bar === */
+.TopBar3000__content,
+.LemonTabs {
+  background:        var(--dos-cyan) !important;
+  color:             var(--dos-bg)  !important;
+  border-bottom:     2px solid var(--dos-fg) !important;
+  padding:           4px 8px         !important;
+  text-transform:    uppercase;
+  font-weight:       bold;
+}
+
+/* === Sidebar === */
+.Sidebar, .Menu {
+  background:    var(--dos-blue) !important;
+  color:         var(--dos-fg)  !important;
+  border-right:  2px solid var(--dos-fg) !important;
+}
+.Sidebar a,
+.Menu a {
+  display:       block;
+  padding:       2px 6px       !important;
+  color:         var(--dos-cyan) !important;
+  text-decoration:none;
+}
+.Sidebar a:hover, .Menu a.active {
+  background:    var(--dos-cyan) !important;
+  color:         var(--dos-bg)  !important;
+}
+
+/* === Panels, cards, modals === */
+.LemonCard,
+.LemonModal,
+.LemonPopover,
+.LemonTable,
+.Panel {
+  background: var(--dos-bg) !important;
+  color:      var(--dos-fg) !important;
+  border:     2px solid var(--dos-fg) !important;
+}
+
+/* === Buttons & links === */
+button,
+.LemonButton,
+.Link {
+  background:      var(--dos-blue)   !important;
+  color:           var(--dos-fg)    !important;
+  border:          2px solid var(--dos-fg) !important;
+  padding:         2px 6px !important;
+  text-transform:  uppercase !important;
+  font-family:     'VT323', monospace !important;
+  font-size:       13px !important;
+}
+button:hover,
+.LemonButton:hover,
+.Link:hover {
+  background: var(--dos-cyan) !important;
+  color:      var(--dos-bg)  !important;
+}
+
+/* === Inputs & selects === */
+input, textarea, select {
+  background: var(--dos-bg) !important;
+  color:      var(--dos-fg) !important;
+  border:     1px solid var(--dos-fg) !important;
+}
+
+/* === Block selection highlight === */
+::selection {
+  background: var(--dos-cyan) !important;
+  color:      var(--dos-bg)  !important;
+}
+
+/* === Scanlines overlay === */
+body::before {
+  content:   "";
+  position:  fixed;
+  top:0; left:0; right:0; bottom:0;
+  background: linear-gradient(rgba(255,255,255,0.03) 50%, transparent 50%);
+  background-size: 100% 2px;
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* === Footer hints (ESC, ↑↓, ENTER) === */
+body::after {
+  content:    "ESC: Exit    ↑/↓: Move    ENTER: Select";
+  position:   fixed;
+  bottom:     0; left: 0; right: 0;
+  background: var(--dos-blue) !important;
+  color:      var(--dos-fg)  !important;
+  border-top: 2px solid var(--dos-fg) !important;
+  padding:    2px 8px !important;
+  font-family:'VT323',monospace !important;
+  font-size:  12px !important;
+  z-index:    9999;
+}
+
+/* === Blinking cursor helper === */
+@keyframes dos-blink {
+  0%,100% { opacity:1; }
+  50%    { opacity:0; }
+}
+.blinking-cursor::after {
+  content: "_";
+  animation: dos-blink 1s step-end infinite;
+  color: var(--dos-fg);
+}`
+
 export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
     const { saveCustomCss, setPreviewingCustomCss } = useActions(themeLogic)
@@ -113,7 +256,8 @@ export function CustomCssScene(): JSX.Element {
             <p>
                 You can add custom CSS to change the style of your PostHog instance. If you need some inspiration try
                 our templates: <Link onClick={() => setPreviewingCustomCss(TRON_THEME)}>Tron</Link>,{' '}
-                <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>
+                <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>,{' '}
+                <Link onClick={() => setPreviewingCustomCss(DOS_THEME)}>DOS</Link>
             </p>
             <CodeEditor
                 className="border"
