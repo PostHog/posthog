@@ -8,6 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingType, DateMappingOption, OrganizationType, TeamBasicType } from '~/types'
 
+import { canAccessBilling } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
 import { ALL_USAGE_TYPES } from './constants'
@@ -65,6 +66,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
+                    if (!canAccessBilling(values.currentOrganization)) {
+                        return null
+                    }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
                     const params = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),

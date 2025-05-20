@@ -53,7 +53,8 @@ export function CSPReportingSettings(): JSX.Element {
                         <IconInfo />
                         <div>
                             We accept some additional parameters on the report URL. These require that you add
-                            information when adding the URL to your pages. <Link>See our docs for some examples.</Link>
+                            information when adding the URL to your pages.{' '}
+                            <Link to="https://posthog.com/docs/csp-tracking">See our docs for some examples.</Link>
                         </div>
                     </div>
                 </LemonBanner>
@@ -84,7 +85,7 @@ export function CSPReportingSettings(): JSX.Element {
                 <p>Set this URL for both the report-to and report-uri endpoints</p>
                 <CodeSnippet language={Language.Text} wrap={true}>
                     {
-                        combineUrl(`${proxyRecord}/csp`, {
+                        combineUrl(`${proxyRecord}/report/`, {
                             token: currentTeam?.api_token,
                             v: includeVersion ? 1 : undefined,
                             session_id: includeSessionId ? 'ADD_THE_SESSION_ID' : undefined,

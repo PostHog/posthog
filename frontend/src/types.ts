@@ -198,6 +198,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    USER_INTERVIEWS = 'user_interviews',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
@@ -211,6 +212,7 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MAX = 'max',
+    LINKS = 'links',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -3559,6 +3561,15 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface UserInterviewType {
+    id: string
+    created_by: UserBasicType
+    created_at: string
+    transcript: string
+    summary: string
+    interviewee_emails: string[]
+}
+
 export enum ExperimentConclusion {
     Won = 'won',
     Lost = 'lost',
@@ -4302,6 +4313,7 @@ export enum ActivityScope {
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    USER_INTERVIEW = 'UserInterview',
 }
 
 export type CommentType = {
@@ -5363,6 +5375,7 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    treeItemsGames?: FileSystemImport[]
     fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 

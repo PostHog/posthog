@@ -621,7 +621,13 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query"],
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query",
+                "analyze_user_interviews",
+                "create_and_query_insight"
+            ],
             "type": "string"
         },
         "AssistantDateRange": {
@@ -1633,6 +1639,9 @@
                 "ui_payload": {
                     "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                     "type": "object"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -3680,12 +3689,7 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -4999,6 +5003,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -6172,6 +6179,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedPreAggregatedTables": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -7336,6 +7346,9 @@
                 "id": {
                     "type": "string"
                 },
+                "kind": {
+                    "$ref": "#/definitions/DatabaseSchemaManagedViewTableKind"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -7345,13 +7358,20 @@
                 "row_count": {
                     "type": "number"
                 },
+                "source_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": ["fields", "id", "kind", "name", "query", "type"],
             "type": "object"
+        },
+        "DatabaseSchemaManagedViewTableKind": {
+            "const": "revenue_analytics",
+            "type": "string"
         },
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
@@ -11988,19 +12008,29 @@
             "additionalProperties": false,
             "properties": {
                 "attributes": {
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "type": "object"
+                    "type": "string"
                 },
                 "body": {
                     "type": "string"
                 },
+                "event_name": {
+                    "type": "string"
+                },
+                "instrumentation_scope": {
+                    "type": "string"
+                },
+                "level": {
+                    "$ref": "#/definitions/LogSeverityLevel"
+                },
                 "observed_timestamp": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "resource": {
                     "type": "string"
+                },
+                "severity_number": {
+                    "type": "number"
                 },
                 "severity_text": {
                     "$ref": "#/definitions/LogSeverityLevel"
@@ -12008,10 +12038,8 @@
                 "span_id": {
                     "type": "string"
                 },
-                "team_id": {
-                    "$ref": "#/definitions/integer"
-                },
                 "timestamp": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "trace_id": {
@@ -12023,7 +12051,6 @@
             },
             "required": [
                 "uuid",
-                "team_id",
                 "trace_id",
                 "span_id",
                 "body",
@@ -12031,7 +12058,11 @@
                 "timestamp",
                 "observed_timestamp",
                 "severity_text",
-                "resource"
+                "severity_number",
+                "level",
+                "resource",
+                "instrumentation_scope",
+                "event_name"
             ],
             "type": "object"
         },
@@ -12116,12 +12147,7 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -13856,6 +13882,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -14546,6 +14575,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -15610,12 +15642,7 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/LogMessage"
-                            },
-                            "type": "array"
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -17157,6 +17184,9 @@
                         "ui_payload": {
                             "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                             "type": "object"
+                        },
+                        "visible": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["content", "tool_call_id", "type"],
@@ -19215,6 +19245,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

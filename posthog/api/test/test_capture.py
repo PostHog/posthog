@@ -2386,7 +2386,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
@@ -2400,9 +2400,9 @@ class TestCapture(BaseTest):
         event_data = json.loads(kafka_produce_call["data"]["data"])
 
         assert event_data["event"] == "$csp_violation"
-        assert event_data["properties"]["document_url"] == "https://example.com/foo/bar"
-        assert event_data["properties"]["violated_directive"] == "default-src self"
-        assert event_data["properties"]["blocked_url"] == "https://evil.com/malicious-image.png"
+        assert event_data["properties"]["$csp_document_url"] == "https://example.com/foo/bar"
+        assert event_data["properties"]["$csp_violated_directive"] == "default-src self"
+        assert event_data["properties"]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
 
     def test_capture_csp_no_trailing_slash(self):
         csp_report = {
@@ -2422,7 +2422,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp?token={self.team.api_token}",
+            f"/report?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
@@ -2431,7 +2431,7 @@ class TestCapture(BaseTest):
 
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data="this is not valid json",
             content_type="application/csp-report",
         )
@@ -2444,7 +2444,7 @@ class TestCapture(BaseTest):
         invalid_csp_report = {"not-a-csp-report": "invalid format"}
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(invalid_csp_report),
             content_type="application/csp-report",
         )
@@ -2455,7 +2455,7 @@ class TestCapture(BaseTest):
 
     def test_integration_csp_report_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data="this is not valid json}",
             content_type="application/csp-report",
         )
@@ -2472,7 +2472,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(invalid_format),
             content_type="application/csp-report",
         )
@@ -2491,7 +2491,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(valid_csp_report),
             content_type="application/json",  # Not application/csp-report
         )
@@ -2520,7 +2520,7 @@ class TestCapture(BaseTest):
         ]
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
@@ -2572,7 +2572,7 @@ class TestCapture(BaseTest):
         ]
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
@@ -2585,17 +2585,17 @@ class TestCapture(BaseTest):
         first_event_call = kafka_produce.call_args_list[0].kwargs
         first_event_data = json.loads(first_event_call["data"]["data"])
 
-        assert first_event_data["properties"]["source_file"] == "https://example.com/csp-report-1"
-        assert first_event_data["properties"]["line_number"] == 121
-        assert first_event_data["properties"]["column_number"] == 39
+        assert first_event_data["properties"]["$csp_source_file"] == "https://example.com/csp-report-1"
+        assert first_event_data["properties"]["$csp_line_number"] == 121
+        assert first_event_data["properties"]["$csp_column_number"] == 39
 
         # Verify second event data
         second_event_call = kafka_produce.call_args_list[1].kwargs
         second_event_data = json.loads(second_event_call["data"]["data"])
 
-        assert second_event_data["properties"]["source_file"] == "https://example.com/csp-report-2"
-        assert second_event_data["properties"]["line_number"] == 42
-        assert second_event_data["properties"]["column_number"] == 15
+        assert second_event_data["properties"]["$csp_source_file"] == "https://example.com/csp-report-2"
+        assert second_event_data["properties"]["$csp_line_number"] == 42
+        assert second_event_data["properties"]["$csp_column_number"] == 15
 
     def test_regular_event_endpoint_with_invalid_json(self):
         """

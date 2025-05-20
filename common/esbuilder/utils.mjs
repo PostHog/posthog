@@ -15,7 +15,7 @@ import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
-import { cloneNode } from "ts-clone-node";
+import { cloneNode } from 'ts-clone-node'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -176,8 +176,8 @@ function getInputFiles(result) {
     return new Set(
         result?.metafile
             ? Object.keys(result.metafile.inputs)
-                .map((key) => (key.includes(':') ? key.split(':')[1] : key))
-                .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
+                  .map((key) => (key.includes(':') ? key.split(':')[1] : key))
+                  .map((key) => (key.startsWith('/') ? key : path.resolve(process.cwd(), key)))
             : []
     )
 }
@@ -313,12 +313,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                    ? buildCount === 1
-                        ? 'Built'
-                        : 'Rebuilt'
-                    : buildCount === 1
-                        ? 'Building failed'
-                        : 'Rebuilding failed '
+                ? buildCount === 1
+                    ? 'Built'
+                    : 'Rebuilt'
+                : buildCount === 1
+                ? 'Building failed'
+                : 'Rebuilding failed '
 
         console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }
@@ -421,6 +421,7 @@ function reloadLiveServer() {
 }
 
 let server
+
 export function startDevServer(absWorkingDir) {
     if (isDev) {
         console.log(`👀 Starting dev server`)
@@ -440,15 +441,18 @@ export function startServer(opts = {}) {
 
     let resolve = null
     let ifPaused = null
+
     function pauseServer() {
         if (!ifPaused) {
             ifPaused = new Promise((r) => (resolve = r))
         }
     }
+
     function resumeServer() {
         resolve?.()
         ifPaused = null
     }
+
     resumeServer()
 
     const app = express()
@@ -549,7 +553,9 @@ export function gatherProductUrls(products, __dirname) {
 }
 
 export function gatherProductManifests(__dirname) {
-    const products = fse.readdirSync(path.join(__dirname, '../products')).filter((p) => !['__pycache__', 'README.md'].includes(p))
+    const products = fse
+        .readdirSync(path.join(__dirname, '../products'))
+        .filter((p) => !['__pycache__', 'README.md'].includes(p))
     const urls = []
     const scenes = []
     const sceneConfigs = []
@@ -557,6 +563,7 @@ export function gatherProductManifests(__dirname) {
     const redirects = []
     const fileSystemTypes = []
     const treeItemsNew = {}
+    const treeItemsGames = {}
     const treeItemsProducts = {}
     const fileSystemFilterTypes = []
 
@@ -581,10 +588,14 @@ export function gatherProductManifests(__dirname) {
     /** Helper: Convert a PropertyAssignment from {a: {import:b}} to {a:b} */
     function keepOnlyImport(property, manifestPath) {
         if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
-            const imp = property.initializer.properties.find(p => p.name.text === 'import')
+            const imp = property.initializer.properties.find((p) => p.name.text === 'import')
             if (imp) {
                 const importFunction = cloneNode(imp.initializer)
-                if (ts.isFunctionLike(importFunction) && ts.isCallExpression(importFunction.body) && importFunction.body.arguments.length === 1) {
+                if (
+                    ts.isFunctionLike(importFunction) &&
+                    ts.isCallExpression(importFunction.body) &&
+                    importFunction.body.arguments.length === 1
+                ) {
                     const [imported] = importFunction.body.arguments
                     if (ts.isStringLiteralLike(imported)) {
                         const importText = imported.text
@@ -615,10 +626,7 @@ export function gatherProductManifests(__dirname) {
             continue
         }
         ts.forEachChild(sourceFile, function visit(node) {
-            if (
-                ts.isPropertyAssignment(node) &&
-                ts.isObjectLiteralExpression(node.initializer)
-            ) {
+            if (ts.isPropertyAssignment(node) && ts.isObjectLiteralExpression(node.initializer)) {
                 if (node.name.text === 'urls') {
                     for (const property of node.initializer.properties) {
                         urls.push(cloneNode(property))
@@ -672,14 +680,18 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                node.name.text === 'treeItemsProducts'
+                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsGames')
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
                         const pathNode = element.properties.find((p) => p.name.text === 'path')
                         const path = pathNode ? pathNode.initializer.text : null
                         if (path) {
-                            treeItemsProducts[path] = cloneNode(element)
+                            if (node.name.text === 'treeItemsProducts') {
+                                treeItemsProducts[path] = cloneNode(element)
+                            } else {
+                                treeItemsGames[path] = cloneNode(element)
+                            }
                         } else {
                             console.error('Tree item without path:', element)
                         }
@@ -698,22 +710,78 @@ export function gatherProductManifests(__dirname) {
         ts.NodeFlags.None
     )
     fileSystemTypes.sort((a, b) => a.name.text.localeCompare(b.name.text))
-    const manifestUrls = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(urls), sourceFile)
-    const manifestScenes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(scenes), sourceFile)
-    const manifestSceneConfig = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(sceneConfigs), sourceFile)
-    const manifestRedirects = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(redirects), sourceFile)
-    const manifestRoutes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(routes), sourceFile)
-    const manifestFileSystemTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemTypes), sourceFile)
-    const manifestTreeItemsNew = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsNew).sort().map(key => treeItemsNew[key])), sourceFile)
-    const manifestTreeItemsProducts = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsProducts).sort().map(key => treeItemsProducts[key])), sourceFile)
-    const manifestTreeFilterTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemFilterTypes), sourceFile)
+    const manifestUrls = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(urls),
+        sourceFile
+    )
+    const manifestScenes = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(scenes),
+        sourceFile
+    )
+    const manifestSceneConfig = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(sceneConfigs),
+        sourceFile
+    )
+    const manifestRedirects = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(redirects),
+        sourceFile
+    )
+    const manifestRoutes = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(routes),
+        sourceFile
+    )
+    const manifestFileSystemTypes = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(fileSystemTypes),
+        sourceFile
+    )
+    const manifestTreeItemsNew = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createArrayLiteralExpression(
+            Object.keys(treeItemsNew)
+                .sort()
+                .map((key) => treeItemsNew[key])
+        ),
+        sourceFile
+    )
+    const manifestTreeItemsProducts = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createArrayLiteralExpression(
+            Object.keys(treeItemsProducts)
+                .sort()
+                .map((key) => treeItemsProducts[key])
+        ),
+        sourceFile
+    )
+    const manifestTreeItemsGames = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createArrayLiteralExpression(
+            Object.keys(treeItemsGames)
+                .sort()
+                .map((key) => treeItemsGames[key])
+        ),
+        sourceFile
+    )
+    const manifestTreeFilterTypes = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createObjectLiteralExpression(fileSystemFilterTypes),
+        sourceFile
+    )
 
-    const autogenComment = "/** This const is auto-generated, as is the whole file */"
+    const autogenComment = '/** This const is auto-generated, as is the whole file */'
     let preservedImports = ''
     const lines = fse.readFileSync(path.join(__dirname, 'src/products.tsx'), 'utf-8').split('\n')
-    const importsStarted = lines.findIndex((line) => line.startsWith("import "))
+    const importsStarted = lines.findIndex((line) => line.startsWith('import '))
     const importsEnded = lines.findIndex((line) => line.includes(autogenComment))
-    preservedImports = lines.slice(importsStarted, importsEnded - 1).join('\n').trim()
+    preservedImports = lines
+        .slice(importsStarted, importsEnded - 1)
+        .join('\n')
+        .trim()
 
     if (importsStarted < 0 || importsEnded < 0 || !preservedImports) {
         throw new Error('Could not find existing imports in products.tsx')
@@ -742,6 +810,8 @@ export function gatherProductManifests(__dirname) {
         export const getTreeItemsNew = (): FileSystemImport[] => ${manifestTreeItemsNew}\n
         ${autogenComment}
         export const getTreeItemsProducts = (): FileSystemImport[] => ${manifestTreeItemsProducts}\n
+        ${autogenComment}
+        export const getTreeItemsGames = (): FileSystemImport[] => ${manifestTreeItemsGames}\n
         ${autogenComment}
         export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
     `

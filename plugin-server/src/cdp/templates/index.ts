@@ -5,6 +5,7 @@ import { template as webhookTemplate } from './_destinations/webhook/webhook.tem
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
+import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
@@ -27,6 +28,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     piiHashingTemplate,
     botDetectionTemplate,
     dropEventsTemplate,
+    filterPropertiesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(

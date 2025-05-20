@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
@@ -19,6 +20,11 @@ export const scene: SceneExport = {
 
 export function LogsScene(): JSX.Element {
     const { wrapBody, logs } = useValues(logsLogic)
+    const { fetchLogs } = useActions(logsLogic)
+
+    useEffect(() => {
+        fetchLogs()
+    }, [])
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">

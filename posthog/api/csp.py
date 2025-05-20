@@ -12,23 +12,23 @@ from django.utils.html import escape
 
 logger = structlog.get_logger(__name__)
 
-"""
-| Normalized Key        | report-to format                     | report-uri format                  |
-| --------------------- | ------------------------------------ | ---------------------------------- |
-| `document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
-| `referrer`            | `body.referrer`                      | `csp-report.referrer`              |
-| `violated_directive`  | same as `effectiveDirective`         | `csp-report.violated-directive`    |
-| `effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
-| `original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
-| `disposition`         | `body.disposition`                   | `csp-report.disposition`           |
-| `blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
-| `line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
-| `column_number`       | `body.columnNumber`                  | `csp-report.column-number`         |
-| `source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
-| `status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
-| `script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
-| `user_agent`          | top-level `user_agent`               | not available                      |
-| `report_type`         | top-level `type`                     | `"csp-violation"` constant         |
+CSP_REPORT_TYPES_MAPPING_TABLE = """
+| Normalized Key             | report-to format                     | report-uri format                  |
+| -------------------------- | ------------------------------------ | ---------------------------------- |
+| `$csp_document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
+| `$csp_referrer`            | `body.referrer`                      | `csp-report.referrer`              |
+| `$csp_violated_directive`  | same as `effectiveDirective`         | `csp-report.violated-directive`    |
+| `$csp_effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
+| `$csp_original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
+| `$csp_disposition`         | `body.disposition`                   | `csp-report.disposition`           |
+| `$csp_blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
+| `$csp_line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
+| `$csp_column_number`       | `body.columnNumber`                  | `csp-report.column-number`         |
+| `$csp_source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
+| `$csp_status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
+| `$csp_script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
+| `$csp_user_agent`          | top-level `user_agent`               | not available                      |
+| `$csp_report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
 
 
@@ -62,7 +62,6 @@ def parse_report_uri(data: dict) -> dict:
     # Map report-uri format to normalized keys
     properties = {
         "report_type": "csp-violation",
-        "$current_url": report_uri_data.get("document-uri"),
         "document_url": report_uri_data.get("document-uri"),
         "referrer": report_uri_data.get("referrer"),
         "violated_directive": report_uri_data.get("violated-directive"),
@@ -90,8 +89,7 @@ def parse_report_to(data: dict) -> dict:
     report_to_data["script-sample"] = escape(report_to_data.get("sample") or "")
     properties = {
         "report_type": data.get("type"),
-        "$current_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
-        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri"),
+        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
         "referrer": report_to_data.get("referrer"),
         "violated_directive": report_to_data.get("effectiveDirective")
         or report_to_data.get("violated-directive"),  # Inferring from effectiveDirective
@@ -112,12 +110,15 @@ def parse_report_to(data: dict) -> dict:
 
 
 def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
+    props = {f"$csp_{k}": v for k, v in props.items()}
+
     return {
         "event": "$csp_violation",
         "distinct_id": distinct_id,
         "properties": {
             "$session_id": session_id,
-            "csp_version": version,
+            "$csp_version": version,
+            "$current_url": props["$csp_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": user_agent,
             **props,

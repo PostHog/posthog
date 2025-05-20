@@ -6,9 +6,11 @@ use clickhouse::Row;
 use opentelemetry_proto::tonic::{
     common::v1::{any_value, AnyValue, InstrumentationScope, KeyValue},
     logs::v1::LogRecord,
+    resource::v1::Resource,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sha2::{Digest, Sha512};
 
 #[derive(Row, Debug, Serialize, Deserialize)]
 pub struct LogRow {
@@ -18,10 +20,12 @@ pub struct LogRow {
     trace_flags: u8,
     timestamp: u64,
     body: String,
+    message: String,
     _attributes: String,
     severity_text: String,
     severity_number: i32,
     _resource: String,
+    resource_id: String,
     instrumentation_scope: String,
     event_name: String,
 }
@@ -30,7 +34,7 @@ impl LogRow {
     pub fn new(
         team_id: i32,
         record: LogRecord,
-        resource_str: String,
+        resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
     ) -> Result<Self> {
         // Extract body
@@ -47,8 +51,15 @@ impl LogRow {
             None => "".to_string(),
         };
 
+        let message = try_extract_message(&body).unwrap_or_default();
+
         let mut severity_text = normalize_severity_text(record.severity_text);
         let mut severity_number = record.severity_number;
+
+        if let Some(parsed_severity) = try_extract_severity(&body) {
+            severity_text = parsed_severity;
+            severity_number = convert_severity_text_to_number(&severity_text);
+        }
 
         // severity_number takes priority if both provided
         if record.severity_number > 0 {
@@ -57,8 +68,12 @@ impl LogRow {
             severity_number = convert_severity_text_to_number(&severity_text);
         }
 
+        let resource_id = extract_resource_id(&resource);
+        let resource_attributes = extract_resource_attributes(resource);
+
         // Attributes as JSON
-        let attributes = attributes_to_json(record.attributes);
+        let mut attributes = attributes_to_json(record.attributes);
+        attributes.extend(resource_attributes.clone());
 
         // Get scope name or empty string
         let instrumentation_scope = match scope {
@@ -85,12 +100,14 @@ impl LogRow {
             trace_flags,
             timestamp: record.time_unix_nano,
             body,
+            message,
             _attributes,
             severity_text,
             severity_number,
-            _resource: resource_str,
+            _resource: json!(resource_attributes).to_string(),
             instrumentation_scope,
             event_name,
+            resource_id,
         })
     }
 }
@@ -179,6 +196,73 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
         24 => "fatal".to_string(),
         _ => "unknown".to_string(),
     }
+}
+
+// TOOD - pull this from PG
+const MESSAGE_KEYS: [&str; 3] = ["message", "msg", "log.message"];
+
+fn try_extract_message(body: &str) -> Option<String> {
+    let Ok(value) = serde_json::from_str::<JsonValue>(body) else {
+        return None;
+    };
+
+    for key in MESSAGE_KEYS {
+        if let Some(JsonValue::String(s)) = value.get(key) {
+            return Some(s.clone());
+        }
+    }
+
+    None
+}
+
+fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, JsonValue> {
+    let Some(resource) = resource else {
+        return HashMap::new();
+    };
+
+    attributes_to_json(resource.attributes)
+}
+
+fn extract_resource_id(resource: &Option<Resource>) -> String {
+    let Some(resource) = resource else {
+        return "".to_string();
+    };
+
+    let mut hasher = Sha512::new();
+    for pair in resource.attributes.iter() {
+        hasher.update(pair.key.as_bytes());
+        hasher.update(
+            pair.value
+                .clone()
+                .map(any_value_to_json)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+        );
+    }
+
+    format!("{:x}", hasher.finalize())
+}
+
+// TODO - pull this from PG
+const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
+
+fn try_extract_severity(body: &str) -> Option<String> {
+    let Ok(val) = serde_json::from_str::<JsonValue>(body) else {
+        return None;
+    };
+
+    for key in SEVERITY_KEYS {
+        if let Some(severity) = val.get(key) {
+            let Some(found) = severity.as_str() else {
+                continue;
+            };
+            let found = found.to_lowercase();
+            if convert_severity_text_to_number(&found) != 0 {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 fn attributes_to_json(attributes: Vec<KeyValue>) -> HashMap<String, JsonValue> {
