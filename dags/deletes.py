@@ -547,22 +547,28 @@ def delete_events(
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
             f"""
-            SELECT sum(pending)
-            FROM (
-                SELECT count() as pending
-                FROM {load_and_verify_deletes_dictionary.qualified_name}
-                WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})
-                UNION ALL
-                SELECT count() as pending
-                FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}
-            )
+            SELECT count()
+            FROM {load_and_verify_deletes_dictionary.qualified_name}
+            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})
+            """
+        )
+        return result[0][0] if result else 0
+
+    def count_pending_adhoc_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count() as pending
+            FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}
             """
         )
         return result[0][0] if result else 0
 
     count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.DATA).result()
+    count_adhoc_result = cluster.map_hosts_by_role(count_pending_adhoc_deletes, NodeRole.DATA).result()
 
-    all_zero = all(count == 0 for count in count_result.values())
+    all_zero = all(count == 0 for count in count_result.values()) and all(
+        count == 0 for count in count_adhoc_result.values()
+    )
     if all_zero:
         context.add_output_metadata(
             {"events_deleted": dagster.MetadataValue.int(0), "message": "No pending deletions found"}
@@ -572,6 +578,7 @@ def delete_events(
     context.add_output_metadata(
         {
             "events_deleted": dagster.MetadataValue.int(sum(count_result.values())),
+            "adhoc_events_deleted": dagster.MetadataValue.int(sum(count_adhoc_result.values())),
         }
     )
 
