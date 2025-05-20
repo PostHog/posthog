@@ -277,11 +277,11 @@ jobs:
               # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  echo $(git diff --name-status HEAD frontend/__snapshots__) # Wrapped to ignore exit 1 on empty diff
-                  ADDED=$(git diff --name-status HEAD frontend/__snapshots__/ | grep '^A' | wc -l)
-                  MODIFIED=$(git diff --name-status HEAD frontend/__snapshots__/ | grep '^M' | wc -l)
-                  DELETED=$(git diff --name-status HEAD frontend/__snapshots__/ | grep '^D' | wc -l)
-                  TOTAL=$(git diff --name-status HEAD frontend/__snapshots__/ | wc -l)
+                  echo $(git diff --name-status frontend/__snapshots__) # Wrapped to ignore exit 1 on empty diff
+                  ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
+                  MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
+                  DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
+                  TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
 
                   # If added or modified, run OptiPNG
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
@@ -295,11 +295,11 @@ jobs:
                     # and as a result they might no longer be different...
 
                     # we check again
-                    git diff --name-status HEAD frontend/__snapshots__/ # For debugging
-                    ADDED=$(git diff --name-status HEAD frontend/__snapshots__/ | grep '^A' | wc -l)
-                    MODIFIED=$(git diff --name-status HEAD frontend/__snapshots__/ | grep '^M' | wc -l)
-                    DELETED=$(git diff --name-status HEAD frontend/__snapshots__/ | grep '^D' | wc -l)
-                    TOTAL=$(git diff --name-status HEAD frontend/__snapshots__/ | wc -l)
+                    git diff --name-status frontend/__snapshots__/ # For debugging
+                    ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
+                    MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
+                    DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
+                    TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
 
                     if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                         echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
@@ -323,9 +323,13 @@ jobs:
               shell: bash
               run: |
                   PATHS_FLAPPING=()
-                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
-                  for snapshot_path in $(git diff --name-only HEAD frontend/__snapshots__); do
+                  git log --pretty=oneline --abbrev-commit | head -10 # Debug history
+                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1 HEAD~1) # HEAD~1 is to ignore the merge-with-target commit
+                  echo "Last human commit identified: $last_human_commit"
+                  for snapshot_path in $(git diff --name-only frontend/__snapshots__); do
+                      echo "Checking snapshot path: $snapshot_path"
                       number_of_times_snapshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
+                      echo "Number of times $snapshot_path has changed since last human commit: $number_of_times_snapshot_has_changed_since_last_human_commit"
                       if [ "$number_of_times_snapshot_has_changed_since_last_human_commit" -gt 0 ]; then
                           PATHS_FLAPPING+=($snapshot_path)
                       fi
@@ -421,10 +425,11 @@ jobs:
                       let flapsDisplay = ''
                       if (flaps.length > 0) {
                         flapsDisplay = [
-                          '\n### ‼️ UI snapshot flapping detected ‼️\n',
+                          '\n\n### ‼️ UI snapshot flapping detected ‼️\n',
                           ...flaps.map(([shardNumber, path]) => `- ${path}`),
                           '\nIt doesn\'t matter who started it – **the flippy flopppies are a deadly disease that must be cured**. '
-                          + 'Run `pnpm storybook` locally and fix the floppiness now. (Most often, the cause is `ResizeObserver` being used somewhere.)'
+                          + 'Run `pnpm storybook` locally and fix the flapping now. '
+                          + '(Often, the cause is `ResizeObserver` being used instead of the better CSS container queries.)'
                         ].join('\n')
                       }
 
