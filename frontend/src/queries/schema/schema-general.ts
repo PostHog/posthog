@@ -2408,7 +2408,8 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
 }
 
 export enum DatabaseSchemaManagedViewTableKind {
-    REVENUE_ANALYTICS = 'revenue_analytics',
+    REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
+    REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
 }
 
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {

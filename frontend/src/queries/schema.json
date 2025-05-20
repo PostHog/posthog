@@ -7370,7 +7370,7 @@
             "type": "object"
         },
         "DatabaseSchemaManagedViewTableKind": {
-            "const": "revenue_analytics",
+            "enum": ["revenue_analytics_charge", "revenue_analytics_customer"],
             "type": "string"
         },
         "DatabaseSchemaMaterializedViewTable": {
