@@ -4,7 +4,6 @@
 # Full list of the Stripe API endpoints you can find here: https://stripe.com/docs/api.
 # These endpoints are converted into ExternalDataSchema objects when a source is linked.
 
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -13,8 +12,10 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 ENDPOINTS = (
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -24,6 +25,7 @@ ENDPOINTS = (
     PRICE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
 )
 INCREMENTAL_ENDPOINTS = (
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -33,6 +35,7 @@ INCREMENTAL_ENDPOINTS = (
     PRICE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
 )
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
@@ -53,6 +56,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     SUBSCRIPTION_RESOURCE_NAME: [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    SUBSCRIPTION_ITEM_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,

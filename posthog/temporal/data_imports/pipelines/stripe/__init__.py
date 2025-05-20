@@ -11,9 +11,6 @@ from posthog.temporal.data_imports.pipelines.rest_source import (
     rest_api_resources,
 )
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
-from posthog.warehouse.models.external_table_definitions import (
-    get_dlt_mapping_for_external_table,
-)
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -22,7 +19,11 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+)
+from posthog.warehouse.models.external_table_definitions import (
+    get_dlt_mapping_for_external_table,
 )
 
 DEFAULT_LIMIT = 100
@@ -313,6 +314,44 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
+        SUBSCRIPTION_ITEM_RESOURCE_NAME: {
+            "name": SUBSCRIPTION_ITEM_RESOURCE_NAME,
+            "table_name": "subscription_items",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "columns": get_dlt_mapping_for_external_table("stripe_subscriptionitem"),
+            "endpoint": {
+                "data_selector": "data",
+                "path": "/v1/subscription_items",
+                "params": {
+                    # the parameters below can optionally be configured
+                    # "collection_method": "OPTIONAL_CONFIG",
+                    "created[gt]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    # "current_period_end": "OPTIONAL_CONFIG",
+                    # "current_period_start": "OPTIONAL_CONFIG",
+                    # "customer": "OPTIONAL_CONFIG",
+                    # "ending_before": "OPTIONAL_CONFIG",
+                    # "expand": "OPTIONAL_CONFIG",
+                    "limit": DEFAULT_LIMIT,
+                    # "price": "OPTIONAL_CONFIG",
+                    # "starting_after": "OPTIONAL_CONFIG",
+                    "status": "all",
+                    # "test_clock": "OPTIONAL_CONFIG",
+                },
+            },
+            "table_format": "delta",
+        },
     }
 
     return resources[name]
@@ -444,6 +483,7 @@ def validate_credentials(api_key: str) -> bool:
         {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
         {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
         {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
+        {"name": SUBSCRIPTION_ITEM_RESOURCE_NAME, "method": client.subscription_items.list, "params": {"limit": 1}},
     ]
 
     missing_permissions = {}
