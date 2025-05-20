@@ -31,6 +31,10 @@ export function renderHogQLX(value: any): JSX.Element {
             return <>{object.map((obj) => renderHogQLX(obj))}</>
         }
 
+        if (object === null) {
+            return <></>
+        }
+
         const { __hx_tag: tag, ...rest } = object
         if (!tag) {
             return <JSONViewer src={rest} name={null} collapsed={Object.keys(rest).length > 10 ? 0 : 1} />
