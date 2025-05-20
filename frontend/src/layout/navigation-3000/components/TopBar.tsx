@@ -18,6 +18,7 @@ import React, { useLayoutEffect, useState } from 'react'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
@@ -35,8 +36,8 @@ export function TopBar(): JSX.Element | null {
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
-    const { projectTreeRefEntry } = useValues(projectTreeLogic({ key: 'project-tree' }))
-    const { setMovingItems, assureVisibility } = useActions(projectTreeLogic({ key: 'project-tree' }))
+    const { projectTreeRefEntry } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { setMovingItems, assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const [compactionRate, setCompactionRate] = useState(0)
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
@@ -187,7 +188,7 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
-    const { assureVisibility } = useActions(projectTreeLogic({ key: 'project-tree' }))
+    const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
