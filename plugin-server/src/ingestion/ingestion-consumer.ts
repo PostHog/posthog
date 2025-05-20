@@ -247,7 +247,7 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
-    public async handleKafkaBatch(messages: Message[]) {
+    public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
@@ -287,12 +287,11 @@ export class IngestionConsumer {
             }
         }
 
-        // TODO: Return this for the consumer to wait for in the background
-        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
-        await this.runInstrumented('awaitScheduledWork', () => {
-            return Promise.all([...this.promises, ...this.hogTransformer.promises])
-        })
-        logger.debug('🔁', `Processed batch`)
+        return {
+            backgroundTask: this.runInstrumented('awaitScheduledWork', () => {
+                return Promise.all([...this.promises, ...this.hogTransformer.promises])
+            }),
+        }
     }
 
     /**
