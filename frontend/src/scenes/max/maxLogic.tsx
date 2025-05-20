@@ -105,6 +105,16 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setConversationId: (_, { conversationId }) => conversationId,
                 startNewConversation: () => null,
+                toggleConversationHistory: (state, { visible }) => (visible ? null : state),
+            },
+        ],
+
+        // The shadow ID for the temporary conversations that have started streaming, but didn't receive a conversation object yet.
+        tempConversationId: [
+            generateTempId(),
+            {
+                startNewConversation: () => generateTempId(),
+                setConversationId: () => generateTempId(),
             },
         ],
 
@@ -147,14 +157,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         },
 
-        tempConversationId: [
-            generateTempId(),
-            {
-                startNewConversation: () => generateTempId(),
-            },
-        ],
-
-        autoRun: [false as boolean, { setAutoRun: (state, { autoRun }) => autoRun }],
+        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun }],
     }),
 
     loaders({

@@ -68,12 +68,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     propsChanged(({ actions, values, props }) => {
         // Conversation is active or just mounted, ignore everything
-        if (values.threadLoading || !props.conversation || !values.conversation) {
+        if (values.threadLoading || !props.conversation) {
             return
         }
 
         // New messages have been added since we last updated the thread
-        if (values.threadRaw.length < props.conversation.messages.length) {
+        if (props.conversation.messages.length > values.threadMessageCount) {
             actions.setThread(
                 props.conversation.messages.map((message) => ({
                     ...message,
@@ -94,7 +94,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxLogic,
-            ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId'],
+            ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
         ],
         actions: [
             maxLogic,
@@ -441,6 +441,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        threadMessageCount: [
+            (s) => [s.threadRaw],
+            (threadRaw) => threadRaw.filter((message) => !isReasoningMessage(message)).length,
+        ],
+
         formPending: [
             (s) => [s.threadRaw],
             (threadRaw) => {
@@ -455,8 +460,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
-            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined => {
+            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading, s.activeStreamingThreads],
+            (
+                formPending,
+                dataProcessingAccepted,
+                question,
+                threadLoading,
+                activeStreamingThreads
+            ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
@@ -472,6 +483,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (!question) {
                     return 'I need some input first'
+                }
+
+                // Prevent submission if there are active streaming threads
+                if (activeStreamingThreads > 0) {
+                    return 'Please wait for one of the chats to finish'
                 }
 
                 return undefined
