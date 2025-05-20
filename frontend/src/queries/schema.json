@@ -621,7 +621,13 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query", "analyze_user_interviews"],
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query",
+                "analyze_user_interviews",
+                "create_and_query_insight"
+            ],
             "type": "string"
         },
         "AssistantDateRange": {
@@ -1633,6 +1639,9 @@
                 "ui_payload": {
                     "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                     "type": "object"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -7337,6 +7346,9 @@
                 "id": {
                     "type": "string"
                 },
+                "kind": {
+                    "$ref": "#/definitions/DatabaseSchemaManagedViewTableKind"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -7346,13 +7358,20 @@
                 "row_count": {
                     "type": "number"
                 },
+                "source_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": ["fields", "id", "kind", "name", "query", "type"],
             "type": "object"
+        },
+        "DatabaseSchemaManagedViewTableKind": {
+            "const": "revenue_analytics",
+            "type": "string"
         },
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
@@ -17165,6 +17184,9 @@
                         "ui_payload": {
                             "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                             "type": "object"
+                        },
+                        "visible": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["content", "tool_call_id", "type"],
