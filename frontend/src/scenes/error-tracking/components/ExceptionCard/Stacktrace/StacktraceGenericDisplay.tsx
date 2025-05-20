@@ -79,8 +79,6 @@ export function StacktraceGenericExceptionHeader({
                 })}
             >
                 {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value || 'Unknown message'}
-                <br />
-                dfasdasfsddfs
             </div>
             {!loading && (
                 <div className="flex items-center gap-1 my-1 text-tertiary leading-6">
