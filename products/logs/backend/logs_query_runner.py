@@ -115,22 +115,32 @@ class LogsQueryRunner(QueryRunner):
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
+            interval_count=2,
             now=dt.datetime.now(),
         )
 
-        if qdr.date_to() - qdr.date_from() > dt.timedelta(hours=9):
-            qdr = QueryDateRange(
-                date_range=self.query.dateRange,
-                team=self.team,
-                interval=IntervalType.HOUR,
-                now=dt.datetime.now(),
-            )
-        if qdr.date_to() - qdr.date_from() > dt.timedelta(days=9):
-            qdr = QueryDateRange(
-                date_range=self.query.dateRange,
-                team=self.team,
-                interval=IntervalType.DAY,
-                now=dt.datetime.now(),
-            )
+        _step = (qdr.date_to() - qdr.date_from()) / 100
+        if _step < dt.timedelta(minutes=1):
+            _step = dt.timedelta(minutes=1)
 
-        return qdr
+        _step = dt.timedelta(seconds=int(60 * round(_step.total_seconds() / 60)))
+        interval_type = IntervalType.MINUTE
+        interval_count = _step.total_seconds() // 60
+
+        if _step > dt.timedelta(minutes=30):
+            _step = dt.timedelta(seconds=int(3600 * round(_step.total_seconds() / 3600)))
+            interval_type = IntervalType.HOUR
+            interval_count = _step.total_seconds() // 3600
+
+        if _step > dt.timedelta(days=1):
+            _step = dt.timedelta(seconds=int(86400 * round(_step.total_seconds() / 86400)))
+            interval_type = IntervalType.DAY
+            interval_count = _step.total_seconds() // 86400
+
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=interval_type,
+            interval_count=int(interval_count),
+            now=dt.datetime.now(),
+        )
