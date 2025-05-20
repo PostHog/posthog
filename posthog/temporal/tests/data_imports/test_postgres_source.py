@@ -31,6 +31,7 @@ TEST_DATA = [
         dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
         100,
         "[0,2)",
+        "[0.1,2.222)",
         '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
     ),
     (
@@ -39,7 +40,8 @@ TEST_DATA = [
         "jane@example.com",
         dt.datetime(2025, 1, 2, tzinfo=dt.UTC),
         2000000,
-        "[2,4)",
+        "[-4,-2)",
+        "[-4.4,-2.222)",
         '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
     ),
     (
@@ -48,7 +50,8 @@ TEST_DATA = [
         "bob@example.com",
         dt.datetime(2025, 1, 3, tzinfo=dt.UTC),
         3409892966,
-        "[4,6)",
+        "[-6,-4)",
+        "[-6.66,-4.44)",
         '["2025-05-20 00:00:00+00","2025-05-20 01:00:00+00")',
     ),
     (
@@ -58,6 +61,7 @@ TEST_DATA = [
         dt.datetime(2025, 1, 3, tzinfo=dt.UTC),
         4,
         "[5,7)",
+        "[5.5,7.777)",
         None,
     ),
 ]
@@ -110,6 +114,7 @@ async def postgres_source_table(
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 big_int BIGINT,
                 int_range INT4RANGE,
+                num_range NUMRANGE,
                 tstz_range TSTZRANGE NULL
             )
         """).format(full_table_name)
@@ -118,7 +123,7 @@ async def postgres_source_table(
         # Insert test data
         await cursor.executemany(
             sql.SQL(
-                "INSERT INTO {} (id, name, email, created_at, big_int, int_range, tstz_range) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                "INSERT INTO {} (id, name, email, created_at, big_int, int_range, num_range, tstz_range) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
             ).format(full_table_name),
             TEST_DATA,
         )
@@ -175,7 +180,7 @@ async def test_postgres_source_full_refresh(
         table_name=table_name,
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
-        expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "tstz_range"],
+        expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "num_range", "tstz_range"],
     )
 
     assert res.results == TEST_DATA
