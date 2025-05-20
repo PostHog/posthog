@@ -19,6 +19,7 @@ export const personDatabaseOperationsPerBatchHistogram = new Histogram({
 export const totalPersonUpdateLatencyPerBatchHistogram = new Histogram({
     name: 'total_person_update_latency_per_batch',
     help: 'Total latency of person update per distinct ID per batch',
+    labelNames: ['update_type'],
     buckets: exponentialBuckets(0.025, 4, 7),
 })
 
