@@ -88,6 +88,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
+        setSearchTerm,
+        clearSearch,
     } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openMoveToModal } = useActions(moveToLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
@@ -373,6 +375,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
 
     return (
         <PanelLayoutPanel
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            clearSearch={clearSearch}
             showFilterDropdown={true}
             searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={

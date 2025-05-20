@@ -18,8 +18,6 @@ import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { getTreeFilterTypes } from '~/products'
 import { FileSystemFilterType } from '~/types'
 
@@ -31,6 +29,9 @@ interface PanelLayoutPanelProps {
     panelActions?: React.ReactNode
     children: React.ReactNode
     showFilterDropdown?: boolean
+    searchTerm: string
+    clearSearch: () => void
+    setSearchTerm: (searchTerm: string) => void
 }
 
 const panelLayoutPanelVariants = cva({
@@ -160,12 +161,13 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
 
 export function PanelLayoutPanel({
     searchPlaceholder,
+    searchTerm,
+    clearSearch,
+    setSearchTerm,
     panelActions,
     children,
     showFilterDropdown = false,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { searchTerm } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,

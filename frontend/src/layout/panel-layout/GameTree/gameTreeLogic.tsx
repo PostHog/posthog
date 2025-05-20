@@ -1,4 +1,5 @@
-import { connect, kea, path, selectors } from 'kea'
+import Fuse from 'fuse.js'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -14,16 +15,47 @@ export const gameTreeLogic = kea<gameTreeLogicType>([
         values: [featureFlagLogic, ['featureFlags'], projectTreeDataLogic, ['folderStates', 'users']],
         actions: [],
     })),
+    actions({
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        clearSearch: true,
+    }),
+    reducers({
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+                clearSearch: () => '',
+            },
+        ],
+    }),
     selectors({
+        imports: [
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                getDefaultTreeGames().filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
+        ],
+        filteredImports: [
+            (s) => [s.imports, s.searchTerm],
+            (imports, searchTerm) => {
+                if (!searchTerm) {
+                    return imports
+                }
+                const fuse = new Fuse(imports, {
+                    keys: ['path'],
+                    threshold: 0.3,
+                })
+                const results = fuse.search(searchTerm)
+                return results.map((result) => result.item)
+            },
+        ],
         gameTreeItems: [
-            (s) => [s.featureFlags, s.folderStates, s.users],
-            (featureFlags, folderStates, users): TreeDataItem[] =>
+            (s) => [s.filteredImports, s.folderStates, s.users, s.searchTerm],
+            (filteredImports, folderStates, users, searchTerm): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeGames().filter(
-                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
-                    ),
+                    imports: filteredImports,
                     checkedItems: {},
                     folderStates,
+                    searchTerm,
                     root: 'explore',
                     users,
                     foldersFirst: false,
