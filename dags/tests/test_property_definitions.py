@@ -168,7 +168,7 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
                             {"property": 1},  # includes skipped property
                         ),
                         (
-                            start_at + duration / 0.75,
+                            start_at + duration * 0.75,
                             {"property": None},
                         ),  # prior updates with detected types should take precedence
                         (start_at + duration, {"too_new": 1}),  # upper bound, should be excluded
