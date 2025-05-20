@@ -70,6 +70,11 @@ def web_analytics_preaggregated_tables(
         client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
         client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
 
+    def drop_tables(client: Client):
+        client.execute("DROP TABLE IF EXISTS web_overview_daily SYNC")
+        client.execute("DROP TABLE IF EXISTS web_stats_daily SYNC")
+
+    cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
     return True
 
