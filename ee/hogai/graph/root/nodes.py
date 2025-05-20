@@ -45,7 +45,7 @@ for module_info in pkgutil.iter_modules(products.__path__):
     except ModuleNotFoundError:
         pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
+RouteName = Literal["insights", "root", "end", "search_documentation"]
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -72,7 +72,7 @@ class RootNode(AssistantNode):
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
@@ -125,10 +125,15 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        available_tools: list[type[BaseModel]] = [create_and_query_insight]
+        available_tools: list[type[BaseModel]] = []
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
-        for tool_name in self._get_contextual_tools(config).keys():
+        tool_names = self._get_contextual_tools(config).keys()
+        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
+        if not is_editing_insight:
+            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
+            available_tools.append(create_and_query_insight)
+        for tool_name in tool_names:
             try:
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
             except ValueError:
@@ -256,8 +261,10 @@ class RootNodeTools(AssistantNode):
         if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
 
+        tool_names = self._get_contextual_tools(config).keys()
+        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
-        if tool_call.name == "create_and_query_insight":
+        if tool_call.name == "create_and_query_insight" and not is_editing_insight:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
@@ -272,8 +279,23 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
-            result = ToolClass().invoke(tool_call.model_dump(), config)  # type: ignore
+            tool_class = ToolClass(state)
+            result = tool_class.invoke(tool_call.model_dump(), config)
             assert isinstance(result, LangchainToolMessage)
+
+            new_state = tool_class._state  # latest state, in case the tool has updated it
+            last_message = new_state.messages[-1]
+            if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
+                return PartialAssistantState(
+                    messages=new_state.messages[
+                        len(state.messages) :
+                    ],  # we send all messages from the tool call onwards
+                    root_tool_call_id=None,  # Tool handled already
+                    root_tool_insight_plan=None,  # No insight plan here
+                    root_tool_insight_type=None,  # No insight type here
+                    root_tool_calls_count=tool_call_count + 1,
+                )
+
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
