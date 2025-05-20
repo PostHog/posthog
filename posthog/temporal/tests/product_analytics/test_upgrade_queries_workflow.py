@@ -12,6 +12,13 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import (
 from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries_context
 
 
+class InsightVizMigration(SchemaMigration):
+    targets = {NodeKind.INSIGHT_VIZ_NODE: 3}
+
+    def transform(self, query):
+        return query
+
+
 class TrendsMigration(SchemaMigration):
     targets = {NodeKind.TRENDS_QUERY: 5}
 
@@ -20,13 +27,21 @@ class TrendsMigration(SchemaMigration):
         return query
 
 
+class EventsNodeMigration(SchemaMigration):
+    targets = {NodeKind.EVENTS_NODE: 7}
+
+    def transform(self, query):
+        return query
+
+
 @pytest.fixture(autouse=True)
 def setup_migrations():
     LATEST_VERSIONS.clear()
     MIGRATIONS.clear()
 
-    MIGRATIONS[NodeKind.TRENDS_QUERY] = {1: TrendsMigration()}
-    # MIGRATIONS[NodeKind.EVENTS_NODE] = {1: EventsNodeMigration()}
+    MIGRATIONS[NodeKind.INSIGHT_VIZ_NODE] = {3: InsightVizMigration()}
+    MIGRATIONS[NodeKind.TRENDS_QUERY] = {5: TrendsMigration()}
+    MIGRATIONS[NodeKind.EVENTS_NODE] = {1: EventsNodeMigration()}
     LATEST_VERSIONS[NodeKind.INSIGHT_VIZ_NODE] = 3
     LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 5
     LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 7
