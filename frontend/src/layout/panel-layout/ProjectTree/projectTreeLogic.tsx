@@ -534,6 +534,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             ),
                     })
                 }
+                if (onlyFolders) {
+                    return [
+                        {
+                            id: '/',
+                            name: '/',
+                            displayName: <>Project root</>,
+                            record: { type: 'folder', path: '' },
+                            children: results,
+                        },
+                    ]
+                }
                 return results
             },
         ],
