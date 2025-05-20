@@ -41,17 +41,17 @@ export const RAISED_OPTIONS = [
 
 export const YC_BATCH_OPTIONS = [
     { label: 'Select your batch', value: '' },
-    { label: 'Spring 2025', value: 'Spring 25' },
-    { label: 'Winter 2025', value: 'Winter 25' },
-    { label: 'Fall 2024', value: 'Fall 24' },
-    { label: 'Summer 2024', value: 'Summer 24' },
-    { label: 'Winter 2024', value: 'Winter 24' },
-    { label: 'Summer 2023', value: 'Summer 23' },
-    { label: 'Winter 2023', value: 'Winter 23' },
-    { label: 'Summer 2022', value: 'Summer 22' },
-    { label: 'Winter 2022', value: 'Winter 22' },
-    { label: 'Summer 2021', value: 'Summer 21' },
-    { label: 'Winter 2021', value: 'Winter 21' },
+    { label: 'Spring 2025', value: 'Spring 2025' },
+    { label: 'Winter 2025', value: 'Winter 2025' },
+    { label: 'Fall 2024', value: 'Fall 2024' },
+    { label: 'Summer 2024', value: 'Summer 2024' },
+    { label: 'Winter 2024', value: 'Winter 2024' },
+    { label: 'Summer 2023', value: 'Summer 2023' },
+    { label: 'Winter 2023', value: 'Winter 2023' },
+    { label: 'Summer 2022', value: 'Summer 2022' },
+    { label: 'Winter 2022', value: 'Winter 2022' },
+    { label: 'Summer 2021', value: 'Summer 2021' },
+    { label: 'Winter 2021', value: 'Winter 2021' },
     { label: 'Earlier batches', value: 'Earlier' },
 ]
 
