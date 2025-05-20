@@ -28,8 +28,16 @@ class TestOtelInstrumentation(BaseTest):
         django_otel_logger = logging.getLogger("opentelemetry.instrumentation.django")
         django_otel_logger.setLevel(self.original_django_otel_logger_level)
         django_otel_logger.propagate = self.original_django_otel_logger_propagate
+
+        # Clear any potentially set OTel provider to avoid state leakage between tests
+        # if initialize_otel was called and set a global provider.
+        from opentelemetry import trace
+
+        trace._TRACER_PROVIDER = None  # type: ignore
+
         super().tearDown()
 
+    @mock.patch("posthog.otel_instrumentation.RedisInstrumentor")
     @mock.patch("posthog.otel_instrumentation.DjangoInstrumentor")
     @mock.patch("posthog.otel_instrumentation.BatchSpanProcessor")
     @mock.patch("posthog.otel_instrumentation.OTLPSpanExporter")
@@ -55,6 +63,7 @@ class TestOtelInstrumentation(BaseTest):
         mock_otlp_exporter_cls,
         mock_batch_processor_cls,
         mock_django_instrumentor_cls,
+        mock_redis_instrumentor_cls,
     ):
         # Arrange
         mock_resource_instance = mock.Mock()
@@ -63,8 +72,11 @@ class TestOtelInstrumentation(BaseTest):
         mock_provider_instance = mock.Mock()
         mock_tracer_provider_cls.return_value = mock_provider_instance
 
-        mock_instrumentor_instance = mock.Mock()
-        mock_django_instrumentor_cls.return_value = mock_instrumentor_instance
+        mock_django_instrumentor_instance = mock.Mock()
+        mock_django_instrumentor_cls.return_value = mock_django_instrumentor_instance
+
+        mock_redis_instrumentor_instance = mock.Mock()
+        mock_redis_instrumentor_cls.return_value = mock_redis_instrumentor_instance
 
         # Act
         initialize_otel()
@@ -78,12 +90,16 @@ class TestOtelInstrumentation(BaseTest):
         mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
 
         mock_django_instrumentor_cls.assert_called_once_with()
-        mock_instrumentor_instance.instrument.assert_called_once()
+        mock_django_instrumentor_instance.instrument.assert_called_once()
 
-        instrument_call_args = mock_instrumentor_instance.instrument.call_args
+        instrument_call_args = mock_django_instrumentor_instance.instrument.call_args
         self.assertEqual(instrument_call_args[1]["tracer_provider"], mock_provider_instance)
         self.assertEqual(instrument_call_args[1]["request_hook"], _otel_django_request_hook)
         self.assertEqual(instrument_call_args[1]["response_hook"], _otel_django_response_hook)
+
+        # Assert RedisInstrumentor call
+        mock_redis_instrumentor_cls.assert_called_once_with()
+        mock_redis_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
 
         # Check structlog logging calls
         found_init_success_log = False
@@ -107,15 +123,19 @@ class TestOtelInstrumentation(BaseTest):
         self.assertEqual(django_otel_lib_logger.level, logging.DEBUG)  # Always set to DEBUG
         self.assertTrue(django_otel_lib_logger.propagate)
 
+    @mock.patch("posthog.otel_instrumentation.RedisInstrumentor")
     @mock.patch("posthog.otel_instrumentation.DjangoInstrumentor")
     @mock.patch("posthog.otel_instrumentation.logger")
     @mock.patch.dict(os.environ, {"OTEL_SDK_DISABLED": "true", "OTEL_PYTHON_LOG_LEVEL": "info"}, clear=True)
-    def test_initialize_otel_disabled(self, mock_structlog_logger, mock_django_instrumentor_cls):
+    def test_initialize_otel_disabled(
+        self, mock_structlog_logger, mock_django_instrumentor_cls, mock_redis_instrumentor_cls
+    ):
         # Act
         initialize_otel()
 
         # Assert
         mock_django_instrumentor_cls.return_value.instrument.assert_not_called()
+        mock_redis_instrumentor_cls.return_value.instrument.assert_not_called()
 
         found_disabled_log = False
         for call_args_tuple in mock_structlog_logger.info.call_args_list:
