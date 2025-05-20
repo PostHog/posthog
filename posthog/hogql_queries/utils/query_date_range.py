@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
@@ -42,6 +41,7 @@ class QueryDateRange:
     _team: Team
     _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
+    _interval_count: int
     _now_without_timezone: datetime
     _earliest_timestamp_fallback: Optional[datetime]
 
@@ -52,15 +52,21 @@ class QueryDateRange:
         interval: Optional[IntervalType],
         now: datetime,
         earliest_timestamp_fallback: Optional[datetime] = None,
+        interval_count: Optional[int] = None,
     ) -> None:
         self._team = team
         self._date_range = date_range
         self._interval = interval or IntervalType.DAY
+        self._interval_count = interval_count or 1
         self._now_without_timezone = now
         self._earliest_timestamp_fallback = earliest_timestamp_fallback
 
         if not isinstance(self._interval, IntervalType):
             raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
+        if self._interval == IntervalType.WEEK and self._interval_count > 1:
+            # Due to differences in clickhouse between toStartOfWeek and toStartOfInterval(interval X weeks)
+            # we can't support multiple week intervals without breaking backwards compatibility
+            raise ValueError("IntervalType.WEEK cannot be used with interval_count > 1")
 
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone
@@ -145,6 +151,10 @@ class QueryDateRange:
         return cast(IntervalLiteral, self.interval_type.name.lower())
 
     @cached_property
+    def interval_count(self) -> int:
+        return self._interval_count
+
+    @cached_property
     def is_hourly(self) -> bool:
         if self._interval is None:
             return False
@@ -177,11 +187,11 @@ class QueryDateRange:
 
     def interval_relativedelta(self) -> relativedelta:
         return relativedelta(
-            days=1 if self.interval_name == "day" else 0,
-            weeks=1 if self.interval_name == "week" else 0,
-            months=1 if self.interval_name == "month" else 0,
-            hours=1 if self.interval_name == "hour" else 0,
-            minutes=1 if self.interval_name == "minute" else 0,
+            days=self.interval_count if self.interval_name == "day" else 0,
+            weeks=self.interval_count if self.interval_name == "week" else 0,
+            months=self.interval_count if self.interval_name == "month" else 0,
+            hours=self.interval_count if self.interval_name == "hour" else 0,
+            minutes=self.interval_count if self.interval_name == "minute" else 0,
         )
 
     def all_values(self) -> list[datetime]:
@@ -221,17 +231,22 @@ class QueryDateRange:
     def one_interval_period(self) -> ast.Expr:
         return ast.Call(
             name=f"toInterval{self.interval_name.capitalize()}",
-            args=[ast.Constant(value=1)],
+            args=[ast.Constant(value=self.interval_count)],
         )
 
     def number_interval_periods(self) -> ast.Expr:
         return ast.Call(
             name=f"toInterval{self.interval_name.capitalize()}",
-            args=[ast.Field(chain=["number"])],
+            args=[
+                ast.Call(name="multiply", args=[ast.Field(chain=["number"]), ast.Constant(value=self.interval_count)])
+            ],
         )
 
     def interval_period_string_as_hogql_constant(self) -> ast.Expr:
         return ast.Constant(value=self.interval_name)
+
+    def interval_count_as_hogql_constant(self) -> ast.Expr:
+        return ast.Constant(value=self._interval_count)
 
     # Returns whether we should wrap `date_from` with `toStartOf<Interval>` dependent on the interval period
     def use_start_of_interval(self):
@@ -265,18 +280,15 @@ class QueryDateRange:
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
         match self.interval_name:
-            case "minute":
-                return ast.Call(name="toStartOfMinute", args=[date])
-            case "hour":
-                return ast.Call(name="toStartOfHour", args=[date])
-            case "day":
-                return ast.Call(name="toStartOfDay", args=[date])
             case "week":
+                # toStartOfWeek is incompatible with toStartOfInterval:
+                #   toStartOfInterval assumes that weeks start on Monday.
+                #   Note that this behavior is different from that of function toStartOfWeek in which weeks start by default on Sunday.
+                # include this special case for backwards compatibility.
+                # interval_count will always be 1 here.
                 return ast.Call(name="toStartOfWeek", args=[date])
-            case "month":
-                return ast.Call(name="toStartOfMonth", args=[date])
             case _:
-                raise ImpossibleASTError(message="Unknown interval name")
+                return ast.Call(name="toStartOfInterval", args=[date, self.one_interval_period()])
 
     def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
@@ -293,6 +305,7 @@ class QueryDateRange:
     def to_placeholders(self) -> dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),
+            "interval_count": self.interval_count_as_hogql_constant(),
             "one_interval_period": self.one_interval_period(),
             "number_interval_period": self.number_interval_periods(),
             "date_from": self.date_from_as_hogql(),
