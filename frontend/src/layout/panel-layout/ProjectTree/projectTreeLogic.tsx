@@ -755,7 +755,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, key }) => ({
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {
                 const rootItems = values.folders['']
@@ -964,12 +964,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     lemonToast.error("Sorry, can't link an unsaved item (no id)")
                     return
                 }
-                actions.queueAction({
-                    type: !force && item.type === 'folder' ? 'prepare-link' : 'link',
-                    item,
-                    path: item.path,
-                    newPath: newPath + item.path.slice(oldPath.length),
-                })
+                actions.queueAction(
+                    {
+                        type: !force && item.type === 'folder' ? 'prepare-link' : 'link',
+                        item,
+                        path: item.path,
+                        newPath: newPath + item.path.slice(oldPath.length),
+                    },
+                    key
+                )
             }
         },
         deleteCheckedItems: () => {
@@ -1002,12 +1005,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 counter++
             }
 
-            actions.queueAction({
-                type: 'create',
-                item: { id: `project/${folderName}`, path: folderName, type: 'folder' },
-                path: folderName,
-                newPath: folderName,
-            })
+            actions.queueAction(
+                {
+                    type: 'create',
+                    item: { id: `project/${folderName}`, path: folderName, type: 'folder' },
+                    path: folderName,
+                    newPath: folderName,
+                },
+                key
+            )
 
             // Always set the editing item ID after a short delay to ensure the folder is in the DOM
             if (editAfter) {

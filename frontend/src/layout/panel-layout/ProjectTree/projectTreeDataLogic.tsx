@@ -6,7 +6,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { getDefaultTreeNew } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
     appendResultsToFolders,
@@ -48,10 +48,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        deleteItem: (item: FileSystemEntry) => ({ item }),
-        moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
+        deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
+        moveItem: (item: FileSystemEntry, newPath: string, force = false, projectTreeLogicKey: string) => ({
+            item,
+            newPath,
+            force,
+            projectTreeLogicKey,
+        }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
-        queueAction: (action: ProjectTreeAction) => ({ action }),
+        queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
 
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
@@ -80,7 +85,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         pendingLoader: [
             false,
             {
-                queueAction: async ({ action }) => {
+                queueAction: async ({ action, projectTreeLogicKey }) => {
                     if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
@@ -93,7 +98,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     return false
                                 }
                             }
-                            actions.queueAction({ ...action, type: verb })
+                            actions.queueAction({ ...action, type: verb }, projectTreeLogicKey)
                         } catch (error) {
                             console.error(`Error ${verbing} item:`, error)
                             lemonToast.error(`Error ${verbing} item: ${error}`)
@@ -111,7 +116,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     label: 'Undo',
                                     dataAttr: 'undo-project-tree-move',
                                     action: () => {
-                                        actions.moveItem({ ...action.item, path: newPath }, oldPath)
+                                        actions.moveItem(
+                                            { ...action.item, path: newPath },
+                                            oldPath,
+                                            false,
+                                            projectTreeLogicKey
+                                        )
                                     },
                                 },
                             })
@@ -147,12 +157,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     label: 'Undo',
                                     dataAttr: 'undo-project-tree-create-folder',
                                     action: () => {
-                                        actions.deleteItem(response)
+                                        actions.deleteItem(response, projectTreeLogicKey)
                                     },
                                 },
                             })
-                            // TODO
-                            // actions.expandProjectFolder(action.item.path)
+
+                            // Expand in the logic that called this data flow
+                            projectTreeLogic
+                                .findMounted({ key: projectTreeLogicKey })
+                                ?.actions.expandProjectFolder(action.item.path)
                         } catch (error) {
                             console.error('Error creating folder:', error)
                             lemonToast.error(`Error creating folder: ${error}`)
@@ -170,7 +183,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     return false
                                 }
                             }
-                            actions.queueAction({ ...action, type: 'delete' })
+                            actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
                         } catch (error) {
                             console.error('Error deleting item:', error)
                             lemonToast.error(`Error deleting item: ${error}`)
@@ -495,7 +508,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             }
             actions.addResults(items as any as SearchResults)
         },
-        deleteItem: async ({ item }) => {
+        deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (!item.id) {
                 const response = await api.fileSystem.list({ type: 'folder', path: item.path })
                 const items = response.results ?? []
@@ -506,9 +519,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     return
                 }
             }
-            actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
+            actions.queueAction(
+                { type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path },
+                projectTreeLogicKey
+            )
         },
-        moveItem: async ({ item, newPath, force }) => {
+        moveItem: async ({ item, newPath, force, projectTreeLogicKey }) => {
             if (newPath === item.path) {
                 return
             }
@@ -516,12 +532,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 lemonToast.error("Sorry, can't move an unsaved item (no id)")
                 return
             }
-            actions.queueAction({
-                type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
-                item,
-                path: item.path,
-                newPath: newPath,
-            })
+            actions.queueAction(
+                {
+                    type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
+                    item,
+                    path: item.path,
+                    newPath: newPath,
+                },
+                projectTreeLogicKey
+            )
         },
     })),
     afterMount(({ actions }) => {

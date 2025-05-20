@@ -68,6 +68,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         projectTreeRefEntry,
     } = useValues(projectTreeLogic({ key: 'project-tree' }))
     const { treeItemsNew } = useValues(projectTreeDataLogic)
+    const key = 'project-tree'
 
     const {
         createFolder,
@@ -91,7 +92,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
-    } = useActions(projectTreeLogic({ key: 'project-tree' }))
+    } = useActions(projectTreeLogic({ key }))
     const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -351,7 +352,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
+                            deleteItem(item.record as unknown as FileSystemEntry, key)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -361,7 +362,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
+                            deleteItem(item.record as unknown as FileSystemEntry, key)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
