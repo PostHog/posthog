@@ -41,9 +41,9 @@ def pre_aggregate_web_analytics_data(
     team_ids = config.get("team_ids", [1, 2])
     clickhouse_settings = config["clickhouse_settings"]
 
-    # We'll be handling this year data for our tests.
+    # We'll be handling a fixed date range for our internal tests that gets the full history
     insert_query = sql_generator(
-        date_start="2025-01-01",
+        date_start="2020-01-01",
         date_end=datetime.now(UTC).strftime("%Y-%m-%d"),
         team_ids=team_ids,
         settings=clickhouse_settings,
