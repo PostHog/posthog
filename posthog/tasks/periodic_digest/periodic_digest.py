@@ -175,7 +175,7 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             }
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
         ],
-        interesting_playlists=[
+        interesting_collections=[
             {
                 "name": playlist.name or playlist.derived_name or "Untitled",
                 "id": playlist.short_id,
@@ -185,6 +185,19 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
                 "url_path": playlist.playlist_url_path(),
             }
             for playlist in all_digest_data["teams_with_interesting_playlists"].get(team.id, [])
+            if playlist.type == "collection"
+        ],
+        interesting_saved_filters=[
+            {
+                "name": playlist.name or playlist.derived_name or "Untitled",
+                "id": playlist.short_id,
+                "type": playlist.type,
+                "count": playlist.count,
+                "has_more_available": playlist.has_more_available,
+                "url_path": playlist.playlist_url_path(),
+            }
+            for playlist in all_digest_data["teams_with_interesting_playlists"].get(team.id, [])
+            if playlist.type == "saved_filter"
         ],
         new_experiments_launched=[
             {
