@@ -4197,7 +4197,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         internal_users_cohort.calculate_people_ch(pending_version=0)
-        flush_persons_and_events()
         # Check that only internal user is in the cohort
         results = get_person_ids_by_cohort_id(self.team.pk, internal_users_cohort.id)
         assert len(results) == 1
@@ -4269,4 +4268,72 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "filter_test_accounts": True,
             },
             ["actual_session"],
+        )
+
+    @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    # @snapshot_clickhouse_queries
+    def test_filter_users_from_excluded_cohort_no_events(self):
+        """
+        Test that sessions from users in a cohort marked as excluded in team test account filters are properly filtered out,
+        even when the session recording don't have any events.
+        """
+        # Create users
+        internal_user = _create_person(
+            distinct_ids=["internal_user"],
+            team_id=self.team.pk,
+            properties={"$is_internal": "yes"},
+        )
+        actual_user = _create_person(
+            distinct_ids=["actual_user"],
+            team_id=self.team.pk,
+            properties={"$is_internal": "no"},
+        )
+        # Include internal user in the cohort
+        internal_users_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$is_internal", "value": "yes", "type": "person"}]}],
+            name="internal_users_cohort",
+        )
+        flush_persons_and_events()
+        internal_users_cohort.calculate_people_ch(pending_version=0)
+        # Check that only internal user is in the cohort
+        results = get_person_ids_by_cohort_id(self.team.pk, internal_users_cohort.id)
+        assert len(results) == 1
+        assert results[0] == str(internal_user.uuid)
+        assert results[0] != str(actual_user.uuid)
+        # Set up test account filters to exclude the cohort
+        self.team.test_account_filters = [
+            {
+                "key": "id",
+                "value": internal_users_cohort.pk,
+                "operator": "not_in",
+                "type": "cohort",
+            }
+        ]
+        self.team.save()
+        # Create replay summaries for both users, but don't create events
+        produce_replay_summary(
+            distinct_id="internal_user",
+            session_id="internal_session",
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id="actual_user",
+            session_id="actual_session",
+            team_id=self.team.id,
+        )
+        # Check that both sessions are returned when filter_test_accounts is False
+        self._assert_query_matches_session_ids(
+            {
+                "filter_test_accounts": False,
+            },
+            ["internal_session", "actual_session"],
+        )
+        # The assumption is that if the recording has no events - it would fail to identify what sessions to filter out
+        self._assert_query_matches_session_ids(
+            {
+                "filter_test_accounts": True,
+            },
+            ["internal_session", "actual_session"],
         )
