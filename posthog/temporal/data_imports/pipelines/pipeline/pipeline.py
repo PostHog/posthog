@@ -304,7 +304,7 @@ class PipelineNonDLT:
             table_name=self._resource_name,
             file_uris=new_file_uris,
             # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
-            delete_existing=False if chunk_index > 0 else True,
+            delete_existing=chunk_index == 0,
         )
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
