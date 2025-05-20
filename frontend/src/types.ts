@@ -1794,6 +1794,7 @@ export interface BillingProductV2Type {
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
+    projected_amount_usd_with_limit?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
@@ -1853,6 +1854,8 @@ export interface BillingType {
     current_total_amount_usd_after_discount?: string
     projected_total_amount_usd?: string
     projected_total_amount_usd_after_discount?: string
+    projected_total_amount_usd_with_limit?: string
+    projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
@@ -4979,7 +4982,7 @@ export type BillingTableTierRow = {
     basePrice: string
     usage: string
     total: string
-    projectedTotal: string
+    projectedTotal: string | React.ReactNode
     subrows: ProductPricingTierSubrows
 }
 
