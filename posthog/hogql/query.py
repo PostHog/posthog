@@ -88,7 +88,7 @@ class HogQLQueryExecutor:
             self.placeholders = self.placeholders or {}
 
             if "filters" in self.placeholders and self.filters is not None:
-                raise ValueError(
+                raise ExposedHogQLError(
                     f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
                 )
 
@@ -107,7 +107,7 @@ class HogQLQueryExecutor:
 
             if len(placeholders_in_query) > 0:
                 if len(self.placeholders) == 0:
-                    raise ValueError(
+                    raise ExposedHogQLError(
                         f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
                     )
                 self.select_query = replace_placeholders(self.select_query, self.placeholders)
