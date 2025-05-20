@@ -1651,6 +1651,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
+    usedPreAggregatedTables?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -2406,9 +2407,15 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
 }
 
+export enum DatabaseSchemaManagedViewTableKind {
+    REVENUE_ANALYTICS = 'revenue_analytics',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
-    type: 'managed_view'
     query: HogQLQuery
+    type: 'managed_view'
+    kind: DatabaseSchemaManagedViewTableKind
+    source_id?: string
 }
 
 export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {

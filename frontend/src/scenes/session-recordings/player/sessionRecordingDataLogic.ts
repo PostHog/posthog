@@ -603,7 +603,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadSnapshotSources: () => {
             // We only load events once we actually start loading the recording
-            actions.loadEvents()
+            if (!values.sessionEventsData) {
+                actions.loadEvents()
+            }
         },
         loadRecordingMetaSuccess: () => {
             cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
