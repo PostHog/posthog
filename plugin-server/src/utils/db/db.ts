@@ -672,7 +672,8 @@ export class DB {
     public async updatePersonDeprecated(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        tx?: TransactionClient
+        tx?: TransactionClient,
+        tag?: string
     ): Promise<[InternalPerson, TopicMessage[]]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
@@ -693,13 +694,14 @@ export class DB {
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
         )} WHERE id = $${Object.values(update).length + 1}
-        RETURNING *`
+        RETURNING *
+        /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
         const { rows } = await this.postgres.query<RawPerson>(
             tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             values,
-            'updatePerson'
+            `updatePerson${tag ? `-${tag}` : ''}`
         )
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
