@@ -2401,6 +2401,8 @@ class TestCapture(BaseTest):
 
         assert event_data["event"] == "$csp_violation"
         assert event_data["properties"]["$csp_document_url"] == "https://example.com/foo/bar"
+        # copied from $csp_document_url
+        assert event_data["properties"]["$current_url"] == "https://example.com/foo/bar"
         assert event_data["properties"]["$csp_violated_directive"] == "default-src self"
         assert event_data["properties"]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
 
