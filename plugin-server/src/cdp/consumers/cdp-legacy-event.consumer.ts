@@ -22,7 +22,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected promiseScheduler = new PromiseScheduler()
 
     constructor(hub: Hub) {
-        super(hub, KAFKA_EVENTS_JSON, 'clickhouse-plugin-server-async-onevent')
+        super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
         logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
             pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
