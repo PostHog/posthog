@@ -1,14 +1,19 @@
 import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconSend } from '@posthog/icons'
 import { WorkflowNode } from '@posthog/workflows'
 import { Handle, Position } from '@xyflow/react'
+import AddEdge from './Edges'
 
 export const REACT_FLOW_NODE_TYPES = {
     addIcon: AddIconNode,
     trigger: TriggerNode,
-    message: MessageNode,
+    email: EmailNode,
     condition: ConditionNode,
     delay: DelayNode,
     exit: ExitNode,
+}
+
+export const REACT_FLOW_EDGE_TYPES = {
+    add: AddEdge,
 }
 
 interface NodeProps {
@@ -32,16 +37,16 @@ function BaseNode({ icon, data, children }: NodeProps): JSX.Element {
 function TriggerNode({ data }: NodeProps): JSX.Element {
     return (
         <BaseNode data={data} icon={<IconBolt />}>
-            <Handle type="source" position={Position.Bottom} />
+            <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
         </BaseNode>
     )
 }
 
-function MessageNode({ data }: NodeProps): JSX.Element {
+function EmailNode({ data }: NodeProps): JSX.Element {
     return (
         <BaseNode data={data} icon={<IconSend />}>
-            <Handle type="target" position={Position.Top} />
-            <Handle type="source" position={Position.Bottom} />
+            <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+            <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
         </BaseNode>
     )
 }
@@ -49,11 +54,14 @@ function MessageNode({ data }: NodeProps): JSX.Element {
 function ConditionNode({ data }: NodeProps): JSX.Element {
     return (
         <BaseNode icon={<IconDecisionTree />} data={data}>
-            <Handle type="target" position={Position.Top} />
-            {/* Need a source handle for every condition */}
-            <Handle type="source" position={Position.Bottom} />
-            <Handle type="source" position={Position.Bottom} />
-            <Handle type="source" position={Position.Bottom} />
+            <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+            <Handle type="source" position={Position.Bottom} id="true" style={{ opacity: 0 }} />
+            <Handle
+                type="source"
+                position={Position.Bottom}
+                id="false"
+                style={{ opacity: 0, left: 'auto', right: 0 }}
+            />
         </BaseNode>
     )
 }
@@ -61,8 +69,8 @@ function ConditionNode({ data }: NodeProps): JSX.Element {
 function DelayNode({ data }: NodeProps): JSX.Element {
     return (
         <BaseNode data={data} icon={<IconHourglass />}>
-            <Handle type="target" position={Position.Top} />
-            <Handle type="source" position={Position.Bottom} />
+            <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+            <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
         </BaseNode>
     )
 }
@@ -70,11 +78,17 @@ function DelayNode({ data }: NodeProps): JSX.Element {
 function ExitNode({ data }: NodeProps): JSX.Element {
     return (
         <BaseNode data={data} icon={<IconLeave />}>
-            <Handle type="target" position={Position.Top} />
+            <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
         </BaseNode>
     )
 }
 
 function AddIconNode(): JSX.Element {
-    return <IconPlus />
+    return (
+        <div className="bg-surface-primary border border-primary rounded-full w-8 h-8 flex items-center justify-center">
+            <IconPlus className="text-primary" />
+            <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+            <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+        </div>
+    )
 }
