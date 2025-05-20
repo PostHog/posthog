@@ -94,6 +94,7 @@ from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 from products.early_access_features.backend.models import EarlyAccessFeature
+from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
     "AlertConfiguration",
@@ -159,6 +160,11 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OAuthAccessToken",
+    "OAuthApplication",
+    "OAuthGrant",
+    "OAuthIDToken",
+    "OAuthRefreshToken",
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",
