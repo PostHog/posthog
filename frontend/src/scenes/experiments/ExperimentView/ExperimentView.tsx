@@ -60,7 +60,7 @@ const ResultsTab = (): JSX.Element => {
             )}
             <MetricsView isSecondary={false} />
             {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasEnoughDataForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
