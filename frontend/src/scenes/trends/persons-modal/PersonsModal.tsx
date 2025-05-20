@@ -646,8 +646,6 @@ function PersonSummariesTable(): JSX.Element {
                                                         <div className="flex items-center justify-between mb-1">
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-muted">{session.timestamp}</span>
-                                                                <span className="text-muted">•</span>
-                                                                <span className="text-muted">{session.id}</span>
                                                             </div>
                                                             <div className="flex gap-1">
                                                                 <LemonButton
