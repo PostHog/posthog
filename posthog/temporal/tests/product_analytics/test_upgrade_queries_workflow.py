@@ -41,10 +41,10 @@ def setup_migrations():
 
     MIGRATIONS[NodeKind.INSIGHT_VIZ_NODE] = {3: InsightVizMigration()}
     MIGRATIONS[NodeKind.TRENDS_QUERY] = {5: TrendsMigration()}
-    MIGRATIONS[NodeKind.EVENTS_NODE] = {1: EventsNodeMigration()}
-    LATEST_VERSIONS[NodeKind.INSIGHT_VIZ_NODE] = 3
-    LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 5
-    LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 7
+    MIGRATIONS[NodeKind.EVENTS_NODE] = {7: EventsNodeMigration()}
+    LATEST_VERSIONS[NodeKind.INSIGHT_VIZ_NODE] = 4
+    LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 6
+    LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 8
 
     yield
 
@@ -166,6 +166,8 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
             insight_ids=[i2.id, i3.id, i4.id, i7.id, i8.id],
         )
 
-        result = activity_environment.run(migrate_insights_batch, inputs)
+        activity_environment.run(migrate_insights_batch, inputs)
 
-        assert i3.query == "s"
+        i3.refresh_from_db()
+        assert i3.query["source"]["v"] == 6
+        assert i3.query["source"]["interval"] == "day"
