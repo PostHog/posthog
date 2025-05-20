@@ -7,6 +7,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.django import DjangoInstrumentor
+from opentelemetry.instrumentation.redis import RedisInstrumentor
 
 import structlog
 
@@ -64,11 +65,26 @@ def initialize_otel():
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
 
-        DjangoInstrumentor().instrument(
-            tracer_provider=provider,
-            request_hook=_otel_django_request_hook,
-            response_hook=_otel_django_response_hook,
-        )
+        try:
+            DjangoInstrumentor().instrument(
+                tracer_provider=provider,
+                request_hook=_otel_django_request_hook,
+                response_hook=_otel_django_response_hook,
+            )
+            logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e
+            )
+
+        try:
+            RedisInstrumentor().instrument(tracer_provider=provider)
+            logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e
+            )
+
         logger.info(
             "otel_manual_init_status_from_instrumentation_module",
             service_name=service_name,

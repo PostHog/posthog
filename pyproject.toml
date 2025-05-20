@@ -142,6 +142,7 @@ dependencies = [
     "opentelemetry-sdk==1.33.1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-asgi>=0.54b1",
+    "opentelemetry-instrumentation-redis>=0.54b1",
 ]
 
 [dependency-groups]
