@@ -87,8 +87,6 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
-        else:
-            queryset = queryset.filter(item_id__isnull=True)
 
         source_comment = params.get("source_comment")
         if self.action == "thread":
