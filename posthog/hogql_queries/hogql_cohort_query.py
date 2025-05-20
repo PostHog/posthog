@@ -1,3 +1,4 @@
+from collections import namedtuple
 from numbers import Number
 from typing import Literal, Optional, Union, cast
 
@@ -404,70 +405,67 @@ class HogQLCohortQuery:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        Condition = namedtuple("Condition", ["query", "negation"])
+
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
-        ) -> tuple[ast.SelectQuery | ast.SelectSetQuery, bool]:
+        ) -> Condition:
             if not prop:
                 raise ValidationError("Cohort has a null property", str(prop))
 
-            if isinstance(prop, PropertyGroup):
-                queries = []
-                for property in prop.values:
-                    query, negation = build_conditions(property)
-                    if query is not None:
-                        queries.append((query, negation))
+            if isinstance(prop, Property):
+                return Condition(self._get_condition_for_property(prop), prop.negation or False)
 
-                if len(queries) == 0:
-                    raise ValidationError("Cohort has a property group with no condition", str(prop))
+            children = [build_conditions(property) for property in prop.values]
 
-                all_negated = all(x[1] for x in queries)
-                all_not_negated = all(not x[1] for x in queries)
-                """
-                hogql = [
-                    print_ast(
-                        query,
-                        HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True),
-                        dialect="hogql",
-                        pretty=True,
+            if len(children) == 0:
+                raise ValidationError("Cohort has a property group with no condition", str(prop))
+
+            all_children_negated = all(condition.negation for condition in children)
+            all_children_positive = all(not condition.negation for condition in children)
+
+            parent_condition_negated = all_children_negated
+
+            if prop.type == PropertyOperatorType.OR:
+                if all_children_positive or all_children_negated:
+                    return Condition(
+                        ast.SelectSetQuery(
+                            initial_select_query=children[0][0],
+                            subsequent_select_queries=[
+                                SelectSetNode(
+                                    select_query=query,
+                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT",
+                                )
+                                for (query, negation) in children[1:]
+                            ],
+                        ),
+                        parent_condition_negated,
                     )
-                    for query, negation in queries
-                ]
-                """
-                negated = False
-                if prop.type == PropertyOperatorType.OR:
-                    if all_negated or all_not_negated:
-                        return (
-                            ast.SelectSetQuery(
-                                initial_select_query=queries[0][0],
-                                subsequent_select_queries=[
-                                    SelectSetNode(select_query=query, set_operator="UNION DISTINCT")
-                                    for (query, negation) in queries[1:]
-                                ],
-                            ),
-                            all_negated,
-                        )
-                    else:
-                        negated = True
-                        queries = [(query, not negation) for query, negation in queries]
-                # Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.
-                queries.sort(key=lambda query: query[1])  # False before True
-                return (
-                    ast.SelectSetQuery(
-                        initial_select_query=queries[0][0],
-                        subsequent_select_queries=[
-                            SelectSetNode(
-                                select_query=query,
-                                set_operator=(
-                                    "UNION DISTINCT" if all_negated else ("EXCEPT" if negation else "INTERSECT")
-                                ),
-                            )
-                            for (query, negation) in queries[1:]
-                        ],
-                    ),
-                    all_negated or negated,
-                )
-            else:
-                return (self._get_condition_for_property(prop), prop.negation or False)
+                else:
+                    # Use De Morgan's law to convert OR to AND
+                    parent_condition_negated = True
+                    children = [Condition(query, not negation) for query, negation in children]
 
-        conditions, _ = build_conditions(self.property_groups)
-        return conditions
+            # Negation criteria must be accompanied by at least one positive matching criteria.
+            # Sort the positive queries first, then subtract the negative queries.
+            children.sort(key=lambda query: query[1])  # False before True
+            return Condition(
+                ast.SelectSetQuery(
+                    initial_select_query=children[0][0],
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            select_query=query,
+                            set_operator=(
+                                "UNION DISTINCT" if all_children_negated else ("EXCEPT" if negation else "INTERSECT")
+                            ),
+                        )
+                        for (query, negation) in children[1:]
+                    ],
+                ),
+                parent_condition_negated,
+            )
+
+        condition = build_conditions(self.property_groups)
+        if condition.negation:
+            raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
+        return condition.query

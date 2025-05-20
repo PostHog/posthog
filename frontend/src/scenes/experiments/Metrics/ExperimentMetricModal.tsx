@@ -37,7 +37,7 @@ export function ExperimentMetricModal({
 
     const handleSetMetric = useCallback(
         (newMetric: ExperimentMetric): void => {
-            if (!metricIdx) {
+            if (metricIdx == null) {
                 return
             }
             setMetric({ metricIdx, metric: newMetric, isSecondary })
@@ -45,7 +45,7 @@ export function ExperimentMetricModal({
         [metricIdx, isSecondary, setMetric]
     )
 
-    if (!metricIdx && metricIdx !== 0) {
+    if (metricIdx == null) {
         return <></>
     }
 

@@ -10,13 +10,15 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'scenes/error-tracking/utils'
 import { urls } from 'scenes/urls'
 
+import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
 
 interface EventDetailsProps {
@@ -33,6 +35,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
     const displayedEventProperties = {}
     const visibleSystemProperties = {}
     const featureFlagProperties = {}
+    const exceptionProperties = {}
     let setProperties = {}
     let setOnceProperties = {}
     let systemPropsCount = 0
@@ -46,6 +49,8 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = event.properties[key]
+            } else if (INTERNAL_EXCEPTION_PROPERTY_KEYS.includes(key)) {
+                exceptionProperties[key] = event.properties[key]
             } else if (key === '$set') {
                 setProperties = event.properties[key]
             } else if (key === '$set_once') {
@@ -137,7 +142,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'Exception',
             content: (
                 <div className="mx-3">
-                    <ErrorDisplay eventProperties={event.properties} />
+                    <ErrorDisplay
+                        eventProperties={event.properties}
+                        // fallback on timestamp as uuid is optional
+                        eventId={event.uuid ?? event.timestamp ?? 'error'}
+                    />
                 </div>
             ),
         })

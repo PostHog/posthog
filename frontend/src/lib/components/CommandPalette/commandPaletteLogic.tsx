@@ -47,7 +47,6 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -140,7 +139,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
-    connect({
+    connect(() => ({
         actions: [
             router,
             ['push'],
@@ -168,7 +167,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['sidePanelOpen'],
         ],
         logic: [preflightLogic],
-    }),
+    })),
     actions({
         hidePalette: true,
         showPalette: true,
@@ -486,6 +485,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
+                        icon: IconHogQL,
+                        display: 'Create a new Calendar Heatmap insight',
+                        executor: () => {
+                            push(INSIGHT_TYPE_URLS[InsightType.CALENDAR_HEATMAP])
+                        },
+                    },
+                    {
                         icon: IconNotebook,
                         display: 'Go to Notebooks',
                         executor: () => {
@@ -557,17 +563,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             push(urls.sqlEditor())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                        ? [
-                              {
-                                  icon: IconWarning,
-                                  display: 'Go to Error tracking',
-                                  executor: () => {
-                                      push(urls.errorTracking())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconWarning,
+                        display: 'Go to Error tracking',
+                        executor: () => push(urls.errorTracking()),
+                    },
                     {
                         display: 'Go to Session replay',
                         icon: IconRewindPlay,

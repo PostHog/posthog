@@ -12,11 +12,7 @@ import { ReplayTabs } from '~/types'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import {
-    DEFAULT_RECORDING_FILTERS,
-    SessionRecordingPlaylistLogicProps,
-    sessionRecordingsPlaylistLogic,
-} from './sessionRecordingsPlaylistLogic'
+import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
@@ -40,7 +36,7 @@ export function SessionRecordingsPlaylist({
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
-    const logic = sessionRecordingsPlaylistLogic(logicProps)
+    const playlistLogic = sessionRecordingsPlaylistLogic(logicProps)
     const {
         filters,
         pinnedRecordings,
@@ -52,8 +48,8 @@ export function SessionRecordingsPlaylist({
         allowFlagsFilters,
         allowHogQLFilters,
         totalFiltersCount,
-    } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
+    } = useValues(playlistLogic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
 
     const notebookNode = useNotebookNode()
 
@@ -118,13 +114,12 @@ export function SessionRecordingsPlaylist({
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     filterActions={
-                        notebookNode || (!canMixFiltersAndPinned && !!pinnedRecordings.length) ? null : (
+                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
                             <RecordingsUniversalFilters
                                 resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
-                                className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}
                             />
@@ -147,7 +142,7 @@ export function SessionRecordingsPlaylist({
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeItem.id}
                                 matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={logic}
+                                playlistLogic={playlistLogic}
                                 noBorder
                                 pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
                                 setPinned={
@@ -179,8 +174,7 @@ export function SessionRecordingsPlaylist({
 }
 
 const ListEmptyState = (): JSX.Element => {
-    const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
@@ -190,20 +184,7 @@ const ListEmptyState = (): JSX.Element => {
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col gap-2">
-                    {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
-                        <>
-                            <span>No matching recordings found</span>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => setFilters({ date_from: '-30d' })}
-                            >
-                                Search over the last 30 days
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <SessionRecordingsPlaylistTroubleshooting />
-                    )}
+                    <SessionRecordingsPlaylistTroubleshooting />
                 </div>
             )}
         </div>

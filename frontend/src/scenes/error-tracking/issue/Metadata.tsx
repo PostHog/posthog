@@ -1,79 +1,179 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
-import { Dayjs } from 'lib/dayjs'
-import { ClampedText } from 'lib/lemon-ui/ClampedText'
+import { dayjs } from 'lib/dayjs'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { useState } from 'react'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
+import { match } from 'ts-pattern'
 
-import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
+import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+
+import { EventsTable } from '../components/EventsTable/EventsTable'
+import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
+import { TimeBoundary } from '../components/TimeBoundary'
+import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
+import { useSparklineEvents } from '../hooks/use-sparkline-events'
+import { useSparklineOptions } from '../hooks/use-sparkline-options'
+import { cancelEvent } from '../utils'
+
+type SelectedDataType =
+    | {
+          type: 'datum'
+          data: SparklineDatum
+      }
+    | {
+          type: 'event'
+          data: SparklineEvent<string>
+      }
+    | null
 
 export const Metadata = (): JSX.Element => {
-    const { firstSeen, summary, aggregations, lastSeen, summaryLoading, issue, issueLoading, issueDateRange } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { values, labels } = useSparklineData('custom', issueDateRange, aggregations)
-    const hasSessionCount = summary && aggregations && aggregations.sessions !== 0
+    const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
+    const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
+    const sparklineData = useSparklineDataIssueScene()
+    const sparklineEvents = useSparklineEvents()
+    const sparklineOptions = useSparklineOptions(
+        {
+            onDatumMouseEnter: (d: SparklineDatum) => {
+                setHoveredDatum({ type: 'datum', data: d })
+            },
+            onDatumMouseLeave: () => {
+                setHoveredDatum(null)
+            },
+            onEventMouseEnter: (d: SparklineEvent<string>) => {
+                setHoveredDatum({ type: 'event', data: d })
+            },
+            onEventMouseLeave: () => {
+                setHoveredDatum(null)
+            },
+        },
+        [setHoveredDatum]
+    )
 
     return (
-        <div className="space-y-2 pb-5">
-            {!issueLoading ? (
-                <ClampedText text={issue?.description || ''} lines={2} />
-            ) : (
-                <LemonSkeleton.Row repeat={1} />
-            )}
-            <div className="flex flex-1 justify-between py-3">
-                <div className="flex items-end space-x-6">
-                    {renderTime('First seen', firstSeen, issueLoading)}
-                    {renderTime('Last seen', lastSeen, summaryLoading)}
+        <LemonCard className="p-0" hoverEffect={false}>
+            <div className="flex justify-between items-center h-[40px] px-2">
+                <div className="flex justify-end items-center h-full">
+                    {match(hoveredDatum)
+                        .when(
+                            (data) => shouldRenderIssueMetrics(data),
+                            () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
+                        )
+                        .with({ type: 'datum' }, (data) => renderDataPoint(data.data))
+                        .with({ type: 'event' }, (data) => renderEventPoint(data.data))
+                        .otherwise(() => null)}
                 </div>
-                <div className="flex space-x-2 gap-8 items-end">
-                    {renderMetric('Occurrences', aggregations?.occurrences, summaryLoading)}
-                    {renderMetric(
-                        'Sessions',
-                        aggregations?.sessions,
-                        summaryLoading,
-                        hasSessionCount ? undefined : 'No $session_id was set for any event in this issue'
-                    )}
-                    {renderMetric('Users', aggregations?.users, summaryLoading)}
+                <div className="flex justify-end items-center h-full">
+                    {match(hoveredDatum)
+                        .when(
+                            (data) => shouldRenderIssueMetrics(data),
+                            () => (
+                                <>
+                                    <TimeBoundary
+                                        time={firstSeen}
+                                        loading={issueLoading}
+                                        label="First Seen"
+                                        updateDateRange={(dateRange) => {
+                                            dateRange.date_from = firstSeen?.toISOString()
+                                            return dateRange
+                                        }}
+                                    />
+                                    <IconChevronRight />
+                                    <TimeBoundary
+                                        time={lastSeen}
+                                        loading={summaryLoading}
+                                        label="Last Seen"
+                                        updateDateRange={(dateRange) => {
+                                            dateRange.date_to = lastSeen?.endOf('minute').toISOString()
+                                            return dateRange
+                                        }}
+                                    />
+                                </>
+                            )
+                        )
+                        .with({ type: 'datum' }, (data) => renderDate(data.data.date))
+                        .with({ type: 'event' }, (data) => renderDate(data.data.date))
+                        .otherwise(() => null)}
                 </div>
             </div>
-            <OccurrenceSparkline
-                className="h-32 w-full"
-                values={values}
-                labels={labels}
-                displayXAxis={true}
-                loading={summaryLoading}
-            />
+            <div onClick={cancelEvent}>
+                <SparklineChart
+                    data={sparklineData}
+                    events={sparklineEvents}
+                    options={sparklineOptions}
+                    className="h-full pt-0"
+                />
+            </div>
+            <EventsTable />
+        </LemonCard>
+    )
+}
+
+function shouldRenderIssueMetrics(data: SelectedDataType): boolean {
+    if (data == null) {
+        return true
+    }
+    if (data.type == 'datum' && data.data.value == 0) {
+        return true
+    }
+    return false
+}
+
+function IssueMetrics({
+    aggregations,
+    summaryLoading,
+}: {
+    aggregations: ErrorTrackingIssueAggregations | undefined
+    summaryLoading: boolean
+}): JSX.Element {
+    const hasSessionCount = aggregations && aggregations.sessions !== 0
+    return (
+        <div className="flex items-center h-full gap-3">
+            {renderMetric('Occurrences', aggregations?.occurrences, summaryLoading)}
+            {renderMetric(
+                'Sessions',
+                aggregations?.sessions,
+                summaryLoading,
+                hasSessionCount ? undefined : 'No $session_id was set for any event in this issue'
+            )}
+            {renderMetric('Users', aggregations?.users, summaryLoading)}
         </div>
     )
 }
 
 function renderMetric(name: string, value: number | undefined, loading: boolean, tooltip?: string): JSX.Element {
     return (
-        <div className="flex flex-col flex-1">
-            <div className="flex items-center text-muted text-xs gap-1">
-                {name}
-                {!loading && tooltip && <IconInfo className="mt-0.5" />}
-            </div>
-            {loading ? (
-                <LemonSkeleton />
-            ) : (
-                <Tooltip title={tooltip} delayMs={0} placement="bottom">
-                    <div className="text-2xl font-semibold">{value ? humanFriendlyLargeNumber(value) : '-'}</div>
-                </Tooltip>
-            )}
-        </div>
+        <>
+            {match([loading])
+                .with([true], () => <LemonSkeleton className="w-[80px] h-2" />)
+                .with([false], () => (
+                    <Tooltip title={tooltip} delayMs={0} placement="right">
+                        <div className="flex items-center gap-1">
+                            <div className="text-lg font-bold inline-block">
+                                {value == null ? '0' : humanFriendlyLargeNumber(value)}
+                            </div>
+                            <div className="text-xs text-muted inline-block">{name}</div>
+                        </div>
+                    </Tooltip>
+                ))
+                .exhaustive()}
+        </>
     )
 }
 
-function renderTime(label: string, time: Dayjs | null | undefined, loading: boolean): JSX.Element {
+function renderDate(date: Date): JSX.Element {
+    return <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).format('D MMM YYYY HH:mm (UTC)')}</div>
+}
+
+function renderDataPoint(d: SparklineDatum): JSX.Element {
+    return renderMetric('Occurrences', d.value, false)
+}
+
+function renderEventPoint(d: SparklineEvent<string>): JSX.Element {
     return (
-        <div>
-            <div className="text-muted text-xs">{label}</div>
-            {loading && <LemonSkeleton />}
-            {!loading && time && <TZLabel time={time} className="border-dotted border-b" />}
-            {!loading && !time && <>-</>}
+        <div className="flex justify-start items-center h-full gap-1">
+            <div className="text-lg font-bold">{d.payload}</div>
         </div>
     )
 }

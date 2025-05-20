@@ -1,5 +1,4 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -8,6 +7,8 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
+import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     filterToMetricConfig,
@@ -115,6 +116,7 @@ export function ExperimentMetricForm({
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
                         hideRename={true}
+                        hideDeleteBtn={(_, index) => index === 0}
                         sortable={true}
                         showNestedArrow={true}
                         // showNumericalPropsOnly={true}
@@ -124,6 +126,22 @@ export function ExperimentMetricForm({
                         {...commonActionFilterProps}
                     />
                 )}
+            </div>
+            <div>
+                <LemonLabel
+                    className="mb-1"
+                    info={
+                        <>
+                            The preview uses data from the past 14 days to show how the metric will appear.
+                            <br />
+                            For funnel metrics, we simulate experiment exposure by inserting a page-view event at the
+                            start of the funnel. In the experiment evaluation, this will be replaced by the actual
+                            experiment-exposure event.
+                        </>
+                    }
+                >
+                    Preview
+                </LemonLabel>
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {metric.metric_type === ExperimentMetricType.MEAN &&
@@ -151,62 +169,10 @@ export function ExperimentMetricForm({
                     readOnly
                 />
             )}
-            <div>
-                <LemonLabel
-                    className="mb-1"
-                    info={
-                        <>
-                            Controls how long a metric value is considered relevant to an experiment exposure:
-                            <ul className="list-disc pl-4">
-                                <li>
-                                    <strong>Experiment duration</strong> considers any data from when a user is first
-                                    exposed until the experiment ends.
-                                </li>
-                                <li>
-                                    <strong>Conversion window</strong> only includes data that occurs within the
-                                    specified number of hours after a user's first exposure (also ignoring the
-                                    experiment end date).
-                                </li>
-                            </ul>
-                        </>
-                    }
-                >
-                    Time window
-                </LemonLabel>
-                <div className="flex items-center gap-2">
-                    <LemonRadio
-                        className="my-1.5"
-                        value={metric.time_window_hours === undefined ? 'full' : 'conversion'}
-                        orientation="horizontal"
-                        onChange={(value) =>
-                            handleSetMetric({
-                                ...metric,
-                                time_window_hours: value === 'full' ? undefined : 72,
-                            })
-                        }
-                        options={[
-                            {
-                                value: 'full',
-                                label: 'Experiment duration',
-                            },
-                            {
-                                value: 'conversion',
-                                label: 'Conversion window',
-                            },
-                        ]}
-                    />
-                    {metric.time_window_hours !== undefined && (
-                        <LemonInput
-                            value={metric.time_window_hours}
-                            onChange={(value) => handleSetMetric({ ...metric, time_window_hours: value || undefined })}
-                            type="number"
-                            step={1}
-                            suffix={<span className="text-sm">hours</span>}
-                            size="small"
-                        />
-                    )}
-                </div>
-            </div>
+            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            {metric.metric_type === ExperimentMetricType.MEAN && (
+                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+            )}
         </div>
     )
 }

@@ -279,7 +279,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "select event AS event FROM events",
                 "errors": [],
             },
@@ -287,7 +286,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -305,7 +304,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "select event AS event FROM event_view",
                 "errors": [],
             },
@@ -341,7 +339,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "let i := NONO()",
                 "isValid": False,
-                "isValidView": False,
                 "notices": [],
                 "warnings": [],
                 "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
@@ -356,7 +353,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "isValidView": False,
                 "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
                 "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
                 "errors": [],
@@ -392,7 +388,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT event AS event FROM events",
                 "errors": [],
             },
@@ -405,7 +400,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT event AS event, uuid FROM events",
                 "errors": [],
             },
@@ -418,7 +412,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)",
                 "errors": [],
             },
@@ -433,7 +426,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
                 "errors": [],
             },
@@ -446,7 +438,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT * FROM events",
                 "errors": [],
             },
@@ -459,7 +450,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT e.* FROM events e",
                 "errors": [],
             },

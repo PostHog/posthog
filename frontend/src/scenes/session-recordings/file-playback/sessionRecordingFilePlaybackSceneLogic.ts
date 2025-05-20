@@ -5,18 +5,15 @@ import { beforeUnload } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import {
-    deduplicateSnapshots,
-    parseEncodedSnapshots,
-    sessionRecordingDataLogic,
-} from '../player/sessionRecordingDataLogic'
+import { parseEncodedSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import { deduplicateSnapshots } from '../player/snapshot-processing/deduplicate-snapshots'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
@@ -85,10 +82,10 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
 
 export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePlaybackSceneLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackSceneLogic']),
-    connect({
-        actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
+    connect(() => ({
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     loaders(({ actions }) => ({
         sessionRecording: {

@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -55,5 +58,13 @@ export const manifest: ProductManifest = {
         llmObservabilityUsers: (): string => '/llm-observability/users',
     },
     fileSystemTypes: {},
-    treeItems: [],
+    treeItemsNew: [],
+    treeItemsProducts: [
+        {
+            path: 'LLM observability',
+            iconType: 'ai',
+            href: urls.llmObservabilityDashboard(),
+            flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+        },
+    ],
 }

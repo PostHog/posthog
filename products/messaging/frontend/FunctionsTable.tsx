@@ -4,16 +4,17 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
-import { HogFunctionStatusIndicator } from 'scenes/pipeline/hogfunctions/HogFunctionStatusIndicator'
-import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { HogFunctionStatusIndicator } from 'scenes/hog-functions/misc/HogFunctionStatusIndicator'
+import { urls } from 'scenes/urls'
 
-import { HogFunctionType, HogFunctionTypeType } from '~/types'
+import { HogFunctionKind, HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import { functionsTableLogic } from './functionsTableLogic'
 
 export interface FunctionsTableProps {
     type?: HogFunctionTypeType
+    kind?: HogFunctionKind
 }
 
 export function FunctionsTableFilters(): JSX.Element | null {
@@ -22,7 +23,7 @@ export function FunctionsTableFilters(): JSX.Element | null {
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -34,12 +35,12 @@ export function FunctionsTableFilters(): JSX.Element | null {
     )
 }
 
-export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
-    const { hogFunctions, filteredHogFunctions, loading } = useValues(functionsTableLogic({ type }))
-    const { deleteHogFunction, resetFilters } = useActions(functionsTableLogic({ type }))
+export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element {
+    const { hogFunctions, filteredHogFunctions, loading } = useValues(functionsTableLogic({ type, kind }))
+    const { deleteHogFunction, resetFilters } = useActions(functionsTableLogic({ type, kind }))
 
     return (
-        <BindLogic logic={functionsTableLogic} props={{ type }}>
+        <BindLogic logic={functionsTableLogic} props={{ type, kind }}>
             <div className="deprecated-space-y-2">
                 <FunctionsTableFilters />
 
@@ -64,7 +65,7 @@ export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
                             render: function RenderPluginName(_, hogFunction) {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template?.id)}
+                                        to={urls.hogFunction(hogFunction.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
@@ -96,6 +97,10 @@ export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
                                         overlay={
                                             <LemonMenuOverlay
                                                 items={[
+                                                    {
+                                                        label: 'Create template',
+                                                        to: urls.messagingLibraryTemplateFromMessage(hogFunction.id),
+                                                    },
                                                     {
                                                         label: 'Delete',
                                                         status: 'danger' as const, // for typechecker happiness

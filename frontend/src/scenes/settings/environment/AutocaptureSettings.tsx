@@ -1,4 +1,4 @@
-import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -111,7 +111,10 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             </p>
             <p>
                 Autocapture is also available for our{' '}
-                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
+                <Link
+                    to="https://posthog.com/docs/error-tracking/installation?tab=Python#setting-up-python-exception-autocapture"
+                    target="_blank"
+                >
                     Python SDK
                 </Link>
                 , where it can be configured directly in code.
@@ -132,11 +135,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 }}
                 checked={!!currentTeam?.autocapture_exceptions_opt_in}
                 disabled={userLoading}
-                label={
-                    <>
-                        Enable exception autocapture <LemonTag>ALPHA</LemonTag>
-                    </>
-                }
+                label="Enable exception autocapture"
                 bordered
             />
         </>

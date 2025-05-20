@@ -197,7 +197,7 @@ export function InsightTooltip({
 
     columns.push({
         key: 'datum',
-        width: 120,
+        width: 200,
         title: <span className="whitespace-nowrap">{title}</span>,
         sticky: true,
         render: function renderDatum(_, datum, rowIdx) {

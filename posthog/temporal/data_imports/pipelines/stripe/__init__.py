@@ -1,17 +1,37 @@
 from typing import Any, Optional
+
 import dlt
+from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from dlt.sources.helpers.requests import Response, Request
-from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
-from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
 from stripe import StripeClient
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.rest_source import (
+    RESTAPIConfig,
+    rest_api_resources,
+)
+from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
+from posthog.warehouse.models.external_table_definitions import (
+    get_dlt_mapping_for_external_table,
+)
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    ACCOUNT_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
+
+DEFAULT_LIMIT = 100
 
 
 def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
-        "Account": {
-            "name": "Account",
+        ACCOUNT_RESOURCE_NAME: {
+            "name": ACCOUNT_RESOURCE_NAME,
             "table_name": "account",
             "primary_key": "id",
             "write_disposition": {
@@ -26,7 +46,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/accounts",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -36,7 +56,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "payout": "OPTIONAL_CONFIG",
                     # "source": "OPTIONAL_CONFIG",
                     # "starting_after": "OPTIONAL_CONFIG",
@@ -45,8 +65,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "BalanceTransaction": {
-            "name": "BalanceTransaction",
+        BALANCE_TRANSACTION_RESOURCE_NAME: {
+            "name": BALANCE_TRANSACTION_RESOURCE_NAME,
             "table_name": "balance_transaction",
             "primary_key": "id",
             "write_disposition": {
@@ -61,7 +81,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/balance_transactions",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -71,7 +91,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "payout": "OPTIONAL_CONFIG",
                     # "source": "OPTIONAL_CONFIG",
                     # "starting_after": "OPTIONAL_CONFIG",
@@ -80,8 +100,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Charge": {
-            "name": "Charge",
+        CHARGE_RESOURCE_NAME: {
+            "name": CHARGE_RESOURCE_NAME,
             "table_name": "charge",
             "primary_key": "id",
             "write_disposition": {
@@ -96,7 +116,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/charges",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -106,7 +126,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "customer": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "payment_intent": "OPTIONAL_CONFIG",
                     # "starting_after": "OPTIONAL_CONFIG",
                     # "transfer_group": "OPTIONAL_CONFIG",
@@ -114,8 +134,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Customer": {
-            "name": "Customer",
+        CUSTOMER_RESOURCE_NAME: {
+            "name": CUSTOMER_RESOURCE_NAME,
             "table_name": "customer",
             "primary_key": "id",
             "write_disposition": {
@@ -130,7 +150,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "path": "/v1/customers",
                 "params": {
                     # the parameters below can optionally be configured
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -140,15 +160,15 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "email": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "starting_after": "OPTIONAL_CONFIG",
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
             },
             "table_format": "delta",
         },
-        "Invoice": {
-            "name": "Invoice",
+        INVOICE_RESOURCE_NAME: {
+            "name": INVOICE_RESOURCE_NAME,
             "table_name": "invoice",
             "primary_key": "id",
             "write_disposition": {
@@ -164,7 +184,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -175,7 +195,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "due_date": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "starting_after": "OPTIONAL_CONFIG",
                     # "status": "OPTIONAL_CONFIG",
                     # "subscription": "OPTIONAL_CONFIG",
@@ -183,8 +203,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Price": {
-            "name": "Price",
+        PRICE_RESOURCE_NAME: {
+            "name": PRICE_RESOURCE_NAME,
             "table_name": "price",
             "primary_key": "id",
             "write_disposition": {
@@ -200,7 +220,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -210,7 +230,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     "expand[]": "data.tiers",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "lookup_keys": "OPTIONAL_CONFIG",
                     # "product": "OPTIONAL_CONFIG",
                     # "recurring": "OPTIONAL_CONFIG",
@@ -220,8 +240,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Product": {
-            "name": "Product",
+        PRODUCT_RESOURCE_NAME: {
+            "name": PRODUCT_RESOURCE_NAME,
             "table_name": "product",
             "primary_key": "id",
             "write_disposition": {
@@ -237,7 +257,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -247,7 +267,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
                     # "ids": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "shippable": "OPTIONAL_CONFIG",
                     # "starting_after": "OPTIONAL_CONFIG",
                     # "url": "OPTIONAL_CONFIG",
@@ -255,8 +275,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Subscription": {
-            "name": "Subscription",
+        SUBSCRIPTION_RESOURCE_NAME: {
+            "name": SUBSCRIPTION_RESOURCE_NAME,
             "table_name": "subscription",
             "primary_key": "id",
             "write_disposition": {
@@ -272,7 +292,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    "created[gte]": {
+                    "created[gt]": {
                         "type": "incremental",
                         "cursor_path": "created",
                         "initial_value": 0,  # type: ignore
@@ -284,7 +304,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "customer": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
-                    "limit": 100,
+                    "limit": DEFAULT_LIMIT,
                     # "price": "OPTIONAL_CONFIG",
                     # "starting_after": "OPTIONAL_CONFIG",
                     "status": "all",
@@ -324,7 +344,7 @@ class StripePaginator(BasePaginator):
 
 
 @dlt.source(max_table_nesting=0)
-def stripe_source(
+def stripe_dlt_source(
     api_key: str,
     account_id: Optional[str],
     endpoint: str,
@@ -364,10 +384,79 @@ def stripe_source(
     yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
+def stripe_source(
+    api_key: str,
+    account_id: Optional[str],
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    is_incremental: bool = False,
+):
+    from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+        _get_column_hints,
+        _get_primary_keys,
+    )
+
+    dlt_source = stripe_dlt_source(
+        api_key, account_id, endpoint, team_id, job_id, db_incremental_field_last_value, is_incremental
+    )
+    resources = list(dlt_source.resources.items())
+    assert len(resources) == 1
+    resource_name, resource = resources[0]
+    return SourceResponse(
+        items=resource,
+        primary_keys=_get_primary_keys(resource),
+        name=resource_name,
+        column_hints=_get_column_hints(resource),
+        partition_count=None,
+        # Stripe data is returned in descending timestamp order
+        sort_mode="desc",
+    )
+
+
+class StripePermissionError(Exception):
+    """Exception raised when Stripe API key lacks permissions for specific resources."""
+
+    def __init__(self, missing_permissions: dict[str, str]):
+        self.missing_permissions = missing_permissions
+        message = f"Stripe API key lacks permissions for: {', '.join(missing_permissions.keys())}"
+        super().__init__(message)
+
+
 def validate_credentials(api_key: str) -> bool:
-    try:
-        client = StripeClient(api_key)
-        client.customers.list(params={"limit": 1})
-        return True
-    except:
-        return False
+    """
+    Validates Stripe API credentials and checks permissions for all required resources.
+    This function will:
+    - Return True if the API key is valid and has all required permissions
+    - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
+    - Raise Exception if the API key is invalid or there's any other error
+    """
+    client = StripeClient(api_key)
+
+    # Test access to all resources we're pulling
+    resources_to_check = [
+        {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
+        {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
+        {"name": CHARGE_RESOURCE_NAME, "method": client.charges.list, "params": {"limit": 1}},
+        {"name": CUSTOMER_RESOURCE_NAME, "method": client.customers.list, "params": {"limit": 1}},
+        {"name": INVOICE_RESOURCE_NAME, "method": client.invoices.list, "params": {"limit": 1}},
+        {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
+        {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
+        {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
+    ]
+
+    missing_permissions = {}
+
+    for resource in resources_to_check:
+        try:
+            # This will raise an exception if we don't have access
+            resource["method"](params=resource["params"])  # type: ignore
+        except Exception as e:
+            # Store the resource name and error message
+            missing_permissions[resource["name"]] = str(e)
+
+    if missing_permissions:
+        raise StripePermissionError(missing_permissions)  # type: ignore
+
+    return True

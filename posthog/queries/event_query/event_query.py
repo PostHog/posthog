@@ -91,9 +91,10 @@ class EventQuery(metaclass=ABCMeta):
 
         # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
         self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
+
         # Recreate the database with the legacy-alised PoE mode
         self._filter.hogql_context.database = create_hogql_database(
-            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+            team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 
         # Guards against a ClickHouse bug involving multiple joins against the same table with the same column name.

@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -20,26 +20,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
     actions({
         loadFromRawIds: (rawIds: ErrorTrackingStackFrame['raw_id'][]) => ({ rawIds }),
         loadForSymbolSet: (symbolSetId: ErrorTrackingSymbolSet['id']) => ({ symbolSetId }),
-        setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
-        reverseFrameOrder: (reverseOrder: boolean) => ({ reverseOrder }),
     }),
-
-    reducers(() => ({
-        showAllFrames: [
-            false,
-            { persist: true },
-            {
-                setShowAllFrames: (_, { showAllFrames }) => showAllFrames,
-            },
-        ],
-        frameOrderReversed: [
-            false,
-            { persist: true },
-            {
-                reverseFrameOrder: (_, { reverseOrder }) => reverseOrder,
-            },
-        ],
-    })),
 
     loaders(({ values }) => ({
         stackFrameRecords: [

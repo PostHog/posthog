@@ -1,0 +1,13 @@
+fun arrayExists(func, arr) {
+  for (let i in arr) {
+    if (func(i)) {
+      return true
+    }
+  }
+  return false
+}
+
+assert_eq(arrayExists((x) -> x = 3, [1, 2, 3]), true);
+assert_eq(arrayExists((x) -> x = 4, [1, 2, 3]), false);
+
+return true

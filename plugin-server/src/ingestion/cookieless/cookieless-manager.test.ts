@@ -285,7 +285,7 @@ describe('CookielessManager', () => {
                 }
                 expect(actual.distinct_id).not.toEqual(COOKIELESS_SENTINEL_VALUE)
                 expect(actual.distinct_id.startsWith('cookieless_')).toBe(true)
-                expect(actual.properties.$session_id).toBeDefined()
+                expect(actual.properties.$session_id).toBeTruthy()
             })
             it('should give the same session id and distinct id to events with the same hash properties and within the same day and session timeout period', async () => {
                 const actual1 = await hub.cookielessManager.processEvent(event)

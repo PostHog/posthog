@@ -4,175 +4,146 @@ import {
     IconChevronRight,
     IconCursorClick,
     IconDatabase,
-    IconFeatures,
     IconHandMoney,
     IconLive,
-    IconMessage,
     IconNotification,
-    IconPeople,
+    IconPieChart,
+    IconPiggyBank,
     IconPlug,
     IconServer,
-    IconSparkles,
-    IconTarget,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, treeItems } from '~/products'
+import { fileSystemTypes, getTreeItemsGames, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
+
+const iconTypes: Record<string, JSX.Element> = {
+    ai: <IconAI />,
+    cursorClick: <IconCursorClick />,
+    database: <IconDatabase />,
+    folder: <IconChevronRight />,
+    handMoney: <IconHandMoney />,
+    live: <IconLive />,
+    notification: <IconNotification />,
+    pieChart: <IconPieChart />,
+    piggyBank: <IconPiggyBank />,
+    plug: <IconPlug />,
+    sql: <IconServer />,
+    warning: <IconWarning />,
+}
 
 export function iconForType(type?: string): JSX.Element {
     if (!type) {
         return <IconBook />
     }
-    if (type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes].icon) {
-        return fileSystemTypes[type as keyof typeof fileSystemTypes].icon
+    if (type in iconTypes) {
+        return iconTypes[type]
     }
-    switch (type) {
-        case 'aichat':
-            return <IconSparkles />
-        case 'feature':
-            return <IconFeatures />
-        case 'repl':
-            return <IconTarget />
-        case 'survey':
-            return <IconMessage />
-        case 'sql':
-            return <IconServer />
-        case 'folder':
-            return <IconChevronRight />
-        default:
-            if (type.startsWith('hog/')) {
-                return <IconPlug />
-            }
-            return <IconBook />
+    if (type in fileSystemTypes && fileSystemTypes[type].icon) {
+        return fileSystemTypes[type].icon
     }
+    if (type.startsWith('hog_function/')) {
+        return <IconPlug />
+    }
+    return <IconBook />
 }
 
-export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
+export const getDefaultTreeNew = (): FileSystemImport[] =>
     [
-        ...treeItems,
+        ...getTreeItemsNew(),
         {
-            path: `Create new/AI chat`,
+            path: `Data/Source`,
+            type: 'hog_function/source',
+            href: urls.pipelineNodeNew(PipelineStage.Source),
+        },
+        {
+            path: `Data/Destination`,
+            type: 'hog_function/destination',
+            href: urls.pipelineNodeNew(PipelineStage.Destination),
+        },
+        {
+            path: `Data/Transformation`,
+            type: 'hog_function/transformation',
+            href: urls.pipelineNodeNew(PipelineStage.Transformation),
+        },
+        {
+            path: `Data/Site app`,
+            type: 'hog_function/site_app',
+            href: urls.pipelineNodeNew(PipelineStage.SiteApp),
+        },
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeProducts = (): FileSystemImport[] =>
+    [
+        ...getTreeItemsProducts(),
+        {
+            path: `AI chat`,
             type: 'aichat',
-            href: () => urls.max(),
+            href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
-            path: `Create new/Feature`,
-            type: 'feature',
-            href: () => urls.earlyAccessFeature('new'),
+            path: 'Event definitions',
+            iconType: 'database',
+            href: urls.eventDefinitions(),
         },
         {
-            path: `Create new/Repl`,
-            type: 'repl',
-            href: () => urls.debugHog() + '#repl=[]&code=',
+            path: 'Property definitions',
+            iconType: 'database',
+            href: urls.propertyDefinitions(),
         },
         {
-            path: `Create new/Survey`,
-            type: 'survey',
-            href: () => urls.survey('new'),
+            path: 'Annotations',
+            iconType: 'notification',
+            href: urls.annotations(),
         },
         {
-            path: `Create new/SQL query`,
-            type: 'sql',
-            href: () => urls.sqlEditor(),
-        },
-        {
-            path: `Create new/Data pipeline/Source`,
-            type: 'source',
-            href: () => urls.pipelineNodeNew(PipelineStage.Source),
-        },
-        {
-            path: `Create new/Data pipeline/Destination`,
-            type: 'destination',
-            href: () => urls.pipelineNodeNew(PipelineStage.Destination),
-        },
-        {
-            path: `Create new/Data pipeline/Transformation`,
-            type: 'transformation',
-            href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
-        },
-        {
-            path: `Create new/Data pipeline/Site app`,
-            type: 'site_app',
-            href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
-        },
-        {
-            path: 'Explore/Data management/Event Definitions',
-            icon: <IconDatabase />,
-            href: () => urls.eventDefinitions(),
-        },
-        {
-            path: 'Explore/Data management/Property Definitions',
-            icon: <IconDatabase />,
-            href: () => urls.propertyDefinitions(),
-        },
-
-        {
-            path: 'Explore/Data management/Annotations',
-            icon: <IconNotification />,
-            href: () => urls.annotations(),
-        },
-
-        {
-            path: 'Explore/Data management/History',
-            icon: <IconDatabase />,
-            href: () => urls.dataManagementHistory(),
-        },
-
-        {
-            path: 'Explore/Data management/Revenue',
-            icon: <IconHandMoney />,
-            href: () => urls.revenue(),
-            flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
-        },
-        {
-            path: 'Explore/Data management/Ingestion Warnings',
-            icon: <IconWarning />,
-            href: () => urls.ingestionWarnings(),
+            path: 'Ingestion warnings',
+            iconType: 'warning',
+            href: urls.ingestionWarnings(),
             flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
-
         {
-            path: 'Explore/Data warehouse',
-            icon: <IconDatabase />,
-            href: () => urls.sqlEditor(),
+            path: `Data pipelines`,
+            type: 'hog_function',
+            iconType: 'plug',
+            href: urls.pipeline(),
         },
         {
-            path: 'Explore/People and groups/Cohorts',
-            icon: <IconPeople />,
-            href: () => urls.cohorts(),
-        },
-        ...groupNodes.map((groupNode) => ({ ...groupNode, path: `Explore/People and groups/${groupNode.path}` })),
-        {
-            path: 'Explore/Activity',
-            icon: <IconLive />,
-            href: () => urls.activity(ActivityTab.ExploreEvents),
+            path: `SQL editor`,
+            type: 'sql',
+            href: urls.sqlEditor(),
         },
         {
-            path: 'Explore/Live',
-            icon: <IconLive />,
-            href: () => urls.activity(ActivityTab.LiveEvents),
+            path: 'Data warehouse',
+            iconType: 'database',
+            href: urls.sqlEditor(),
         },
         {
-            path: 'Explore/LLM observability',
-            icon: <IconAI />,
-            href: () => urls.llmObservabilityDashboard(),
-            flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+            path: 'Activity',
+            iconType: 'live',
+            href: urls.activity(ActivityTab.ExploreEvents),
         },
         {
-            path: 'Explore/Error tracking',
-            icon: <IconWarning />,
-            href: () => urls.errorTracking(),
-            flag: FEATURE_FLAGS.ERROR_TRACKING,
+            path: 'Live events',
+            iconType: 'live',
+            href: urls.activity(ActivityTab.LiveEvents),
         },
         {
-            path: 'Explore/Heatmaps',
-            icon: <IconCursorClick />,
-            href: () => urls.heatmaps(),
+            path: 'Error tracking',
+            iconType: 'warning',
+            href: urls.errorTracking(),
+        },
+        {
+            path: 'Heatmaps',
+            iconType: 'cursorClick',
+            href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeGames = (): FileSystemImport[] =>
+    [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

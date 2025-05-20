@@ -97,7 +97,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (s) => [s.productWithFeature],
             (productWithFeature) => {
                 const currentPlanIndex = productWithFeature?.plans.findIndex((plan) => plan.current_plan)
-                if (!currentPlanIndex) {
+                if (currentPlanIndex === undefined || currentPlanIndex < 0) {
                     return null
                 }
                 return productWithFeature?.plans[currentPlanIndex + 1]

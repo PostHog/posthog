@@ -1,4 +1,5 @@
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonButtonProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
     allOperatorsMapping,
@@ -27,16 +28,18 @@ export interface OperatorValueSelectProps {
     type?: PropertyFilterType
     propertyKey?: string
     operator?: PropertyOperator | null
-    value?: string | number | bigint | Array<string | number | bigint> | null
+    value?: PropertyFilterValue
+    editable: boolean
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
-    operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
+    operatorSelectProps?: Partial<Omit<LemonSelectProps<any>, 'onChange'>>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
+    size?: LemonButtonProps['size']
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -79,8 +82,11 @@ export function OperatorValueSelect({
     defaultOpen,
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
+    size,
+    editable,
 }: OperatorValueSelectProps): JSX.Element {
-    const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
+    const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
+    const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
     const isCohortProperty = propertyKey === 'id' && type === PropertyFilterType.Cohort
 
@@ -108,7 +114,18 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Selector
         } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
             propertyType = PropertyType.Cohort
+        } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
+            propertyType = PropertyType.Assignee
+        } else if (
+            type === PropertyFilterType.Event &&
+            propertyKey &&
+            ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions'].includes(
+                propertyKey
+            )
+        ) {
+            propertyType = PropertyType.StringArray
         }
+
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
@@ -131,38 +148,43 @@ export function OperatorValueSelect({
     return (
         <>
             <div data-attr="taxonomic-operator">
-                <OperatorSelect
-                    operator={currentOperator || PropertyOperator.Exact}
-                    operators={operators}
-                    onChange={(newOperator: PropertyOperator) => {
-                        const tentativeValidationError =
-                            newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
-                        if (tentativeValidationError) {
-                            setValidationError(tentativeValidationError)
-                            return
-                        }
-                        setValidationError(null)
+                {editable ? (
+                    <OperatorSelect
+                        operator={currentOperator || PropertyOperator.Exact}
+                        operators={operators}
+                        onChange={(newOperator: PropertyOperator) => {
+                            const tentativeValidationError =
+                                newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
+                            if (tentativeValidationError) {
+                                setValidationError(tentativeValidationError)
+                                return
+                            }
+                            setValidationError(null)
 
-                        setCurrentOperator(newOperator)
-                        if (isOperatorCohort(newOperator)) {
-                            onChange(newOperator, value || null)
-                        } else if (isOperatorFlag(newOperator)) {
-                            onChange(newOperator, newOperator)
-                        } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
-                            onChange(newOperator, null)
-                        } else if (
-                            isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
-                            !isOperatorMulti(newOperator) &&
-                            Array.isArray(value)
-                        ) {
-                            onChange(newOperator, value[0])
-                        } else if (value) {
-                            onChange(newOperator, value)
-                        }
-                    }}
-                    {...operatorSelectProps}
-                    defaultOpen={defaultOpen}
-                />
+                            setCurrentOperator(newOperator)
+                            if (isOperatorCohort(newOperator)) {
+                                onChange(newOperator, value || null)
+                            } else if (isOperatorFlag(newOperator)) {
+                                onChange(newOperator, newOperator)
+                            } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
+                                onChange(newOperator, null)
+                            } else if (
+                                isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
+                                !isOperatorMulti(newOperator) &&
+                                Array.isArray(value)
+                            ) {
+                                onChange(newOperator, value[0])
+                            } else if (value) {
+                                onChange(newOperator, value)
+                            }
+                        }}
+                        {...operatorSelectProps}
+                        size={size}
+                        defaultOpen={defaultOpen}
+                    />
+                ) : (
+                    <span>{allOperatorsToHumanName(currentOperator)} </span>
+                )}
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
@@ -198,6 +220,8 @@ export function OperatorValueSelect({
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
                         groupTypeIndex={groupTypeIndex}
+                        editable={editable}
+                        size={size}
                     />
                 </div>
             )}
@@ -206,7 +230,7 @@ export function OperatorValueSelect({
     )
 }
 
-export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({ operator, operators, onChange, className, size }: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
         label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
@@ -221,7 +245,8 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             onChange={(op) => {
                 op && onChange(op)
             }}
-            className={props.className}
+            className={className}
+            size={size}
             menu={{
                 closeParentPopoverOnClickInside: false,
             }}

@@ -2,11 +2,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { isString } from '@tiptap/core'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getRelativeNextPath } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -36,9 +37,9 @@ export const emailRegex: RegExp =
 
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'signupLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setPanel: (panel: number) => ({ panel }),
     }),
@@ -90,16 +91,21 @@ export const signupLogic = kea<signupLogicType>([
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
+                    const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+
                     const res = await api.create('api/signup/', {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
+                        next_url: nextUrl ?? undefined,
                     })
+
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
                     }
+
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     actions.setSignupPanel2ManualErrors({
@@ -118,6 +124,13 @@ export const signupLogic = kea<signupLogicType>([
             (s) => [s.signupPanel1],
             ({ password }): ValidatedPasswordResult => {
                 return validatePassword(password)
+            },
+        ],
+        loginUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>) => {
+                const nextParam = getRelativeNextPath(searchParams['next'], location)
+                return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
             },
         ],
     }),

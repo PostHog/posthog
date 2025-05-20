@@ -1,8 +1,8 @@
 import re
 import uuid
 import json
-import time
-import asyncio
+
+from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
@@ -10,25 +10,22 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import set_tag
-from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+from posthog import settings
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
-from posthog.models.team import Team
-from django.contrib.auth.models import AnonymousUser
 
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
-    QueryStatusManager,
 )
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
@@ -43,6 +40,8 @@ from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
+    APIQueriesBurstThrottle,
+    APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
@@ -52,8 +51,7 @@ from posthog.schema import (
     QueryResponseAlternative,
     QueryStatusResponse,
 )
-from typing import cast
-
+from posthog.hogql.constants import LimitContext
 
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
@@ -102,10 +100,25 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        if self.team_id in settings.API_QUERIES_PER_TEAM or (
+            settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
+        ):
+            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+
+    def check_team_api_queries_concurrency(self):
+        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if self.team:
+            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
+            cache.set(cache_key, new_val)
+            return new_val
+        return False
 
     @extend_schema(
         request=QueryRequest,
@@ -114,9 +127,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         },
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
-    def create(self, request, *args, **kwargs) -> Response:
+    def create(self, request: Request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
-
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -128,8 +140,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=request.user,
+                user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                limit_context=(
+                    # QUERY_ASYNC provides extended max execution time for insight queries
+                    LimitContext.QUERY_ASYNC
+                    if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
+                    else None
+                ),
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -230,157 +248,45 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-        set_tag("client_query_id", query_id)
 
 
 MAX_QUERY_TIMEOUT = 600
 
 
-async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpResponse:
-    """Async endpoint for handling event source queries using Server-Sent Events (SSE)."""
+async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+    # TEMPORARY endpoint to avoid breaking changes
 
-    # Call the auth check method on QueryViewSet
-    request.META["HTTP_ACCEPT"] = "application/json"
-    view = await sync_to_async(QueryViewSet.as_view)({"post": "auth_for_awaiting"}, **kwargs)
-    response = await sync_to_async(view)(request)
+    return StreamingHttpResponse(
+        [],
+        status=status.HTTP_200_OK,
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
-    if response.status_code != 200:  # Non-200 means we can return immediately, likely error
-        response.render()
-        content = response.rendered_content.decode("utf-8")
-        return StreamingHttpResponse(
-            [f"data: {content}\n\n".encode()],
-            status=response.status_code,
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
 
-    try:
-        # Get the parsed data from the auth response
-        auth_content = json.loads(response.content)
-        json_data = auth_content["data"]
-        data = QueryRequest.model_validate(json_data)
-        team = await Team.objects.aget(pk=auth_content["team_id"])
-        query, client_query_id, execution_mode = await sync_to_async(_process_query_request)(
-            data,
-            team,
-            data.client_query_id,
-            request.user,
-        )
-        if execution_mode in (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE):
-            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        elif execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-
-        # Define an async wrapper for process_query_model using sync_to_async
-        # This provides better handling of task cancellation than run_in_executor
-        async_process_query_model = sync_to_async(
-            process_query_model,
-        )
-
-        # Create a task from the async wrapper
-        query_task = asyncio.create_task(
-            async_process_query_model(
-                team=team,
-                query=query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user if not isinstance(request.user, AnonymousUser) else None,
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-            )
-        )
-
-        # YOLO give the task a moment to materialize (otherwise the task looks like it's been cancelled)
-        await asyncio.sleep(0.5)
-
-        async def event_stream():
-            assert kwargs.get("team_id") is not None
-            manager = QueryStatusManager(client_query_id, cast(int, kwargs["team_id"]))
-            start_time = time.time()
-            last_update_time: float = start_time
-
-            # For things to feel snappy we want to frequently check initially, then back off so we don't overload redis
-            FAST_POLL_DURATION = 3.0  # First 3 seconds
-            MEDIUM_POLL_DURATION = 15.0  # Until 15 seconds
-            FAST_POLL_INTERVAL = 0.05
-            MEDIUM_POLL_INTERVAL = 0.1
-            SLOW_POLL_INTERVAL = 1.0
-            UPDATE_INTERVAL = 1.0  # How often to send updates to client
-
-            while time.time() - start_time < MAX_QUERY_TIMEOUT:
-                # Check if the query task has completed
-                if query_task.done():
-                    if query_task.cancelled():
-                        # Explicitly check for cancellation first
-                        yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(Exception("Query was cancelled"))
-                        break
-                    try:
-                        result = query_task.result()
-                    except asyncio.CancelledError as e:
-                        # Handle the cancellation as an SSE event
-                        yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(e)
-                        break
-                    except (ExposedHogQLError, ExposedCHQueryError) as e:
-                        yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
-                        break
-                    except Exception as e:
-                        # Include error details for better debugging
-                        error_message = str(e)
-                        yield f"data: {json.dumps({'error': f'Server error: {error_message}'})}\n\n".encode()
-                        capture_exception(e)
-                        break
-
-                    if isinstance(result, BaseModel):
-                        yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
-                    else:
-                        yield f"data: {json.dumps(result)}\n\n".encode()
-                    break
-
-                try:
-                    # Try to get a status updates while waiting
-                    current_time = time.time()
-                    if current_time - last_update_time >= UPDATE_INTERVAL:
-                        status = await sync_to_async(manager.get_clickhouse_progresses)()
-
-                        if isinstance(status, BaseModel):
-                            status_update = {"complete": False, **status.model_dump(by_alias=True)}
-                            yield f"data: {json.dumps(status_update)}\n\n".encode()
-                            last_update_time = current_time
-                # Just ignore errors when getting progress, shouldn't impact users
-                except Exception as e:
-                    capture_exception(e)
-
-                elapsed_time = time.time() - start_time
-                if elapsed_time < FAST_POLL_DURATION:
-                    await asyncio.sleep(FAST_POLL_INTERVAL)
-                elif elapsed_time < MEDIUM_POLL_DURATION:
-                    await asyncio.sleep(MEDIUM_POLL_INTERVAL)
-                else:
-                    await asyncio.sleep(SLOW_POLL_INTERVAL)
-
-        return StreamingHttpResponse(
-            event_stream(),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
-    except (ExposedHogQLError, ExposedCHQueryError) as e:
-        error_response = f"data: {json.dumps({'error': str(e)})}\n\n".encode()
-        return StreamingHttpResponse(
-            [error_response],
-            content_type="text/event-stream",
-            status=status.HTTP_400_BAD_REQUEST,
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
+def is_insight_query(query):
+    insight_kinds = {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+    if getattr(query, "kind", None) in insight_kinds:
+        return True
+    if getattr(query, "kind", None) == "HogQLQuery":
+        return True
+    if getattr(query, "kind", None) == "DataTableNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    if getattr(query, "kind", None) == "DataVisualizationNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    return False

@@ -429,6 +429,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
+                                            rowCount={paginationState.dataSourcePage.length}
                                             firstColumnSticky={firstColumnSticky}
                                         />
                                     )

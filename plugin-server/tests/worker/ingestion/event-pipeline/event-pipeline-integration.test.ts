@@ -2,6 +2,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
+import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+
 import { CookielessServerHashMode, Hook, Hub } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
@@ -30,7 +32,8 @@ describe('Event Pipeline integration test', () => {
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const runner = new EventPipelineRunner(hub, event)
+        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
+        const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
@@ -51,7 +54,6 @@ describe('Event Pipeline integration test', () => {
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
-            hub.organizationManager,
             hub.rustyHook,
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
@@ -163,6 +165,7 @@ describe('Event Pipeline integration test', () => {
         }
 
         expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
+            agent: false,
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',
@@ -254,13 +257,14 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
+        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
@@ -306,7 +310,7 @@ describe('Event Pipeline integration test', () => {
         }
         expect(events.length).toEqual(2)
         expect(events[0].distinct_id.slice(0, 11)).toEqual('cookieless_') // should have set a distict id
-        expect(events[0].properties.$session_id).toBeDefined() // should have set a session id
+        expect(events[0].properties.$session_id).toBeTruthy() // should have set a session id
         expect(events[0].properties.$raw_user_agent).toBeUndefined() // should have removed personal data
         expect(events[0].distinct_id).toEqual(events[1].distinct_id) // events with the same hash should be assigned to the same user
         expect(events[0].properties.$session_id).toEqual(events[1].properties.$session_id)
@@ -338,7 +342,10 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
+        const result = await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(
+            event
+        )
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
 })

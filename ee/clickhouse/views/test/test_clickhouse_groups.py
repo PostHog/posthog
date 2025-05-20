@@ -1053,6 +1053,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             {"group_type_index": 1},
         )
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def test_set_default_columns_success(self):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -1074,6 +1075,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             {"group_type_index": 1, "default_columns": ["$group_0", "$group_1"]},
         )
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(

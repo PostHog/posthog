@@ -4,7 +4,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { MathType } from '~/queries/schema/schema-general'
-import { BaseMathType, CountPerActorMathType, FunnelMathType, HogQLMathType, PropertyMathType } from '~/types'
+import {
+    BaseMathType,
+    CalendarHeatmapMathType,
+    CountPerActorMathType,
+    FunnelMathType,
+    HogQLMathType,
+    PropertyMathType,
+} from '~/types'
 
 import type { mathsLogicType } from './mathsLogicType'
 
@@ -67,6 +74,37 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
             </>
         ),
         category: MathCategory.EventCount,
+    },
+}
+
+export const CALENDAR_HEATMAP_MATH_DEFINITIONS: Record<CalendarHeatmapMathType, MathDefinition> = {
+    [CalendarHeatmapMathType.TotalCount]: {
+        name: 'Total count',
+        shortName: 'count',
+        description: (
+            <>
+                Total event count. Total number of times the event was performed by any user.
+                <br />
+                <br />
+                <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
+    [CalendarHeatmapMathType.UniqueUsers]: {
+        name: 'Unique users',
+        shortName: 'unique users',
+        description: (
+            <>
+                Number of unique users who performed the event in the specified period.
+                <br />
+                <br />
+                <i>
+                    Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                </i>
+            </>
+        ),
+        category: MathCategory.ActorCount,
     },
 }
 
@@ -388,7 +426,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
 
 export const mathsLogic = kea<mathsLogicType>([
     path(['scenes', 'trends', 'mathsLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -397,7 +435,7 @@ export const mathsLogic = kea<mathsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     selectors({
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],
@@ -410,6 +448,15 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...HOGQL_MATH_DEFINITIONS,
                 }
                 return allMathDefinitions
+            },
+        ],
+        calendarHeatmapMathDefinitions: [
+            () => [],
+            (): Partial<Record<MathType, MathDefinition>> => {
+                const calendarHeatmapMathDefinitions: Partial<Record<MathType, MathDefinition>> = Object.fromEntries(
+                    Object.entries(CALENDAR_HEATMAP_MATH_DEFINITIONS) as [MathType, MathDefinition][]
+                )
+                return calendarHeatmapMathDefinitions
             },
         ],
         funnelMathDefinitions: [

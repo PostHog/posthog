@@ -26,6 +26,7 @@ export interface TaxonomicFilterProps {
     // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
     // in that case the original value is returned here as well as the property that the user chose
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -34,9 +35,10 @@ export interface TaxonomicFilterProps {
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
     height?: number
-    width?: number
+    width?: number | string
     popoverEnabled?: boolean
     selectFirstItem?: boolean
+    autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -50,6 +52,7 @@ export interface TaxonomicFilterProps {
      * Set to true to force vertical/columnar layout, or false to force horizontal layout.
      */
     useVerticalLayout?: boolean
+    initialSearchQuery?: string
 }
 
 export interface DataWarehousePopoverField {
@@ -134,8 +137,10 @@ export enum TaxonomicFilterGroupType {
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
+    ErrorTrackingIssues = 'error_tracking_issues',
     // Misc
     Replay = 'replay',
+    Resources = 'resources',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

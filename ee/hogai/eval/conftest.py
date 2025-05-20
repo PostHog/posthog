@@ -1,85 +1,85 @@
-import functools
+import datetime
 from collections.abc import Generator
+import os
 from pathlib import Path
-
-import pytest
+from collections.abc import Sequence
+from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
+from braintrust import Eval, init_logger
+from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
 from django.conf import settings
+import pytest
 from django.test import override_settings
-from langchain_core.runnables import RunnableConfig
 
-from ee.models import Conversation
 from ee.models.assistant import CoreMemory
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Organization, Project, Team, User
+from posthog.models import Team
 from posthog.tasks.demo_create_data import HedgeboxMatrix
-from posthog.test.base import BaseTest
+
+# We want the PostHog django_db_setup fixture here
+from posthog.conftest import django_db_setup  # noqa: F401
+
+handler = BraintrustCallbackHandler()
+set_global_handler(handler)
 
 
-# Flaky is a handy tool, but it always runs setup fixtures for retries.
-# This decorator will just retry without re-running setup.
-def retry_test_only(max_retries=3):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_error: Exception | None = None
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_error = e
-                    print(f"\nRetrying test (attempt {attempt + 1}/{max_retries})...")  # noqa
-            if last_error:
-                raise last_error
+def MaxEval(
+    experiment_name: str,
+    data: EvalData[Input, Output],
+    task: EvalTask[Input, Output],
+    scores: Sequence[EvalScorer[Input, Output]],
+):
+    # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
+    # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
+    project_name = f"max-ai-{experiment_name}"
+    init_logger(project_name)
+    result = Eval(
+        project_name,
+        data=data,
+        task=task,
+        scores=scores,
+        trial_count=3 if os.getenv("CI") else 1,
+    )
+    if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+        with open("eval_results.jsonl", "a") as f:
+            f.write(result.summary.as_json() + "\n")
+    return result
 
-        return wrapper
 
-    return decorator
+@pytest.fixture(scope="package")
+def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
+    with django_db_blocker.unblock():
+        should_create_new_team = True
+        team = Team.objects.order_by("-created_at").first()
+        if team and team.created_at.date() >= datetime.date.today():
+            should_create_new_team = False  # Project doesn't exist or is from yesterday, let's get a new one
 
+        if should_create_new_team:
+            print(f"Generating fresh demo data for evals...")  # noqa: T201
 
-# Apply decorators to all tests in the package.
-def pytest_collection_modifyitems(items):
-    current_dir = Path(__file__).parent
-    for item in items:
-        if Path(item.fspath).is_relative_to(current_dir):
-            item.add_marker(
-                pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
+            matrix = HedgeboxMatrix(
+                seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
+                days_past=120,
+                days_future=30,
+                n_clusters=500,
+                group_type_index_offset=0,
             )
-            # Apply our custom retry decorator to the test function
-            item.obj = retry_test_only(max_retries=3)(item.obj)
+            matrix_manager = MatrixManager(matrix, print_steps=True)
+            with override_settings(TEST=False):
+                # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
+                # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
+                org, team, user = matrix_manager.ensure_account_and_save(
+                    "eval@posthog.com", "Eval Doe", "Hedgebox Inc."
+                )
+        else:
+            print(f"Using existing demo data for evals...")  # noqa: T201
+            org = team.organization
+            user = org.memberships.first().user
+
+        yield org, team, user
 
 
 @pytest.fixture(scope="package")
-def team(django_db_blocker) -> Generator[Team, None, None]:
-    with django_db_blocker.unblock():
-        organization = Organization.objects.create(name=BaseTest.CONFIG_ORGANIZATION_NAME)
-        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
-        team = Team.objects.create(
-            id=project.id,
-            project=project,
-            organization=organization,
-            test_account_filters=[
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                }
-            ],
-            has_completed_onboarding_for={"product_analytics": True},
-        )
-        yield team
-
-
-@pytest.fixture(scope="package")
-def user(team, django_db_blocker) -> Generator[User, None, None]:
-    with django_db_blocker.unblock():
-        user = User.objects.create_and_join(team.organization, "eval@posthog.com", "password1234")
-        yield user
-        user.delete()
-
-
-@pytest.fixture(scope="package")
-def core_memory(team) -> Generator[CoreMemory, None, None]:
+def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
     initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.
 
     The company operates in the cloud storage and collaboration market for individuals and businesses.
@@ -94,40 +94,24 @@ def core_memory(team) -> Generator[CoreMemory, None, None]:
 
     Hedgebox sponsors the YouTube channel Marius Tech Tips."""
 
-    core_memory = CoreMemory.objects.create(
-        team=team,
-        text=initial_memory,
-        initial_text=initial_memory,
-        scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
-    )
-    yield core_memory
-    core_memory.delete()
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.fixture
-def runnable_config(team, user) -> Generator[RunnableConfig, None, None]:
-    conversation = Conversation.objects.create(team=team, user=user)
-    yield {
-        "configurable": {
-            "thread_id": conversation.id,
-        }
-    }
-    conversation.delete()
-
-
-@pytest.fixture(scope="package", autouse=True)
-def setup_test_data(django_db_setup, team, user, django_db_blocker):
     with django_db_blocker.unblock():
-        matrix = HedgeboxMatrix(
-            seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
-            days_past=120,
-            days_future=30,
-            n_clusters=500,
-            group_type_index_offset=0,
+        core_memory, _ = CoreMemory.objects.get_or_create(
+            team=demo_org_team_user[1],
+            text=initial_memory,
+            initial_text=initial_memory,
+            scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
         )
-        matrix_manager = MatrixManager(matrix, print_steps=True)
-        with override_settings(TEST=False):
-            # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
-            # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
-            matrix_manager.run_on_team(team, user)
+    yield core_memory
+
+
+# TODO: Remove below `pytest_collection_modifyitems` with `skipif` injection once deepeval is refactored away,
+#       because newer braintrust-based structure uses a different prefix for test files (eval_*.py)
+
+
+def pytest_collection_modifyitems(items):
+    current_dir = Path(__file__).parent
+    for item in items:
+        if Path(item.fspath).is_relative_to(current_dir):
+            item.add_marker(
+                pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
+            )

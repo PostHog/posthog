@@ -3,7 +3,9 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -36,6 +38,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -136,16 +139,20 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 ),
             )
 
+        entity = "person_id"
+        if isinstance(self.group_type_index, int):
+            entity = f"$group_{self.group_type_index}"
+
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["subq", "day"]),
                 ast.Field(chain=["subq", "variant"]),
-                parse_expr("count(person_id) as exposed_count"),
+                parse_expr("count(entity_id) as exposed_count"),
             ],
             select_from=ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
                         ast.Alias(
                             alias="variant",
                             expr=parse_expr(
@@ -161,7 +168,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=ast.And(exprs=exposure_conditions),
                     group_by=[
-                        ast.Field(chain=["person_id"]),
+                        ast.Field(chain=["entity_id"]),
                     ],
                 ),
                 alias="subq",
@@ -173,11 +180,21 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         return exposure_query
 
     def calculate(self) -> ExperimentExposureQueryResponse:
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            experiment_id=str(self.experiment.id),
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
+        )
+
         response = execute_hogql_query(
+            query_type="ExperimentExposuresQuery",
             query=self._get_exposure_query(),
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
         response.results = self._fill_date_gaps(response.results)

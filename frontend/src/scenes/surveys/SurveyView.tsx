@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { IconGraph, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, lemonToast, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -10,23 +10,40 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useEffect, useState } from 'react'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
-import { getResponseFieldWithId } from 'scenes/surveys/utils'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
+import {
+    ActivityScope,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
-import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL, SURVEY_EVENT_NAME } from './constants'
-import { surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
+import {
+    LOADING_SURVEY_RESULTS_TOAST_ID,
+    NPS_DETRACTOR_LABEL,
+    NPS_DETRACTOR_VALUES,
+    NPS_PASSIVE_LABEL,
+    NPS_PASSIVE_VALUES,
+    NPS_PROMOTER_LABEL,
+    NPS_PROMOTER_VALUES,
+} from './constants'
+import { SurveysDisabledBanner } from './SurveySettings'
 import {
     MultipleChoiceQuestionBarChart,
     NPSStackedBar,
@@ -34,17 +51,15 @@ import {
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
-    Summary,
 } from './surveyViewViz'
-
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     useEffect(() => {
         if (survey.start_date) {
@@ -62,7 +77,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 <>
                     <PageHeader
                         buttons={
-                            <div className="flex items-center gap-2">
+                            <div className="flex gap-2 items-center">
                                 <More
                                     overlay={
                                         <>
@@ -150,6 +165,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="primary"
                                         data-attr="launch-survey"
+                                        disabledReason={
+                                            showSurveysDisabledBanner && survey.type !== SurveyType.API
+                                                ? 'Please enable surveys in the banner below before launching'
+                                                : undefined
+                                        }
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: 'Launch this survey?',
@@ -253,6 +273,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
+                    <SurveysDisabledBanner />
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -273,39 +294,36 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 key: 'overview',
                                 label: 'Overview',
                             },
-                            showLinkedHogFunctions
-                                ? {
-                                      key: 'notifications',
-                                      label: 'Notifications',
-                                      content: (
-                                          <div>
-                                              <p>Get notified whenever a survey result is submitted</p>
-                                              <LinkedHogFunctions
-                                                  logicKey="survey"
-                                                  type="destination"
-                                                  subTemplateId="survey-response"
-                                                  filters={{
-                                                      events: [
-                                                          {
-                                                              id: 'survey sent',
-                                                              type: 'events',
-                                                              order: 0,
-                                                              properties: [
-                                                                  {
-                                                                      key: '$survey_id',
-                                                                      type: PropertyFilterType.Event,
-                                                                      value: id,
-                                                                      operator: PropertyOperator.Exact,
-                                                                  },
-                                                              ],
-                                                          },
-                                                      ],
-                                                  }}
-                                              />
-                                          </div>
-                                      ),
-                                  }
-                                : null,
+                            {
+                                key: 'notifications',
+                                label: 'Notifications',
+                                content: (
+                                    <div>
+                                        <p>Get notified whenever a survey result is submitted</p>
+                                        <LinkedHogFunctions
+                                            logicKey="survey"
+                                            type="destination"
+                                            subTemplateIds={['survey-response']}
+                                            filters={{
+                                                events: [
+                                                    {
+                                                        id: SurveyEventName.SENT,
+                                                        type: 'events',
+                                                        properties: [
+                                                            {
+                                                                key: SurveyEventProperties.SURVEY_ID,
+                                                                type: PropertyFilterType.Event,
+                                                                value: id,
+                                                                operator: PropertyOperator.Exact,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
+                                        />
+                                    </div>
+                                ),
+                            },
                             {
                                 label: 'History',
                                 key: 'History',
@@ -319,13 +337,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
+export function SurveyResponsesByQuestion(): JSX.Element {
     const {
         survey,
-        dataTableQuery,
-        surveyLoading,
-        surveyUserStats,
-        surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
         surveyRecurringNPSResults,
@@ -337,24 +351,19 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResults,
         surveyOpenTextResultsReady,
         surveyNPSScore,
-        surveyAsInsightURL,
-        isAnyResultsLoading,
     } = useValues(surveyLogic)
 
     return (
-        <div className="deprecated-space-y-4">
-            <SurveyResponseFilters />
-            {isAnyResultsLoading && (
-                <div className="flex gap-1">
-                    <span className="text-sm text-secondary">Loading results...</span>
-                    <Spinner />
-                </div>
-            )}
-            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+        <div className="flex flex-col gap-1">
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <div key={`survey-q-${i}`} className="deprecated-space-y-2">
+                        <div key={question.id || `survey-q-${i}`} className="flex flex-col gap-2">
+                            <RatingQuestionBarChart
+                                surveyRatingResults={surveyRatingResults}
+                                surveyRatingResultsReady={surveyRatingResultsReady}
+                                questionIndex={i}
+                            />
                             {question.scale === 10 && (
                                 <SurveyNPSResults
                                     survey={survey as Survey}
@@ -364,20 +373,11 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 />
                             )}
 
-                            <RatingQuestionBarChart
-                                surveyRatingResults={surveyRatingResults}
-                                surveyRatingResultsReady={surveyRatingResultsReady}
-                                questionIndex={i}
-                            />
-
-                            {survey.iteration_count &&
-                                survey.iteration_count > 0 &&
+                            {!!survey.iteration_count &&
                                 survey.current_iteration &&
                                 survey.current_iteration > 1 &&
-                                survey.iteration_start_dates &&
-                                survey.iteration_start_dates.length > 0 && (
+                                !!survey.iteration_start_dates?.length && (
                                     <NPSSurveyResultsBarChart
-                                        key={`nps-survey-results-q-${i}`}
                                         surveyRecurringNPSResults={surveyRecurringNPSResults}
                                         surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
                                         iterationStartDates={survey.iteration_start_dates}
@@ -385,77 +385,129 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         questionIndex={i}
                                     />
                                 )}
+
+                            <LemonDivider />
                         </div>
                     )
                 } else if (question.type === SurveyQuestionType.SingleChoice) {
                     return (
-                        <SingleChoiceQuestionPieChart
-                            key={`survey-q-${i}`}
-                            surveySingleChoiceResults={surveySingleChoiceResults}
-                            surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
-                            questionIndex={i}
-                        />
+                        <div key={question.id || `survey-q-${i}`} className="flex flex-col gap-2">
+                            <SingleChoiceQuestionPieChart
+                                surveySingleChoiceResults={surveySingleChoiceResults}
+                                surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                questionIndex={i}
+                            />
+                            <LemonDivider />
+                        </div>
                     )
                 } else if (question.type === SurveyQuestionType.MultipleChoice) {
                     return (
-                        <MultipleChoiceQuestionBarChart
-                            key={`survey-q-${i}`}
-                            surveyMultipleChoiceResults={surveyMultipleChoiceResults}
-                            surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
-                            questionIndex={i}
-                        />
+                        <div key={question.id || `survey-q-${i}`} className="flex flex-col gap-2">
+                            <MultipleChoiceQuestionBarChart
+                                surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                                surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                                questionIndex={i}
+                            />
+                            <LemonDivider />
+                        </div>
                     )
                 } else if (question.type === SurveyQuestionType.Open) {
                     return (
-                        <OpenTextViz
-                            key={`survey-q-${i}`}
-                            surveyOpenTextResults={surveyOpenTextResults}
-                            surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                            questionIndex={i}
-                        />
+                        <div key={question.id || `survey-q-${i}`} className="flex flex-col gap-2">
+                            <OpenTextViz
+                                surveyOpenTextResults={surveyOpenTextResults}
+                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                                questionIndex={i}
+                            />
+                            <LemonDivider />
+                        </div>
                     )
                 }
             })}
-            <div className="max-w-40">
-                <LemonButton
-                    type="primary"
-                    data-attr="survey-results-explore"
-                    icon={<IconGraph />}
-                    to={surveyAsInsightURL}
-                >
-                    Explore results
-                </LemonButton>
-            </div>
-            {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
+        </div>
+    )
+}
+
+export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
+    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
+        useValues(surveyLogic)
+
+    const atLeastOneResonse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+
+    if (isAnyResultsLoading) {
+        lemonToast.info('Loading survey results...', {
+            toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
+            hideProgressBar: true,
+            icon: <Spinner />,
+            autoClose: false,
+            closeOnClick: false,
+            closeButton: false,
+            draggable: false,
+            pauseOnHover: false,
+            pauseOnFocusLoss: false,
+        })
+    } else {
+        lemonToast.dismiss(LOADING_SURVEY_RESULTS_TOAST_ID)
+    }
+
+    return (
+        <div className="deprecated-space-y-4">
+            <SurveyResponseFilters />
+            <SurveyStatsSummary />
+            {isAnyResultsLoading || atLeastOneResonse ? (
+                <>
+                    <SurveyResponsesByQuestion />
+                    <LemonButton
+                        type="primary"
+                        data-attr="survey-results-explore"
+                        icon={<IconGraph />}
+                        to={surveyAsInsightURL}
+                        className="max-w-40"
+                    >
+                        Explore results
+                    </LemonButton>
+                    {!disableEventsTable &&
+                        (surveyLoading ? (
+                            <LemonSkeleton />
+                        ) : (
+                            <div className="survey-table-results">
+                                <Query query={dataTableQuery} />
+                            </div>
+                        ))}
+                </>
+            ) : (
+                <LemonBanner type="info">
+                    Your survey has not been answered yet. Once there is at least one response, they will appear here.
+                </LemonBanner>
+            )}
         </div>
     )
 }
 
 function createNPSTrendSeries(
-    key: string,
     values: string[],
-    label: string
+    label: string,
+    questionIndex: number,
+    questionId?: string
 ): {
     event: string
     kind: NodeKind.EventsNode
     custom_name: string
     properties: Array<{
-        type: PropertyFilterType.Event
+        type: PropertyFilterType.HogQL
         key: string
-        operator: PropertyOperator.Exact
-        value: string[]
     }>
 } {
     return {
-        event: SURVEY_EVENT_NAME,
+        event: SurveyEventName.SENT,
         kind: NodeKind.EventsNode,
         custom_name: label,
         properties: [
             {
-                type: PropertyFilterType.Event,
-                key,
-                operator: PropertyOperator.Exact,
-                value: values,
+                type: PropertyFilterType.HogQL,
+                key: `getSurveyResponse(${questionIndex}, ${questionId ? `'${questionId}'` : ''}) in (${values.join(
+                    ','
+                )})`,
             },
         ],
     }
@@ -479,7 +531,7 @@ function SurveyNPSResults({
         <div>
             {surveyNPSScore && (
                 <>
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2 items-center">
                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
                     </div>
                     <div className="mb-2 font-semibold text-secondary">
@@ -487,21 +539,21 @@ function SurveyNPSResults({
                             placement="bottom"
                             title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can range from -100 to 100."
                         >
-                            <IconInfo className="text-muted" />
-                        </Tooltip>{' '}
-                        Latest NPS Score
+                            <IconInfo className="text-muted mr-1" />
+                            Latest NPS Score
+                        </Tooltip>
                     </div>
                     {npsBreakdown && (
-                        <div className="deprecated-space-y-2 mt-2 mb-4">
+                        <div className="mt-2 mb-4 deprecated-space-y-2">
                             <NPSStackedBar npsBreakdown={npsBreakdown} />
                         </div>
                     )}
                 </>
             )}
-            <div className="deprecated-space-y-2 bg-surface-primary p-2 rounded">
-                <div className="flex items-center justify-between gap-2">
+            <div className="p-2 rounded deprecated-space-y-2 bg-surface-primary">
+                <div className="flex gap-2 justify-between items-center">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2 items-center">
                         <DateFilter
                             dateFrom={dateRange?.date_from ?? undefined}
                             dateTo={dateRange?.date_to ?? undefined}
@@ -516,12 +568,6 @@ function SurveyNPSResults({
                         <IntervalFilterStandalone
                             interval={interval ?? defaultInterval}
                             onIntervalChange={setInterval}
-                            options={[
-                                { value: 'hour', label: 'Hour' },
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
                         />
                         <CompareFilter
                             compareFilter={compareFilter}
@@ -544,63 +590,34 @@ function SurveyNPSResults({
                             },
                             series: [
                                 createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                    ['9', '10'],
-                                    NPS_PROMOTER_LABEL
+                                    NPS_PROMOTER_VALUES,
+                                    NPS_PROMOTER_LABEL,
+                                    questionIndex,
+                                    questionId
                                 ),
+                                createNPSTrendSeries(NPS_PASSIVE_VALUES, NPS_PASSIVE_LABEL, questionIndex, questionId),
                                 createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
-                                    ['9', '10'],
-                                    NPS_PROMOTER_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                    ['7', '8'],
-                                    NPS_PASSIVE_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
-                                    ['7', '8'],
-                                    NPS_PASSIVE_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                    ['0', '1', '2', '3', '4', '5', '6'],
-                                    NPS_DETRACTOR_LABEL
-                                ),
-                                createNPSTrendSeries(
-                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
-                                    ['0', '1', '2', '3', '4', '5', '6'],
-                                    NPS_DETRACTOR_LABEL
+                                    NPS_DETRACTOR_VALUES,
+                                    NPS_DETRACTOR_LABEL,
+                                    questionIndex,
+                                    questionId
                                 ),
                             ],
                             properties: [
                                 {
                                     type: PropertyFilterType.Event,
-                                    key: '$survey_id',
+                                    key: SurveyEventProperties.SURVEY_ID,
                                     operator: PropertyOperator.Exact,
                                     value: survey.id,
                                 },
                             ],
                             trendsFilter: {
-                                /**
-                                 * We now have two response fields to consider: both index-based and id-based.
-                                 * So we need to sum up the promoters and detractors from both fields.
-                                 * A+B is promoters
-                                 * C+D is passives
-                                 * E+F is detractors
-                                 *
-                                 * A+B+C+D+E+F is total responses
-                                 *
-                                 * The old formula is formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
-                                 *
-                                 * The new formula is formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
-                                 */
-                                formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
+                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
                                 display: 'ActionsBar',
                             },
                         },
                     }}
+                    readOnly
                 />
             </div>
         </div>

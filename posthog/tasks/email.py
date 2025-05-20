@@ -45,7 +45,7 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: str) -> list[OrganizationMembership]:
+def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
         organization_id=team.organization_id
@@ -96,11 +96,13 @@ def should_send_notification(
 
         return True
 
+    # Default to False (disabled) if not set
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
-        return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
+        return not settings.get(notification_type, True)
 
+    # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
-        return settings.get("error_tracking_issue_assigned", True)  # Default to True (enabled) if not set
+        return settings.get(notification_type, True)
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
@@ -179,7 +181,7 @@ def send_password_reset(user_id: int, token: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_email_verification(user_id: int, token: str) -> None:
+def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -188,9 +190,9 @@ def send_email_verification(user_id: int, token: str) -> None:
         template_name="email_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your account.",
-            "link": f"/verify_email/{user.uuid}/{token}",
+            "link": f"/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
             "site_url": settings.SITE_URL,
-            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}",
+            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
         },
     )
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
@@ -462,6 +464,13 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             membership
             for membership in memberships_to_email
             if (membership.user in group_users and membership.user != assigner)
+        ]
+    elif assignment.role:
+        role_users = assignment.role.members.all()
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user in role_users and membership.user != assigner)
         ]
 
     campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"

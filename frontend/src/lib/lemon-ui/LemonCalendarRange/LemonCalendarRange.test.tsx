@@ -29,10 +29,10 @@ describe('LemonCalendarRange', () => {
 
         // find just one month
         const calendar = getByDataAttr(container, 'lemon-calendar')
-        expect(calendar).toBeDefined()
+        expect(calendar).toBeTruthy()
 
         // find February 2022
-        expect(await within(calendar).findByText('February 2022')).toBeDefined()
+        expect(await within(calendar).findByText('February 2022')).toBeTruthy()
 
         async function clickOn(day: string): Promise<void> {
             userEvent.click(await within(container).findByText(day))

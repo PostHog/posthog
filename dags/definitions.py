@@ -17,6 +17,7 @@ from dags import (
     person_overrides,
     property_definitions,
     slack_alerts,
+    web_preaggregated_internal,
 )
 
 # Define resources for different environments
@@ -53,6 +54,9 @@ defs = dagster.Definitions(
         exchange_rate.hourly_exchange_rates_in_clickhouse,
         orm_examples.pending_deletions,
         orm_examples.process_pending_deletions,
+        web_preaggregated_internal.web_analytics_preaggregated_tables,
+        web_preaggregated_internal.web_overview_daily,
+        web_preaggregated_internal.web_stats_daily,
     ],
     jobs=[
         deletes.deletes_job,
@@ -65,6 +69,7 @@ defs = dagster.Definitions(
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
+        web_preaggregated_internal.recreate_web_pre_aggregated_data_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -76,6 +81,7 @@ defs = dagster.Definitions(
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
+        web_preaggregated_internal.recreate_web_analytics_preaggregated_internal_data_daily,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

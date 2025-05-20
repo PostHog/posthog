@@ -25,10 +25,15 @@ class Role(UUIDModel):
         null=True,
     )
 
-    # TODO: Deprecate this field
+    # DEPRECATED - do not use
     feature_flags_access_level = models.PositiveSmallIntegerField(
         default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
         choices=OrganizationResourceAccess.AccessLevel.choices,
+    )
+
+    members = models.ManyToManyField(
+        "posthog.User",
+        through="ee.RoleMembership",
     )
 
 

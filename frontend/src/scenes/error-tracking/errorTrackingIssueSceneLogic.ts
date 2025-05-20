@@ -2,6 +2,7 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { posthog } from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
@@ -17,10 +18,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
-import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import { resolveDateRange } from './utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, resolveDateRange } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -34,24 +35,26 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
-    connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
-        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup']],
-    }),
+    connect(() => ({
+        values: [errorFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        actions: [errorFiltersLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery']],
+    })),
 
     actions({
         loadIssue: true,
-        loadProperties: (dateRange: DateRange) => ({ dateRange }),
-        loadSummary: (dateRange: DateRange) => ({ dateRange }),
+        loadSummary: true,
+        loadProperties: (timestamp: string) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
+        setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
     }),
 
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
-        properties: {} as Record<string, string>,
         summary: null as ErrorTrackingIssueSummary | null,
+        properties: null as ErrorEventProperties | null,
+        lastSeen: null as Dayjs | null,
     }),
 
     reducers({
@@ -65,6 +68,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         summary: {},
+        lastSeen: {
+            setLastSeen: (prevLastSeen, { lastSeen }) => {
+                if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
+                    return lastSeen
+                }
+                return prevLastSeen
+            },
+        },
     }),
 
     selectors({
@@ -97,75 +108,84 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         eventsQuery: [
-            (s) => [(_, props) => props.id, s.filterTestAccounts, s.filterGroup, s.dateRange],
-            (issueId, filterTestAccounts, filterGroup, dateRange) =>
+            (s) => [(_, props) => props.id, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
+            (issueId, filterTestAccounts, searchQuery, filterGroup, dateRange) =>
                 errorTrackingIssueEventsQuery({
                     issueId,
-                    filterTestAccounts: filterTestAccounts,
-                    filterGroup: filterGroup,
+                    filterTestAccounts,
+                    filterGroup,
+                    searchQuery,
                     dateRange: resolveDateRange(dateRange).toDateRange(),
                 }),
         ],
-
-        issueDateRange: [(s) => [s.issue], (issue) => (issue ? getIssueDateRange(issue) : {})],
 
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
         ],
 
-        lastSeen: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.lastSeen],
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ values, actions, props }) => ({
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
         },
         properties: {
-            loadProperties: async ({ dateRange }) => {
+            loadProperties: async ({ timestamp }) => {
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
-                        dateRange,
-                        volumeResolution: 0,
+                        dateRange: getNarrowDateRange(timestamp),
+                        filterTestAccounts: false,
                     }),
                     {},
                     undefined,
                     'blocking'
                 )
                 const issue = response.results[0]
+                if (!issue.earliest) {
+                    return null
+                }
                 // Earliest field should be defined as we use the issueId parameter
-                return JSON.parse(issue.earliest!)
+                return JSON.parse(issue.earliest)
             },
         },
         summary: {
-            loadSummary: async ({ dateRange }) => {
+            loadSummary: async () => {
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
-                        dateRange,
-                        volumeResolution: 40,
+                        dateRange: values.dateRange,
+                        filterTestAccounts: values.filterTestAccounts,
+                        filterGroup: values.filterGroup,
+                        searchQuery: values.searchQuery,
+                        volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                     }),
                     {},
                     undefined,
                     'blocking'
                 )
+                if (!response.results.length) {
+                    return null
+                }
+                actions.setLastSeen(dayjs(response.results[0].last_seen))
                 const summary = response.results[0]
                 return {
-                    lastSeen: dayjs(summary.last_seen),
                     aggregations: summary.aggregations,
-                } as ErrorTrackingIssueSummary
+                }
             },
         },
     })),
 
     listeners(({ props, actions }) => {
         return {
-            loadIssueSuccess: [
-                ({ issue }) => actions.loadProperties(getPropertiesDateRange(issue)),
-                ({ issue }) => actions.loadSummary(getIssueDateRange(issue)),
-            ],
+            setDateRange: actions.loadSummary,
+            setFilterGroup: actions.loadSummary,
+            setFilterTestAccounts: actions.loadSummary,
+            setSearchQuery: actions.loadSummary,
+            loadIssue: actions.loadSummary,
+            loadIssueSuccess: [({ issue }) => actions.loadProperties(issue.first_seen)],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
@@ -183,22 +203,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 ])
 
-function getIssueDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
+function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
+    const firstSeen = dayjs(timestamp)
     return {
-        date_from: dayjs(issue.first_seen).startOf('day').toISOString(),
-        date_to: dayjs().endOf('hour').toISOString(),
-    }
-}
-
-function getPropertiesDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
-    const firstSeen = dayjs(issue.first_seen)
-    return {
-        date_from: firstSeen.startOf('hour').toISOString(),
-        date_to: firstSeen.endOf('hour').toISOString(),
+        date_from: firstSeen.subtract(1, 'hour').toISOString(),
+        date_to: firstSeen.add(1, 'hour').toISOString(),
     }
 }
 
 export type ErrorTrackingIssueSummary = {
-    lastSeen: Dayjs
     aggregations: ErrorTrackingIssueAggregations
 }

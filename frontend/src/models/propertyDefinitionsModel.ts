@@ -53,6 +53,12 @@ const localProperties: PropertyDefinitionStorage = {
         is_seen_on_filtered_events: false,
         property_type: PropertyType.Selector,
     },
+    'resource/assignee': {
+        id: 'assignee',
+        name: 'assignee',
+        description: 'User or role assigned to a resource',
+        property_type: PropertyType.Assignee,
+    },
 }
 
 const localOptions: Record<string, PropValue[]> = {
@@ -110,9 +116,9 @@ const checkOrLoadPropertyDefinition = (
     propertyDefinitionStorage: PropertyDefinitionStorage,
     groupTypeIndex?: number | null
 ): PropertyDefinition | null => {
-    // first time we see this, schedule a fetch
     const key = getPropertyKey(definitionType, propertyName, groupTypeIndex)
     if (typeof propertyName === 'string' && !(key in propertyDefinitionStorage)) {
+        // first time we see this, schedule a fetch
         window.setTimeout(
             () =>
                 propertyDefinitionsModel
@@ -159,9 +165,9 @@ const constructValuesEndpoint = (
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']],
-    }),
+    })),
     actions({
         // public
         loadPropertyDefinitions: (

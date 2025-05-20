@@ -1,6 +1,8 @@
+import datetime
 import uuid
 from unittest.mock import patch
 
+from django.utils import timezone
 from rest_framework import status
 
 from ee.hogai.assistant import Assistant
@@ -171,7 +173,9 @@ class TestConversation(APIBaseTest):
             self.assertTrue("Streaming error" in str(context.exception))
 
     def test_cancel_conversation(self):
-        conversation = Conversation.objects.create(user=self.user, team=self.team)
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Test conversation", type=Conversation.Type.ASSISTANT
+        )
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
@@ -180,7 +184,13 @@ class TestConversation(APIBaseTest):
         self.assertEqual(conversation.status, Conversation.Status.CANCELING)
 
     def test_cancel_already_canceling_conversation(self):
-        conversation = Conversation.objects.create(user=self.user, team=self.team, status=Conversation.Status.CANCELING)
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            status=Conversation.Status.CANCELING,
+            title="Test conversation",
+            type=Conversation.Type.ASSISTANT,
+        )
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
@@ -226,3 +236,122 @@ class TestConversation(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    def test_create_with_non_assistant_conversation(self):
+        # Create a conversation with a non-assistant type
+        conversation = Conversation.objects.create(user=self.user, team=self.team, type=Conversation.Type.TOOL_CALL)
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {
+                    "conversation": str(conversation.id),
+                    "content": "test query",
+                    "trace_id": str(uuid.uuid4()),
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_create_with_no_title_conversation(self):
+        # Create a conversation without a title
+        conversation = Conversation.objects.create(user=self.user, team=self.team, title=None)
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {
+                    "conversation": str(conversation.id),
+                    "content": "test query",
+                    "trace_id": str(uuid.uuid4()),
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_list_only_returns_assistant_conversations_with_title(self):
+        # Create different types of conversations
+        conversation1 = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation 1", type=Conversation.Type.ASSISTANT
+        )
+        Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
+        Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
+
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Only one conversation should be returned (the one with title and type ASSISTANT)
+            results = response.json()["results"]
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["id"], str(conversation1.id))
+            self.assertEqual(results[0]["title"], "Conversation 1")
+            self.assertIn("messages", results[0])
+            self.assertIn("status", results[0])
+
+    def test_retrieve_conversation_without_title_returns_404(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_non_assistant_conversation_returns_404(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL
+        )
+
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_conversation_serializer_returns_empty_messages_on_validation_error(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation with validation error", type=Conversation.Type.ASSISTANT
+        )
+
+        # Mock the get_state method to return data that will cause a validation error
+        with patch("langgraph.graph.state.CompiledStateGraph.get_state") as mock_get_state:
+
+            class MockSnapshot:
+                values = {"invalid_key": "invalid_value"}  # Invalid structure for AssistantState
+
+            mock_get_state.return_value = MockSnapshot()
+
+            with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+                response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                # Should return empty messages array when validation fails
+                self.assertEqual(response.json()["messages"], [])
+
+    def test_list_conversations_ordered_by_updated_at(self):
+        """Verify conversations are listed with most recently updated first"""
+        # Create conversations with different update times
+        conversation1 = Conversation.objects.create(
+            user=self.user, team=self.team, title="Older conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        conversation2 = Conversation.objects.create(
+            user=self.user, team=self.team, title="Newer conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        # Set updated_at explicitly to ensure order
+        conversation1.updated_at = timezone.now() - datetime.timedelta(hours=1)
+        conversation1.save()
+
+        conversation2.updated_at = timezone.now()
+        conversation2.save()
+
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            results = response.json()["results"]
+            self.assertEqual(len(results), 2)
+
+            # First result should be the newer conversation
+            self.assertEqual(results[0]["id"], str(conversation2.id))
+            self.assertEqual(results[0]["title"], "Newer conversation")
+
+            # Second result should be the older conversation
+            self.assertEqual(results[1]["id"], str(conversation1.id))
+            self.assertEqual(results[1]["title"], "Older conversation")

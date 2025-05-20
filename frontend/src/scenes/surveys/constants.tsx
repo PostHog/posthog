@@ -1,18 +1,20 @@
+import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
-    SurveyAppearance,
     SurveyMatchType,
+    SurveyPosition,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveySchedule,
     SurveyType,
+    SurveyWidgetType,
 } from '~/types'
 
-export const SURVEY_EVENT_NAME = 'survey sent'
-export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 export const SURVEY_PAGE_SIZE = 100
+
+export const LINK_PAGE_SIZE = 100
 
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
@@ -33,7 +35,7 @@ export const SurveyMatchTypeLabels = {
 }
 
 export const defaultSurveyAppearance = {
-    fontFamily: 'system-ui' as SurveyAppearance['fontFamily'],
+    fontFamily: 'inherit',
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
     submitButtonTextColor: 'white',
@@ -44,11 +46,21 @@ export const defaultSurveyAppearance = {
     whiteLabel: false,
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
-    position: 'right',
-    widgetType: 'tab' as const,
+    position: SurveyPosition.Right,
+    widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
-}
+    zIndex: '2147482647',
+    disabledButtonOpacity: '0.6',
+    maxWidth: '300px',
+    textSubtleColor: '#939393',
+    inputBackground: 'white',
+    boxPadding: '20px 24px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    borderRadius: '10px',
+    shuffleQuestions: false,
+    surveyPopupDelaySeconds: undefined,
+} as const
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
@@ -188,6 +200,8 @@ export const NEW_SURVEY: NewSurvey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    // Partial responses off by default while we're in the beta
+    enable_partial_responses: false,
 }
 
 export enum SurveyTemplateType {
@@ -344,8 +358,8 @@ export const errorTrackingSurvey: SurveyTemplate = {
 }
 
 export const WEB_SAFE_FONTS = [
-    { value: 'system-ui', label: 'system-ui (default)' },
-    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
     { value: 'Tahoma', label: 'Tahoma' },
@@ -359,3 +373,25 @@ export const WEB_SAFE_FONTS = [
 export const NPS_DETRACTOR_LABEL = 'Detractors'
 export const NPS_PASSIVE_LABEL = 'Passives'
 export const NPS_PROMOTER_LABEL = 'Promoters'
+
+export const NPS_PROMOTER_VALUES = ['9', '10']
+export const NPS_PASSIVE_VALUES = ['7', '8']
+export const NPS_DETRACTOR_VALUES = ['0', '1', '2', '3', '4', '5', '6']
+
+export const QUESTION_TYPE_ICON_MAP = {
+    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
+}
+
+export const SURVEY_TYPE_LABEL_MAP = {
+    [SurveyType.API]: 'API',
+    [SurveyType.Widget]: 'Feedback Button',
+    [SurveyType.Popover]: 'Popover',
+    [SurveyType.FullScreen]: 'Full Screen',
+    [SurveyType.Email]: 'Email',
+}
+
+export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'

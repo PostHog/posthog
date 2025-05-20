@@ -4,6 +4,7 @@ use crate::flags::flag_models::FeatureFlag;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FlagsResponseCode {
@@ -31,6 +32,7 @@ pub struct FlagsResponse {
     pub flags: HashMap<String, FlagDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -41,6 +43,7 @@ pub struct LegacyFlagsResponse {
     pub feature_flag_payloads: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
 }
 
 impl LegacyFlagsResponse {
@@ -63,6 +66,7 @@ impl LegacyFlagsResponse {
                 })
                 .collect(),
             quota_limited: response.quota_limited,
+            request_id: response.request_id,
         }
     }
 }
@@ -72,11 +76,13 @@ impl FlagsResponse {
         errors_while_computing_flags: bool,
         flags: HashMap<String, FlagDetails>,
         quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
     ) -> Self {
         Self {
             errors_while_computing_flags,
             flags,
             quota_limited,
+            request_id,
         }
     }
 }
@@ -90,15 +96,15 @@ pub struct FlagsOptionsResponse {
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
-    pub variant: String,
+    pub variant: Option<String>,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
 }
 
 impl FlagDetails {
     pub fn to_value(&self) -> FlagValue {
-        if !self.variant.is_empty() {
-            FlagValue::String(self.variant.clone())
+        if let Some(variant) = &self.variant {
+            FlagValue::String(variant.clone())
         } else {
             FlagValue::Boolean(self.enabled)
         }
@@ -132,7 +138,7 @@ impl FromFeatureAndMatch for FlagDetails {
         FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
-            variant: flag_match.variant.clone().unwrap_or_default(),
+            variant: flag_match.variant.clone(),
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
@@ -141,7 +147,7 @@ impl FromFeatureAndMatch for FlagDetails {
             metadata: FlagDetailsMetadata {
                 id: flag.id,
                 version: flag.version.unwrap_or(0),
-                description: flag.name.clone(),
+                description: None,
                 payload: flag_match.payload.clone(),
             },
         }
@@ -151,7 +157,7 @@ impl FromFeatureAndMatch for FlagDetails {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
-            variant: "".to_string(),
+            variant: None,
             reason: FlagEvaluationReason {
                 code: error_reason.to_string(),
                 condition_index: None,
@@ -160,7 +166,7 @@ impl FromFeatureAndMatch for FlagDetails {
             metadata: FlagDetailsMetadata {
                 id: flag.id,
                 version: flag.version.unwrap_or(0),
-                description: flag.name.clone(),
+                description: None,
                 payload: None,
             },
         }
@@ -287,7 +293,7 @@ mod tests {
             FlagDetails {
                 key: "flag_with_payload".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -308,7 +314,7 @@ mod tests {
             FlagDetails {
                 key: "flag2".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -329,7 +335,7 @@ mod tests {
             FlagDetails {
                 key: "flag_with_null_payload".to_string(),
                 enabled: true,
-                variant: "".to_string(),
+                variant: None,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -344,7 +350,8 @@ mod tests {
             },
         );
 
-        let response = FlagsResponse::new(false, flags, None);
+        let request_id = Uuid::new_v4();
+        let response = FlagsResponse::new(false, flags, None, request_id);
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
@@ -370,5 +377,8 @@ mod tests {
                 .get("flag_with_null_payload"),
             Some(&json!(null))
         );
+
+        // Check that the request_id is included
+        assert_eq!(legacy_response.request_id, request_id);
     }
 }

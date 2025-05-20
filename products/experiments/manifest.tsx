@@ -26,11 +26,21 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.experiment(ref),
         },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: `Create new/Experiment`,
+            path: `Experiment`,
             type: 'experiment',
-            href: () => urls.experiment('new'),
+            href: urls.experiment('new'),
         },
     ],
+    treeItemsProducts: [
+        {
+            path: `Experiments`,
+            type: 'experiment',
+            href: urls.experiments(),
+        },
+    ],
+    fileSystemFilterTypes: {
+        experiment: { name: 'Experiments' },
+    },
 }

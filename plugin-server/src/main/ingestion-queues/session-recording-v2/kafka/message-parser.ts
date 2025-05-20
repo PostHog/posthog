@@ -109,8 +109,7 @@ export class KafkaMessageParser {
             return dropMessage('received_non_snapshot_message', { error: eventResult.error })
         }
 
-        const { $snapshot_items, $session_id, $window_id, $snapshot_source, $snapshot_library } =
-            eventResult.data.properties
+        const { $snapshot_items, $session_id, $window_id, $snapshot_source, $lib } = eventResult.data.properties
 
         if (eventResult.data.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
             return dropMessage('received_non_snapshot_message')
@@ -141,7 +140,7 @@ export class KafkaMessageParser {
                 end: endDateTime,
             },
             snapshot_source: $snapshot_source ?? null,
-            snapshot_library: $snapshot_library ?? null,
+            snapshot_library: $lib ?? null,
         }
     }
 

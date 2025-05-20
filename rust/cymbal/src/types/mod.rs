@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{digest::Update, Sha512};
+use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use uuid::Uuid;
 
+use crate::fingerprinting::{
+    Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
+};
 use crate::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -29,6 +32,8 @@ pub enum Stacktrace {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Exception {
+    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
+    pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
     #[serde(rename = "value")]
@@ -60,9 +65,10 @@ pub struct RawErrProps {
     pub other: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone)]
 pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
-    pub fingerprint: String,
+    pub fingerprint: Fingerprint,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
     pub other: HashMap<String, Value>,
 }
@@ -76,12 +82,17 @@ pub struct OutputErrProps {
     pub fingerprint: String,
     #[serde(rename = "$exception_proposed_fingerprint")]
     pub proposed_fingerprint: String,
+    #[serde(rename = "$exception_fingerprint_record")]
+    pub fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
     #[serde(flatten)]
     pub other: HashMap<String, Value>,
 
-    // Search metadata
+    // Metadata
+    #[serde(rename = "$exception_handled")]
+    pub handled: bool,
+    // Search metadata (materialized)
     #[serde(rename = "$exception_types")]
     pub types: Vec<String>,
     #[serde(rename = "$exception_values")]
@@ -92,11 +103,27 @@ pub struct OutputErrProps {
     pub functions: Vec<String>,
 }
 
+impl FingerprintComponent for Exception {
+    fn update(&self, fp: &mut FingerprintBuilder) {
+        let mut pieces = vec![];
+        fp.update(self.exception_type.as_bytes());
+        pieces.push("Exception Type".to_string());
+        if !matches!(self.stack, Some(Stacktrace::Resolved { frames: _ })) {
+            fp.update(self.exception_message.as_bytes());
+            pieces.push("Exception Message".to_string());
+        };
+        fp.add_part(FingerprintRecordPart::Exception {
+            id: self.exception_id.clone(),
+            pieces,
+        });
+    }
+}
+
 impl Exception {
-    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
-        h.update(self.exception_type.as_bytes());
+    pub fn include_in_fingerprint(&self, fp: &mut FingerprintBuilder) {
+        self.update(fp);
+
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
-            h.update(self.exception_message.as_bytes());
             return;
         };
 
@@ -107,14 +134,14 @@ impl Exception {
             // TODO: we should try to be smarter about handling the case when
             // there are no in-app frames
             if let Some(f) = frames.first() {
-                f.include_in_fingerprint(h)
+                f.update(fp)
             }
             return;
         }
 
         for frame in frames {
             if (has_no_resolved || frame.resolved) && frame.in_app {
-                frame.include_in_fingerprint(h)
+                frame.update(fp)
             }
         }
     }
@@ -135,11 +162,27 @@ impl RawErrProps {
         );
     }
 
-    pub fn to_fingerprinted(self, fingerprint: String) -> FingerprintedErrProps {
+    pub fn to_fingerprinted(self, mut fingerprint: Fingerprint) -> FingerprintedErrProps {
+        // We always track the fingerprint we'd have proposed if none was set
+        let proposed_fingerprint = fingerprint.value.clone();
+
+        // But if one was set, we use that and modify our fingerprint to reflect that
+        if let Some(existing) = self.fingerprint {
+            fingerprint.record.clear();
+            fingerprint.record.push(FingerprintRecordPart::Manual);
+            fingerprint.value = existing;
+            if fingerprint.value.len() > 64 {
+                let mut hasher = Sha512::default();
+                hasher.update(fingerprint.value);
+                fingerprint.value = format!("{:x}", hasher.finalize());
+            }
+            fingerprint.assignment = None;
+        }
+
         FingerprintedErrProps {
             exception_list: self.exception_list,
-            fingerprint: self.fingerprint.unwrap_or(fingerprint.clone()),
-            proposed_fingerprint: fingerprint,
+            fingerprint,
+            proposed_fingerprint,
             other: self.other,
         }
     }
@@ -163,17 +206,26 @@ impl FingerprintedErrProps {
             Some(e.exception_message.clone())
         });
 
+        let handled = self
+            .exception_list
+            .first()
+            .and_then(|e| e.mechanism.as_ref())
+            .and_then(|m| m.handled)
+            .unwrap_or(false);
+
         OutputErrProps {
             exception_list: self.exception_list,
-            fingerprint: self.fingerprint,
+            fingerprint: self.fingerprint.value,
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
+            fingerprint_record: self.fingerprint.record,
             other: self.other,
 
             types,
             values,
             sources,
             functions,
+            handled,
         }
     }
 }

@@ -1,10 +1,21 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from posthog.models.utils import RootTeamMixin
+
+# Defined here for reuse between OS and EE
+GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
+    "group_type",
+    "group_type_index",
+    "name_singular",
+    "name_plural",
+    "detail_dashboard",
+    "default_columns",
+]
 
 
 # This table is responsible for mapping between group types for a Team/Project and event columns
 # to add group keys
-class GroupTypeMapping(models.Model):
+class GroupTypeMapping(RootTeamMixin, models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE)
     group_type = models.CharField(max_length=400, null=False, blank=False)

@@ -56,7 +56,7 @@ def build_billing_token(license: License, organization: Organization, user: Opti
     return encoded_jwt
 
 
-def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
+def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
@@ -79,55 +79,54 @@ class BillingManager:
         organization: Optional[Organization],
         query_params: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        if organization and self.license and self.license.is_v2_license:
-            billing_service_response = self._get_billing(organization, query_params)
+        if not organization or not self.license or not self.license.is_v2_license:
+            return self._get_default_billing_response(organization)
 
-            # Ensure the license and org are updated with the latest info
-            if billing_service_response.get("license"):
-                self.update_license_details(billing_service_response)
+        # Get billing info from billing service
+        billing_service_response = self._get_billing(organization, query_params)
 
-            if organization and billing_service_response:
-                self.update_org_details(organization, billing_service_response)
+        if not billing_service_response.get("customer"):
+            return self._get_default_billing_response(organization)
 
-            response: dict[str, Any] = {"available_product_features": []}
+        # Ensure the license and org are updated with the latest info
+        if billing_service_response.get("license"):
+            self.update_license_details(billing_service_response)
 
-            response["license"] = {"plan": self.license.plan}
+        if organization and billing_service_response:
+            self.update_org_details(organization, billing_service_response)
 
-            if organization and billing_service_response.get("customer"):
-                response.update(billing_service_response["customer"])
+        response: dict[str, Any] = {"available_product_features": []}
 
-            if not billing_service_response["customer"].get("products"):
-                products = self.get_default_products(organization)
-                response["products"] = products["products"]
+        response["license"] = {"plan": self.license.plan}
 
-            response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
+        response.update(billing_service_response["customer"])
 
-            # Extend the products with accurate usage_limit info
-            for product in response["products"]:
-                usage_key = product.get("usage_key")
-                if not usage_key:
-                    continue
-                usage = response.get("usage_summary", {}).get(usage_key, {})
-                usage_limit = usage.get("limit")
-                billing_reported_usage = usage.get("usage") or 0
-                current_usage = billing_reported_usage
-
-                product_usage: dict[str, Any] = {}
-                if organization and organization.usage:
-                    product_usage = organization.usage.get(usage_key) or {}
-
-                if product_usage.get("todays_usage"):
-                    todays_usage = product_usage["todays_usage"]
-                    current_usage = billing_reported_usage + todays_usage
-
-                product["current_usage"] = current_usage
-                product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
-        else:
+        if not billing_service_response["customer"].get("products"):
             products = self.get_default_products(organization)
-            response = {
-                "available_product_features": [],
-                "products": products["products"],
-            }
+            response["products"] = products["products"]
+
+        response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
+
+        # Extend the products with accurate usage_limit info
+        for product in response["products"]:
+            usage_key = product.get("usage_key")
+            if not usage_key:
+                continue
+            usage = response.get("usage_summary", {}).get(usage_key, {})
+            usage_limit = usage.get("limit")
+            billing_reported_usage = usage.get("usage") or 0
+            current_usage = billing_reported_usage
+
+            product_usage: dict[str, Any] = {}
+            if organization and organization.usage:
+                product_usage = organization.usage.get(usage_key) or {}
+
+            if product_usage.get("todays_usage"):
+                todays_usage = product_usage["todays_usage"]
+                current_usage = billing_reported_usage + todays_usage
+
+            product["current_usage"] = current_usage
+            product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
         return response
 
@@ -210,6 +209,15 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+    def _get_default_billing_response(self, organization: Optional[Organization]) -> dict[str, Any]:
+        products = self.get_default_products(organization)
+        response = {
+            "available_product_features": [],
+            "products": products["products"],
+        }
+
+        return response
 
     def get_default_products(self, organization: Optional[Organization]) -> dict:
         response = {}
@@ -440,6 +448,44 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/startups/apply",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
+
+    def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
+        """
+        Get usage data from the billing service.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/v2/usage/",
+            headers=self.get_auth_headers(organization),
+            params=params,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def get_spend_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
+        """
+        Get spend data from the billing service.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/v2/spend/",
+            headers=self.get_auth_headers(organization),
+            params=params,
         )
 
         handle_billing_service_error(res)

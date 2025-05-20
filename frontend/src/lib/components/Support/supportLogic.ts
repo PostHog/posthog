@@ -1,5 +1,3 @@
-import { captureException } from '@sentry/react'
-import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
@@ -29,8 +27,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})` +
-        getSentryLink(cloudRegion, currentTeam)
+        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -87,13 +84,6 @@ function getBillingAdminLink(currentOrganization: OrganizationBasicType | null):
         return ''
     }
     return `\nBilling admin: http://go/billing/${currentOrganization.id}`
-}
-
-function getSentryLink(cloudRegion: Region | null | undefined, currentTeam: TeamPublicType | null): string {
-    if (!cloudRegion || !currentTeam) {
-        return ''
-    }
-    return `\nSentry: http://go/sentry${cloudRegion}/${currentTeam.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -226,6 +216,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-llm-observability`,
                 label: 'LLM observability',
             },
+            {
+                value: 'messaging',
+                'data-attr': `support-form-target-area-messaging`,
+                label: 'Messaging',
+            },
         ],
     },
 ]
@@ -263,6 +258,7 @@ export type SupportTicketTargetArea =
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
+    | 'messaging'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -302,6 +298,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     transformations: 'cdp_destinations',
     source: 'data_warehouse',
     sources: 'data_warehouse',
+    messaging: 'messaging',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -365,6 +362,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -379,6 +377,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        focusedField: [
+            null as string | null,
+            {
+                setFocusedField: (_, { field }) => field,
+                // Reset focused field when form is closed
+                closeSupportForm: () => null,
             },
         ],
     })),
@@ -423,11 +429,14 @@ export const supportLogic = kea<supportLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
+            // Only include non-text fields in the URL parameters
+            // This prevents focus loss when typing in text fields
             const panelOptions = [
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
+                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {
@@ -526,7 +535,6 @@ export const supportLogic = kea<supportLogicType>([
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
                                 ? getBillingAdminLink(organizationLogic.values.currentOrganization)
                                 : '') +
-                            getSentryLink(cloudRegion, teamLogic.values.currentTeam) +
                             (cloudRegion && teamLogic.values.currentTeam
                                 ? '\nPersons-on-events mode for project: ' +
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
@@ -558,9 +566,9 @@ export const supportLogic = kea<supportLogicType>([
                             body_size: body?.length,
                         },
                     }
-                    captureException(error, {
-                        extra,
-                        contexts,
+                    posthog.captureException(error, {
+                        ...extra,
+                        ...contexts,
                     })
                     lemonToast.error(`There was an error sending the message.`)
                     return
@@ -579,20 +587,9 @@ export const supportLogic = kea<supportLogicType>([
                     zendesk_ticket_link,
                 }
                 posthog.capture('support_ticket', properties)
-                Sentry.captureMessage('User submitted Zendesk ticket', {
-                    tags: {
-                        zendesk_ticket_uuid,
-                        zendesk_ticket_link,
-                        support_request_kind: kind,
-                        support_request_area: target_area,
-                        team_id: teamLogic.values.currentTeamId,
-                    },
-                    extra: properties,
-                    level: 'log',
-                })
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
                 lemonToast.error(`There was an error sending the message.`)
             }
         },
@@ -601,8 +598,11 @@ export const supportLogic = kea<supportLogicType>([
             props.onClose?.()
         },
 
-        setSendSupportRequestValue: () => {
-            actions.updateUrlParams()
+        setSendSupportRequestValue: ({ name }) => {
+            // Only update URL params for non-text fields to prevent focus loss during typing
+            if (name !== 'message' && name !== 'name' && name !== 'email') {
+                actions.updateUrlParams()
+            }
         },
     })),
 

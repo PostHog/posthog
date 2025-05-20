@@ -1,24 +1,25 @@
 import { LogicWrapper } from 'kea'
 
-import { ActivityScope } from '~/types'
+import { AccessControlResourceType, ActivityScope } from '~/types'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
 export enum Scene {
     Error404 = '404',
+    ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingAlert = 'ErrorTrackingAlert',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
+    RevenueAnalytics = 'RevenueAnalytics',
     Cohort = 'Cohort',
     Activity = 'Activity',
     DataManagement = 'DataManagement',
@@ -37,8 +38,10 @@ export enum Scene {
     PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
+    Groups = 'Groups',
     Group = 'Group',
     Action = 'Action',
+    EarlyAccessFeatures = 'EarlyAccessFeatures',
     Experiments = 'Experiments',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
@@ -85,12 +88,19 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    Links = 'Links',
+    Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
-    MessagingAutomations = 'MessagingAutomations',
+    MessagingCampaigns = 'MessagingCampaigns',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
+    StartupProgram = 'StartupProgram',
+    HogFunction = 'HogFunction',
+    UserInterviews = 'UserInterviews',
+    UserInterview = 'UserInterview',
+    Game368 = 'Game368',
 }
 
 export type SceneProps = Record<string, any>
@@ -156,4 +166,23 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+}
+
+// Map scenes to their access control resource types
+export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Feature flags
+    [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
+    [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
+
+    // Dashboards
+    [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.Dashboards]: AccessControlResourceType.Dashboard,
+
+    // Insights
+    [Scene.Insight]: AccessControlResourceType.Insight,
+    [Scene.SavedInsights]: AccessControlResourceType.Insight,
+
+    // Notebooks
+    [Scene.Notebook]: AccessControlResourceType.Notebook,
+    [Scene.Notebooks]: AccessControlResourceType.Notebook,
 }

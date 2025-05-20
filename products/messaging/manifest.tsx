@@ -1,4 +1,5 @@
 import { IconMegaphone } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -6,9 +7,9 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingAutomations: {
-            import: () => import('./frontend/Automations'),
-            name: 'Automations',
+        MessagingCampaigns: {
+            import: () => import('./frontend/Campaigns'),
+            name: 'Messaging',
             projectBased: true,
         },
         MessagingBroadcasts: {
@@ -16,62 +17,88 @@ export const manifest: ProductManifest = {
             name: 'Messaging',
             projectBased: true,
         },
-        MessagingProviders: {
-            import: () => import('./frontend/Providers'),
+        MessagingLibrary: {
+            import: () => import('./frontend/library/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
-        MessagingLibrary: {
-            import: () => import('./frontend/Library'),
-            name: 'Library',
+        MessagingLibraryTemplate: {
+            import: () => import('./frontend/library/MessageTemplate'),
+            name: 'Messaging',
             projectBased: true,
         },
     },
     routes: {
         // URL: [Scene, SceneKey]
-        '/messaging/automations': ['MessagingAutomations', 'messagingAutomations'],
-        '/messaging/automations/:id': ['MessagingAutomations', 'messagingAutomation'],
-        '/messaging/automations/new': ['MessagingAutomations', 'messagingAutomationNew'],
-        '/messaging/providers': ['MessagingProviders', 'messagingProviders'],
-        '/messaging/providers/:id': ['MessagingProviders', 'messagingProvider'],
-        '/messaging/providers/new': ['MessagingProviders', 'messagingProviderNew'],
-        '/messaging/providers/new/*': ['MessagingProviders', 'messagingProviderNew'],
+        '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
+        '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
+        '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
         '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
         '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
-        '/messaging/library/new': ['MessagingLibrary', 'messagingLibraryNew'],
-        '/messaging/library/:id': ['MessagingLibrary', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new?messageId=:messageId': [
+            'MessagingLibraryTemplate',
+            'messagingLibraryTemplateFromMessage',
+        ],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
     },
     urls: {
-        messagingAutomations: (): string => '/messaging/automations',
-        messagingAutomation: (id?: string): string => `/messaging/automations/${id}`,
-        messagingAutomationNew: (): string => '/messaging/automations/new',
+        messagingCampaigns: (): string => '/messaging/campaigns',
+        messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new',
         messagingBroadcasts: (): string => '/messaging/broadcasts',
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-        messagingProviders: (): string => '/messaging/providers',
-        messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-        messagingProviderNew: (template?: string): string =>
-            '/messaging/providers/new' + (template ? `/${template}` : ''),
         messagingLibrary: (): string => '/messaging/library',
-        messagingLibraryNew: (): string => '/messaging/library/new',
-        messagingLibraryTemplate: (id?: string): string => `/messaging/library/${id}`,
+        messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
+        messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+        messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
+        messagingLibraryTemplateFromMessage: (id?: string): string =>
+            `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        broadcast: {
+        'hog_function/broadcast': {
             icon: <IconMegaphone />,
             href: (ref: string) => urls.messagingBroadcast(ref),
         },
+        'hog_function/campaign': {
+            icon: <IconMegaphone />,
+            href: (ref: string) => urls.messagingCampaign(ref),
+        },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: `Create new/Broadcast`,
-            type: 'broadcast',
-            href: () => urls.messagingBroadcastNew(),
+            path: `Broadcast`,
+            type: 'hog_function/broadcast',
+            href: urls.messagingBroadcastNew(),
+            flag: FEATURE_FLAGS.MESSAGING,
+        },
+        {
+            path: `Campaign`,
+            type: 'hog_function/campaign',
+            href: urls.messagingCampaignNew(),
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Broadcasts',
+            href: urls.messagingBroadcasts(),
+            type: 'hog_function/broadcast',
+        },
+        {
+            path: 'Campaigns',
+            href: urls.messagingCampaigns(),
+            type: 'hog_function/campaign',
+        },
+    ],
+    fileSystemFilterTypes: {
+        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
+        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
+    },
 }

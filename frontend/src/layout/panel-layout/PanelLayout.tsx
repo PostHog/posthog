@@ -1,7 +1,11 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
+
+import { GameTree } from '~/layout/panel-layout/GameTree/GameTree'
+import { ProductTree } from '~/layout/panel-layout/ProductTree/ProductTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
@@ -10,7 +14,7 @@ import { ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
-    base: 'gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]',
+    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -21,38 +25,44 @@ const panelLayoutStyles = cva({
             false: '',
         },
         isLayoutPanelVisible: {
-            true: '',
-            false: '',
+            true: 'block',
+            false: 'hidden',
         },
         isLayoutPanelPinned: {
             true: '',
             false: '',
         },
         isMobileLayout: {
-            true: 'flex absolute top-0 bottom-0 left-0',
+            true: 'absolute top-0 bottom-0 flex',
             false: 'grid',
         },
         isLayoutNavCollapsed: {
             true: '',
             false: '',
         },
+        projectTreeMode: {
+            tree: '',
+            table: '',
+        },
     },
     compoundVariants: [
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: true,
-            className: 'translate-x-0',
+            className: 'block',
         },
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: false,
-            className: 'translate-x-[calc(var(--project-navbar-width)*-1)]',
+            className: 'hidden',
         },
+        // Tree mode
         {
             isMobileLayout: false,
             isLayoutPanelVisible: true,
             isLayoutPanelPinned: true,
             isLayoutNavCollapsed: false,
+            projectTreeMode: 'tree',
             className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
         },
         {
@@ -60,8 +70,29 @@ const panelLayoutStyles = cva({
             isLayoutPanelVisible: true,
             isLayoutPanelPinned: true,
             isLayoutNavCollapsed: true,
+            projectTreeMode: 'tree',
             className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
         },
+        // Table mode
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: true,
+            isLayoutNavCollapsed: false,
+            projectTreeMode: 'table',
+            // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width
+            className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
+        },
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: true,
+            isLayoutNavCollapsed: true,
+            projectTreeMode: 'table',
+            // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width (collapsed)
+            className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
+        },
+        // Navbar (collapsed)
         {
             isMobileLayout: false,
             isLayoutPanelVisible: true,
@@ -69,6 +100,7 @@ const panelLayoutStyles = cva({
             isLayoutNavCollapsed: true,
             className: 'w-[var(--project-navbar-width-collapsed)]',
         },
+        // Navbar (default)
         {
             isMobileLayout: false,
             isLayoutPanelVisible: true,
@@ -77,10 +109,6 @@ const panelLayoutStyles = cva({
             className: 'w-[var(--project-navbar-width)]',
         },
     ],
-    defaultVariants: {
-        isLayoutPanelPinned: false,
-        isLayoutPanelVisible: false,
-    },
 })
 
 export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
@@ -91,15 +119,13 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
+        projectTreeMode,
+        panelWidth,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
+    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
         useActions(panelLayoutLogic)
-    const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
-    const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
     useMountedLogic(projectTreeLogic)
-
-    const containerRef = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         if (mainRef.current) {
@@ -108,7 +134,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
     }, [mainRef, setMainContentRef])
 
     return (
-        <div className="relative" ref={containerRef}>
+        <>
             <div
                 id="project-panel-layout"
                 className={cn(
@@ -119,37 +145,39 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         isLayoutPanelVisible,
                         isMobileLayout,
                         isLayoutNavCollapsed,
+                        projectTreeMode: projectTreeMode as TreeMode,
                     })
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--project-panel-width': `${panelWidth}px` } as React.CSSProperties}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'Project' && <ProjectTree />}
-                    {/* {activePanelIdentifier === 'persons' && <PersonsTree />} */}
+                    {activePanelIdentifier === 'Project' && <ProjectTree sortMethod="folder" />}
+                    {activePanelIdentifier === 'Recent' && <ProjectTree sortMethod="recent" />}
+                    {activePanelIdentifier === 'Products' && <ProductTree />}
+                    {activePanelIdentifier === 'Games' && <GameTree />}
                 </PanelLayoutNavBar>
             </div>
 
-            {isMobileLayout && showMobileNavbarOverlay && (
+            {isLayoutPanelVisible && !isLayoutPanelPinned && (
                 <div
                     onClick={() => {
-                        // Pinned or not, hide the navbar and panel
-                        showLayoutNavBar(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen"
                 />
             )}
-            {!isMobileLayout && showDesktopNavbarOverlay && (
+
+            {projectTreeMode === 'table' && (
                 <div
                     onClick={() => {
-                        if (!isLayoutPanelPinned) {
-                            showLayoutPanel(false)
-                            clearActivePanelIdentifier()
-                        }
+                        // Return to tree mode when clicking outside the table view
+                        setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen"
                 />
             )}
-        </div>
+        </>
     )
 }

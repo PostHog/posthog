@@ -74,6 +74,26 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         ],
         "effective_membership_level": 8,
         "flags_persistence_default": false,
+        "group_types": [
+          {
+            "group_type": "organization",
+            "group_type_index": 0,
+            "name_plural": "organizations",
+            "name_singular": null,
+          },
+          {
+            "group_type": "instance",
+            "group_type_index": 1,
+            "name_plural": "instances",
+            "name_singular": null,
+          },
+          {
+            "group_type": "project",
+            "group_type_index": 2,
+            "name_plural": "projects",
+            "name_singular": null,
+          },
+        ],
         "has_completed_onboarding_for": {
           "product_analytics": true,
         },
@@ -103,29 +123,29 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
-        "revenue_tracking_config": {
-          "baseCurrency": "USD",
-          "dataWarehouseTables": [
-            {
-              "distinctIdColumn": "distinct_id",
-              "revenueColumn": "revenue",
-              "revenueCurrencyColumn": {
-                "static": "SCR",
-              },
-              "tableName": "mock_table",
-              "timestampColumn": "timestamp",
-            },
-          ],
+        "revenue_analytics_config": {
+          "base_currency": "USD",
           "events": [
             {
+              "currencyAwareDecimal": false,
               "eventName": "purchase",
               "revenueCurrencyProperty": {
                 "static": "ZAR",
               },
               "revenueProperty": "value",
             },
+            {
+              "currencyAwareDecimal": true,
+              "eventName": "subscription_created",
+              "revenueCurrencyProperty": {
+                "property": "currency",
+              },
+              "revenueProperty": "subscription_value",
+            },
           ],
         },
+        "secret_api_token": "phs_default-team-secret-api-token",
+        "secret_api_token_backup": "phs_default-team-secret-api-token-backup",
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {
           "maskAllInputs": true,

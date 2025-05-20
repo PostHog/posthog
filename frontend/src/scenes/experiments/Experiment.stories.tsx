@@ -2386,6 +2386,10 @@ export const ExperimentV2WithThreeMetrics: StoryFn = () => {
     }, [])
     return <App />
 }
+ExperimentV2WithThreeMetrics.play = async () => {
+    // Add a small delay to ensure charts render completely
+    await new Promise((resolve) => setTimeout(resolve, 500))
+}
 
 export const ExperimentV3WithExperimentQuery: StoryFn = () => {
     useEffect(() => {
@@ -2393,10 +2397,18 @@ export const ExperimentV3WithExperimentQuery: StoryFn = () => {
     }, [])
     return <App />
 }
+ExperimentV3WithExperimentQuery.play = async () => {
+    // Add a small delay to ensure charts render completely
+    await new Promise((resolve) => setTimeout(resolve, 500))
+}
 
 export const ExperimentV3WithAsymmetricIntervals: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment(EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id))
     }, [])
     return <App />
+}
+ExperimentV3WithAsymmetricIntervals.play = async () => {
+    // Add a small delay to ensure charts render completely
+    await new Promise((resolve) => setTimeout(resolve, 500))
 }

@@ -11,7 +11,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
-from posthog.models.cohort import Cohort, get_and_update_pending_version
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
@@ -1494,20 +1494,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
         self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
 
-    def test_increment_cohort(self):
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-            name="cohort1",
-            pending_version=None,
-        )
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 1
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 2
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 3
-
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
         action = Action.objects.create(team=self.team, name="all events", steps_json=[{"event": None}])
@@ -1739,3 +1725,68 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with self.assertRaises(ValidationError):
             self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+    def test_cohort_with_inclusion_and_exclusion_and_nested_negation(self):
+        # Create two users with different properties
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["user1"], properties={"email": "exclude1", "in_cohort_1": "yes"}
+        )
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["user2"], properties={"email": "exclude2", "in_cohort_1": "yes"}
+        )
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["user3"], properties={"email": "include", "in_cohort_1": "yes"}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["user4"], properties={"in_cohort_1": "yes"})
+        flush_persons_and_events()
+
+        cohort_1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort_1",
+            groups=[{"properties": [{"key": "in_cohort_1", "value": "yes", "type": "person", "operator": "exact"}]}],
+        )
+
+        cohort_2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort_2",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "operator": "is_not", "value": "exclude1", "type": "person"},
+                                {"key": "email", "operator": "is_not", "value": "exclude2", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "id", "value": cohort_1.pk, "type": "cohort"},
+                            ],
+                        },
+                    ],
+                }
+            },
+        )
+
+        # Create third cohort that includes cohort_1 and excludes cohort_2
+        cohort_3 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort_1.pk, "type": "cohort"},
+                        {"key": "id", "value": cohort_2.pk, "type": "cohort", "negation": True},
+                    ],
+                }
+            },
+            name="cohort_3",
+        )
+        self.calculate_cohort_hogql_test_harness(cohort_3, 0)
+
+        results = self._get_cohortpeople(cohort_3)
+        self.assertEqual(len(results), 2)
+        self.assertCountEqual([x[0] for x in results], [p1.uuid, p2.uuid])

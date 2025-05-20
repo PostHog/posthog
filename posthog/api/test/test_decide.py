@@ -70,6 +70,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "scriptConfig": None,
         "sampleRate": None,
         "eventTriggers": [],
+        "triggerMatchType": None,
         **overrides,
     }
 
@@ -396,6 +397,56 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
         assert response["sessionRecording"] == make_session_recording_decide_response(
             {"eventTriggers": ["$pageview", "$exception"]}
+        )
+
+    def test_session_recording_trigger_match_type_can_be_all(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "all",
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response({"triggerMatchType": "all"})
+
+    def test_session_recording_trigger_match_type_can_be_any(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "any",
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response({"triggerMatchType": "any"})
+
+    def test_session_recording_trigger_match_type_default_is_absent(self, *args):
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response({"triggerMatchType": None})
+
+    def test_session_recording_trigger_match_type_cannot_be_empty_string(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "",
+                "session_recording_opt_in": True,
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_session_recording_trigger_match_type_cannot_be_unknown_string(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "unknown",
+                "session_recording_opt_in": True,
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     def test_session_recording_network_payload_capture_config(self, *args):
@@ -998,7 +1049,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "metadata": {
                     "id": bf.id,
                     "version": 1,
-                    "description": "Beta feature",
+                    "description": None,
                     "payload": None,
                 },
             },
@@ -1017,7 +1068,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "metadata": {
                     "id": mvFlag.id,
                     "version": 42,
-                    "description": "This is a feature flag with multiple variants.",
+                    "description": None,
                     "payload": {"color": "blue"},
                 },
             },
@@ -2825,11 +2876,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=1)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=1)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 

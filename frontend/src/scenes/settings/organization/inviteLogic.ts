@@ -30,10 +30,10 @@ const EMPTY_INVITE: InviteRowState = {
 
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight']],
         actions: [router, ['locationChanged']],
-    }),
+    })),
     actions({
         showInviteModal: true,
         hideInviteModal: true,
@@ -162,7 +162,10 @@ export const inviteLogic = kea<inviteLogicType>([
             }
 
             if (inviteCount > 0) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                // We want to avoid this updating the team before the onboarding is finished
+                setTimeout(() => {
+                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                }, 1000)
             }
         },
     })),

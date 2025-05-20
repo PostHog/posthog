@@ -28,7 +28,7 @@ else
     echo ""
     echo ""
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-    echo "🚨🚨🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨"
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
     echo ""
     echo ""
@@ -84,10 +84,10 @@ cd posthog
 git pull --prune
 cd ../
 
-# Upgrade Docker Compose to version 2.13.0
+# Upgrade Docker Compose to version 2.33.1
 echo "Setting up Docker Compose"
 sudo rm /usr/local/bin/docker-compose
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.13.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
 sudo chmod +x /usr/local/bin/docker-compose
 
 rm -f docker-compose.yml
@@ -109,7 +109,7 @@ docker-compose stop
 # single script.
 cat > compose/start <<EOF
 #!/bin/bash
-/compose/wait
+./compose/wait
 ./bin/migrate
 ./bin/docker-server
 EOF
@@ -119,7 +119,7 @@ then
     echo ""
     echo ""
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-    echo "🚨🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨"
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
     echo ""
     echo ""

@@ -1,15 +1,14 @@
-import { IconGear, IconTrending } from '@posthog/icons'
+import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
 import { useState } from 'react'
-import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
@@ -52,11 +51,7 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    let numSkeletons = props.query.conversionGoal ? 4 : 5
-    if (useFeatureFlag('WEB_REVENUE_TRACKING')) {
-        numSkeletons += 1
-    }
-
+    const numSkeletons = props.query.conversionGoal ? 5 : 6
     return (
         <>
             <EvenlyDistributedRows
@@ -111,6 +106,7 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
         : undefined
 
     const docsUrl = settingsLinkFromKey(item.key)
+    const dashboardUrl = dashboardLinkFromKey(item.key)
 
     // If current === previous, say "increased by 0%"
     const tooltip =
@@ -132,12 +128,21 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
             <div className={OVERVIEW_ITEM_CELL_CLASSES}>
                 <div className="flex flex-row w-full">
                     <div className="flex flex-row items-start justify-start flex-1">
-                        {/* NOTE: If ever removing the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
+                        {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
                         {isBeta && <LemonTag type="warning">BETA</LemonTag>}
                     </div>
                     <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
                     <div className="flex flex-1 flex-row justify-end items-start">
-                        {docsUrl && <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />}
+                        {dashboardUrl && (
+                            <Tooltip title={`Access dedicated ${item.key} dashboard`}>
+                                <LemonButton to={dashboardUrl} icon={<IconDashboard />} size="xsmall" />
+                            </Tooltip>
+                        )}
+                        {docsUrl && (
+                            <Tooltip title={`Access ${item.key} settings`}>
+                                <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />
+                            </Tooltip>
+                        )}
                     </div>
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
@@ -212,6 +217,10 @@ const labelFromKey = (key: string): string => {
             return 'Total conversions'
         case 'unique conversions':
             return 'Unique conversions'
+        case 'revenue':
+            return 'Events revenue'
+        case 'conversion revenue':
+            return 'Conversion events revenue'
         default:
             return key
                 .split(' ')
@@ -224,7 +233,17 @@ const settingsLinkFromKey = (key: string): string | null => {
     switch (key) {
         case 'revenue':
         case 'conversion revenue':
-            return urls.revenue()
+            return urls.revenueSettings()
+        default:
+            return null
+    }
+}
+
+const dashboardLinkFromKey = (key: string): string | null => {
+    switch (key) {
+        case 'revenue':
+        case 'conversion revenue':
+            return urls.revenueAnalytics()
         default:
             return null
     }

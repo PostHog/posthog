@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, Optional
 
 import structlog
@@ -15,7 +16,9 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
 )
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
+from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
+)
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
@@ -172,7 +175,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 instance.sync_frequency_interval = sync_frequency_interval
 
         if sync_time_of_day is not None:
-            if sync_time_of_day != instance.sync_time_of_day:
+            try:
+                new_time = dt.datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
+            except ValueError:
+                raise ValidationError("Invalid sync time of day")
+
+            if new_time != instance.sync_time_of_day:
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = sync_time_of_day
                 instance.sync_time_of_day = sync_time_of_day
@@ -189,10 +197,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 unpause_external_data_schedule(str(instance.id))
         else:
             if should_sync is True:
-                sync_external_data_job_workflow(instance, create=True)
+                sync_external_data_job_workflow(instance, create=True, should_sync=should_sync)
 
         if was_sync_frequency_updated or was_sync_time_of_day_updated:
-            sync_external_data_job_workflow(instance, create=False)
+            sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -286,6 +294,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
         instance.status = ExternalDataSchema.Status.RUNNING
         instance.save()
+        return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["DELETE"], detail=True)
+    def delete_data(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+        instance.delete_table()
+
         return Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)

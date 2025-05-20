@@ -50,7 +50,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
 
         projectTreeRef: [
             () => [(_, props: NotebookSceneLogicProps) => props.shortId],
-            (shortId): ProjectTreeRef => ({ type: 'notebook', ref: String(shortId) }),
+            (shortId): ProjectTreeRef | null => (shortId === 'new' ? null : { type: 'notebook', ref: String(shortId) }),
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

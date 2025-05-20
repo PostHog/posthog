@@ -1,11 +1,8 @@
-import asyncio
 import collections.abc
 import datetime as dt
-import signal
 from concurrent.futures import ThreadPoolExecutor
 
 import structlog
-from django.conf import settings
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -16,14 +13,7 @@ from posthog.temporal.common.sentry import SentryInterceptor
 logger = structlog.get_logger(__name__)
 
 
-def _debug_pyarrows():
-    if settings.PYARROW_DEBUG_LOGGING:
-        import pyarrow as pa
-
-        pa.log_memory_allocations(enable=True)
-
-
-async def start_worker(
+async def create_worker(
     host: str,
     port: int,
     metrics_port: int,
@@ -37,9 +27,28 @@ async def start_worker(
     graceful_shutdown_timeout: dt.timedelta | None = None,
     max_concurrent_workflow_tasks: int | None = None,
     max_concurrent_activities: int | None = None,
-):
-    _debug_pyarrows()
+) -> Worker:
+    """Connect to Temporal server and return a Worker.
 
+    Arguments:
+        host: The Temporal Server host.
+        port: The Temporal Server port.
+        metrics_port: Port used to serve Prometheus metrics.
+        namespace: The Temporal namespace to connect to.
+        task_queue: The task queue the worker will listen on.
+        workflows: Workflows the worker is configured to run.
+        activities: Activities the worker is configured to run.
+        server_root_ca_cert: Root CA to validate the server certificate against.
+        client_cert: Client certificate for TLS.
+        client_key: Client private key for TLS.
+        graceful_shutdown_timeout: Time to wait (in seconds) for graceful shutdown.
+            By default we will wait 5 minutes. This should be always less than any
+            timeouts used by deployment orchestrators.
+        max_concurrent_workflow_tasks: Maximum number of concurrent workflow tasks
+            the worker can handle. Defaults to 50.
+        max_concurrent_activities: Maximum number of concurrent activity tasks the
+            worker can handle. Defaults to 50.
+    """
     runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(
         host,
@@ -66,17 +75,4 @@ async def start_worker(
         # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
         max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
     )
-
-    # catch the TERM and INT signals, and stop the worker gracefully
-    # https://github.com/temporalio/sdk-python#worker-shutdown
-    async def shutdown_worker(s: str):
-        logger.info("%s received, initiating Temporal worker shutdown", s)
-        await worker.shutdown()
-        logger.info("Finished Temporal worker shutdown")
-
-    loop = asyncio.get_event_loop()
-    shutdown_tasks = set()
-    loop.add_signal_handler(signal.SIGINT, lambda: shutdown_tasks.add(asyncio.create_task(shutdown_worker("SIGINT"))))
-    loop.add_signal_handler(signal.SIGTERM, lambda: shutdown_tasks.add(asyncio.create_task(shutdown_worker("SIGTERM"))))
-
-    await worker.run()
+    return worker

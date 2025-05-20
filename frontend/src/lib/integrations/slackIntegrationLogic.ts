@@ -11,9 +11,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'slackIntegrationLogic', key]),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
+    })),
     actions({
         loadAllSlackChannels: () => ({}),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
@@ -73,6 +73,15 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 return (channel: string) => {
                     const [channelId] = channel.split('|')
                     return slackChannels.find((x) => x.id === channelId)?.is_member ?? false
+                }
+            },
+        ],
+        isPrivateChannelWithoutAccess: [
+            (s) => [s.slackChannels],
+            (slackChannels: SlackChannelType[]) => {
+                return (channel: string) => {
+                    const [channelId] = channel.split('|')
+                    return slackChannels.find((x) => x.id === channelId)?.is_private_without_access ?? false
                 }
             },
         ],

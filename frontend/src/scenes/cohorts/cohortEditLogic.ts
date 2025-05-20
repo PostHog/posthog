@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -18,6 +19,7 @@ import {
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
@@ -193,7 +195,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
-                actions.saveCohort(cohort)
+                if (cohort.id !== 'new') {
+                    actions.saveCohort(cohort)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Untitled/Cohorts',
+                        callback: (folder) => actions.saveCohort({ ...cohort, _create_in_folder: folder }),
+                    })
+                }
             },
         },
     })),
@@ -243,8 +252,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
                     breakpoint()
+
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
                     })
@@ -282,7 +293,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         } else {
                             const data = { ...values.cohort }
                             data.name += ' (dynamic copy)'
-                            cohort = await api.cohorts.create(data)
+                            const cohortFormData = createCohortFormData(data)
+                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                         }
                         lemonToast.success(
                             'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
@@ -326,7 +338,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }, 1000)
                 )
             } else {
-                actions.setCohort(cohort)
+                // Only update calculation-related fields, preserve user edits for other fields
+                const calculationFields = {
+                    is_calculating: cohort.is_calculating,
+                    errors_calculating: cohort.errors_calculating,
+                    last_calculation: cohort.last_calculation,
+                    count: cohort.count,
+                }
+                actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {

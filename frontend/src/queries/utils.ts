@@ -1,12 +1,12 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
+    CalendarHeatmapQuery,
     CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -39,12 +39,16 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
     TracesQuery,
+    TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -143,6 +147,24 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsGrowthRateQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrowthRateQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsTopCustomersQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsTopCustomersQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
@@ -204,6 +226,10 @@ export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
 
 export function isTrendsQuery(node?: Record<string, any> | null): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
+}
+
+export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
+    return node?.kind === NodeKind.CalendarHeatmapQuery
 }
 
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
@@ -277,7 +303,8 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isCalendarHeatmapQuery(node)
     )
 }
 
@@ -315,16 +342,23 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
-export const getFormula = (query: InsightQueryNode): string | undefined => {
+export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
     }
     return undefined
 }
 
-export const getFormulas = (query: InsightQueryNode): string[] | undefined => {
+export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+    }
+    return undefined
+}
+
+export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formulaNodes
     }
     return undefined
 }
@@ -429,6 +463,7 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
@@ -539,6 +574,9 @@ function isHogQlIdentifier(value: any): value is HogQLIdentifier {
 }
 
 function formatHogQlValue(value: any): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { teamLogic } = require('scenes/teamLogic')
+
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQlValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {

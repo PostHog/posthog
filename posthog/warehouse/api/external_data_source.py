@@ -37,6 +37,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
+    StripePermissionError,
     validate_credentials as validate_stripe_credentials,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
@@ -157,6 +158,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    revenue_analytics_enabled = serializers.BooleanField(default=False)
 
     class Meta:
         model = ExternalDataSource
@@ -170,6 +172,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "revenue_analytics_enabled",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -239,9 +242,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                     "auth_type": {
                         "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
                         "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
-                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
-                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
-                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                        "password": None,
+                        "passphrase": None,
+                        "private_key": None,
                     },
                 }
                 job_inputs["ssh-tunnel"] = ssh_tunnel
@@ -524,7 +527,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True)
+                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -546,6 +549,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type,
+            revenue_analytics_enabled=True,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
             prefix=prefix,
         )
@@ -946,7 +950,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
             key = request.data.get("stripe_secret_key", "")
-            if not validate_stripe_credentials(api_key=key):
+            try:
+                validate_stripe_credentials(api_key=key)
+            except StripePermissionError as e:
+                missing_resources = ", ".join(e.missing_permissions.keys())
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for {missing_resources}"},
+                )
+            except Exception:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Stripe secret is incorrect"},

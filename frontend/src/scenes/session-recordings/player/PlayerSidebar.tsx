@@ -43,6 +43,11 @@ export function PlayerSidebar(): JSX.Element {
         SessionRecordingSidebarTab.NETWORK_WATERFALL,
     ]
 
+    // Show AI summary tab in the second position if the flag is enabled
+    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]) {
+        sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
+    }
+
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)
     }
@@ -71,15 +76,24 @@ export function PlayerSidebar(): JSX.Element {
             />
             {sidebarOpen && (
                 <>
-                    <div className="flex bg-surface-primary">
+                    <div className="flex bg-surface-primary pt-[1px]">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
-                            tabs={sidebarTabs.map((tabId) => ({
-                                key: tabId,
-                                label: capitalizeFirstLetter(splitKebabCase(tabId)),
-                            }))}
+                            tabs={sidebarTabs.map((tabId) => {
+                                if (tabId === SessionRecordingSidebarTab.SESSION_SUMMARY) {
+                                    return {
+                                        key: tabId,
+                                        label: 'AI summary',
+                                    }
+                                }
+
+                                return {
+                                    key: tabId,
+                                    label: capitalizeFirstLetter(splitKebabCase(tabId)),
+                                }
+                            })}
                             barClassName="!mb-0"
                             size="small"
                         />

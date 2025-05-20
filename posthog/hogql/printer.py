@@ -31,6 +31,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    safe_identifier,
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
@@ -50,7 +51,10 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import get_survey_response_clickhouse_query
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -121,8 +125,12 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
+            # Passing both `team_id` and `team` because `team` is not always available in the context
             context.database = create_hogql_database(
-                context.team_id, context.modifiers, context.team, timings=context.timings
+                context.team_id,
+                modifiers=context.modifiers,
+                team=context.team,
+                timings=context.timings,
             )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
@@ -380,6 +388,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
@@ -791,7 +802,14 @@ class _Printer(Visitor):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
+            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
+        ):
+            not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
             not_nullable = True
 
         constant_lambda = None
@@ -1134,8 +1152,18 @@ class _Printer(Visitor):
                         ):
                             raise QueryError("getSurveyResponse first argument must be a valid integer")
                         second_arg = node_args[1] if len(node_args) > 1 else None
+                        third_arg = node_args[2] if len(node_args) > 2 else None
                         question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                        return get_survey_response_clickhouse_query(int(question_index_obj.value), question_id)
+                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                        return get_survey_response_clickhouse_query(
+                            int(question_index_obj.value), question_id, is_multiple_choice
+                        )
+
+                    elif node.name == "uniqueSurveySubmissionsFilter":
+                        survey_id = node_args[0]
+                        if not isinstance(survey_id, ast.Constant):
+                            raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                        return filter_survey_sent_events_by_unique_submission(survey_id.value)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
@@ -1272,7 +1300,7 @@ class _Printer(Visitor):
 
             args = [self.visit(arg) for arg in node.args]
 
-            if self.dialect in ("hogql", "clickhouse"):
+            if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
@@ -1299,7 +1327,9 @@ class _Printer(Visitor):
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
-            raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
+
+            # If hogql dialect, just keep it as is
+            return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:

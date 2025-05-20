@@ -6,7 +6,7 @@ import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 
 from django.utils import timezone
@@ -16,8 +16,9 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
-from posthog.models.utils import sane_repr
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -74,7 +75,7 @@ class Group:
         return dup
 
 
-class CohortManager(models.Manager):
+class CohortManager(RootTeamManager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
             kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
@@ -82,12 +83,68 @@ class CohortManager(models.Manager):
         return cohort
 
 
-class Cohort(FileSystemSyncMixin, models.Model):
+class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
-    filters = models.JSONField(null=True, blank=True)
+    filters = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="""Filters for the cohort. Examples:
+
+        # Behavioral filter (performed event)
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "address page viewed",
+                        "type": "behavioral",
+                        "value": "performed_event",
+                        "negation": false,
+                        "event_type": "events",
+                        "time_value": "30",
+                        "time_interval": "day"
+                    }]
+                }]
+            }
+        }
+
+        # Person property filter
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "promoCodes",
+                        "type": "person",
+                        "value": ["1234567890"],
+                        "negation": false,
+                        "operator": "exact"
+                    }]
+                }]
+            }
+        }
+
+        # Cohort filter
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "id",
+                        "type": "cohort",
+                        "value": 8814,
+                        "negation": false
+                    }]
+                }]
+            }
+        }""",
+    )
     query = models.JSONField(null=True, blank=True)
     people = models.ManyToManyField("Person", through="CohortPeople")
     version = models.IntegerField(blank=True, null=True)
@@ -107,7 +164,7 @@ class Cohort(FileSystemSyncMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
-    objects = CohortManager()
+    objects = CohortManager()  # type: ignore
 
     def __str__(self):
         return self.name or "Untitled cohort"
@@ -119,8 +176,8 @@ class Cohort(FileSystemSyncMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Cohorts",
-            type="cohort",
+            base_folder=self._create_in_folder or "Unfiled/Cohorts",
+            type="cohort",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=f"/cohorts/{self.pk}",
@@ -218,7 +275,6 @@ class Cohort(FileSystemSyncMixin, models.Model):
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import clear_stale_cohort
 
         use_hogql_cohorts = posthoganalytics.feature_enabled(
             "enable_hogql_cohort_calculation",
@@ -274,8 +330,6 @@ class Cohort(FileSystemSyncMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-        clear_stale_cohort.delay(self.pk, before_version=pending_version)
-
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -303,7 +357,8 @@ class Cohort(FileSystemSyncMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
                     .filter(
                         Q(
                             persondistinctid__team_id=team_id,
@@ -363,7 +418,10 @@ class Cohort(FileSystemSyncMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
+                    .filter(uuid__in=batch)
+                    .exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
@@ -399,14 +457,37 @@ class Cohort(FileSystemSyncMixin, models.Model):
             self.save()
             capture_exception(err)
 
+    def to_dict(self) -> dict:
+        people_data = [
+            {
+                "id": person.id,
+                "email": person.email or "(no email)",
+                "distinct_id": person.distinct_ids[0] if person.distinct_ids else "(no distinct id)",
+            }
+            for person in self.people.all()
+        ]
+
+        from posthog.models.activity_logging.activity_log import field_exclusions, common_field_exclusions
+
+        excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
+        base_dict = {
+            "id": self.pk,
+            "name": self.name,
+            "description": self.description,
+            "team_id": self.team_id,
+            "deleted": self.deleted,
+            "filters": self.filters,
+            "query": self.query,
+            "groups": self.groups,
+            "is_static": self.is_static,
+            "created_by_id": self.created_by_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
+            "people": people_data,
+        }
+        return {k: v for k, v in base_dict.items() if k not in excluded_fields}
+
     __repr__ = sane_repr("id", "name", "last_calculation")
-
-
-def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save(update_fields=["pending_version"])
-    cohort.refresh_from_db()
-    return cohort.pending_version
 
 
 class CohortPeople(models.Model):

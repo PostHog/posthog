@@ -7,12 +7,11 @@ use sqlx::{pool::PoolOptions, PgPool};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PoolConfig {
     pub db_url: String,
-    pub max_connections: Option<u32>,           // Default to 10
-    pub min_connections: Option<u32>,           // Default to 1
-    pub acquire_timeout_seconds: Option<u64>,   // Default to 30
-    pub max_lifetime_seconds: Option<u64>,      // Default to 300
-    pub idle_timeout_seconds: Option<u64>,      // Default to 60
-    pub should_compress_vm_state: Option<bool>, // Defaults to "false" (for now!)
+    pub max_connections: Option<u32>,         // Default to 10
+    pub min_connections: Option<u32>,         // Default to 1
+    pub acquire_timeout_seconds: Option<u64>, // Default to 30
+    pub max_lifetime_seconds: Option<u64>,    // Default to 300
+    pub idle_timeout_seconds: Option<u64>,    // Default to 60
 }
 
 impl PoolConfig {
@@ -35,13 +34,18 @@ impl PoolConfig {
 pub const DEFAULT_QUEUE_DEPTH_LIMIT: u64 = 1_000_000;
 pub const DEFAULT_SHARD_HEALTH_CHECK_INTERVAL: u64 = 10;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ManagerConfig {
+    #[serde(alias = "shards")]
     pub shards: Vec<PoolConfig>,
+    #[serde(alias = "shardDepthLimit")]
     pub shard_depth_limit: Option<u64>, // Defaults to 10_000 available jobs per shard
+    #[serde(alias = "shardDepthCheckIntervalSeconds")]
     pub shard_depth_check_interval_seconds: Option<u64>, // Defaults to 10 seconds - checking shard capacity
-    pub should_compress_vm_state: Option<bool>,          // Defaults to "false" for now
-    pub should_use_bulk_job_copy: Option<bool>,          // Defaults to "false" for now
+    #[serde(alias = "shouldCompressVmState")]
+    pub should_compress_vm_state: Option<bool>, // Defaults to "false" for now
+    #[serde(alias = "shouldUseBulkJobCopy")]
+    pub should_use_bulk_job_copy: Option<bool>, // Defaults to "false" for now
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -58,8 +62,6 @@ pub struct WorkerConfig {
     pub flush_loop_interval_ms: Option<u64>, // Defaults to 10
     #[serde(alias = "shouldCompressVmState")]
     pub should_compress_vm_state: Option<bool>, // Defaults to "false"
-    #[serde(alias = "shouldUseBulkJobCopy")]
-    pub should_use_bulk_job_copy: Option<bool>, // Defaults to "false"
 }
 
 impl WorkerConfig {
@@ -85,9 +87,5 @@ impl WorkerConfig {
 
     pub fn should_compress_vm_state(&self) -> bool {
         self.should_compress_vm_state.unwrap_or(false)
-    }
-
-    pub fn should_use_bulk_job_copy(&self) -> bool {
-        self.should_use_bulk_job_copy.unwrap_or(false)
     }
 }

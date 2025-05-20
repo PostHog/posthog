@@ -1,18 +1,18 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
-import { TopicMessage } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../types'
-import { DB } from '../../utils/db/db'
-import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
+import { TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
 import { uuidFromDistinctId } from './person-uuid'
+import { PersonsStoreForDistinctIdBatch } from './persons/persons-store-for-distinct-id-batch'
 import { captureIngestionWarning } from './utils'
 
 export const mergeFinalFailuresCounter = new Counter({
@@ -36,6 +36,16 @@ export const personPropertyKeyUpdateCounter = new Counter({
     name: 'person_property_key_update_total',
     help: 'Number of person updates triggered by this property value changing.',
     labelNames: ['key'],
+})
+
+// temporary: for fetchPerson properties JSONB size observation
+const ONE_MEGABYTE_PROPS_BLOB = 1048576
+const personPropertiesSize = new Histogram({
+    name: 'person_properties_size',
+    help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
+    labelNames: ['at'],
+    // 1kb, 8kb, 64kb, 512kb, 1mb, 2mb, 4mb, 8mb, 16mb, 64mb, inf+
+    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864, Infinity],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -109,7 +119,9 @@ export class PersonState {
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB
+        private kafkaProducer: KafkaProducerWrapper,
+        private personStore: PersonsStoreForDistinctIdBatch,
+        private measurePersonJsonbSize: number = 0
     ) {
         this.eventProperties = event.properties!
 
@@ -118,9 +130,33 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
+    private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {
+        if (Math.random() >= this.measurePersonJsonbSize) {
+            // no-op if env flag is set to 0 (default) otherwise rate-limit
+            // ramp up of expensive size checking while we test it
+            return
+        }
+
+        const estimatedBytes: number = await this.personStore.personPropertiesSize(this.team.id, this.distinctId)
+        personPropertiesSize.labels({ at: at }).observe(estimatedBytes)
+
+        // if larger than size threshold (start conservative, adjust as we observe)
+        // we should log the team and disinct_id associated with the properties
+        if (estimatedBytes >= ONE_MEGABYTE_PROPS_BLOB) {
+            logger.warn('⚠️', 'record with oversized person properties detected', {
+                teamId: this.team.id,
+                distinctId: this.distinctId,
+                called_at: at,
+                estimated_bytes: estimatedBytes,
+            })
+        }
+
+        return
+    }
+
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            let existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true })
+            let existingPerson = await this.personStore.fetchForChecking(this.team.id, this.distinctId)
 
             if (!existingPerson) {
                 // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
@@ -130,7 +166,7 @@ export class PersonState {
 
                 const personlessDistinctIdCacheKey = `${this.team.id}|${this.distinctId}`
                 if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
-                    const personIsMerged = await this.db.addPersonlessDistinctId(this.team.id, this.distinctId)
+                    const personIsMerged = await this.personStore.addPersonlessDistinctId(this.team.id, this.distinctId)
 
                     // We know the row is in PG now, and so future events for this Distinct ID can
                     // skip the PG I/O.
@@ -141,9 +177,7 @@ export class PersonState {
                         // has been updated by a merge (either since we called `fetchPerson` above, plus
                         // replication lag). We need to check `fetchPerson` again (this time using the leader)
                         // so that we properly associate this event with the Person we got merged into.
-                        existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, {
-                            useReadReplica: false,
-                        })
+                        existingPerson = await this.personStore.fetchForUpdate(this.team.id, this.distinctId)
                     }
                 }
             }
@@ -205,7 +239,7 @@ export class PersonState {
 
     async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
         // There are various reasons why update can fail:
-        // - anothe thread created the person during a race
+        // - another thread created the person during a race
         // - the person might have been merged between start of processing and now
         // we simply and stupidly start from scratch
         return await promiseRetry(() => this.updateProperties(), 'update_person')
@@ -223,7 +257,9 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        let person = await this.db.fetchPerson(this.team.id, this.distinctId)
+        await this.capturePersonPropertiesSizeEstimate('createOrGetPerson')
+
+        let person = await this.personStore.fetchForUpdate(this.team.id, this.distinctId)
         if (person) {
             return [person, false]
         }
@@ -277,7 +313,7 @@ export class PersonState {
             propertiesLastUpdatedAt[key] = createdAt
         })
 
-        return await this.db.createPerson(
+        const [person, kafkaMessages] = await this.personStore.createPerson(
             createdAt,
             props,
             propertiesLastUpdatedAt,
@@ -289,6 +325,9 @@ export class PersonState {
             distinctIds,
             tx
         )
+
+        await this.kafkaProducer.queueMessages(kafkaMessages)
+        return person
     }
 
     private async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
@@ -303,8 +342,8 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
-            const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonForUpdate(person, update)
+            const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
 
@@ -458,7 +497,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
                 {
@@ -472,7 +511,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
                 {
@@ -498,8 +537,11 @@ export class PersonState {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
-        const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
-        const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
+        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_other')
+        const otherPerson = await this.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
+
+        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_into')
+        const mergeIntoPerson = await this.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -536,22 +578,24 @@ export class PersonState {
                 }
             })()
 
-            return await this.db.postgres.transaction(
-                PostgresUse.COMMON_WRITE,
-                'mergeDistinctIds-OneExists',
-                async (tx) => {
-                    // See comment above about `distinctIdVersion`
-                    const insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
-                        this.team.id,
-                        distinctIdToAdd,
-                        tx
-                    )
-                    const distinctIdVersion = insertedDistinctId ? 0 : 1
+            return await this.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+                // See comment above about `distinctIdVersion`
+                const insertedDistinctId = await this.personStore.addPersonlessDistinctIdForMerge(
+                    this.team.id,
+                    distinctIdToAdd,
+                    tx
+                )
+                const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                    await this.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
-                    return [existingPerson, Promise.resolve()]
-                }
-            )
+                const kafkaMessages = await this.personStore.addDistinctId(
+                    existingPerson,
+                    distinctIdToAdd,
+                    distinctIdVersion,
+                    tx
+                )
+                await this.kafkaProducer.queueMessages(kafkaMessages)
+                return [existingPerson, Promise.resolve()]
+            })
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
@@ -572,72 +616,68 @@ export class PersonState {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.db.postgres.transaction(
-                PostgresUse.COMMON_WRITE,
-                'mergeDistinctIds-NeitherExist',
-                async (tx) => {
-                    // See comment above about `distinctIdVersion`
-                    const insertedDistinctId1 = await this.db.addPersonlessDistinctIdForMerge(
-                        this.team.id,
-                        distinctId1,
-                        tx
-                    )
+            return await this.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
+                // See comment above about `distinctIdVersion`
+                const insertedDistinctId1 = await this.personStore.addPersonlessDistinctIdForMerge(
+                    this.team.id,
+                    distinctId1,
+                    tx
+                )
 
-                    // See comment above about `distinctIdVersion`
-                    const insertedDistinctId2 = await this.db.addPersonlessDistinctIdForMerge(
-                        this.team.id,
-                        distinctId2,
-                        tx
-                    )
+                // See comment above about `distinctIdVersion`
+                const insertedDistinctId2 = await this.personStore.addPersonlessDistinctIdForMerge(
+                    this.team.id,
+                    distinctId2,
+                    tx
+                )
 
-                    // `createPerson` uses the first Distinct ID provided to generate the Person
-                    // UUID. That means the first Distinct ID definitely doesn't need an override,
-                    // and can always use version 0. Below, we exhaust all of the options to decide
-                    // whether we can optimize away an override by doing a swap, or whether we
-                    // need to actually write an override. (But mostly we're being verbose for
-                    // documentation purposes)
-                    let distinctId2Version = 0
-                    if (insertedDistinctId1 && insertedDistinctId2) {
-                        // We were the first to insert both (neither was used for Personless), so we
-                        // can use either as the primary Person UUID and create no overrides.
-                    } else if (insertedDistinctId1 && !insertedDistinctId2) {
-                        // We created 1, but 2 was already used for Personless. Let's swap so
-                        // that 2 can be the primary Person UUID and no override is needed.
-                        ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
-                    } else if (!insertedDistinctId1 && insertedDistinctId2) {
-                        // We created 2, but 1 was already used for Personless, so we want to
-                        // use 1 as the primary Person UUID so that no override is needed.
-                    } else if (!insertedDistinctId1 && !insertedDistinctId2) {
-                        // Both were used in Personless mode, so there is no more-correct choice of
-                        // primary Person UUID to make here, and we need to drop an override by
-                        // using version = 1 for Distinct ID 2.
-                        distinctId2Version = 1
-                    }
-
-                    // The first Distinct ID is used to create the new Person's UUID, and so it
-                    // never needs an override.
-                    const distinctId1Version = 0
-
-                    return [
-                        await this.createPerson(
-                            // TODO: in this case we could skip the properties updates later
-                            timestamp,
-                            this.eventProperties['$set'] || {},
-                            this.eventProperties['$set_once'] || {},
-                            teamId,
-                            null,
-                            true,
-                            this.event.uuid,
-                            [
-                                { distinctId: distinctId1, version: distinctId1Version },
-                                { distinctId: distinctId2, version: distinctId2Version },
-                            ],
-                            tx
-                        ),
-                        Promise.resolve(),
-                    ]
+                // `createPerson` uses the first Distinct ID provided to generate the Person
+                // UUID. That means the first Distinct ID definitely doesn't need an override,
+                // and can always use version 0. Below, we exhaust all of the options to decide
+                // whether we can optimize away an override by doing a swap, or whether we
+                // need to actually write an override. (But mostly we're being verbose for
+                // documentation purposes)
+                let distinctId2Version = 0
+                if (insertedDistinctId1 && insertedDistinctId2) {
+                    // We were the first to insert both (neither was used for Personless), so we
+                    // can use either as the primary Person UUID and create no overrides.
+                } else if (insertedDistinctId1 && !insertedDistinctId2) {
+                    // We created 1, but 2 was already used for Personless. Let's swap so
+                    // that 2 can be the primary Person UUID and no override is needed.
+                    ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
+                } else if (!insertedDistinctId1 && insertedDistinctId2) {
+                    // We created 2, but 1 was already used for Personless, so we want to
+                    // use 1 as the primary Person UUID so that no override is needed.
+                } else if (!insertedDistinctId1 && !insertedDistinctId2) {
+                    // Both were used in Personless mode, so there is no more-correct choice of
+                    // primary Person UUID to make here, and we need to drop an override by
+                    // using version = 1 for Distinct ID 2.
+                    distinctId2Version = 1
                 }
-            )
+
+                // The first Distinct ID is used to create the new Person's UUID, and so it
+                // never needs an override.
+                const distinctId1Version = 0
+
+                return [
+                    await this.createPerson(
+                        // TODO: in this case we could skip the properties updates later
+                        timestamp,
+                        this.eventProperties['$set'] || {},
+                        this.eventProperties['$set_once'] || {},
+                        teamId,
+                        null,
+                        true,
+                        this.event.uuid,
+                        [
+                            { distinctId: distinctId1, version: distinctId1Version },
+                            { distinctId: distinctId2, version: distinctId2Version },
+                        ],
+                        tx
+                    ),
+                    Promise.resolve(),
+                ]
+            })
         }
     }
 
@@ -658,7 +698,7 @@ export class PersonState {
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.kafkaProducer,
                 this.team.id,
                 'cannot_merge_already_identified',
                 {
@@ -719,53 +759,49 @@ export class PersonState {
             })
             .inc()
 
-        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.db.postgres.transaction(
-            PostgresUse.COMMON_WRITE,
-            'mergePeople',
-            async (tx) => {
-                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                    mergeInto,
-                    {
-                        created_at: createdAt,
-                        properties: properties,
-                        is_identified: true,
+        const [mergedPerson, kafkaMessages] = await this.personStore.inTransaction('mergePeople', async (tx) => {
+            const [person, updatePersonMessages] = await this.personStore.updatePersonForMerge(
+                mergeInto,
+                {
+                    created_at: createdAt,
+                    properties: properties,
+                    is_identified: true,
 
-                        // By using the max version between the two Persons, we ensure that if
-                        // this Person is later split, we can use `this_person.version + 1` for
-                        // any split-off Persons and know that *that* version will be higher than
-                        // any previously deleted Person, and so the new Person row will "win" and
-                        // "undelete" the Person.
-                        //
-                        // For example:
-                        //  - Merge Person_1(version:7) into Person_2(version:2)
-                        //      - Person_1 is deleted
-                        //      - Person_2 attains version 8 via this code below
-                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
-                        //    its `distinct_id` to generate the deterministic Person UUID.
-                        //    That new Person_1 will have a version _at least_ as high as 8, and
-                        //    so any previously existing rows in CH or otherwise from
-                        //    Person_1(version:7) will "lose" to this new Person_1.
-                        version: Math.max(mergeInto.version, otherPerson.version) + 1,
-                    },
-                    tx
-                )
+                    // By using the max version between the two Persons, we ensure that if
+                    // this Person is later split, we can use `this_person.version + 1` for
+                    // any split-off Persons and know that *that* version will be higher than
+                    // any previously deleted Person, and so the new Person row will "win" and
+                    // "undelete" the Person.
+                    //
+                    // For example:
+                    //  - Merge Person_1(version:7) into Person_2(version:2)
+                    //      - Person_1 is deleted
+                    //      - Person_2 attains version 8 via this code below
+                    //  - Person_2 is later split, which attempts to re-create Person_1 by using
+                    //    its `distinct_id` to generate the deterministic Person UUID.
+                    //    That new Person_1 will have a version _at least_ as high as 8, and
+                    //    so any previously existing rows in CH or otherwise from
+                    //    Person_1(version:7) will "lose" to this new Person_1.
+                    version: Math.max(mergeInto.version, otherPerson.version) + 1,
+                },
+                tx
+            )
 
-                // Merge the distinct IDs
-                // TODO: Doesn't this table need to add updates to CH too?
-                await this.db.updateCohortsAndFeatureFlagsForMerge(
-                    otherPerson.team_id,
-                    otherPerson.id,
-                    mergeInto.id,
-                    tx
-                )
+            // Merge the distinct IDs
+            // TODO: Doesn't this table need to add updates to CH too?
+            await this.personStore.updateCohortsAndFeatureFlagsForMerge(
+                otherPerson.team_id,
+                otherPerson.id,
+                mergeInto.id,
+                tx
+            )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
+            const distinctIdMessages = await this.personStore.moveDistinctIds(otherPerson, mergeInto, tx)
 
-                const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
+            const deletePersonMessages = await this.personStore.deletePerson(otherPerson, tx)
 
-                return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
-            }
-        )
+            return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
+        })
 
         mergeTxnSuccessCounter
             .labels({
@@ -775,8 +811,18 @@ export class PersonState {
             })
             .inc()
 
-        const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
+        const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
 
         return [mergedPerson, kafkaAck]
+    }
+
+    public async addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<void> {
+        const kafkaMessages = await this.personStore.addDistinctId(person, distinctId, version, tx)
+        await this.kafkaProducer.queueMessages(kafkaMessages)
     }
 }

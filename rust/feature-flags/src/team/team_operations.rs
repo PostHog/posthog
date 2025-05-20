@@ -1,8 +1,8 @@
 use crate::{
     api::errors::FlagError,
-    client::database::Client as DatabaseClient,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 use tracing::instrument;
@@ -14,6 +14,12 @@ impl Team {
         client: Arc<dyn RedisClient + Send + Sync>,
         token: &str,
     ) -> Result<Team, FlagError> {
+        tracing::info!(
+            "Attempting to read team from Redis at key '{}{}'",
+            TEAM_TOKEN_CACHE_PREFIX,
+            token
+        );
+
         // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
             .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
@@ -29,6 +35,13 @@ impl Team {
             team.project_id = team.id as i64;
         }
 
+        tracing::info!(
+            "Successfully read team {} from Redis at key '{}{}'",
+            team.id,
+            TEAM_TOKEN_CACHE_PREFIX,
+            token
+        );
+
         Ok(team)
     }
 
@@ -41,6 +54,13 @@ impl Team {
             tracing::error!("Failed to serialize team: {}", e);
             FlagError::RedisDataParsingError
         })?;
+
+        tracing::info!(
+            "Writing team to Redis at key '{}{}': team_id={}",
+            TEAM_TOKEN_CACHE_PREFIX,
+            team.api_token,
+            team.id
+        );
 
         client
             .set(

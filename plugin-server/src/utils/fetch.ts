@@ -1,80 +1,16 @@
-// This module wraps node-fetch with a sentry tracing-aware extension
-
-import { LookupAddress } from 'dns'
-import dns from 'dns/promises'
 import http from 'http'
 import https from 'https'
-import * as ipaddr from 'ipaddr.js'
-import net from 'node:net'
 import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, Request } from 'node-fetch'
 import { URL } from 'url'
 
-export type { Response }
-
+import { defaultConfig } from '../config/config'
 import { runInstrumentedFunction } from '../main/utils'
 import { isProdEnv } from './env-utils'
-import { runInSpan } from './sentry'
+import { httpStaticLookup } from './request'
 
-const staticLookup: net.LookupFunction = async (hostname, options, cb) => {
-    let addrinfo: LookupAddress[]
-    try {
-        addrinfo = await dns.lookup(hostname, { all: true })
-    } catch (err) {
-        cb(new Error('Invalid hostname'), '', 4)
-        return
-    }
-    for (const { address } of addrinfo) {
-        // Prevent addressing internal services
-        if (ipaddr.parse(address).range() !== 'unicast') {
-            cb(new Error('Internal hostname'), '', 4)
-            return
-        }
-    }
-    if (addrinfo.length === 0) {
-        cb(new Error(`Unable to resolve ${hostname}`), '', 4)
-        return
-    }
-    cb(null, addrinfo[0].address, addrinfo[0].family)
-}
+export type { Response }
 
-export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
-    const request = new Request(url, init)
-    return await runInSpan(
-        {
-            op: 'fetch',
-            description: `${request.method} ${request.url}`,
-        },
-        async () => {
-            return runInstrumentedFunction({
-                statsKey: 'trackedFetch',
-                func: async () => {
-                    if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
-                        await raiseIfUserProvidedUrlUnsafe(request.url)
-                        return await fetch(url, {
-                            ...init,
-                            agent: ({ protocol }: URL) =>
-                                protocol === 'http:'
-                                    ? new http.Agent({ lookup: staticLookup })
-                                    : new https.Agent({ lookup: staticLookup }),
-                        })
-                    }
-
-                    return await fetch(url, init)
-                },
-            })
-        }
-    )
-}
-
-trackedFetch.isRedirect = fetch.isRedirect
-trackedFetch.FetchError = FetchError
-
-/**
- * Raise if the provided URL seems unsafe, otherwise do nothing.
- *
- * Equivalent of Django raise_if_user_provided_url_unsafe.
- */
-export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
+function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
     try {
@@ -88,16 +24,49 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
         throw new FetchError('Scheme must be either HTTP or HTTPS', 'posthog-host-guard')
     }
-    let addrinfo: LookupAddress[]
-    try {
-        addrinfo = await dns.lookup(parsedUrl.hostname, { all: true })
-    } catch (err) {
-        throw new FetchError('Invalid hostname', 'posthog-host-guard')
+    return parsedUrl
+}
+
+const COMMON_AGENT_OPTIONS: http.AgentOptions = { keepAlive: false }
+
+const getSafeAgent = (url: URL) => {
+    return url.protocol === 'http:'
+        ? new http.Agent({ ...COMMON_AGENT_OPTIONS, lookup: httpStaticLookup })
+        : new https.Agent({ ...COMMON_AGENT_OPTIONS, lookup: httpStaticLookup })
+}
+
+// @deprecated Use the fetch function from request.ts instead
+export class SecureFetch {
+    constructor(private options?: { allowUnsafe?: boolean }) {}
+
+    fetch(url: RequestInfo, init: RequestInit = {}): Promise<Response> {
+        return runInstrumentedFunction({
+            statsKey: 'secureFetch',
+            func: async () => {
+                init.timeout = init.timeout ?? defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+                const request = new Request(url, init)
+
+                const allowUnsafe =
+                    this.options?.allowUnsafe ?? (process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv())
+
+                if (allowUnsafe) {
+                    // NOTE: Agent is false to disable keep alive, and increase parallelization
+                    return await fetch(url, { ...init, agent: false })
+                }
+
+                validateUrl(request.url)
+                return await fetch(url, {
+                    ...init,
+                    agent: getSafeAgent,
+                })
+            },
+        })
     }
-    for (const { address } of addrinfo) {
-        // Prevent addressing internal services
-        if (ipaddr.parse(address).range() !== 'unicast') {
-            throw new FetchError('Internal hostname', 'posthog-host-guard')
-        }
-    }
+}
+
+const defaultSecureFetch = new SecureFetch()
+
+// @deprecated Use the fetch function from request.ts instead
+export const trackedFetch = (url: RequestInfo, init?: RequestInit): Promise<Response> => {
+    return defaultSecureFetch.fetch(url, init)
 }

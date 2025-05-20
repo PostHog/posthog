@@ -11,6 +11,7 @@ from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
+from posthog.models.personal_api_key import PersonalAPIKey
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
@@ -19,9 +20,6 @@ from posthog.models.utils import (
     UUIDModel,
     create_with_slug,
     sane_repr,
-)
-from posthog.plugins.plugin_server_api import (
-    reset_available_product_features_cache_on_workers,
 )
 
 if TYPE_CHECKING:
@@ -141,6 +139,8 @@ class Organization(UUIDModel):
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
+
+    # looking for feature? check: is_feature_available, get_available_feature
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -222,9 +222,15 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
+        vals: list[dict[str, Any]] = self.available_product_features or []
+        return next(
+            filter(lambda f: f and f.get("key") == feature, vals),
+            None,
+        )
+
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
-        return feature in available_product_feature_keys
+        return bool(self.get_available_feature(feature))
 
     @property
     def active_invites(self) -> QuerySet:
@@ -244,18 +250,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
-
-
-@receiver(models.signals.post_save, sender=Organization)
-def ensure_available_product_features_sync(sender, instance: Organization, **kwargs):
-    updated_fields = kwargs.get("update_fields") or []
-    if "available_product_features" in updated_fields:
-        logger.info(
-            "Notifying plugin-server to reset available product features cache.",
-            {"organization_id": instance.id},
-        )
-
-        reset_available_product_features_cache_on_workers(organization_id=str(instance.id))
 
 
 class OrganizationMembership(UUIDModel):
@@ -318,6 +312,48 @@ class OrganizationMembership(UUIDModel):
                 raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
             if membership_being_updated.level > self.level:
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+
+    def get_scoped_api_keys(self):
+        """
+        Get API keys that are scoped to this organization or its teams.
+        Returns a dictionary with information about the keys.
+        """
+        from posthog.models.team import Team
+
+        # Get teams that belong to this organization
+        team_ids = list(Team.objects.filter(organization_id=self.organization_id).values_list("id", flat=True))
+
+        # Find API keys scoped to either the organization or any of its teams
+        # Also include keys with no scoped teams or orgs (they apply to all orgs/teams)
+
+        personal_api_keys = PersonalAPIKey.objects.filter(user=self.user).filter(
+            Q(scoped_organizations__contains=[str(self.organization_id)])
+            | Q(scoped_teams__overlap=team_ids)
+            | (
+                (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
+                & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
+            )
+        )
+
+        # Get keys with more details
+        keys_data = []
+        has_keys = personal_api_keys.exists()
+
+        # Check if any keys were used in the last week
+        one_week_ago = timezone.now() - timedelta(days=7)
+        has_keys_active_last_week = personal_api_keys.filter(last_used_at__gte=one_week_ago).exists()
+
+        # Get detailed information about each key
+        for key in personal_api_keys:
+            keys_data.append({"name": key.label, "last_used_at": key.last_used_at})
+
+        return {
+            "personal_api_keys": personal_api_keys,
+            "has_keys": has_keys,
+            "has_keys_active_last_week": has_keys_active_last_week,
+            "keys": keys_data,
+            "team_ids": team_ids,
+        }
 
     __repr__ = sane_repr("organization", "user", "level")
 

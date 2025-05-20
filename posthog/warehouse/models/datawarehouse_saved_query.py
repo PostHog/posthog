@@ -85,6 +85,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
@@ -157,19 +161,29 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         normalized_name = NamingConvention().normalize_identifier(self.name)
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
 
+    @property
+    def is_materialized(self):
+        return self.table is not None and (
+            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
+        )
+
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
-        from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
+        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
+            return self.table.hogql_definition(modifiers)
 
         columns = self.columns or {}
-
         fields: dict[str, FieldOrTable] = {}
-        structure = []
+
+        from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
+
         for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
-            else:
+            elif isinstance(type, dict):
                 clickhouse_type = type["clickhouse"]
+            else:
+                raise Exception(f"Unknown column type: {type}")  # Never reached
 
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
@@ -178,37 +192,23 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if clickhouse_type.startswith("Array("):
                 clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            if isinstance(type, dict):
-                column_invalid = not type.get("valid", True)
-            else:
-                column_invalid = False
-
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"`{column}` {clickhouse_type}")
-
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
                 hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
-            else:
+            elif isinstance(type, dict):
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+            else:
+                raise Exception(f"Unknown column type: {type}")  # Never reached
 
             fields[column] = hogql_type(name=column)
 
-        if (
-            self.table is not None
-            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
-            and modifiers is not None
-            and modifiers.useMaterializedViews
-        ):
-            return self.table.hogql_definition(modifiers)
-        else:
-            return SavedQuery(
-                id=str(self.id),
-                name=self.name,
-                query=self.query["query"],
-                fields=fields,
-            )
+        return SavedQuery(
+            id=str(self.id),
+            name=self.name,
+            query=self.query["query"],
+            fields=fields,
+        )
 
 
 @database_sync_to_async

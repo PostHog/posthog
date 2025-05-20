@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::{
     error::{EventError, PipelineFailure, PipelineResult},
-    recursively_sanitize_properties,
+    recursively_sanitize_properties, sanitize_string,
 };
 
 use super::{
@@ -27,7 +27,7 @@ pub fn prepare_events(
             }
             IncomingEvent::Captured(outer) => {
                 let maybe_team = teams_lut
-                    .get(&outer.token)
+                    .get(&sanitize_string(outer.token.to_string()))
                     .expect("Team lookup table is fully populated");
 
                 let Some(team) = maybe_team else {
@@ -50,10 +50,14 @@ pub fn prepare_events(
                 };
 
                 // If we fail to sanitize the event, we should discard it as unprocessable
-                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 30) {
+                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 0) {
                     buffer.push(Err(e));
                     continue;
                 }
+
+                // We've seen invalid (string) offsets come in, I /think/ from django capture. Rather than dropping the whole
+                // event, we just check prior to deserialization that the offset is a number, and if not, we discard it.
+                let raw_event = sanitize_offset(raw_event);
 
                 // Now parse it out into the relevant structure. At this point, failure to convert from
                 // the raw json object to a RawEvent indicates some pipeline error, and we should fail and
@@ -94,8 +98,8 @@ pub fn prepare_events(
 }
 
 fn transform_event(
-    outer: &CapturedEvent,
-    mut raw_event: RawEvent,
+    outer: &CapturedEvent,   // Has NOT been sanitized at this point
+    mut raw_event: RawEvent, // Has been sanitized at this point
     timestamp: DateTime<Utc>,
     person_mode: PersonMode,
     team: &Team,
@@ -148,7 +152,7 @@ fn transform_event(
         team_id: team.id,
         project_id: team.project_id,
         event: raw_event.event,
-        distinct_id: outer.distinct_id.clone(),
+        distinct_id: sanitize_string(outer.distinct_id.to_string()),
         properties: Some(
             serde_json::to_string(&raw_event.properties)
                 .expect("Json data just deserialized can be serialized"),
@@ -177,6 +181,7 @@ fn transform_event(
             .expect("We can parse the raw event we just serialised")
     }
 
+    // At this point, all event contents have been sanitized
     event
 }
 
@@ -213,4 +218,25 @@ pub fn resolve_timestamp(
     } else {
         None
     }
+}
+
+fn sanitize_offset(raw_event: Value) -> Value {
+    let Value::Object(raw_event) = raw_event else {
+        return raw_event; // The rest of the pipeline will handle this case
+    };
+
+    let Some(offset) = raw_event.get("offset") else {
+        return Value::Object(raw_event);
+    };
+
+    let raw_event = match offset {
+        Value::Number(_) => raw_event,
+        _ => {
+            let mut raw_event = raw_event;
+            raw_event.remove("offset");
+            raw_event
+        }
+    };
+
+    Value::Object(raw_event)
 }

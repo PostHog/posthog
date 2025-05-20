@@ -12,6 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/not
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
@@ -74,9 +75,9 @@ export const notebooksModel = kea<notebooksModelType>([
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
     }),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
 
     reducers({
         scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],
@@ -90,6 +91,7 @@ export const notebooksModel = kea<notebooksModelType>([
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
+                        _create_in_folder: getLastNewFolder(),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {
@@ -107,6 +109,13 @@ export const notebooksModel = kea<notebooksModelType>([
                     await deleteWithUndo({
                         endpoint: `projects/${values.currentProjectId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
+                        callback: (undo) => {
+                            if (undo) {
+                                refreshTreeItem('notebook', shortId)
+                            } else {
+                                deleteFromTree('notebook', shortId)
+                            }
+                        },
                     })
 
                     const panelLogic = notebookPanelLogic.findMounted()

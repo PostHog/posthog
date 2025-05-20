@@ -16,8 +16,10 @@ from rest_framework import status
 
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -35,6 +37,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_postgres_queries,
 )
+from clickhouse_driver.errors import ServerException
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -1062,7 +1066,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert mock_presigned_url.call_count == 0
 
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
@@ -1303,7 +1306,68 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (
-            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden"}'
+            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.10/v/extra_forbidden"}'
             in response.json()["detail"]
         )
         assert response.json() == self.snapshot
+
+    @patch("posthoganalytics.capture")
+    def test_snapshots_api_called_with_personal_api_key(self, mock_capture):
+        session_id = str(uuid.uuid4())
+        self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert mock_capture.call_args_list[1] == call(
+            self.user.distinct_id,
+            "snapshots_api_called_with_personal_api_key",
+            {
+                "key_label": "X",
+                "key_scopes": ["session_recording:read"],
+                "key_scoped_teams": [self.team.pk],
+                "session_requested": session_id,
+                # none because it's all mock data
+                "recording_start_time": None,
+                "source": None,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "too_many_queries",
+                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
+                "Too many simultaneous queries. Try again later.",
+            ),
+            (
+                "timeout_exceeded",
+                ServerException("CHQueryErrorTimeoutExceeded"),
+                "Query timeout exceeded. Try again later.",
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_query_errors(self, name, exception, expected_message, mock_run):
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json() == {
+            "attr": None,
+            "code": "throttled",
+            "detail": expected_message,
+            "type": "throttled_error",
+        }
