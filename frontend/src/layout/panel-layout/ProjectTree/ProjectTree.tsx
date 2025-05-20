@@ -30,6 +30,7 @@ import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -52,7 +53,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         expandedSearchFolders,
         searchTerm,
         searchResults,
-        treeItemsNew,
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
@@ -67,6 +67,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         projectTreeRef,
         projectTreeRefEntry,
     } = useValues(projectTreeLogic)
+    const { treeItemsNew } = useValues(projectTreeDataLogic)
 
     const {
         createFolder,

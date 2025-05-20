@@ -8,7 +8,6 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTreeSelectMode, TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -19,9 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { ProjectTreeAction } from './types'
 import {
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
@@ -30,9 +27,6 @@ import {
     splitPath,
     unescapePath,
 } from './utils'
-
-const MOVE_ALERT_LIMIT = 50
-const DELETE_ALERT_LIMIT = 0
 
 export type ProjectTreeSortMethod = 'folder' | 'recent'
 
@@ -56,8 +50,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         values: [
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
-            featureFlagLogic,
-            ['featureFlags'],
             panelLayoutLogic,
             ['searchTerm', 'projectTreeMode'],
             breadcrumbsLogic,
@@ -72,6 +64,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'users',
                 'savedItems',
                 'savedItemsLoading',
+                'viableItems',
+                'viableItemsById',
+                'sortedItems',
+                'loadingPaths',
             ],
         ],
         actions: [
@@ -92,6 +88,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'syncTypeAndRef',
                 'deleteTypeAndRef',
                 'movedItem',
+                'queueAction',
+                'removeQueuedAction',
+                'deleteItem',
+                'moveItem',
             ],
         ],
     })),
@@ -101,11 +101,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             editAfter,
             callback,
         }),
-        deleteItem: (item: FileSystemEntry) => ({ item }),
-        moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
         linkItem: (oldPath: string, newPath: string, force = false) => ({ oldPath, newPath, force }),
-        queueAction: (action: ProjectTreeAction) => ({ action }),
-        removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
         setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
         setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
         setLastViewedId: (id: string) => ({ id }),
@@ -160,7 +156,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (response.users?.length > 0) {
                         actions.addUsers(response.users)
                     }
-                    actions.addResults(response as SearchResults)
+                    actions.addResults(response as any as SearchResults)
                     return {
                         searchTerm,
                         results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
@@ -205,127 +201,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (response.users?.length > 0) {
                         actions.addUsers(response.users)
                     }
-                    actions.addResults(response as RecentResults)
+                    actions.addResults(response as any as RecentResults)
                     return {
                         results,
                         hasMore,
                         startTime: response.results[0]?.created_at ?? null,
                         endTime: response.results[response.results.length - 1]?.created_at ?? null,
                     }
-                },
-            },
-        ],
-        pendingLoader: [
-            false,
-            {
-                queueAction: async ({ action }) => {
-                    if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
-                        const verb = action.type === 'prepare-link' ? 'link' : 'move'
-                        const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
-                        try {
-                            const response = await api.fileSystem.count(action.item.id)
-                            actions.removeQueuedAction(action)
-                            if (response && response.count > MOVE_ALERT_LIMIT) {
-                                const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
-                                if (!confirm(confirmMessage)) {
-                                    return false
-                                }
-                            }
-                            actions.queueAction({ ...action, type: verb })
-                        } catch (error) {
-                            console.error(`Error ${verbing} item:`, error)
-                            lemonToast.error(`Error ${verbing} item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'move' && action.newPath) {
-                        try {
-                            const oldPath = action.item.path
-                            const newPath = action.newPath
-                            await api.fileSystem.move(action.item.id, newPath)
-                            actions.removeQueuedAction(action)
-                            actions.movedItem(action.item, oldPath, newPath)
-                            lemonToast.success('Item moved successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-move',
-                                    action: () => {
-                                        actions.moveItem({ ...action.item, path: newPath }, oldPath)
-                                    },
-                                },
-                            })
-                        } catch (error) {
-                            console.error('Error moving item:', error)
-                            lemonToast.error(`Error moving item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'link' && action.newPath) {
-                        try {
-                            const newPath = action.newPath
-                            const newItem = await api.fileSystem.link(action.item.id, newPath)
-                            actions.removeQueuedAction(action)
-                            if (newItem) {
-                                actions.createSavedItem(newItem)
-                            }
-                            if (action.item.type === 'folder') {
-                                actions.loadFolder(newPath)
-                            }
-                            lemonToast.success('Item linked successfully') // TODO: undo for linking
-                        } catch (error) {
-                            console.error('Error linking item:', error)
-                            lemonToast.error(`Error linking item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'create') {
-                        try {
-                            const response = await api.fileSystem.create(action.item)
-                            actions.removeQueuedAction(action)
-                            actions.createSavedItem(response)
-                            lemonToast.success('Folder created successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-create-folder',
-                                    action: () => {
-                                        actions.deleteItem(response)
-                                    },
-                                },
-                            })
-                            actions.expandProjectFolder(action.item.path)
-                        } catch (error) {
-                            console.error('Error creating folder:', error)
-                            lemonToast.error(`Error creating folder: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'prepare-delete' && action.item.id) {
-                        try {
-                            const response = await api.fileSystem.count(action.item.id)
-                            actions.removeQueuedAction(action)
-                            if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const confirmMessage = `Delete the folder "${splitPath(
-                                    action.item.path
-                                ).pop()}" and move ${response.count} items back into "Unfiled"?`
-                                if (!confirm(confirmMessage)) {
-                                    return false
-                                }
-                            }
-                            actions.queueAction({ ...action, type: 'delete' })
-                        } catch (error) {
-                            console.error('Error deleting item:', error)
-                            lemonToast.error(`Error deleting item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    } else if (action.type === 'delete' && action.item.id) {
-                        try {
-                            await api.fileSystem.delete(action.item.id)
-                            actions.removeQueuedAction(action)
-                            actions.deleteSavedItem(action.item)
-                            lemonToast.success('Item deleted successfully')
-                        } catch (error) {
-                            console.error('Error deleting item:', error)
-                            lemonToast.error(`Error deleting item: ${error}`)
-                            actions.removeQueuedAction(action)
-                        }
-                    }
-                    return true
                 },
             },
         ],
@@ -451,13 +333,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
-        pendingActions: [
-            [] as ProjectTreeAction[],
-            {
-                queueAction: (state, { action }) => [...state, action],
-                removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
-            },
-        ],
         expandedFolders: [
             [] as string[],
             {
@@ -556,133 +431,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.treeTableColumnSizes],
             (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
         ],
-        viableItems: [
-            // Combine savedItems with pendingActions
-            (s) => [s.savedItems, s.pendingActions],
-            (savedItems, pendingActions): FileSystemEntry[] => {
-                const initialItems = [...savedItems]
-                const itemsByPath = initialItems.reduce((acc, item) => {
-                    acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
-                    return acc
-                }, {} as Record<string, FileSystemEntry[]>)
-
-                for (const action of pendingActions) {
-                    if ((action.type === 'move' || action.type === 'prepare-move') && action.newPath) {
-                        if (!itemsByPath[action.path] || itemsByPath[action.path].length === 0) {
-                            console.error("Item not found, can't move", action.path)
-                            continue
-                        }
-                        for (const item of itemsByPath[action.path]) {
-                            const itemTarget = itemsByPath[action.newPath]?.[0]
-                            if (item.type === 'folder') {
-                                if (!itemTarget || itemTarget.type === 'folder') {
-                                    for (const path of Object.keys(itemsByPath)) {
-                                        if (path.startsWith(action.path + '/')) {
-                                            for (const loopItem of itemsByPath[path]) {
-                                                const newPath = action.newPath + loopItem.path.slice(action.path.length)
-                                                if (!itemsByPath[newPath]) {
-                                                    itemsByPath[newPath] = []
-                                                }
-                                                itemsByPath[newPath] = [
-                                                    ...itemsByPath[newPath],
-                                                    { ...loopItem, path: newPath, _loading: true },
-                                                ]
-                                            }
-                                            delete itemsByPath[path]
-                                        }
-                                    }
-                                }
-                                if (!itemTarget) {
-                                    itemsByPath[action.newPath] = [
-                                        ...(itemsByPath[action.newPath] ?? []),
-                                        { ...item, path: action.newPath, _loading: true },
-                                    ]
-                                }
-                                delete itemsByPath[action.path]
-                            } else if (item.id === action.item.id) {
-                                if (!itemsByPath[action.newPath]) {
-                                    itemsByPath[action.newPath] = []
-                                }
-                                itemsByPath[action.newPath] = [
-                                    ...itemsByPath[action.newPath],
-                                    { ...item, path: action.newPath, _loading: true },
-                                ]
-                                if (itemsByPath[action.path].length > 1) {
-                                    itemsByPath[action.path] = itemsByPath[action.path].filter((i) => i.id !== item.id)
-                                } else {
-                                    delete itemsByPath[action.path]
-                                }
-                            }
-                        }
-                    } else if (action.type === 'create' && action.newPath) {
-                        if (!itemsByPath[action.newPath]) {
-                            itemsByPath[action.newPath] = [
-                                ...(itemsByPath[action.newPath] ?? []),
-                                { ...action.item, path: action.newPath, _loading: true },
-                            ]
-                        } else {
-                            console.error("Item already exists, can't create", action.item)
-                        }
-                    } else if (action.path && itemsByPath[action.path]) {
-                        itemsByPath[action.path] = itemsByPath[action.path].map((i) => ({ ...i, loading: true }))
-                    }
-                }
-                return Object.values(itemsByPath).flatMap((a) => a)
-            },
-        ],
-        sortedItems: [
-            (s) => [s.viableItems],
-            (viableItems): FileSystemEntry[] => [...viableItems].sort(sortFilesAndFolders),
-        ],
-        viableItemsById: [
-            (s) => [s.viableItems],
-            (viableItems): Record<string, FileSystemEntry> =>
-                viableItems.reduce(
-                    (acc, item) => ({
-                        ...acc,
-                        [item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id]: item,
-                    }),
-                    {} as Record<string, FileSystemEntry>
-                ),
-        ],
-        unappliedPaths: [
-            // Paths that are currently being loaded
-            (s) => [s.pendingActions],
-            (pendingActions) => {
-                const unappliedPaths: Record<string, boolean> = {}
-                for (const action of pendingActions) {
-                    if (action.type === 'move' || action.type === 'create') {
-                        if (action.newPath) {
-                            unappliedPaths[action.newPath] = true
-                            const split = splitPath(action.newPath)
-                            for (let i = 1; i < split.length; i++) {
-                                unappliedPaths[joinPath(split.slice(0, i))] = true
-                            }
-                        }
-                    }
-                }
-                return unappliedPaths
-            },
-        ],
-        loadingPaths: [
-            // Paths that are currently being loaded
-            (s) => [s.unfiledItemsLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
-            (unfiledItemsLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
-                const loadingPaths: Record<string, boolean> = {}
-                if (unfiledItemsLoading) {
-                    loadingPaths['Unfiled'] = true
-                    loadingPaths[''] = true
-                }
-                if (savedItemsLoading) {
-                    loadingPaths[''] = true
-                }
-                if (pendingLoaderLoading && pendingActions.length > 0) {
-                    loadingPaths[pendingActions[0].newPath || pendingActions[0].path] = true
-                }
-                return loadingPaths
-            },
-        ],
-        pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
             (viableItems, folderStates, checkedItems, users): TreeDataItem[] =>
@@ -738,20 +486,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 return groupNodes
             },
-        ],
-        treeItemsNew: [
-            (s) => [s.featureFlags, s.folderStates, s.users],
-            (featureFlags, folderStates, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeNew().filter(
-                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
-                    ),
-                    checkedItems: {},
-                    folderStates,
-                    root: 'new',
-                    users,
-                    foldersFirst: false,
-                }),
         ],
         recentTreeItems: [
             (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
@@ -1200,21 +934,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
-        moveItem: async ({ item, newPath, force }) => {
-            if (newPath === item.path) {
-                return
-            }
-            if (!item.id) {
-                lemonToast.error("Sorry, can't move an unsaved item (no id)")
-                return
-            }
-            actions.queueAction({
-                type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
-                item,
-                path: item.path,
-                newPath: newPath,
-            })
-        },
         linkCheckedItems: ({ path }) => {
             const { checkedItems } = values
             let skipInFolder: string | null = null
@@ -1273,19 +992,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                 }
             }
-        },
-        deleteItem: async ({ item }) => {
-            if (!item.id) {
-                const response = await api.fileSystem.list({ type: 'folder', path: item.path })
-                const items = response.results ?? []
-                if (items.length > 0) {
-                    item = items[0]
-                } else {
-                    lemonToast.error(`Could not find filesystem entry for ${item.path}. Can't delete.`)
-                    return
-                }
-            }
-            actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder, editAfter, callback }) => {
             // Like Mac, we don't allow duplicate folder names
