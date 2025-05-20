@@ -527,9 +527,9 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             filters=json_filters,
             bytecode=bytecode,
             order_key=0,
-            user_id=None if assignee["type"] != "user" else assignee["id"],
-            user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
-            role_id=None if assignee["type"] != "role" else assignee["id"],
+            user_id=None if (not assignee or assignee["type"] != "user") else assignee["id"],
+            user_group_id=None if (not assignee or assignee["type"] != "user_group") else assignee["id"],
+            role_id=None if (not assignee or assignee["type"] != "role") else assignee["id"],
             description=description,
         )
 

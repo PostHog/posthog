@@ -15,6 +15,13 @@ function createNewRule(ruleType: ErrorTrackingRuleType): ErrorTrackingRuleNew {
                 assignee: null,
                 filters: { type: FilterLogicalOperator.Or, values: [] },
             }
+        case 'grouping_rules':
+            return {
+                id: 'new',
+                assignee: null,
+                description: '',
+                filters: { type: FilterLogicalOperator.And, values: [] },
+            }
         case 'suppression_rules':
             return {
                 id: 'new',
