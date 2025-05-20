@@ -40,7 +40,10 @@ class PostHogConfig(AppConfig):
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file
             # Self-capture for WSGI is initialized here
             posthoganalytics.disabled = True
-            if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
+            print(
+                f"[PostHogConfig.ready() child process] settings.DEBUG: {settings.DEBUG}, os.environ SERVER_GATEWAY_INTERFACE: '{os.environ.get('SERVER_GATEWAY_INTERFACE')}'"
+            )
+            if os.environ.get("SERVER_GATEWAY_INTERFACE") == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+echo "Starting backend service..."
+
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:19000
 
