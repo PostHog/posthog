@@ -15,7 +15,7 @@ use crate::api::endpoints::{external_redirect_url, external_store_url, internal_
 use crate::state::State;
 
 pub fn router(state: State) -> Router {
-    let enable_metrics = state.enable_metrics.clone();
+    let enable_metrics = state.enable_metrics;
 
     // Very permissive CORS policy, as old SDK versions
     // and reverse proxies might send funky headers.

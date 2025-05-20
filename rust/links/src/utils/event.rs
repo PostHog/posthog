@@ -14,7 +14,7 @@ pub fn create_clickhouse_event<T: Serialize>(
         .format("%Y-%m-%d %H:%M:%S%.3f")
         .to_string();
 
-    return ClickHouseEvent {
+    ClickHouseEvent {
         uuid: Uuid::now_v7(),
         team_id,
         project_id: None,
@@ -38,7 +38,7 @@ pub fn create_clickhouse_event<T: Serialize>(
         group3_created_at: None,
         group4_created_at: None,
         person_mode: PersonMode::Propertyless,
-    };
+    }
 }
 
 pub async fn publish_event(
