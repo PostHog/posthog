@@ -8,7 +8,9 @@ from posthog.api.csp import (
     process_csp_report,
     parse_report_uri,
     parse_report_to,
+    sample_csp_report,
 )
+from posthog.sampling import sample_on_property
 
 
 class TestCSPModule(TestCase):
@@ -35,7 +37,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_uri(data)
 
-        assert properties["$current_url"] == "https://example.com/foo/bar"
+        assert properties["document_url"] == "https://example.com/foo/bar"
         assert properties["violated_directive"] == "default-src self"
         assert properties["blocked_url"] == "https://evil.com/malicious-image.png"
         assert properties["script_sample"] == escape("alert('hello')")
@@ -57,7 +59,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        assert properties["$current_url"] == "https://example.com/page.html"
+        assert properties["document_url"] == "https://example.com/page.html"
         assert properties["user_agent"] == "Mozilla/5.0"
         assert properties["script_sample"] == escape("<script>console.log('test')</script>")
         assert properties["violated_directive"] == "script-src-elem"
@@ -111,8 +113,8 @@ class TestCSPModule(TestCase):
         to_properties = parse_report_to(report_to_data)
 
         # Verify common fields are parsed correctly in both formats
-        assert uri_properties["$current_url"] == "https://example.com/page"
-        assert to_properties["$current_url"] == "https://example.com/page"
+        assert uri_properties["document_url"] == "https://example.com/page"
+        assert to_properties["document_url"] == "https://example.com/page"
 
         assert uri_properties["referrer"] == "https://referrer.example.com"
         assert to_properties["referrer"] == "https://referrer.example.com"
@@ -187,7 +189,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        assert properties["$current_url"] == "https://example.com/csp-report"
+        assert properties["document_url"] == "https://example.com/csp-report"
         assert (
             properties["user_agent"]
             == "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
@@ -227,17 +229,17 @@ class TestCSPModule(TestCase):
             "type": "csp-violation",
         }
         properties1 = parse_report_to(data1)
-        assert properties1["$current_url"] == "https://example.com/page1"
+        assert properties1["document_url"] == "https://example.com/page1"
 
         # Test with url field instead of documentURL (and no document-uri)
         data2 = {"body": {"blocked-uri": "inline"}, "type": "csp-violation", "url": "https://example.com/page1"}
         properties2 = parse_report_to(data2)
-        assert properties2["$current_url"] == "https://example.com/page1"
+        assert properties2["document_url"] == "https://example.com/page1"
 
         # Test with no URL fields at all
         data3 = {"body": {"blocked-uri": "inline"}, "type": "csp-violation"}
         properties3 = parse_report_to(data3)
-        assert properties3["$current_url"] is None
+        assert properties3["document_url"] is None
 
     def test_parse_report_to_with_multiple_script_samples(self):
         data = {
@@ -270,4 +272,182 @@ class TestCSPModule(TestCase):
 
         assert event["distinct_id"] == "test-user"
         assert event["properties"]["$session_id"] == "test-session"
-        assert event["properties"]["csp_version"] == "1"
+        assert event["properties"]["$csp_version"] == "1"
+
+    def test_sample_csp_report(self):
+        # Create test properties
+        properties = {
+            "document_url": "https://example.com/page",
+            "effective_directive": "script-src",
+        }
+
+        # Test at 100% sampling rate
+        assert sample_csp_report(properties, 1.0) is True
+
+        # Test at 0% sampling rate
+        assert sample_csp_report(properties, 0.0) is False
+
+        # Test deterministic behavior
+        result_at_50_percent = sample_csp_report(properties, 0.5)
+        # The same properties should have the same sampling decision at the same rate
+        assert sample_csp_report(properties, 0.5) is result_at_50_percent
+
+        # Test with missing document_url
+        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) == sample_on_property("", 0.5)
+
+        # Test with only document_url
+        assert sample_csp_report({"document_url": "https://example.com/page"}, 0.5) == sample_on_property(
+            "https://example.com/page", 0.5
+        )
+
+    def test_process_csp_report_with_sampling_in(self):
+        # Create a test properties dictionary
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+
+        # Test without adding metadata (add_metadata=False)
+        result = sample_csp_report(properties, 0.5, False)
+        assert isinstance(result, bool)
+        assert "csp_sampled" not in properties
+        assert "csp_sample_threshold" not in properties
+
+        # Test with 100% sampling rate (should not add metadata)
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+        result = sample_csp_report(properties, 1.0, True)
+        assert result is True
+
+    def test_sampling_determinism_across_report_types(self):
+        """Test that sampling is deterministic across different report formats for the same content"""
+        report_uri_data = {
+            "csp-report": {
+                "document-uri": "https://example.com/test-page",
+                "effective-directive": "script-src",
+            }
+        }
+
+        report_to_data = {
+            "type": "csp-violation",
+            "body": {
+                "documentURL": "https://example.com/test-page",
+                "effectiveDirective": "script-src",
+            },
+        }
+
+        # Parse both reports
+        uri_properties = parse_report_uri(report_uri_data)
+        to_properties = parse_report_to(report_to_data)
+
+        # They should have the same sampling decision at the same sampling rate
+        for rate in [0.1, 0.5, 0.9]:
+            assert sample_csp_report(uri_properties, rate) == sample_csp_report(to_properties, rate)
+
+    def test_sampling_consistency_over_range(self):
+        """Test that sampling decisions remain consistent for the same inputs"""
+        properties = {
+            "document_url": "https://example.com/page",
+            "effective_directive": "script-src",
+        }
+
+        # Record sampling decisions at different rates
+        decisions = {}
+        for rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+            decisions[rate] = sample_csp_report(properties, rate)
+
+        # Now check that the decisions are the same in a second pass
+        for rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+            assert sample_csp_report(properties, rate) == decisions[rate]
+
+    def test_sampling_different_urls_same_directive(self):
+        urls = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.org/page1",
+            "https://subdomain.example.com/",
+            "http://example.com/page1",  # Different protocol
+            "https://example.com/page1?query=param",  # With query parameters
+            "https://example.com/page1#section",  # With fragment
+        ]
+
+        directive = "script-src"
+        rate = 0.5
+
+        # Each URL should have its own sampling decision
+        results = {}
+        for url in urls:
+            properties = {"document_url": url, "effective_directive": directive}
+            results[url] = sample_csp_report(properties, rate)
+
+        # Check that the results are a mix of True and False (not all same decision for 0.5 rate)
+        assert (
+            True in results.values() and False in results.values()
+        ), "Expected some URLs to be sampled in and some out"
+
+        # Each URL should have a consistent sampling decision
+        for url in urls:
+            properties = {"document_url": url, "effective_directive": directive}
+            assert sample_csp_report(properties, rate) == results[url]
+
+    def test_sampling_same_url_different_directives(self):
+        url = "https://example.com/page"
+        directives = [
+            "script-src",
+            "style-src",
+            "img-src",
+            "connect-src",
+            "font-src",
+            "media-src",
+            "object-src",
+            "prefetch-src",
+        ]
+
+        rate = 0.5
+
+        # All directives should have the same sampling decision for the same URL (aka: we should receive all reports for the same URL)
+        # Initialize with the first directive's result
+        properties = {"document_url": url, "effective_directive": directives[0]}
+
+        # Then check all directives have the same result
+        for directive in directives:
+            properties = {"document_url": url, "effective_directive": directive}
+            result = sample_csp_report(properties, rate)
+            assert not result, "Expected same sampling decision(False) for same URL regardless of directive"
+
+    def test_edge_case_urls_and_directives(self):
+        """Test sampling with edge case URLs and directives"""
+        edge_cases = [
+            # Empty URL
+            {"document_url": "", "effective_directive": "script-src"},
+            # Very long URL
+            {"document_url": "https://example.com/" + "a" * 1000, "effective_directive": "script-src"},
+            # URL with special characters
+            {"document_url": "https://example.com/?q=test&param=value#fragment", "effective_directive": "script-src"},
+            # Unicode URL
+            {"document_url": "https://example.com/你好世界", "effective_directive": "script-src"},
+            # Empty directive
+            {"document_url": "https://example.com/", "effective_directive": ""},
+            # Non-standard directive
+            {"document_url": "https://example.com/", "effective_directive": "custom-directive"},
+            # Both empty
+            {"document_url": "", "effective_directive": ""},
+        ]
+
+        rate = 0.5
+
+        # Each case should have a deterministic sampling decision
+        for case in edge_cases:
+            result1 = sample_csp_report(case, rate)
+            result2 = sample_csp_report(case, rate)
+            assert result1 == result2, f"Expected consistent sampling decision for {case}"
+
+            # Check that sampling is only based on document_url
+            if case["document_url"] == "":
+                # Empty document_url should use empty string for sampling
+                assert result1 == sample_on_property("", rate)
+            else:
+                # Non-empty document_url should use it for sampling
+                assert result1 == sample_on_property(case["document_url"], rate)

@@ -1,3 +1,4 @@
+import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
@@ -49,6 +50,7 @@ export function renderHogQLX(value: any): JSX.Element {
                         label="Explain this CSP violation"
                         type="primary"
                         size="xsmall"
+                        sideIcon={<IconAI />}
                         data-attr="hog-ql-explaincsp-button"
                         className="inline-block"
                         disabledReason={

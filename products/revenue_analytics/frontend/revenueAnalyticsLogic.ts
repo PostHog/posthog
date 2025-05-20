@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { getDefaultInterval } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -7,9 +7,9 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { urls } from 'scenes/urls'
 
 import {
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedViewTableKind,
     DataTableNode,
-    DataWarehouseNode,
-    EventsNode,
     NodeKind,
     QuerySchema,
     RevenueAnalyticsEventItem,
@@ -19,9 +19,6 @@ import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, Pr
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
-
-// Keep in sync with `revenue_analytics/backend/models.py`
-const CHARGE_REVENUE_VIEW_SUFFIX = 'charge_revenue_view'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
@@ -81,7 +78,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             dataWarehouseSceneLogic,
             ['dataWarehouseTablesBySourceType'],
             databaseTableListLogic,
-            ['database'],
+            ['database', 'managedViews'],
             revenueEventsSettingsLogic,
             ['baseCurrency', 'events as allEvents', 'dataWarehouseSources as allDataWarehouseSources'],
         ],
@@ -182,10 +179,35 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
 
+        chargeRevenueViews: [
+            (s) => [s.managedViews, s.rawRevenueSources],
+            (managedViews, rawRevenueSources): DatabaseSchemaManagedViewTable[] => {
+                if (!managedViews) {
+                    return []
+                }
+
+                const dataWarehouseSourceIds = rawRevenueSources.dataWarehouseSources.map((source) => source.id)
+                const eventNames = rawRevenueSources.events.map((e) => e.eventName)
+
+                return managedViews
+                    .filter((view) => view.kind === DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE)
+                    .filter((view) => {
+                        // Comes from a Data Warehouse source
+                        if (view.source_id) {
+                            return dataWarehouseSourceIds.includes(view.source_id)
+                        }
+
+                        // Comes from events
+                        return eventNames.includes(view.name)
+                    })
+            },
+        ],
+
         queries: [
             (s) => [
                 s.dateFilter,
                 s.rawRevenueSources,
+                s.chargeRevenueViews,
                 s.topCustomersDisplayMode,
                 s.growthRateDisplayMode,
                 s.baseCurrency,
@@ -193,6 +215,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (
                 dateFilter,
                 rawRevenueSources,
+                chargeRevenueViews,
                 topCustomersDisplayMode,
                 growthRateDisplayMode,
                 baseCurrency
@@ -204,12 +227,6 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     topCustomersDisplayMode === 'table' ? 'all' : 'month'
 
                 const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
-
-                const chargeViews = rawRevenueSources.dataWarehouseSources.map((source) => {
-                    return source.prefix
-                        ? `${source.source_type.toLocaleLowerCase()}.${source.prefix}.${CHARGE_REVENUE_VIEW_SUFFIX}`
-                        : `${source.source_type.toLocaleLowerCase()}.${CHARGE_REVENUE_VIEW_SUFFIX}`
-                })
 
                 // Convert from the raw revenue sources (events and data warehouse sources) to the revenue sources
                 // that the RevenueAnalyticsOverviewQuery expects which is just a list of event names and data warehouse source IDs
@@ -231,34 +248,24 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         hideTooltipOnScroll: true,
                         source: {
                             kind: NodeKind.TrendsQuery,
-                            series: [
-                                ...chargeViews.map((view) => ({
-                                    kind: NodeKind.DataWarehouseNode,
-                                    id: view,
-                                    name: view,
-                                    custom_name: chargeViews.length > 1 ? `Gross revenue for ${view}` : 'Gross revenue',
-                                    id_field: 'id',
-                                    timestamp_field: 'timestamp',
-                                    distinct_id_field: 'id',
-                                    table_name: view,
-                                    math: PropertyMathType.Sum,
-                                    math_property: 'amount',
-                                })),
-                                ...rawRevenueSources.events.map((e) => ({
-                                    name: e.eventName,
-                                    event: e.eventName,
-                                    custom_name: e.eventName,
-                                    math: PropertyMathType.Sum,
-                                    kind: NodeKind.EventsNode,
-                                    math_property: e.revenueProperty,
-                                    math_property_revenue_currency: e.revenueCurrencyProperty,
-                                })),
-                            ] as (EventsNode | DataWarehouseNode)[],
+                            series: chargeRevenueViews.map((view) => ({
+                                kind: NodeKind.DataWarehouseNode,
+                                id: view.name,
+                                name: view.name,
+                                custom_name:
+                                    chargeRevenueViews.length > 1 ? `Gross revenue for ${view.name}` : 'Gross revenue',
+                                id_field: 'id',
+                                distinct_id_field: 'id',
+                                timestamp_field: 'timestamp',
+                                table_name: view.name,
+                                math: PropertyMathType.Sum,
+                                math_property: 'amount',
+                            })),
                             interval,
                             dateRange,
                             trendsFilter: {
                                 display:
-                                    chargeViews.length > 1
+                                    chargeRevenueViews.length > 1
                                         ? ChartDisplayType.ActionsAreaGraph
                                         : ChartDisplayType.ActionsLineGraph,
                                 aggregationAxisFormat: 'numeric',
@@ -290,8 +297,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         loadSourcesSuccess: ({ dataWarehouseSources }) => {
             actions.setRevenueSources({
                 events: values.allEvents,
-                dataWarehouseSources: dataWarehouseSources.results,
+                dataWarehouseSources: dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
             })
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.allEvents !== null && values.allDataWarehouseSources !== null) {
+            actions.setRevenueSources({
+                events: values.allEvents,
+                dataWarehouseSources: values.allDataWarehouseSources.results.filter(
+                    (source) => source.revenue_analytics_enabled
+                ),
+            })
+        }
+    }),
 ])

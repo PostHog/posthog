@@ -20,7 +20,8 @@ type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
     | 'createPerson'
-    | 'updatePersonDeprecated'
+    | 'updatePersonForUpdate'
+    | 'updatePersonForMerge'
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
@@ -32,7 +33,8 @@ const ALL_METHODS: MethodName[] = [
     'fetchForChecking',
     'fetchForUpdate',
     'createPerson',
-    'updatePersonDeprecated',
+    'updatePersonForUpdate',
+    'updatePersonForMerge',
     'deletePerson',
     'addDistinctId',
     'moveDistinctIds',
@@ -224,17 +226,35 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         )
     }
 
-    async updatePersonDeprecated(
+    async updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        this.incrementCount('updatePersonDeprecated')
+        return this.updatePerson(person, update, tx, 'updatePersonForUpdate', 'forUpdate')
+    }
+
+    async updatePersonForMerge(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge')
+    }
+
+    private async updatePerson(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx: TransactionClient | undefined,
+        methodName: MethodName,
+        updateType: 'forUpdate' | 'forMerge'
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        this.incrementCount(methodName)
         this.clearCache()
-        this.incrementDatabaseOperation('updatePersonDeprecated')
+        this.incrementDatabaseOperation(methodName)
         const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx)
-        observeLatencyByVersion(person, start, 'updatePersonDeprecated')
+        const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
+        observeLatencyByVersion(person, start, methodName)
         return response
     }
 
