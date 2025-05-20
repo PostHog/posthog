@@ -150,7 +150,7 @@ describe('hooks', () => {
                     target: 'http://localhost:8000',
                 })
             ).rejects.toThrowErrorMatchingInlineSnapshot(
-                `"request to http://localhost:8000/ failed, reason: Internal hostname"`
+                `"request to http://localhost:8000/ failed, reason: connect ECONNREFUSED ::1:8000"`
             )
         })
     })

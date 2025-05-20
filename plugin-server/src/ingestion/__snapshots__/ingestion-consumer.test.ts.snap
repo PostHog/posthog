@@ -20,6 +20,61 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
 ]
 `;
 
+exports[`IngestionConsumer general overflow force overflow should force events with matching token:distinct_id to overflow: force overflow messages 1`] = `
+[
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "THIS IS NOT A TOKEN FOR TEAM 2:team1-user",
+    "topic": "events_plugin_ingestion_overflow_test",
+    "value": {
+      "data": "{"distinct_id":"team1-user","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "team1-user",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+  },
+]
+`;
+
+exports[`IngestionConsumer general overflow force overflow should handle multiple token:distinct_id pairs in force overflow setting: force overflow messages multiple pairs 1`] = `
+[
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user1",
+    "topic": "events_plugin_ingestion_overflow_test",
+    "value": {
+      "data": "{"distinct_id":"user1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user1",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+  },
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "<REPLACED-UUID-1>:user2",
+    "topic": "events_plugin_ingestion_overflow_test",
+    "value": {
+      "data": "{"distinct_id":"user2","uuid":"<REPLACED-UUID-2>","token":"<REPLACED-UUID-1>","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user2",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "<REPLACED-UUID-1>",
+      "uuid": "<REPLACED-UUID-2>",
+    },
+  },
+]
+`;
+
 exports[`IngestionConsumer general overflow should emit to overflow if token and distinct_id are overflowed 1`] = `
 [
   {
