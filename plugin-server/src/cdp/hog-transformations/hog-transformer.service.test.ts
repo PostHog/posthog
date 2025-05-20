@@ -253,7 +253,7 @@ describe('HogTransformer', () => {
                 timestamp: '2024-01-01T00:00:00Z',
             }
 
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
             expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
@@ -261,7 +261,7 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
 
-            await Promise.all(result.scheduledPromises)
+            await Promise.all(hogTransformer.promises)
 
             const messages = mockProducerObserver.getProducedKafkaMessages()
             // Replace certain messages that have changeable values
