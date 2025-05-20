@@ -25,7 +25,7 @@ export function SurveyAppearancePreview({ survey, previewPageIndex, onPreviewSub
             renderSurveysPreview({
                 survey: {
                     ...survey,
-                    appearance: sanitizeSurveyAppearance(survey.appearance),
+                    appearance: { ...sanitizeSurveyAppearance(survey.appearance), zIndex: 1000 },
                 },
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
