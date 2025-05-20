@@ -33,6 +33,7 @@ import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyAppearanceCustomization } from 'scenes/surveys/SurveyAppearanceCustomization'
+import { SurveyAppearanceModal } from 'scenes/surveys/SurveyAppearanceModal'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
@@ -233,6 +234,7 @@ export default function SurveyEdit(): JSX.Element {
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
         deviceTypesMatchTypeValidationError,
+        isAppearanceModalOpen,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -241,6 +243,7 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         deleteBranchingLogic,
+        setIsAppearanceModalOpen,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
         useValues(surveysLogic)
@@ -1073,7 +1076,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs">
+            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs gap-2">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}
@@ -1081,6 +1084,12 @@ export default function SurveyEdit(): JSX.Element {
                     isEditingSurvey={isEditingSurvey}
                 />
             </div>
+            {isAppearanceModalOpen && (
+                <SurveyAppearanceModal
+                    visible={isAppearanceModalOpen}
+                    onClose={() => setIsAppearanceModalOpen(false)}
+                />
+            )}
         </div>
     )
 }

@@ -1,5 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
@@ -28,7 +29,7 @@ export function SurveyFormAppearance({
     }
 
     return survey.type !== SurveyType.API ? (
-        <>
+        <div className="flex flex-col gap-2">
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
@@ -42,27 +43,30 @@ export function SurveyFormAppearance({
                     )
                 }}
             />
-            <LemonSelect
-                onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
-                className="mt-4 whitespace-nowrap"
-                fullWidth
-                value={previewPageIndex}
-                options={[
-                    ...survey.questions.map((question, index) => ({
-                        label: `${index + 1}. ${question.question ?? ''}`,
-                        value: index,
-                    })),
-                    ...(survey.appearance?.displayThankYouMessage
-                        ? [
-                              {
-                                  label: `${survey.questions.length + 1}. Confirmation message`,
-                                  value: survey.questions.length,
-                              },
-                          ]
-                        : []),
-                ]}
-            />
-        </>
+            <LemonField.Pure label="Current question" className="min-w-full gap-1" htmlFor="current-question-select">
+                <LemonSelect
+                    onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
+                    className="whitespace-nowrap"
+                    id="current-question-select"
+                    fullWidth
+                    value={previewPageIndex}
+                    options={[
+                        ...survey.questions.map((question, index) => ({
+                            label: `${index + 1}. ${question.question ?? ''}`,
+                            value: index,
+                        })),
+                        ...(survey.appearance?.displayThankYouMessage
+                            ? [
+                                  {
+                                      label: `${survey.questions.length + 1}. Confirmation message`,
+                                      value: survey.questions.length,
+                                  },
+                              ]
+                            : []),
+                    ]}
+                />
+            </LemonField.Pure>
+        </div>
     ) : (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>
