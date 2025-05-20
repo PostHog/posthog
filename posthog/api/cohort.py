@@ -131,6 +131,7 @@ class PersonFilter(BaseModel, extra="forbid"):
     key: str
     operator: str | None = None  # accept any legacy operator
     value: Any | None = None  # mostly likely it's list[str], str, or None
+    value_property: list[str] | None = None
     negation: bool = False
 
     @model_validator(mode="after")
@@ -157,10 +158,12 @@ PropertyFilter = Annotated[
     Field(discriminator="type"),
 ]
 
+FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+
 
 class Group(BaseModel, extra="forbid"):
     type: Literal["AND", "OR"]
-    values: list[Union[PropertyFilter, "Group"]]
+    values: list[FilterOrGroup]
 
 
 Group.model_rebuild()
