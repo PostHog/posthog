@@ -27,18 +27,21 @@ class CountedPlaylist:
     # for a saved filter this is the count of at most the first page
     count: int | None
     has_more_available: bool
-    type: Literal["collection", "saved_filter"]
+    type: Literal["collection", "filters"]
     # the number of times this was viewed
     view_count: int | None = None
     # the number of users that viewed this
     user_count: int | None = None
 
     @property
-    def url_path(self) -> str:
+    def url_path(self) -> str | None:
+        """
+        playlists are split into two types and have different URL paths depending on the type
+        """
         match self.type:
             case "collection":
                 return f"/replay/playlists/{self.short_id}"
-            case "saved_filter":
+            case "filters":
                 return f"/replay/home/?filterId={self.short_id}"
             case _:
                 raise ValueError(f"Unexpected playlist type: {self.type}")
@@ -91,6 +94,10 @@ def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
             except Exception:
                 pass
 
+        playlist_type: Literal["collection", "filters"] | None = playlist.get("type")
+        if playlist_type is None:
+            playlist_type = "collection" if playlist.get("pinned_item_count", 0) > 0 else "filters"
+
         results.append(
             CountedPlaylist(
                 team_id=playlist["team_id"],
@@ -101,9 +108,7 @@ def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
                 has_more_available=has_more,
                 view_count=playlist["view_count"],
                 user_count=playlist["user_count"],
-                # not all playlists have type explicitly set...
-                # you can be 99% sure if there's a pinned item then it's a collection
-                type=playlist.get("type", "collection" if playlist.get("pinned_item_count", 0) > 0 else "saved_filter"),
+                type=playlist_type,
             )
         )
 
