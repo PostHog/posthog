@@ -310,7 +310,10 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     asChild
                     onClick={(e: any) => {
                         e.stopPropagation()
-                        if (checkedItemsArray.length > 0 && checkedItemsArray.find(({ id }) => id === item.record.id)) {
+                        if (
+                            checkedItemsArray.length > 0 &&
+                            checkedItemsArray.find(({ id }) => id === item.record?.id)
+                        ) {
                             openMoveToModal(checkedItemsArray)
                         } else {
                             openMoveToModal([item.record as unknown as FileSystemEntry])
