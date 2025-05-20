@@ -316,7 +316,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         },
         SUBSCRIPTION_ITEM_RESOURCE_NAME: {
             "name": SUBSCRIPTION_ITEM_RESOURCE_NAME,
-            "table_name": "subscription_items",
+            "table_name": "subscription_item",
             "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
