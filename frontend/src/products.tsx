@@ -337,6 +337,11 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     { path: `Early access feature`, type: 'early_access_feature', href: urls.earlyAccessFeature('new') },
     { path: `Experiment`, type: 'experiment', href: urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: urls.featureFlag('new') },
+    {
+        path: `Insight/Calendar Heatmap`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+    },
     { path: `Insight/Funnel`, type: 'insight', href: urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: urls.insightNew({ type: InsightType.LIFECYCLE }) },
     { path: `Insight/Retention`, type: 'insight', href: urls.insightNew({ type: InsightType.RETENTION }) },
