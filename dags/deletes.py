@@ -584,7 +584,12 @@ def delete_events(
 
     delete_mutation_runner = LightweightDeleteMutationRunner(
         EVENTS_DATA_TABLE(),
-        "(dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))) OR (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))) OR (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))",
+        """or(
+            (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
+            (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
+            (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
+        )
+        """,
         parameters={
             "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
             "person_deletion_type": DeletionType.Person,
