@@ -103,21 +103,6 @@ os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"  # Set definitively
 def lifetime_wrapper(func):
     async def inner(scope, receive, send):
         if scope["type"] != "http":
-            # Note: Returning HttpResponse directly in an ASGI app might not be ideal
-            # if the server expects ASGI message format.
-            # However, for a simple 501, it might work or be handled by the ASGI server.
-            # A more ASGI-native way would be:
-            # await send({
-            #     'type': 'http.response.start',
-            #     'status': 501,
-            #     'headers': [[b'content-type', b'text/plain']],
-            # })
-            # await send({
-            #     'type': 'http.response.body',
-            #     'body': b'Not Implemented',
-            #     'more_body': False,
-            # })
-            # For now, keeping original HttpResponse approach for simplicity unless it causes issues.
             return HttpResponse(status=501)
         return await func(scope, receive, send)
 
