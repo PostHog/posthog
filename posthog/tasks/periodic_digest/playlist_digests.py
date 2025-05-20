@@ -33,13 +33,15 @@ class CountedPlaylist:
     # the number of users that viewed this
     user_count: int | None = None
 
-    def url_path(self):
-        if self.type == "collection":
-            return f"/replay/playlists/{self.short_id}"
-        elif self.type == "saved_filter":
-            return f"/replay/home/?filterId={self.short_id}"
-        else:
-            raise Exception(f"Unknown playlist type: {self.type}")
+    @property
+    def url_path(self) -> str:
+        match self.type:
+            case "collection":
+                return f"/replay/playlists/{self.short_id}"
+            case "saved_filter":
+                return f"/replay/home/?filterId={self.short_id}"
+            case _:
+                raise ValueError(f"Unexpected playlist type: {self.type}")
 
 
 def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
