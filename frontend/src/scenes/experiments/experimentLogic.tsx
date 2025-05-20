@@ -69,8 +69,8 @@ import {
 } from '~/types'
 
 import {
-    EXPERIMENT_MIN_DATA_POINTS_FOR_RESULTS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    EXPERIMENT_MIN_METRIC_EVENTS_FOR_RESULTS,
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
@@ -2234,7 +2234,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (result) {
                         for (const variant of variantKeys) {
                             const count = countDataForVariant(result, variant)
-                            if (!count || count < EXPERIMENT_MIN_DATA_POINTS_FOR_RESULTS) {
+                            if (!count || count < EXPERIMENT_MIN_METRIC_EVENTS_FOR_RESULTS) {
                                 return false
                             }
                         }
