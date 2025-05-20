@@ -8,6 +8,7 @@ use links::{
 };
 
 use crate::helpers::*;
+use links::types::LinksRedisItem;
 
 pub mod helpers;
 
@@ -92,11 +93,15 @@ async fn should_return_redis_stored_internal_link() -> Result<()> {
     let domain = "example.com";
     let expected_url = format!("https://{}", domain);
 
+    let item = LinksRedisItem {
+        url: domain.to_string(),
+        team_id: None,
+    };
     redis_client
         .set_nx_ex(
             RedisRedirectKeyPrefix::Internal
                 .get_redis_key_for_url(&server_handle.addr.to_string(), short_code),
-            domain.into(),
+            serde_json::to_string(&item).unwrap(),
             3600,
         )
         .await
@@ -116,7 +121,7 @@ async fn should_return_redis_stored_internal_link() -> Result<()> {
 }
 
 #[tokio::test]
-async fn should_return_database_stored_internall_link() -> Result<()> {
+async fn should_return_database_stored_internal_link() -> Result<()> {
     let config = Config::default_for_test();
     let server_handle = ServerHandle::for_config(config).await;
     let client = reqwest::Client::builder()
@@ -163,11 +168,15 @@ async fn should_return_redis_stored_external_link() -> Result<()> {
     let domain = "example.com";
     let expected_url = format!("https://{}", domain);
 
+    let item = LinksRedisItem {
+        url: domain.to_string(),
+        team_id: None,
+    };
     redis_client
         .set_nx_ex(
             RedisRedirectKeyPrefix::External
                 .get_redis_key_for_url(&server_handle.addr.to_string(), short_code),
-            domain.into(),
+            serde_json::to_string(&item).unwrap(),
             3600,
         )
         .await

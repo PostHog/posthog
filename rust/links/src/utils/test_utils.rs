@@ -29,10 +29,16 @@ pub async fn setup_redis_client(
     config: Option<&Config>,
 ) -> Arc<dyn RedisClientTrait + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    Arc::new(
-        RedisClient::new(config.internal_link_redis_url.clone())
-            .expect("Failed to create Redis client"),
-    )
+    let redis_client = RedisClient::new(config.internal_link_redis_url.clone())
+        .expect("Failed to create Redis client");
+
+    // Test the connection by setting a test key
+    redis_client
+        .set_nx_ex("test_connection".to_string(), "test".to_string(), 1)
+        .await
+        .expect("Failed to connect to Redis");
+
+    Arc::new(redis_client)
 }
 
 pub async fn insert_new_link_in_pg(
