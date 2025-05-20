@@ -422,8 +422,9 @@ jobs:
                       if (flaps.length > 0) {
                         flapsDisplay = [
                           '\n### ‼️ UI snapshot flapping detected ‼️\n',
-                          ...flaps.map(([shardNumber, path]) => `- ${path}`)),
-                          '\nIt doesn't matter who started it – the flippie-flopppies are a deadly disease that must be cured. Fix the cause of floppiness NOW. Run `pnpm storybook` to test the fix locally.'
+                          ...flaps.map(([shardNumber, path]) => `- ${path}`),
+                          '\nIt doesn\'t matter who started it – **the flippy flopppies are a deadly disease that must be cured**. '
+                          + 'Run `pnpm storybook` locally and fix the floppiness now. (Most often, the cause is `ResizeObserver` being used somewhere.)'
                         ].join('\n')
                       }
 
