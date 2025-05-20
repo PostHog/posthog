@@ -34,7 +34,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         filter_parts = []
 
-        for posthog_field, table_field in self.SUPPORTED_PROPERTIES.items():
+        for posthog_field, table_field in self.supported_properties.items():
             for prop in self.runner.query.properties:
                 if hasattr(prop, "key") and prop.key == posthog_field and hasattr(prop, "value"):
                     value = prop.value
@@ -68,7 +68,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return None
 
-    def get_date_ranges(self):
+    def get_date_ranges(self) -> tuple[str, str]:
         current_date_from = self.runner.query_date_range.date_from_str
         current_date_to = self.runner.query_date_range.date_to_str
 
@@ -80,7 +80,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             # and our query stays simpler.
             # TODO: Make sure the frontend handles this correctly for every case
             previous_date_from = current_date_from
-            previous_date_to = current_date_from
+            previous_date_to = current_date_to
 
         current_period_filter = f"day_bucket >= '{current_date_from}' AND day_bucket <= '{current_date_to}'"
         previous_period_filter = f"day_bucket >= '{previous_date_from}' AND day_bucket <= '{previous_date_to}'"
