@@ -15,7 +15,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toSentenceCase } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -171,7 +171,7 @@ export function Billing(): JSX.Element {
                     className={clsx(
                         'flex gap-6 max-w-300',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        billing?.has_active_subscription
+                        billing?.has_active_subscription || inStorybook() || inStorybookTestRunner()
                             ? {
                                   'flex-col': size === 'small',
                                   'flex-row': size !== 'small',
