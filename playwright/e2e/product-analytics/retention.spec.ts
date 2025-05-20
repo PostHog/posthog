@@ -20,8 +20,8 @@ test.describe('Retention', () => {
         await page.click('[data-attr=property-select-toggle-0]')
         await page.click('[data-attr=taxonomic-filter-searchfield]')
         await page.fill('[data-attr=taxonomic-filter-searchfield]', 'is_demo')
-        await page.click('[data-attr=taxonomic-tab-person_properties]')
-        await page.click('[data-attr=prop-filter-person_properties-0]')
+        await page.click('[data-attr=taxonomic-tab-event_properties]')
+        await page.click('[data-attr=prop-filter-event_properties-0]')
         await page.locator('[data-attr=prop-val]').fill('true')
         await expect(page.locator('[data-attr=retention-table]')).toBeVisible()
 
