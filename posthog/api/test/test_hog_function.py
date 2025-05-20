@@ -22,7 +22,7 @@ from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFun
 
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
-geoip_template = MOCK_NODE_TEMPLATES[3]
+geoip_template = MOCK_NODE_TEMPLATES[2]
 
 
 EXAMPLE_FULL = {
@@ -1137,16 +1137,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         destination_id = response_destination.json()["id"]
 
-        # Get the geoip template ID from the DB
-        geoip_template_db = DBHogFunctionTemplate.objects.get(template_id=geoip_template["id"])
-
         response_transform = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 "name": "HogTransform",
                 "hog": "return event",
                 "type": "transformation",
-                "template_id": geoip_template_db.template_id,
+                "template_id": "template-geoip",
                 "enabled": True,
             },
         )
@@ -1186,16 +1183,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         destination_id = response_destination.json()["id"]
 
-        # Get the geoip template ID from the DB
-        geoip_template_db = DBHogFunctionTemplate.objects.get(template_id=geoip_template["id"])
-
         response_transform = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 "name": "HogTransform",
                 "hog": "return event",
                 "type": "transformation",
-                "template_id": geoip_template_db.template_id,
+                "template_id": "template-geoip",
                 "enabled": False,
             },
         )
