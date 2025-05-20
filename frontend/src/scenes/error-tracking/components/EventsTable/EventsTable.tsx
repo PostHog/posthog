@@ -20,12 +20,17 @@ export const EventsTable = (): JSX.Element => {
             'recording_button(properties.$session_id)': {
                 title: 'Recording',
                 width: '175px',
-                render: (_, record) => (
+                render: (props, record) => (
                     <div className="flex gap-1">
-                        <LemonButton icon={<IconTarget />} size="xsmall" type="primary">
+                        <LemonButton 
+                            sideIcon={<IconTarget />} 
+                            size="xsmall" 
+                            type="secondary"
+                            disabled={props.recordIndex !== 0 && props.recordIndex !== 2}
+                        >
                             <span>Moment</span>
                         </LemonButton>
-                        <LemonButton size="xsmall" type="primary" icon={<IconPlayCircle />}>
+                        <LemonButton size="xsmall" type="primary" sideIcon={<IconPlayCircle />}>
                             Recording
                         </LemonButton>
                     </div>
