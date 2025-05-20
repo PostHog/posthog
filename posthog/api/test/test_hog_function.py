@@ -10,7 +10,7 @@ from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -18,9 +18,11 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
+geoip_template = MOCK_NODE_TEMPLATES[3]
 
 
 EXAMPLE_FULL = {
@@ -77,9 +79,22 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
+def _create_template_from_mock(template_data):
+    serializer = HogFunctionTemplateSerializer(data=template_data)
+    serializer.is_valid(raise_exception=True)
+    template = serializer.save()
+    DBHogFunctionTemplate.create_from_dataclass(template)
+    return template
+
+
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
+        # Create slack template in DB
+        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        _create_template_from_mock(webhook_template)
+
+        # Mock the API call to get templates
         with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
@@ -187,6 +202,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+        # Create slack template in DB
+        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        _create_template_from_mock(webhook_template)
+        _create_template_from_mock(geoip_template)
+
+        # Mock the API call to get templates
         with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
@@ -1116,13 +1137,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         destination_id = response_destination.json()["id"]
 
+        # Get the geoip template ID from the DB
+        geoip_template_db = DBHogFunctionTemplate.objects.get(template_id=geoip_template["id"])
+
         response_transform = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 "name": "HogTransform",
                 "hog": "return event",
                 "type": "transformation",
-                "template_id": "template-geoip",
+                "template_id": geoip_template_db.template_id,
                 "enabled": True,
             },
         )
@@ -1162,13 +1186,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         destination_id = response_destination.json()["id"]
 
+        # Get the geoip template ID from the DB
+        geoip_template_db = DBHogFunctionTemplate.objects.get(template_id=geoip_template["id"])
+
         response_transform = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 "name": "HogTransform",
                 "hog": "return event",
                 "type": "transformation",
-                "template_id": "template-geoip",
+                "template_id": geoip_template_db.template_id,
                 "enabled": False,
             },
         )
