@@ -779,7 +779,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above mean fewer queries
         # 3 of these queries are just for setting transaction scope
-        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 4)
+        response = self._post_decide(assert_num_queries=0 if self.use_remote_config else 5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
@@ -803,7 +803,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        response = self._post_decide(assert_num_queries=1 if self.use_remote_config else 5)
+        response = self._post_decide(assert_num_queries=1 if self.use_remote_config else 6)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         injected = response.json()["siteApps"]
         self.assertEqual(len(injected), 1)
@@ -905,7 +905,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, assert_num_queries=4)
+        response = self._post_decide(api_version=3, assert_num_queries=5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(
@@ -1299,11 +1299,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
         self.assertTrue("beta-feature" not in response.json()["featureFlags"])
         self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="other_id", assert_num_queries=5)
         self.assertTrue("beta-feature" not in response.json()["featureFlags"])
         self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
 
@@ -1362,7 +1362,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1381,7 +1381,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=14,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1432,7 +1432,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 12345,
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=14,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1444,7 +1444,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "xyz",
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=10,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1456,7 +1456,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 5,
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=10,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1514,7 +1514,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=4)
+        response = self._post_decide(api_version=2, assert_num_queries=5)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1531,7 +1531,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=12,
+            assert_num_queries=13,
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1594,7 +1594,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1618,7 +1618,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=14,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1653,7 +1653,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(
             api_version=2,
             data={"token": self.team.api_token, "distinct_id": "other_id"},
-            assert_num_queries=5,
+            assert_num_queries=6,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1716,7 +1716,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1733,7 +1733,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=14,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1750,7 +1750,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(
             api_version=2,
             data={"token": self.team.api_token, "distinct_id": "other_id"},
-            assert_num_queries=4,
+            assert_num_queries=5,
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1763,7 +1763,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(
             api_version=2,
             data={"token": self.team.api_token, "distinct_id": "other_id"},
-            assert_num_queries=5,
+            assert_num_queries=6,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -2039,7 +2039,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         client.logout()
 
-        response = self._post_decide(api_version=3, assert_num_queries=4)
+        response = self._post_decide(api_version=3, assert_num_queries=5)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -2171,7 +2171,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             mock_counter.reset_mock()
             mock_hash_key_counter.reset_mock()
 
-            response = self._post_decide(api_version=3, assert_num_queries=9)
+            response = self._post_decide(api_version=3, assert_num_queries=10)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual(
@@ -2366,7 +2366,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # E   4. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", "posthog_featureflaghashkeyoverride"."hash_key", "posthog_featureflaghashkeyoverride"."person_id" FROM "posthog_featureflaghashkeyoverride"
         #            WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (7) AND "posthog_featureflaghashkeyoverride"."team_id" = 1)
         # E   5. RELEASE SAVEPOINT "s4379526528_x103"
-        response = self._post_decide(api_version=3, assert_num_queries=5)
+        response = self._post_decide(api_version=3, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -2417,11 +2417,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
         self.assertEqual(response.json()["featureFlags"], {})
 
         response = self._post_decide(
-            api_version=2, distinct_id="example_id", groups={"organization": "foo"}, assert_num_queries=4
+            api_version=2, distinct_id="example_id", groups={"organization": "foo"}, assert_num_queries=5
         )
         self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 
@@ -2496,11 +2496,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2572,7 +2572,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2642,7 +2642,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2823,7 +2823,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 2. Select 99999 cohort
         # 3. Select deleted cohort
         # 4. Select cohort from other team
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=8)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
         self.assertEqual(
             response.json()["featureFlags"],
             {
@@ -2873,11 +2873,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=1)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=2)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=1)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=2)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
@@ -3949,6 +3949,7 @@ class TestDecideRemoteConfig(TestDecide):
                 "analytics": {"endpoint": "/i/v0/e/"},
                 "elementsChainAsString": True,
                 "sessionRecording": False,
+                "errorTracking": {"autocaptureExceptions": False, "suppressionRules": []},
                 "heatmaps": False,
                 "surveys": False,
                 "defaultIdentifiedOnly": True,
