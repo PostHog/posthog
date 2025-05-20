@@ -15,7 +15,7 @@
 
 ## Did you write or update any docs for this change?
 
-<!-- Engineers are responsible for documenting their features and/or code.  -->
+<!-- Engineers are responsible for doing the first pass at documenting their features and/or code.  -->
 
 - [ ] I've added or updated the docs
 - [ ] I've reached out for help from the docs team
