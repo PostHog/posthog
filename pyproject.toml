@@ -136,6 +136,9 @@ dependencies = [
     "tenacity>=8.4.2",
     "chdb>=3.1.2",
     "elevenlabs>=1.58.1",
+    "opentelemetry-sdk==1.33.1",
+    "opentelemetry-instrumentation-django==0.54b1",
+    "opentelemetry-instrumentation-asgi>=0.54b1",
 ]
 
 [dependency-groups]
