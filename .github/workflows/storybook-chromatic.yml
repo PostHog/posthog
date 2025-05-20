@@ -287,7 +287,8 @@ jobs:
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
-                    optipng -clobber -o4 -strip all
+                    # TODO: RESTORE OptiPNG - it turns out it never worked before
+                    # optipng -clobber -o4 -strip all frontend/__snapshots__/*.png
 
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
@@ -325,7 +326,7 @@ jobs:
                   PATHS_FLAPPING=()
                   last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
                   echo "Last human commit identified: $last_human_commit"
-                  for snapshot_path in $(git diff --name-only frontend/__snapshots__); do
+                  for snapshot_path in $(git diff --name-only HEAD frontend/__snapshots__); do
                       echo "Checking snapshot path: $snapshot_path"
                       number_of_times_snapshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
                       echo "Number of times $snapshot_path has changed since last human commit: $number_of_times_snapshot_has_changed_since_last_human_commit"
