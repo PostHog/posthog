@@ -50,6 +50,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
+        linkItem: (oldPath: string, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
+            oldPath,
+            newPath,
+            force,
+            projectTreeLogicKey,
+        }),
         moveItem: (item: FileSystemEntry, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
             item,
             newPath,
@@ -556,6 +562,28 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 projectTreeLogicKey
             )
+        },
+        linkItem: async ({ oldPath, newPath, force, projectTreeLogicKey }) => {
+            if (newPath === oldPath) {
+                lemonToast.error('Cannot link folder into itself')
+                return
+            }
+            const item = values.viableItems.find((item) => item.path === oldPath)
+            if (item && item.path === oldPath) {
+                if (!item.id) {
+                    lemonToast.error("Sorry, can't link an unsaved item (no id)")
+                    return
+                }
+                actions.queueAction(
+                    {
+                        type: !force && item.type === 'folder' ? 'prepare-link' : 'link',
+                        item,
+                        path: item.path,
+                        newPath: newPath + item.path.slice(oldPath.length),
+                    },
+                    projectTreeLogicKey
+                )
+            }
         },
     })),
     afterMount(({ actions }) => {

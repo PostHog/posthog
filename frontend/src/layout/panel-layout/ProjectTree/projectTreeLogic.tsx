@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { lemonToast, Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -87,6 +87,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'queueAction',
                 'deleteItem',
                 'moveItem',
+                'linkItem',
             ],
         ],
     })),
@@ -96,7 +97,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             editAfter,
             callback,
         }),
-        linkItem: (oldPath: string, newPath: string, force = false) => ({ oldPath, newPath, force }),
         setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
         setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
         setLastViewedId: (id: string) => ({ id }),
@@ -874,33 +874,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
-                    actions.linkItem(item.path, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true)
+                    actions.linkItem(
+                        item.path,
+                        joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]),
+                        true,
+                        key
+                    )
                     if (item.type === 'folder') {
                         skipInFolder = item.path
                     }
                 }
-            }
-        },
-        linkItem: async ({ oldPath, newPath, force }) => {
-            if (newPath === oldPath) {
-                lemonToast.error('Cannot link folder into itself')
-                return
-            }
-            const item = values.viableItems.find((item) => item.path === oldPath)
-            if (item && item.path === oldPath) {
-                if (!item.id) {
-                    lemonToast.error("Sorry, can't link an unsaved item (no id)")
-                    return
-                }
-                actions.queueAction(
-                    {
-                        type: !force && item.type === 'folder' ? 'prepare-link' : 'link',
-                        item,
-                        path: item.path,
-                        newPath: newPath + item.path.slice(oldPath.length),
-                    },
-                    key
-                )
             }
         },
         deleteCheckedItems: () => {
