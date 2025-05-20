@@ -64,13 +64,13 @@ export const linkLogic = kea<linkLogicType>([
                     try {
                         const response = await api.links.get(props.id)
                         return response
-                    } catch (error: any) {
+                    } catch (error) {
                         actions.setLinkMissing()
                         throw error
                     }
                 }
 
-                return NEW_LINK
+                return NEW_LINK as LinkType
             },
             saveLink: async (updatedLink: Partial<LinkType>) => {
                 const result: LinkType = await (props.id === 'new'

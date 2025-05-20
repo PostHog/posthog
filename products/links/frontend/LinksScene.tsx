@@ -29,7 +29,6 @@ export function LinksScene(): JSX.Element {
     const columns = [
         {
             title: 'Key',
-            dataIndex: 'key',
             sticky: true,
             width: '40%',
             render: function Render(_: any, record: LinkType) {
