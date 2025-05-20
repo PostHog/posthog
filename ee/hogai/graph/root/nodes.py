@@ -18,6 +18,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from ee.billing.billing_manager import BillingManager
+from posthog.cloud_utils import get_cached_instance_license
 import products
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -68,6 +70,7 @@ class RootNode(AssistantNode):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    ("system", self._get_billing_products_prompt()),
                     *[
                         (
                             "system",
@@ -241,6 +244,43 @@ class RootNode(AssistantNode):
             if message.id == start_id:
                 return messages[idx:]
         return messages
+
+    def _get_billing_products_prompt(self) -> str:
+        billing_manager = BillingManager(license=get_cached_instance_license())
+        organization = self._team.organization
+        products_with_usage = billing_manager.get_products_with_recent_usage(
+            organization,
+            team_ids=[self._team.id],
+            start_date=datetime.datetime.now() - datetime.timedelta(days=30),
+            end_date=datetime.datetime.now(),
+        )
+        products_prompt = "PostHog is composed of the following products:\n"
+
+        def _product_to_prompt(product: dict) -> str:
+            usage = product["usage"]
+            if usage:
+                is_product_used = sum(usage.get("data", [])) > 0
+            else:
+                is_product_used = product["current_usage"] > 0
+            return f"""
+            #### {product['name']}
+            {product['description']}
+            The user has subscribed to the product: {product['subscribed']}
+            The user has used the product in the last month: {is_product_used}
+            Documentation URL: {product['docs_url']}
+            """
+
+        for product in products_with_usage:
+            products_prompt += _product_to_prompt(product)
+            for addon in product.get("addons", []):
+                products_prompt += _product_to_prompt(addon)
+
+        products_prompt += """
+        If the user asks a question that relates to a product which is currently not used, you should suggest them to use and set-up the product, and provide a link to the documentation.
+        If the question is data-related, and there is no data, it might be because the user hasn't set up the right products.
+        If there is an opportunity to suggest a product that is not currently used, you should always do so.
+"""
+        return products_prompt
 
 
 class RootNodeTools(AssistantNode):

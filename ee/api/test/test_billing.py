@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -15,6 +15,7 @@ import urllib.parse
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
+from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import (
     BillingPeriod,
     CustomerInfo,
@@ -169,7 +170,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                 name="Product OS",
                 description="Product Analytics, event pipelines, data warehousing",
                 price_description=None,
-                type="events",
+                type="product_analytics",
                 image_url="https://posthog.com/static/images/product-os.png",
                 free_allocation=10000,
                 tiers=[
@@ -486,7 +487,7 @@ class TestBillingAPI(APILicensedTest):
                     "name": "Product OS",
                     "description": "Product Analytics, event pipelines, data warehousing",
                     "price_description": None,
-                    "type": "events",
+                    "type": "product_analytics",
                     "free_allocation": 10000,
                     "tiers": [
                         {
@@ -1149,7 +1150,7 @@ class TestBillingUsageRequestSerializer(TestCase):
 
 
 class TestBillingUsageAndSpendAPI(APILicensedTest):
-    MOCK_USAGE_DATA = {"results": [{"data": [1, 2], "count": 2}]}
+    MOCK_USAGE_DATA = {"results": [{"data": [1, 2], "count": 2, "breakdown_value": "event_count_in_period"}]}
     MOCK_SPEND_DATA = {"results": [{"spend": 100.0, "usage": 10000}]}
 
     def setUp(self):
@@ -1244,3 +1245,20 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         teams_map_dict = json.loads(passed_params["teams_map"])
         self.assertEqual(teams_map_dict, {})
         mock_get_teams_map.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_get_products_with_recent_usage(self, mock_get_billing, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        products_response = create_billing_products_response()
+        mock_get_billing.return_value = products_response
+
+        start_date = datetime.now() - timedelta(days=30)
+        end_date = datetime.now()
+        products_with_usage = BillingManager(self.organization).get_products_with_recent_usage(
+            self.organization, start_date=start_date, end_date=end_date
+        )
+
+        self.assertEqual(len(products_with_usage), len(products_response["products"]))
+        self.assertEqual(products_with_usage[0]["usage"], self.MOCK_USAGE_DATA["results"][0])
+        self.assertEqual(products_with_usage[0]["addons"][0]["usage"], None)
