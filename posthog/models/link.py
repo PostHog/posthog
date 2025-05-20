@@ -10,6 +10,11 @@ from django.db.models import QuerySet
 logger = structlog.get_logger(__name__)
 
 
+# KLUDGE: This is only here because we want some of our management commands
+# to know this file exists and we havent figured out why it cant find models
+# inside our `products` folder
+#
+# See https://github.com/PostHog/posthog/pull/32364
 class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """
     Links that redirect to a specified destination URL.

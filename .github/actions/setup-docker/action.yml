@@ -1,0 +1,53 @@
+#
+# This is a composite action that packages our backend tests.
+# It is called by the `run-backend-tests.yml` action and also `ci-rust` job using a matrix.
+#
+name: Setup Docker for tests
+inputs:
+    clickhouse-server-image:
+        required: true
+        description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
+
+runs:
+    using: 'composite'
+    steps:
+        # Pre-tests
+
+        # Copies the fully versioned UDF xml file for use in CI testing
+        - name: Stop/Start stack with Docker Compose
+          shell: bash
+          run: |
+              export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
+              export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+              cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+
+              max_attempts=3
+              attempt=1
+              delay=5
+
+              while [ $attempt -le $max_attempts ]; do
+                  echo "Attempt $attempt of $max_attempts to start stack..."
+                  
+                  if docker compose -f docker-compose.dev.yml down && \
+                     docker compose -f docker-compose.dev.yml up -d; then
+                      echo "Stack started successfully"
+                      exit 0
+                  fi
+                  
+                  echo "Failed to start stack on attempt $attempt"
+                  
+                  if [ $attempt -lt $max_attempts ]; then
+                      sleep_time=$((delay * 2 ** (attempt - 1)))
+                      echo "Waiting ${sleep_time} seconds before retry..."
+                      sleep $sleep_time
+                  fi
+                  
+                  attempt=$((attempt + 1))
+              done
+
+              echo "Failed to start stack after $max_attempts attempts"
+              exit 1
+
+        - name: Add Kafka and ClickHouse to /etc/hosts
+          shell: bash
+          run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
