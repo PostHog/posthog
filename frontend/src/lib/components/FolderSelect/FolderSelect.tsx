@@ -89,17 +89,14 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     }
 
     return (
-        <div>
-            <div className="flex justify-between items-center mb-4 gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search"
-                    onChange={(search) => {
-                        setSearchTerm(search)
-                    }}
-                    value={searchTerm}
-                />
-            </div>
+        <div className="flex flex-col gap-2">
+            <LemonInput
+                type="search"
+                placeholder="Search"
+                fullWidth
+                onChange={(search) => setSearchTerm(search)}
+                value={searchTerm}
+            />
             <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
                 <LemonTree
                     ref={treeRef}
