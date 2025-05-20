@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { parseKafkaHeaders } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
