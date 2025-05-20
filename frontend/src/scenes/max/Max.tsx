@@ -8,7 +8,7 @@ import {
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,9 +27,9 @@ import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
-import { MaxBindThreadLogic } from './MaxBindThreadLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
 import { QuestionSuggestions } from './QuestionSuggestions'
 import { Thread } from './Thread'
@@ -74,8 +74,14 @@ export interface MaxInstanceProps {
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled } = useValues(maxLogic)
+    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
+        useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+
+    const threadProps: MaxThreadLogicProps = {
+        conversationId: threadLogicKey,
+        conversation,
+    }
 
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
@@ -156,7 +162,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
-            <MaxBindThreadLogic>
+            <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />
                 ) : !threadVisible ? (
@@ -177,7 +183,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         <QuestionInput isFloating />
                     </>
                 )}
-            </MaxBindThreadLogic>
+            </BindLogic>
         </>
     )
 })

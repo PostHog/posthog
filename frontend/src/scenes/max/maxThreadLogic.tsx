@@ -1,5 +1,19 @@
 import { createParser } from 'eventsource-parser'
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    BuiltLogic,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
@@ -80,7 +94,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxLogic,
-            ['question', 'threadKeys', 'autoRun'],
+            ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId'],
         ],
         actions: [
             maxLogic,
@@ -354,6 +368,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             actions.setConversation(newConversation)
             actions.updateGlobalConversationCache(newConversation)
+
+            // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
+            if (values.selectedConversationId !== values.conversationId && cache.unmount) {
+                cache.unmount()
+            }
         },
     })),
 
@@ -460,10 +479,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
     }),
 
-    afterMount(({ actions, values }) => {
+    afterMount((logic) => {
+        const { actions, values, cache, mount } = logic as BuiltLogic<maxThreadLogicType>
+        // Prevent unmounting of the logic until the streaming finishes.
+        // Increment a counter of active logics by one and then decrement it when the logic unmounts or finishes
+        cache.unmount = mount()
+
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+        }
+    }),
+
+    beforeUnmount(({ cache, values }) => {
+        if (!values.threadLoading) {
+            cache.unmount()
         }
     }),
 ])
