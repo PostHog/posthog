@@ -16,7 +16,9 @@ test.describe('Retention', () => {
         await expect(page.locator('[data-attr=retention-table]')).toBeVisible()
 
         // Apply filter
+
         await page.click('[data-attr$=add-filter-group]')
+        await page.locator('body').evaluate((el) => el.scrollTo(0, el.scrollHeight))
         await page.click('[data-attr=property-select-toggle-0]')
         await page.click('[data-attr=taxonomic-filter-searchfield]')
         await page.fill('[data-attr=taxonomic-filter-searchfield]', 'is_demo')
