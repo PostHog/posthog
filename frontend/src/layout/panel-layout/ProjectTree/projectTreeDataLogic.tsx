@@ -44,8 +44,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
 
-        addUsers: (users: UserBasicType[]) => ({ users }),
-        addResults: (results: RecentResults | SearchResults) => ({ results }),
+        addLoadedUsers: (users: UserBasicType[]) => ({ users }),
+        addLoadedResults: (results: RecentResults | SearchResults) => ({ results }),
 
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
@@ -212,7 +212,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             {} as Record<string, FileSystemEntry[]>,
             {
                 loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
-                addResults: (state, { results }) => appendResultsToFolders(results, state),
+                addLoadedResults: (state, { results }) => appendResultsToFolders(results, state),
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
                     return {
@@ -305,7 +305,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         users: [
             {} as Record<string, UserBasicType>,
             {
-                addUsers: (state, { users }) => {
+                addLoadedUsers: (state, { users }) => {
                     if (!users || users.length === 0) {
                         return state
                     }
@@ -507,7 +507,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
                 )
                 if (response.users?.length > 0) {
-                    actions.addUsers(response.users)
+                    actions.addLoadedUsers(response.users)
                 }
                 actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
             } catch (error) {
@@ -519,9 +519,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 ? api.fileSystem.list({ type__startswith: type, ref })
                 : api.fileSystem.list({ type, ref }))
             if (items.users?.length > 0) {
-                actions.addUsers(items.users)
+                actions.addLoadedUsers(items.users)
             }
-            actions.addResults(items as any as SearchResults)
+            actions.addLoadedResults(items as any as SearchResults)
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (!item.id) {

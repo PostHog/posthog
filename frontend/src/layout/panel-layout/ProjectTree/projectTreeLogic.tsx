@@ -78,8 +78,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'loadFolderIfNotLoaded',
                 'loadFolderStart',
                 'loadFolderSuccess',
-                'addUsers',
-                'addResults',
+                'addLoadedUsers',
+                'addLoadedResults',
                 'createSavedItem',
                 'deleteSavedItem',
                 'deleteTypeAndRef',
@@ -150,9 +150,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ...response.results.slice(0, PAGINATION_LIMIT),
                     ]
                     if (response.users?.length > 0) {
-                        actions.addUsers(response.users)
+                        actions.addLoadedUsers(response.users)
                     }
-                    actions.addResults(response as any as SearchResults)
+                    actions.addLoadedResults(response as any as SearchResults)
                     return {
                         searchTerm,
                         results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
@@ -195,9 +195,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
                         })
                     if (response.users?.length > 0) {
-                        actions.addUsers(response.users)
+                        actions.addLoadedUsers(response.users)
                     }
-                    actions.addResults(response as any as RecentResults)
+                    actions.addLoadedResults(response as any as RecentResults)
                     return {
                         results,
                         hasMore,
@@ -248,7 +248,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ),
                     }
                 },
-                addResults: (state, { results }) => {
+                addLoadedResults: (state, { results }) => {
                     const newIdsSet = new Set(results.results.map((file) => file.id))
                     const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
                     if (hasAnyNewIds) {
@@ -311,7 +311,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
-                addResults: (state, { results }) => {
+                addLoadedResults: (state, { results }) => {
                     const newIdsSet = new Set(results.results.map((file) => file.id))
                     const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
                     if (hasAnyNewIds) {
@@ -1022,7 +1022,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.users?.length > 0) {
-                        actions.addUsers(resp.users)
+                        actions.addLoadedUsers(resp.users)
                     }
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
