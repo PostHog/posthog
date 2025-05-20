@@ -11,6 +11,7 @@ import {
     personCacheOperationsCounter,
     personDatabaseOperationsPerBatchHistogram,
     personMethodCallsPerBatchHistogram,
+    totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
@@ -42,6 +43,10 @@ const ALL_METHODS: MethodName[] = [
     'addPersonlessDistinctId',
     'addPersonlessDistinctIdForMerge',
 ]
+
+type UpdateType = 'forUpdate' | 'forMerge'
+
+const ALL_UPDATE_TYPES: UpdateType[] = ['forUpdate', 'forMerge']
 
 export interface PersonsStoreOptions {
     personCacheEnabledForUpdates: boolean
@@ -95,6 +100,11 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 personDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
             }
 
+            const updateLatencyPerDistinctId = store.getUpdateLatencyPerDistinctId()
+            for (const [updateType, latency] of updateLatencyPerDistinctId.entries()) {
+                totalPersonUpdateLatencyPerBatchHistogram.observe({ update_type: updateType }, latency)
+            }
+
             const cacheMetrics = store.getCacheMetrics()
             personCacheOperationsCounter.inc({ cache: 'update', operation: 'hit' }, cacheMetrics.updateCacheHits)
             personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, cacheMetrics.updateCacheMisses)
@@ -108,6 +118,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     private methodCounts: Map<MethodName, number>
     private cacheMetrics: CacheMetrics
     private databaseOperationCounts: Map<MethodName, number>
+    private updateLatencyPerDistinctId: Map<UpdateType, number>
     /**
      * We maintain two separate person caches for different read patterns:
      *
@@ -142,8 +153,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             this.databaseOperationCounts.set(method, 0)
         }
 
+        this.updateLatencyPerDistinctId = new Map()
+        for (const updateType of ALL_UPDATE_TYPES) {
+            this.updateLatencyPerDistinctId.set(updateType, 0)
+        }
+
         this.personCache = new Map()
         this.personCheckCache = new Map()
+
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -247,13 +264,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         update: Partial<InternalPerson>,
         tx: TransactionClient | undefined,
         methodName: MethodName,
-        updateType: 'forUpdate' | 'forMerge'
+        updateType: UpdateType
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount(methodName)
         this.clearCache()
         this.incrementDatabaseOperation(methodName)
         const start = performance.now()
         const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
+        this.recordUpdateLatency(updateType, performance.now() - start)
         observeLatencyByVersion(person, start, methodName)
         return response
     }
@@ -340,6 +358,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return new Map(this.databaseOperationCounts)
     }
 
+    getUpdateLatencyPerDistinctId(): Map<UpdateType, number> {
+        return this.updateLatencyPerDistinctId
+    }
+
     // Private cache management methods
 
     private getCacheKey(teamId: number, distinctId: string): string {
@@ -405,5 +427,12 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     private incrementDatabaseOperation(operation: MethodName): void {
         this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
+    }
+
+    private recordUpdateLatency(updateType: UpdateType, latency: number): void {
+        this.updateLatencyPerDistinctId.set(
+            updateType,
+            (this.updateLatencyPerDistinctId.get(updateType) || 0) + latency
+        )
     }
 }
