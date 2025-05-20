@@ -50,7 +50,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         projectTreeItems,
         treeTableKeys,
         lastViewedId,
-        viableItems,
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
@@ -69,7 +68,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         projectTreeRef,
         projectTreeRefEntry,
     } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { treeItemsNew } = useValues(projectTreeDataLogic)
+    const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
     const { setLastNewFolder } = useActions(projectTreeDataLogic)
 
     const {
