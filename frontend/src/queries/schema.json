@@ -12255,6 +12255,10 @@
                         "$ref": "#/definitions/LogSeverityLevel"
                     },
                     "type": "array"
+                },
+                "v": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["dateRange", "kind", "orderBy", "severityLevels"],

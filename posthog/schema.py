@@ -8224,6 +8224,7 @@ class LogsQuery(BaseModel):
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
     severityLevels: list[LogSeverityLevel]
+    v: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class PersonsNode(BaseModel):
