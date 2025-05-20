@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { lemonToast, Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -44,8 +44,14 @@ export interface SearchResults {
     lastCount: number
 }
 
+export interface ProjectTreeLogicProps {
+    key: string
+}
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
+    props({} as ProjectTreeLogicProps),
+    key((props) => props.key),
     connect(() => ({
         values: [
             groupsModel,
@@ -68,6 +74,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'viableItemsById',
                 'sortedItems',
                 'loadingPaths',
+                'lastNewFolder',
             ],
         ],
         actions: [
@@ -92,6 +99,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'removeQueuedAction',
                 'deleteItem',
                 'moveItem',
+                'setLastNewFolder',
             ],
         ],
     })),
@@ -116,7 +124,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         loadRecentResults: (type: 'start' | 'end') => ({ type }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
-        setLastNewFolder: (folder: string | null) => ({ folder }),
         onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setLastCheckedItem: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
@@ -322,14 +329,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         return { ...state, results: newResults }
                     }
                     return state
-                },
-            },
-        ],
-        lastNewFolder: [
-            null as string | null,
-            {
-                setLastNewFolder: (_, { folder }) => {
-                    return folder ?? null
                 },
             },
         ],
