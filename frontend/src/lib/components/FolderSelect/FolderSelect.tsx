@@ -26,21 +26,20 @@ let counter = 0
 export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
 
-    const { searchTerm, expandedSearchFolders, expandedFolders, projectTreeOnlyFolders, treeTableKeys } = useValues(
-        projectTreeLogic({ key })
-    )
+    const { searchTerm, expandedSearchFolders, expandedFolders, projectTreeOnlyFolders, treeTableKeys, editingItemId } =
+        useValues(projectTreeLogic({ key }))
     const {
         setSearchTerm,
         setExpandedSearchFolders,
         setExpandedFolders,
         createFolder,
         expandProjectFolder,
+        setEditingItemId,
         rename,
         toggleFolderOpen,
     } = useActions(projectTreeLogic({ key }))
     const treeRef = useRef<LemonTreeRef>(null)
     const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
-    const [localEditingId, setLocalEditingId] = useState<string | null>(null)
 
     useEffect(() => {
         expandProjectFolder(value || '')
@@ -61,9 +60,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                             asChild
                             onClick={(e) => {
                                 e.stopPropagation()
-                                createFolder(item.record?.path || '', false, (folder) => {
-                                    // expandFolders(item.record?.path || '')
-                                    setLocalEditingId(`project-folder/${folder}`)
+                                createFolder(item.record?.path || '', true, (folder) => {
                                     onChange?.(folder)
                                 })
                             }}
@@ -75,7 +72,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    setLocalEditingId(item.id)
+                                    setEditingItemId(item.id)
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
@@ -107,13 +104,15 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                     tableViewKeys={treeTableKeys}
                     defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
                     isItemActive={(item) => item.record?.path === value}
-                    isItemEditing={(item) => item.id === localEditingId}
+                    isItemEditing={(item) => {
+                        return editingItemId === item.id
+                    }}
                     onItemNameChange={(item, name) => {
                         if (item.name !== name) {
                             rename(name, item.record as unknown as FileSystemEntry)
                         }
                         // Clear the editing item id when the name changes
-                        setLocalEditingId('')
+                        setEditingItemId('')
                     }}
                     showFolderActiveState={true}
                     checkedItemCount={0}
@@ -149,9 +148,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        createFolder('', false, (folder) => {
-                                            setLocalEditingId(`project-folder/${folder}`)
-                                        })
+                                        createFolder('', true)
                                     }}
                                 >
                                     <ButtonPrimitive menuItem>New folder</ButtonPrimitive>

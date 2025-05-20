@@ -164,9 +164,9 @@ export function PanelLayoutPanel({
     children,
     showFilterDropdown = false,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { setSearchTerm } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { searchTerm } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { clearSearch, toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,
         panelTreeRef,
