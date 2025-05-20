@@ -18,8 +18,8 @@ export function VersionCheckerBanner(): JSX.Element | null {
             type={versionWarning.level}
             dismissKey={dismissKey}
             action={{
-                children: 'Update now',
-                to: 'https://posthog.com/docs/libraries/js#option-2-install-via-npm',
+                children: 'View the changelog',
+                to: 'https://github.com/PostHog/posthog-js/blob/main/CHANGELOG.md',
                 targetBlank: true,
             }}
             className="mb-4"
