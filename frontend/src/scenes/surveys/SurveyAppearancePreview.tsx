@@ -12,9 +12,25 @@ interface Props {
     survey: Survey | NewSurvey
     previewPageIndex: number
     onPreviewSubmit?: (res: string | string[] | number | null) => void
+    positionStyles?: React.CSSProperties
 }
 
-export function SurveyAppearancePreview({ survey, previewPageIndex, onPreviewSubmit = () => {} }: Props): JSX.Element {
+const DEFAULT_POSITION_STYLES: React.CSSProperties = {
+    position: 'relative',
+    left: 'unset',
+    right: 'unset',
+    top: 'unset',
+    bottom: 'unset',
+    transform: 'unset',
+    maxWidth: '100%',
+}
+
+export function SurveyAppearancePreview({
+    survey,
+    previewPageIndex,
+    onPreviewSubmit = () => {},
+    positionStyles = DEFAULT_POSITION_STYLES,
+}: Props): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
@@ -31,15 +47,7 @@ export function SurveyAppearancePreview({ survey, previewPageIndex, onPreviewSub
                 previewPageIndex,
                 forceDisableHtml: !surveysHTMLAvailable,
                 onPreviewSubmit,
-                positionStyles: {
-                    position: 'relative',
-                    left: 'unset',
-                    right: 'unset',
-                    top: 'unset',
-                    bottom: 'unset',
-                    transform: 'unset',
-                    maxWidth: '100%',
-                },
+                positionStyles,
             })
         }
 
@@ -53,10 +61,7 @@ export function SurveyAppearancePreview({ survey, previewPageIndex, onPreviewSub
                 forceDisableHtml: !surveysHTMLAvailable,
             })
         }
-    }, [survey, previewPageIndex, surveysHTMLAvailable, onPreviewSubmit])
-    return (
-        <>
-            <div ref={surveyPreviewRef} />
-        </>
-    )
+    }, [survey, previewPageIndex, surveysHTMLAvailable, onPreviewSubmit, positionStyles])
+
+    return <div ref={surveyPreviewRef} />
 }

@@ -50,14 +50,16 @@ export const defaultSurveyAppearance = {
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
+    zIndex: '2147482647',
+    disabledButtonOpacity: '0.6',
     maxWidth: '300px',
     textSubtleColor: '#939393',
     inputBackground: 'white',
     boxPadding: '20px 24px',
-    zIndex: '2147482647',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    borderRadius: '10px',
     shuffleQuestions: false,
     surveyPopupDelaySeconds: undefined,
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
 } as const
 
 export const defaultSurveyFieldValues = {
@@ -356,7 +358,7 @@ export const errorTrackingSurvey: SurveyTemplate = {
 }
 
 export const WEB_SAFE_FONTS = [
-    { value: 'inherit', label: 'inherit (default, uses the font family of your website)' },
+    { value: 'inherit', label: 'inherit (uses your website font)' },
     { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
