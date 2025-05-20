@@ -5,9 +5,10 @@ from posthog.hogql import ast
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
-    def __init__(self, runner, supported_props_filters) -> None:
+    def __init__(self, runner, supported_props_filters, table_name) -> None:
         self.runner = runner
-        self.supported_properties = supported_props_filters
+        self.supported_props_filters = supported_props_filters
+        self.table_name = table_name
 
     def can_use_preaggregated_tables(self) -> bool:
         query = self.runner.query
@@ -34,7 +35,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         filter_parts = []
 
-        for posthog_field, table_field in self.supported_properties.items():
+        for posthog_field, table_field in self.supported_props_filters.items():
             for prop in self.runner.query.properties:
                 if hasattr(prop, "key") and prop.key == posthog_field and hasattr(prop, "value"):
                     value = prop.value
@@ -47,7 +48,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                         values = [v.id if v is not None and hasattr(v, "id") else v for v in value]
                         filter_expr = ast.CompareOperation(
                             op=ast.CompareOperationOp.In,
-                            left=ast.Field(chain=["web_overview_daily", table_field]),
+                            left=ast.Field(chain=[self.table_name, table_field]),
                             right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
                         )
 
@@ -55,7 +56,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                     else:
                         filter_expr = ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["web_overview_daily", table_field]),
+                            left=ast.Field(chain=[self.table_name, table_field]),
                             right=ast.Constant(value=value),
                         )
 

@@ -40,8 +40,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.COUNTRY,
     ]
 
-    def __init__(self, runner: "WebStatsTableQueryRunner", **kwargs) -> None:
-        super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS, **kwargs)
+    def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
+        super().__init__(
+            runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS, table_name="web_stats_daily"
+        )
 
     def can_use_preaggregated_tables(self) -> bool:
         if not super().can_use_preaggregated_tables():

@@ -45,7 +45,13 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
-        if self.preaggregated_query_builder.can_use_preaggregated_tables():
+        should_use_preaggregated = (
+            self.modifiers
+            and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.preaggregated_query_builder.can_use_preaggregated_tables()
+        )
+
+        if should_use_preaggregated:
             return self.preaggregated_query_builder.get_query()
 
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
