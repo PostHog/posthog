@@ -2407,9 +2407,16 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
 }
 
+export enum DatabaseSchemaManagedViewTableKind {
+    REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
+    REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
-    type: 'managed_view'
     query: HogQLQuery
+    type: 'managed_view'
+    kind: DatabaseSchemaManagedViewTableKind
+    source_id?: string
 }
 
 export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
