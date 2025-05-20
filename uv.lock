@@ -3032,6 +3032,21 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-instrumentation-redis"
+version = "0.54b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/01/fad85231c3518bf6349a7ef483ef06a27100da8d1b7531dec9d8d09b94d8/opentelemetry_instrumentation_redis-0.54b1.tar.gz", hash = "sha256:89024c4752147d528e8c51fff0034193e628da339848cda78afe0cf4eb0c7ccb", size = 13908 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c0/c1/78f18965f16e34a8fecc5b10c52aca1243e75a512a0a0320556a69583f36/opentelemetry_instrumentation_redis-0.54b1-py3-none-any.whl", hash = "sha256:e98992bd38e93081158f9947a1a8eea51d96e8bfe5054894a5b8d1d82117c0c8", size = 14924 },
+]
+
+[[package]]
 name = "opentelemetry-instrumentation-wsgi"
 version = "0.54b1"
 source = { registry = "https://pypi.org/simple" }
@@ -3393,6 +3408,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-django" },
+    { name = "opentelemetry-instrumentation-redis" },
     { name = "opentelemetry-sdk" },
     { name = "orjson" },
     { name = "pandas" },
@@ -3594,6 +3610,7 @@ requires-dist = [
     { name = "openpyxl", specifier = "==3.1.2" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.54b1" },
     { name = "opentelemetry-instrumentation-django", specifier = "==0.54b1" },
+    { name = "opentelemetry-instrumentation-redis", specifier = ">=0.54b1" },
     { name = "opentelemetry-sdk", specifier = "==1.33.1" },
     { name = "orjson", specifier = "==3.10.15" },
     { name = "pandas", specifier = "==2.2.0" },
