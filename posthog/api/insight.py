@@ -86,6 +86,7 @@ from posthog.models.insight import InsightViewed
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.models.insight_variable import InsightVariable
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -313,7 +314,7 @@ class InsightSerializer(InsightBasicSerializer):
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
     """,
     )
-    query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
+    query = serializers.SerializerMethodField()
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
@@ -584,6 +585,42 @@ class InsightSerializer(InsightBasicSerializer):
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
 
+    def get_query(self, insight: Insight):
+        return self._query_variables_mapping(insight)
+
+    def _query_variables_mapping(self, instance: Insight):
+        query = instance.query
+        if (
+            query
+            and isinstance(query, dict)
+            and query.get("kind") == "DataVisualizationNode"
+            and query.get("source", {}).get("variables")
+        ):
+            # Keep the variables in an insight up to date based on variable code names that exist
+            current_variables = query["source"]["variables"]
+            insight_variables = list(self.context["insight_variables"])
+            final_variables = {}
+
+            # Create a lookup for insight variables by code_name for quick access
+            insight_variables_by_code_name = {var.code_name: var for var in insight_variables}
+
+            # For each variable in current_variables, update with data from insight_variables if code_name matches
+            for _, v in current_variables.items():
+                code_name = v.get("code_name")
+                if code_name in insight_variables_by_code_name:
+                    # Update the variable with corresponding data from insight_variables
+                    matched_var = insight_variables_by_code_name[code_name]
+                    # Add attributes from matched_var that can be serialized to JSON
+                    final_variables[str(matched_var.id)] = {
+                        "code_name": matched_var.code_name,
+                        "variableId": str(matched_var.id),
+                    }
+
+            # Replace the variables dict in the query
+            query["source"]["variables"] = final_variables
+
+        return query
+
     def get_hogql(self, insight: Insight):
         return self.insight_result(insight).hogql
 
@@ -761,6 +798,8 @@ class InsightViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+
         return context
 
     def dangerously_get_queryset(self):
