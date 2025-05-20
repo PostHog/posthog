@@ -200,7 +200,7 @@ function _SurveyResponseFilters(): JSX.Element {
                 </div>
             )}
             <div className="flex gap-2 justify-between">
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                     <DateFilter
                         dateFrom={dateRange?.date_from}
                         dateTo={dateRange?.date_to}
