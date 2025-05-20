@@ -268,6 +268,16 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
+class QueryFieldSerializer(serializers.Serializer):
+    def to_representation(self, value):
+        return self.parent._query_variables_mapping(value)
+
+    def to_internal_value(self, data):
+        if data is not None and not isinstance(data, dict):
+            raise serializers.ValidationError("Query must be a valid JSON object")
+        return data
+
+
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
@@ -314,7 +324,7 @@ class InsightSerializer(InsightBasicSerializer):
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
     """,
     )
-    query = serializers.SerializerMethodField()
+    query = QueryFieldSerializer(required=False)
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
@@ -585,11 +595,7 @@ class InsightSerializer(InsightBasicSerializer):
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
 
-    def get_query(self, insight: Insight):
-        return self._query_variables_mapping(insight)
-
-    def _query_variables_mapping(self, instance: Insight):
-        query = instance.query
+    def _query_variables_mapping(self, query: dict):
         if (
             query
             and isinstance(query, dict)
