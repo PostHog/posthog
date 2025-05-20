@@ -399,44 +399,44 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </LemonField>
                     </div>
                 )}
-                <div className="flex gap-2">
-                    <LemonField
-                        name="buttonText"
-                        label="Submit button text"
-                        className="flex-1"
-                        info="When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden and this text won't be used. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
-                    >
-                        <LemonInput
-                            value={
-                                question.buttonText === undefined
-                                    ? survey.appearance?.submitButtonText ?? 'Submit'
-                                    : question.buttonText
-                            }
-                            disabled={canSkipSubmitButton && !!question.skipSubmitButton}
-                        />
-                    </LemonField>
-                    {canSkipSubmitButton && (
-                        <LemonField
-                            name="skipSubmitButton"
-                            className="self-end my-2"
-                            info={
-                                <>
-                                    If enabled, the survey will submit immediately after the user makes a selection (for
-                                    single-choice without open-ended, or rating questions), and the submit button will
-                                    be hidden/text ignored.
-                                </>
-                            }
-                        >
-                            {({ value: skipSubmitButtonValue, onChange: onSkipSubmitButtonChange }) => (
-                                <LemonCheckbox
-                                    label="Automatically submit on selection"
-                                    checked={!!skipSubmitButtonValue}
-                                    onChange={onSkipSubmitButtonChange}
-                                />
-                            )}
-                        </LemonField>
-                    )}
-                </div>
+                <LemonField
+                    name="buttonText"
+                    label="Submit button text"
+                    className="flex-1 flex gap-1 justify-center"
+                    info="When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                >
+                    <>
+                        {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
+                            <LemonInput
+                                value={
+                                    question.buttonText === undefined
+                                        ? survey.appearance?.submitButtonText ?? 'Submit'
+                                        : question.buttonText
+                                }
+                            />
+                        )}
+                        {canSkipSubmitButton && (
+                            <LemonField
+                                name="skipSubmitButton"
+                                info={
+                                    <>
+                                        If enabled, the survey will submit immediately after the user makes a selection
+                                        (for single-choice without open-ended, or rating questions), and the submit
+                                        button will be hidden/text ignored.
+                                    </>
+                                }
+                            >
+                                {({ value: skipSubmitButtonValue, onChange: onSkipSubmitButtonChange }) => (
+                                    <LemonCheckbox
+                                        label="Automatically submit on selection"
+                                        checked={!!skipSubmitButtonValue}
+                                        onChange={onSkipSubmitButtonChange}
+                                    />
+                                )}
+                            </LemonField>
+                        )}
+                    </>
+                </LemonField>
                 {canHaveBranchingInput && <QuestionBranchingInput questionIndex={index} question={question} />}
             </div>
         </Group>
