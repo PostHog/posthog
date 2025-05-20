@@ -6,15 +6,12 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTreeSelectMode, TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
@@ -45,6 +42,8 @@ export interface SearchResults {
 
 export interface ProjectTreeLogicProps {
     key: string
+    defaultSortMethod?: ProjectTreeSortMethod
+    defaultOnlyFolders?: boolean
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -53,8 +52,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     key((props) => props.key),
     connect(() => ({
         values: [
-            groupsModel,
-            ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
             panelLayoutLogic,
             ['projectTreeMode'],
             breadcrumbsLogic,
@@ -128,6 +125,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         clearScrollTarget: true,
         setEditingItemId: (id: string) => ({ id }),
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
+        setOnlyFolders: (onlyFolders: boolean) => ({ onlyFolders }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
     }),
@@ -403,6 +401,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },
         ],
+        onlyFolders: [
+            false as boolean,
+            {
+                setOnlyFolders: (_, { onlyFolders }) => onlyFolders,
+            },
+        ],
         selectMode: [
             'default' as LemonTreeSelectMode,
             {
@@ -418,79 +422,31 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     selectors({
-        treeTableColumnOffsets: [
-            (s) => [s.treeTableColumnSizes],
-            (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
-        ],
         projectTree: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
-            (viableItems, folderStates, checkedItems, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
+            (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
+                const children = convertFileSystemEntryToTreeDataItem({
                     imports: viableItems,
                     folderStates,
                     checkedItems,
                     root: 'project',
                     users,
-                }),
-        ],
-        projectTreeOnlyFolders: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.searchTerm, s.searchedTreeItems],
-            (viableItems, folderStates, checkedItems, users, searchTerm, searchedTreeItems): TreeDataItem[] => {
-                if (searchTerm) {
+                    disabledReason: onlyFolders
+                        ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
+                        : undefined,
+                })
+                if (onlyFolders) {
                     return [
                         {
                             id: '/',
                             name: '/',
                             displayName: <>Project root</>,
                             record: { type: 'folder', path: '' },
-                            children: searchedTreeItems,
+                            children,
                         },
                     ]
                 }
-
-                return [
-                    {
-                        id: '/',
-                        name: '/',
-                        displayName: <>Project root</>,
-                        record: { type: 'folder', path: '' },
-                        children: convertFileSystemEntryToTreeDataItem({
-                            imports: viableItems,
-                            folderStates,
-                            checkedItems,
-                            root: 'project',
-                            disabledReason: (item) =>
-                                item.type !== 'folder' ? 'Only folders can be selected' : undefined,
-                            users,
-                        }),
-                    },
-                ]
-            },
-        ],
-        groupNodes: [
-            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
-            (groupTypes, groupsAccessStatus, aggregationLabel): FileSystemImport[] => {
-                const showGroupsIntroductionPage = [
-                    GroupsAccessStatus.HasAccess,
-                    GroupsAccessStatus.HasGroupTypes,
-                    GroupsAccessStatus.NoAccess,
-                ].includes(groupsAccessStatus)
-
-                const groupNodes: FileSystemImport[] = [
-                    ...(showGroupsIntroductionPage
-                        ? [
-                              {
-                                  path: 'Groups',
-                                  href: urls.groups(0),
-                              },
-                          ]
-                        : Array.from(groupTypes.values()).map((groupType) => ({
-                              path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              href: urls.groups(groupType.group_type_index),
-                          }))),
-                ]
-
-                return groupNodes
+                return children
             },
         ],
         recentTreeItems: [
@@ -526,8 +482,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         searchedTreeItems: [
-            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod, s.users],
-            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod, users): TreeDataItem[] => {
+            (s) => [
+                s.searchResults,
+                s.searchResultsLoading,
+                s.folderStates,
+                s.checkedItems,
+                s.sortMethod,
+                s.onlyFolders,
+                s.users,
+            ],
+            (
+                searchResults,
+                searchResultsLoading,
+                folderStates,
+                checkedItems,
+                sortMethod,
+                onlyFolders,
+                users
+            ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: searchResults.results,
                     folderStates,
@@ -537,6 +509,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
                     users,
+                    disabledReason: onlyFolders
+                        ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
+                        : undefined,
                 })
                 if (searchResultsLoading) {
                     results.push({
@@ -583,6 +558,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 return projectTree
             },
+        ],
+        treeTableColumnOffsets: [
+            (s) => [s.treeTableColumnSizes],
+            (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
@@ -1074,10 +1053,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, props }) => {
         actions.loadFolder('')
         if (values.projectTreeRef) {
             actions.assureVisibility(values.projectTreeRef)
+        }
+        if (typeof props.defaultOnlyFolders !== 'undefined') {
+            actions.setOnlyFolders(props.defaultOnlyFolders)
+        }
+        if (typeof props.defaultSortMethod !== 'undefined') {
+            actions.setSortMethod(props.defaultSortMethod)
         }
     }),
 ])

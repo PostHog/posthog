@@ -8,7 +8,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface FolderSelectProps {
@@ -25,9 +25,10 @@ let counter = 0
 
 export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true }
 
-    const { searchTerm, expandedSearchFolders, expandedFolders, projectTreeOnlyFolders, treeTableKeys, editingItemId } =
-        useValues(projectTreeLogic({ key }))
+    const { searchTerm, expandedSearchFolders, expandedFolders, projectTreeItems, treeTableKeys, editingItemId } =
+        useValues(projectTreeLogic(props))
     const {
         setSearchTerm,
         setExpandedSearchFolders,
@@ -37,7 +38,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
         setEditingItemId,
         rename,
         toggleFolderOpen,
-    } = useActions(projectTreeLogic({ key }))
+    } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
     const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
 
@@ -99,7 +100,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                     ref={treeRef}
                     selectMode="folder-only"
                     className="px-0 py-1"
-                    data={projectTreeOnlyFolders}
+                    data={projectTreeItems}
                     mode="tree"
                     tableViewKeys={treeTableKeys}
                     defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
