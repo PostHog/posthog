@@ -50,6 +50,7 @@ import {
     calculateNpsBreakdown,
     calculateNpsScore,
     createAnswerFilterHogQLExpression,
+    DATE_FORMAT,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyStartDateForQuery,
@@ -1182,19 +1183,36 @@ export const surveyLogic = kea<surveyLogicType>([
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
+                // If no date range provided, use the survey's default date range
                 if (!dateRange) {
                     return `AND timestamp >= '${getSurveyStartDateForQuery(survey)}'
                 AND timestamp <= '${getSurveyEndDateForQuery(survey)}'`
                 }
 
-                const fromDateDayjs = dateStringToDayJs(dateRange.date_from)
-                const fromDate = fromDateDayjs
-                    ? fromDateDayjs.format('YYYY-MM-DD HH:mm:ss')
-                    : getSurveyStartDateForQuery(survey)
+                // ----- Handle FROM date -----
+                // Parse the date string to a dayjs object
+                let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
 
-                // For the end date, use current time if not provided
-                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
-                const toDate = toDateDayjs.format('YYYY-MM-DD HH:mm:ss')
+                // Use survey start date as lower bound if needed
+                const surveyStartDayjs = survey.start_date ? dayjs(survey.start_date) : null
+                if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
+                    fromDateDayjs = surveyStartDayjs
+                }
+
+                // Fall back to survey start date if no valid from date
+                const fromDate = fromDateDayjs ? fromDateDayjs.format(DATE_FORMAT) : getSurveyStartDateForQuery(survey)
+
+                // ----- Handle TO date -----
+                // Parse the date string or use current time
+                let toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
+
+                // Use survey end date as upper bound if it exists
+                const surveyEndDayjs = survey.end_date ? dayjs(survey.end_date) : null
+                if (surveyEndDayjs && toDateDayjs.isAfter(surveyEndDayjs)) {
+                    toDateDayjs = surveyEndDayjs
+                }
+
+                const toDate = toDateDayjs.format(DATE_FORMAT)
 
                 return `AND timestamp >= '${fromDate}'
                 AND timestamp <= '${toDate}'`
