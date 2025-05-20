@@ -477,7 +477,7 @@ function PersonSummariesTable(): JSX.Element {
                         <div className="flex flex-col">
                             <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
                                 <IconAIText />
-                                Person's Session Analysis
+                                Person's Sessions Analysis
                                 <LemonTag type="completion" size="medium">
                                     ALPHA
                                 </LemonTag>
