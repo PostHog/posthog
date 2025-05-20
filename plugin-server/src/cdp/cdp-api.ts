@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
+import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
@@ -29,6 +30,7 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -37,6 +39,7 @@ export class CdpApi {
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
     }
 
     public get service(): PluginServerService {
@@ -64,6 +67,7 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
 
         return router
     }
@@ -311,4 +315,32 @@ export class CdpApi {
             await this.hogFunctionMonitoringService.produceQueuedMessages()
         }
     }
+
+    private postWebhook =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<any> => {
+            // TODO: Source handler service that takes care of finding the relevant function,
+            // running it (maybe) and scheduling the job if it gets suspended
+
+            const { webhook_id } = req.params
+
+            try {
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
+
+                if (!result.error) {
+                    return res.status(500).json({
+                        status: 'Unhandled error',
+                    })
+                } else if (!result.finished) {
+                    return res.status(201).json({
+                        status: 'queued',
+                    })
+                }
+                return res.status(200).json({
+                    status: 'ok',
+                })
+            } catch (error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
 }

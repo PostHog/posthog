@@ -44,6 +44,7 @@ class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
     INTERNAL_DESTINATION = "internal_destination"
+    SOURCE_WEBHOOK = "source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
     EMAIL = "email"
@@ -55,6 +56,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.BROADCAST,
+    HogFunctionType.SOURCE_WEBHOOK,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,

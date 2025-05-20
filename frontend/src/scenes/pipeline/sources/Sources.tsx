@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
@@ -7,6 +8,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 
 import { PipelineStage, ProductKey } from '~/types'
 
+import { Destinations } from '../destinations/Destinations'
 import { NewButton } from '../NewButton'
 
 export function Sources(): JSX.Element {
@@ -27,6 +29,10 @@ export function Sources(): JSX.Element {
                         actionElementOverride={<NewButton stage={PipelineStage.Source} />}
                     />
                 ) : null}
+
+                <FlaggedFeature flag="cdp-hog-sources">
+                    <Destinations types={['source_webhook']} />
+                </FlaggedFeature>
 
                 <div>
                     <h2>Managed sources</h2>
