@@ -1,4 +1,5 @@
 import { IconClock } from '@posthog/icons'
+import { IconAIText } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
@@ -122,6 +123,15 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                                 <span>{droppedOffCountPresentationWithPercentage}</span>
                             )}
                         </Tooltip>
+                        <span
+                            className="flex items-center gap-1 ml-1 text-muted cursor-pointer hover:text-primary mt-0.5 mr-1 text-xs font-medium"
+                            onClick={() => {
+                                /* TODO: handle summarize drop-offs */
+                            }}
+                        >
+                            <IconAIText />
+                            Summarize
+                        </span>
                     </LemonRow>
                     {showTime && (
                         <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">

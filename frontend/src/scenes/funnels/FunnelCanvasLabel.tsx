@@ -1,4 +1,4 @@
-import { IconInfo, IconTestTube } from '@posthog/icons'
+import { IconAIText, IconInfo, IconTestTube } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -96,6 +96,19 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </LemonButton>,
               ]
             : []),
+
+        ...[
+            <LemonButton
+                key="run-experiment"
+                icon={<IconAIText />}
+                type="secondary"
+                data-attr="create-experiment-from-insight"
+                size="xsmall"
+                tooltip="Create a draft experiment with the metric from this funnel."
+            >
+                Summarize drop-offs
+            </LemonButton>,
+        ],
     ]
 
     return (
