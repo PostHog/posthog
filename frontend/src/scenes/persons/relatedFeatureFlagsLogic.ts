@@ -30,9 +30,9 @@ export interface RelatedFeatureFlagResponse {
 }
 
 export interface RelatedFlagsFilters {
-    type?: FeatureFlagReleaseType
-    active?: 'true' | 'false'
-    reason?: 'matched' | 'not matched'
+    type?: string
+    active?: string
+    reason?: string
 }
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
