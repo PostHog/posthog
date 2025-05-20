@@ -83,10 +83,9 @@ export function StacktraceGenericExceptionHeader({
             {!loading && (
                 <div className="flex items-center gap-1 my-1 text-tertiary leading-6">
                     <span>
-                        <IconAIText className="mr-0.5" /> User tried to create a new product, failed, but succeeded
-                        after reload.
+                        <IconAIText className="mr-0.5" /> User tried to login, but got API error multiple times, abandoning auth flow
                     </span>
-                    <LemonTag size="medium" type="danger">
+                    <LemonTag size="medium" type="danger" className="ml-0.5">
                         blocking
                     </LemonTag>
                 </div>

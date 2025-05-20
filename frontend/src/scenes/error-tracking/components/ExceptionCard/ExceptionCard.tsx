@@ -103,7 +103,7 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
                                         <img 
                                             src="/static/error-tracking/error-moment.gif"
                                             alt="Error moment visualization"
-                                            className="max-w-full h-auto"
+                                            className="max-h-[calc(90vh-15rem)]"
                                         />
                                     </div>
                                 ),

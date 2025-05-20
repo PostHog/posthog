@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconTarget } from '@posthog/icons'
 
 export const EventsTable = (): JSX.Element => {
     const { eventsQuery } = useValues(errorTrackingIssueSceneLogic)
@@ -16,7 +19,17 @@ export const EventsTable = (): JSX.Element => {
         columns: {
             'recording_button(properties.$session_id)': {
                 title: 'Recording',
-                width: '134px',
+                width: '175px',
+                render: (_, record) => (
+                    <div className="flex gap-1">
+                        <LemonButton icon={<IconTarget />} size="xsmall" type="primary">
+                            <span>Moment</span>
+                        </LemonButton>
+                        <LemonButton size="xsmall" type="primary" icon={<IconPlayCircle />}>
+                            Recording
+                        </LemonButton>
+                    </div>
+                ),
             },
         },
         rowProps: () => {
