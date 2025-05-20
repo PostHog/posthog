@@ -8,13 +8,13 @@ import {
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { batchChanges, BuiltLogic, getContext, LogicWrapper, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useRef } from 'react'
+import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,9 +27,9 @@ import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
+import { MaxBindThreadLogic } from './MaxBindThreadLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
 import { QuestionSuggestions } from './QuestionSuggestions'
 import { Thread } from './Thread'
@@ -73,7 +73,7 @@ export interface MaxInstanceProps {
     sidePanel?: boolean
 }
 
-export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled } = useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
 
@@ -156,7 +156,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
-            <BindThreadLogic>
+            <MaxBindThreadLogic>
                 {conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />
                 ) : !threadVisible ? (
@@ -177,49 +177,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                         <QuestionInput isFloating />
                     </>
                 )}
-            </BindThreadLogic>
+            </MaxBindThreadLogic>
         </>
     )
-}
-
-function BindThreadLogic({ children }: { children: React.ReactNode }): JSX.Element {
-    const { mountedThreadLogics, threadLogicKey, conversation } = useValues(maxLogic)
-    const { cleanMountedThreadLogics, registerThreadLogic } = useActions(maxLogic)
-    const lastPathMounted = useRef<string | null>(null)
-
-    const threadProps: MaxThreadLogicProps = {
-        conversationId: threadLogicKey,
-        conversation,
-    }
-    const threadLogic = maxThreadLogic(threadProps)
-
-    if (!mountedThreadLogics[threadLogic.pathString]) {
-        batchChanges(() => {
-            threadLogic.mount()
-        })
-    } else if (lastPathMounted.current !== threadLogic.pathString) {
-        registerThreadLogic(threadLogic)
-        lastPathMounted.current = threadLogic.pathString
-    }
-
-    useEffect(() => {
-        return () => {
-            cleanMountedThreadLogics()
-        }
-    }, [cleanMountedThreadLogics])
-
-    const LogicContext = getOrCreateContextForLogicWrapper(maxThreadLogic)
-    return <LogicContext.Provider value={threadLogic}>{children}</LogicContext.Provider>
-}
-
-/**
- * Taken from https://github.com/keajs/kea/blob/master/src/react/bind.tsx#L12
- */
-function getOrCreateContextForLogicWrapper(logic: LogicWrapper): React.Context<BuiltLogic | undefined> {
-    let context = getContext().react.contexts.get(logic)
-    if (!context) {
-        context = React.createContext(undefined as BuiltLogic | undefined)
-        getContext().react.contexts.set(logic, context)
-    }
-    return context
-}
+})

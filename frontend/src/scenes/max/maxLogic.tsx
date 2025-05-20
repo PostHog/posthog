@@ -1,5 +1,5 @@
 import { shuffle } from 'd3'
-import { actions, afterMount, BuiltLogic, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -17,7 +17,6 @@ import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } fr
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import type { maxThreadLogicType } from './maxThreadLogicType'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -79,9 +78,6 @@ export const maxLogic = kea<maxLogicType>([
          * Prepend a conversation to the conversation history or update it in place.
          */
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
-
-        registerThreadLogic: (logic: BuiltLogic<maxThreadLogicType>) => ({ logic }),
-        cleanMountedThreadLogics: true,
     }),
 
     defaults({
@@ -159,30 +155,6 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (state, { autoRun }) => autoRun }],
-
-        mountedThreadLogics: [
-            {} as Record<string, BuiltLogic<maxThreadLogicType>>,
-            {
-                registerThreadLogic: (state, { logic }) => ({ ...state, [logic.pathString]: logic }),
-                cleanMountedThreadLogics: (state) => {
-                    // This action happens after the component lifecycle, so should be safe to unmount logics
-                    // as components are already unmounted.
-                    const logics = []
-                    for (const [path, logic] of Object.entries(state)) {
-                        if (!logic.isMounted()) {
-                            continue
-                        }
-
-                        if (!logic.values.threadLoading) {
-                            logic.unmount()
-                        } else {
-                            logics.push([path, logic])
-                        }
-                    }
-                    return Object.fromEntries(logics)
-                },
-            },
-        ],
     }),
 
     loaders({
