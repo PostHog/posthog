@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
+import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -19,6 +20,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
@@ -36,8 +38,9 @@ export function TopBar(): JSX.Element | null {
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
-    const { projectTreeRefEntry } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { setMovingItems, assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
+    const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { openMoveToModal } = useActions(moveToLogic)
     const [compactionRate, setCompactionRate] = useState(0)
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
@@ -78,6 +81,7 @@ export function TopBar(): JSX.Element | null {
                 return newCompactionRate
             })
         }
+
         const main = document.getElementsByTagName('main')[0]
         main.addEventListener('scroll', handleScroll)
         return () => main.removeEventListener('scroll', handleScroll)
@@ -141,7 +145,7 @@ export function TopBar(): JSX.Element | null {
                                     />
                                     <LemonButton
                                         size="xsmall"
-                                        onClick={() => setMovingItems([projectTreeRefEntry])}
+                                        onClick={() => openMoveToModal([projectTreeRefEntry])}
                                         icon={<IconFolderMove />}
                                         data-attr="top-bar-move-button"
                                         tooltip="Move to another folder"

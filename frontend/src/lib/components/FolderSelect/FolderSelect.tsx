@@ -120,6 +120,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                         if (folder) {
                             setSelectedFolder(folder.record?.path)
                             toggleFolderOpen(folder.id || '', isExpanded)
+                            onChange?.(folder.record?.path ?? '')
                         }
                     }}
                     renderItem={(item) => {

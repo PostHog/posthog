@@ -5,6 +5,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { getDefaultTreeNew } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
@@ -27,7 +28,7 @@ export const PAGINATION_LIMIT = 100
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], breadcrumbsLogic, ['projectTreeRef']],
     })),
     actions({
         loadUnfiledItems: true,
@@ -461,6 +462,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     loadingPaths[pendingActions[0].newPath || pendingActions[0].path] = true
                 }
                 return loadingPaths
+            },
+        ],
+        projectTreeRefEntry: [
+            (s) => [s.projectTreeRef, s.sortedItems],
+            (projectTreeRef, sortedItems): FileSystemEntry | null => {
+                if (!projectTreeRef || !projectTreeRef.type || !projectTreeRef.ref) {
+                    return null
+                }
+                const treeItem = projectTreeRef.type.endsWith('/')
+                    ? sortedItems.find(
+                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
+                      )
+                    : sortedItems.find((item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref)
+                return treeItem ?? null
             },
         ],
     }),

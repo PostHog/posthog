@@ -15,7 +15,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef } from '~/types'
+import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { projectTreeLogicType } from './projectTreeLogicType'
@@ -25,7 +25,6 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
-    unescapePath,
 } from './utils'
 
 export type ProjectTreeSortMethod = 'folder' | 'recent'
@@ -128,7 +127,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
         setEditingItemId: (id: string) => ({ id }),
-        setMovingItems: (items: FileSystemEntry[]) => ({ items }),
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
@@ -377,12 +375,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {} as Record<string, boolean>,
             {
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
-            },
-        ],
-        movingItems: [
-            [] as FileSystemEntry[],
-            {
-                setMovingItems: (_, { items }) => items,
             },
         ],
         lastCheckedItem: [
@@ -694,79 +686,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     .filter(([_, checked]) => checked)
                     .map(([id]) => viableItemsById[id])
                     .filter(Boolean)
-            },
-        ],
-
-        projectTreeRefEntry: [
-            (s) => [s.projectTreeRef, s.sortedItems],
-            (projectTreeRef, sortedItems): FileSystemEntry | null => {
-                if (!projectTreeRef || !projectTreeRef.type || !projectTreeRef.ref) {
-                    return null
-                }
-                const treeItem = projectTreeRef.type.endsWith('/')
-                    ? sortedItems.find(
-                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
-                      )
-                    : sortedItems.find((item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref)
-                return treeItem ?? null
-            },
-        ],
-        projectTreeRefBreadcrumbs: [
-            (s) => [s.projectTreeRef, s.projectTreeRefEntry, s.lastNewFolder, s.appBreadcrumbs, s.sceneBreadcrumbs],
-            (
-                projectTreeRef,
-                projectTreeRefEntry,
-                lastNewFolder,
-                appBreadcrumbs,
-                sceneBreadcrumbs
-            ): Breadcrumb[] | null => {
-                let folders: string[] = []
-
-                // Take the last breadcrumb from the scene (may contain some edit state logic)
-                let lastBreadcrumb: Breadcrumb | null =
-                    sceneBreadcrumbs.length > 0 ? sceneBreadcrumbs.slice(-1)[0] : null
-
-                // :HACK: Ignore last breadcrumb for the messaging scenes to avoid showing static titles
-                if (
-                    projectTreeRef?.type &&
-                    projectTreeRef.ref !== null &&
-                    ['hog_function/campaign', 'hog_function/broadcast'].includes(projectTreeRef.type)
-                ) {
-                    lastBreadcrumb = null
-                }
-
-                // If we're on a page that's in the project tree, take its path as our base
-                if (projectTreeRefEntry?.path) {
-                    folders = splitPath(projectTreeRefEntry.path)
-                    const name = folders.pop() // remove last part
-                    if (!lastBreadcrumb) {
-                        // No scene breadcrumbs, so create a new one with the file name
-                        lastBreadcrumb = {
-                            key: `project-tree/${projectTreeRefEntry.path}`,
-                            name: unescapePath(name ?? 'Unnamed'),
-                            path: projectTreeRefEntry.href, // link to actual page
-                        }
-                    }
-                }
-                // If we're on a "new xyz" page opened from a folder, use that folder as the base
-                if (!projectTreeRefEntry && projectTreeRef?.ref === null && lastNewFolder) {
-                    folders = splitPath(lastNewFolder)
-                    if (!lastBreadcrumb) {
-                        lastBreadcrumb = {
-                            key: `new/${lastNewFolder}`,
-                            name: 'New',
-                            path: joinPath([...folders, 'New']),
-                        }
-                    }
-                }
-                // Convert the folders into breadcrumbs
-                const breadcrumbs: ProjectTreeBreadcrumb[] = folders.map((path, index) => ({
-                    key: `project-tree/${path}`,
-                    name: unescapePath(path),
-                    path: joinPath(folders.slice(0, index + 1)),
-                    type: 'folder',
-                }))
-                return [...appBreadcrumbs, ...breadcrumbs, ...(lastBreadcrumb ? [lastBreadcrumb] : [])]
             },
         ],
     }),
