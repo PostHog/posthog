@@ -118,6 +118,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             {
                 submitPrompt: () => '',
                 addAssistantMessageChunk: (state, { text }) => (state ?? '') + text,
+                addResponseToHistory: () => null,
                 clearConversation: () => null,
                 setMessages: () => null,
             },

@@ -38,8 +38,6 @@ SUPPORTED_MODELS_WITH_THINKING = (
     AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
 )
 
-ALLOWED_FEATURE_FLAGS = ["llm-editor-proxy", "llm-observability-playground"]
-
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
@@ -79,7 +77,6 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
     def validate_feature_flag(self, request):
         result_session = SessionAuthentication().authenticate(request)
-        # Pick whichever authentication succeeded
         if result_session is not None:
             user, _ = result_session
         else:
