@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { useDebouncedCallback } from 'use-debounce'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
@@ -8,7 +9,7 @@ import { UniversalFiltersGroup } from '~/types'
 
 import type { logsLogicType } from './logsLogicType'
 
-const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
+const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -62,7 +63,6 @@ export const logsLogic = kea<logsLogicType>([
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
-
         wrapBody: [
             true as boolean,
             {
@@ -133,8 +133,7 @@ export const logsLogic = kea<logsLogicType>([
             },
             setDateRange: maybeRefreshLogs,
             setOrderBy: maybeRefreshLogs,
-            // TODO: debounce
-            // setSearchTerm: maybeRefreshLogs,
+            setSearchTerm: maybeRefreshLogs,
             setResource: maybeRefreshLogs,
             setSeverityLevels: maybeRefreshLogs,
             setWrapBody: maybeRefreshLogs,

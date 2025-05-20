@@ -1,5 +1,6 @@
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -11,29 +12,58 @@ import { LogMessage } from '~/queries/schema/schema-general'
 
 import { DateRangeFilter } from './filters/DateRangeFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
+import { AttributesFilter } from './filters/AttributesFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
+import { useEffect } from 'react'
 
 export const scene: SceneExport = {
     component: LogsScene,
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparkline, logsLoading, hasRunQuery } = useValues(logsLogic)
+    const { wrapBody, logs, sparkline, logsLoading, hasRunQuery, filters } = useValues(logsLogic)
+    const { runQuery } = useActions(logsLogic)
+
+    useEffect(() => {
+        runQuery()
+    }, [runQuery])
 
     const labels: string[] = []
-    const counts: number[] = []
-    sparkline.forEach(([label, count]) => {
-        labels.push(label)
-        counts.push(count)
-    })
+    let lastTime = ''
+    let i = -1
+    const timeseries = Object.entries(
+        sparkline.reduce((accumulator, currentItem) => {
+            if (currentItem[0] !== lastTime) {
+                labels.push(currentItem[0])
+                lastTime = currentItem[0]
+                i++
+            }
+            const key = currentItem[1]
+            if (!accumulator[key]) {
+                accumulator[key] = Array(sparkline.length)
+            }
+            accumulator[key][i] = currentItem[2]
+            return accumulator
+        }, {})
+    ).map(([level, data]) => ({
+        name: level,
+        values: data as number[],
+        color: {
+            error: 'danger',
+            warn: 'warning',
+            info: 'brand-blue',
+            debug: 'muted',
+        }[level],
+    }))
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
+
             {hasRunQuery ? (
                 <>
-                    {sparkline.length > 0 && <Sparkline labels={labels} data={counts} className="w-full" />}
+                    {sparkline.length > 0 && <Sparkline labels={labels} data={timeseries} className="w-full" />}
                     <DisplayOptions />
                     <div className="flex-1">
                         <LemonTable
@@ -127,7 +157,7 @@ const Filters = (): JSX.Element => {
         <div className="flex flex-col gap-y-1.5">
             <div className="flex justify-between gap-y-2">
                 <div className="flex gap-x-1">
-                    {/* <AttributesFilter /> */}
+                    <AttributesFilter />
                     <SeverityLevelsFilter />
                 </div>
                 <div className="flex gap-x-1">
