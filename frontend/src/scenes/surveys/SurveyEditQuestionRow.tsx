@@ -8,7 +8,14 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { QuestionBranchingInput } from './QuestionBranchingInput'
@@ -102,6 +109,25 @@ export function SurveyEditQuestionHeader({
     )
 }
 
+function canQuestionHaveBranchingInput(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        question.type === SurveyQuestionType.SingleChoice ||
+        question.type === SurveyQuestionType.MultipleChoice
+    )
+}
+
+function canQuestionSkipSubmitButton(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    )
+}
+
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
@@ -125,14 +151,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         handleQuestionValueChange('descriptionContentType', key)
     }
 
-    const canHaveBranchingInput =
-        question.type === SurveyQuestionType.Rating ||
-        question.type === SurveyQuestionType.SingleChoice ||
-        question.type === SurveyQuestionType.MultipleChoice
+    const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
 
-    const canSkipSubmitButton =
-        question.type === SurveyQuestionType.Rating ||
-        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    const canHaveBranchingInput = canQuestionHaveBranchingInput(question)
 
     return (
         <Group name={`questions.${index}`} key={index}>
@@ -383,7 +404,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         name="buttonText"
                         label="Submit button text"
                         className="flex-1"
-                        info="If the survey is configured to automatically submit on selection, the submit button will be hidden/text ignored, and the response will be submitted immediately after the user makes a selection. Requires at least version XXX of posthog-js. Not available for the mobile SDKs at the moment."
+                        info="When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden and this text won't be used. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
                     >
                         <LemonInput
                             value={
