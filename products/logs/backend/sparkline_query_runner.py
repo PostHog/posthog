@@ -46,7 +46,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             all_minutes AS (
                 SELECT
                     dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
-                FROM numbers(dateDiff({interval}, start_time_bucket, end_time_bucket) + 1)
+                FROM numbers(floor(dateDiff({interval}, start_time_bucket, end_time_bucket) / {interval_count} + 1))
             ),
             actual_counts AS (
                 SELECT
@@ -73,5 +73,4 @@ class SparklineQueryRunner(LogsQueryRunner):
         )
         if not isinstance(query, ast.SelectQuery):
             raise Exception("NO!")
-
         return query
