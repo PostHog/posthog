@@ -6,7 +6,7 @@ from uuid import UUID
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.batch_exports.service import (
     afetch_batch_export_runs_in_range,
     aupdate_records_total_count,
@@ -15,6 +15,10 @@ from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
+
+# If at least this number of batch export runs have 0 records completed, we
+# will log a warning.
+ZERO_RECORDS_COMPLETED_THRESHOLD = 6
 
 
 class BatchExportNotFoundError(Exception):
@@ -165,8 +169,8 @@ async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
 
 
 @dataclass
-class CheckForMissingBatchExportRunsInputs:
-    """Inputs for checking missing batch export runs"""
+class CheckBatchExportRunsInputs:
+    """Inputs for checking batch export runs."""
 
     batch_export_id: UUID
     overall_interval_start: str
@@ -186,13 +190,19 @@ def _log_warning_for_missing_batch_export_runs(
     activity.logger.warning(message)
 
 
+def _log_warning_for_zero_records_completed(batch_export_id: UUID, zero_records_completed_runs: list[BatchExportRun]):
+    message = f"Batch Exports Monitoring: Found {len(zero_records_completed_runs)} run(s) with 0 records completed for batch export {batch_export_id}"
+    activity.logger.warning(message)
+
+
 @activity.defn
-async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExportRunsInputs) -> int:
-    """Check for missing batch export runs and log a warning if any are found.
-    (We can then alert based on these log entries)
+async def check_batch_export_runs(inputs: CheckBatchExportRunsInputs) -> int:
+    """Check for missing batch export runs and runs with 0 records completed.
+
+    Log a warning if any are found, which can then be alerted on.
 
     Returns:
-        The number of missing batch export runs found.
+        The number of issues found.
     """
     async with Heartbeater():
         interval_start = dt.datetime.strptime(inputs.overall_interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
@@ -225,7 +235,12 @@ async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExport
         if missing_runs:
             _log_warning_for_missing_batch_export_runs(inputs.batch_export_id, missing_runs)
 
-        return len(missing_runs)
+        zero_records_completed_runs: list[BatchExportRun] = [r for r in runs if r.records_completed == 0]
+
+        if len(zero_records_completed_runs) >= ZERO_RECORDS_COMPLETED_THRESHOLD:
+            _log_warning_for_zero_records_completed(inputs.batch_export_id, zero_records_completed_runs)
+
+        return len(missing_runs) + len(zero_records_completed_runs)
 
 
 @workflow.defn(name="batch-export-monitoring")
@@ -240,6 +255,8 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
         for some reason).
     2. Reconciling the number of exported events with the number of events in
         ClickHouse for a given interval.
+    3. Checking if we have several runs with zero records completed (this is
+        typically caused by ingestion lag on the `events_recent` table).
     """
 
     @staticmethod
@@ -289,8 +306,8 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
         )
 
         await workflow.execute_activity(
-            check_for_missing_batch_export_runs,
-            CheckForMissingBatchExportRunsInputs(
+            check_batch_export_runs,
+            CheckBatchExportRunsInputs(
                 batch_export_id=batch_export_details.id,
                 overall_interval_start=interval_start_str,
                 overall_interval_end=interval_end_str,
