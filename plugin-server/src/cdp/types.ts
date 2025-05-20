@@ -288,6 +288,7 @@ export type HogFunctionTypeType =
     | 'destination'
     | 'transformation'
     | 'internal_destination'
+    | 'source_webhook'
     | 'email'
     | 'sms'
     | 'push'
