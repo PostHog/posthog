@@ -100,7 +100,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 personDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
             }
 
-            const updateLatencyPerDistinctId = store.getUpdateLatencyPerDistinctId()
+            const updateLatencyPerDistinctId = store.getUpdateLatencyPerDistinctIdSeconds()
             for (const [updateType, latency] of updateLatencyPerDistinctId.entries()) {
                 totalPersonUpdateLatencyPerBatchHistogram.observe({ update_type: updateType }, latency)
             }
@@ -118,7 +118,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     private methodCounts: Map<MethodName, number>
     private cacheMetrics: CacheMetrics
     private databaseOperationCounts: Map<MethodName, number>
-    private updateLatencyPerDistinctId: Map<UpdateType, number>
+    private updateLatencyPerDistinctIdSeconds: Map<UpdateType, number>
     /**
      * We maintain two separate person caches for different read patterns:
      *
@@ -153,9 +153,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             this.databaseOperationCounts.set(method, 0)
         }
 
-        this.updateLatencyPerDistinctId = new Map()
+        this.updateLatencyPerDistinctIdSeconds = new Map()
         for (const updateType of ALL_UPDATE_TYPES) {
-            this.updateLatencyPerDistinctId.set(updateType, 0)
+            this.updateLatencyPerDistinctIdSeconds.set(updateType, 0)
         }
 
         this.personCache = new Map()
@@ -271,7 +271,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.incrementDatabaseOperation(methodName)
         const start = performance.now()
         const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
-        this.recordUpdateLatency(updateType, performance.now() - start)
+        this.recordUpdateLatency(updateType, (performance.now() - start) / 1000)
         observeLatencyByVersion(person, start, methodName)
         return response
     }
@@ -358,8 +358,8 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return new Map(this.databaseOperationCounts)
     }
 
-    getUpdateLatencyPerDistinctId(): Map<UpdateType, number> {
-        return this.updateLatencyPerDistinctId
+    getUpdateLatencyPerDistinctIdSeconds(): Map<UpdateType, number> {
+        return this.updateLatencyPerDistinctIdSeconds
     }
 
     // Private cache management methods
@@ -429,10 +429,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
     }
 
-    private recordUpdateLatency(updateType: UpdateType, latency: number): void {
-        this.updateLatencyPerDistinctId.set(
+    private recordUpdateLatency(updateType: UpdateType, latencySeconds: number): void {
+        this.updateLatencyPerDistinctIdSeconds.set(
             updateType,
-            (this.updateLatencyPerDistinctId.get(updateType) || 0) + latency
+            (this.updateLatencyPerDistinctIdSeconds.get(updateType) || 0) + latencySeconds
         )
     }
 }
