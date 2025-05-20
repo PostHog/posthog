@@ -8,12 +8,13 @@ import {
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { batchChanges, BuiltLogic, getContext, LogicWrapper, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React, { useEffect, useRef } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,6 +29,7 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
 import { QuestionSuggestions } from './QuestionSuggestions'
 import { Thread } from './Thread'
@@ -74,6 +76,7 @@ export interface MaxInstanceProps {
 export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled } = useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
 
@@ -153,26 +156,70 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
-            {conversationHistoryVisible ? (
-                <ConversationHistory sidePanel={sidePanel} />
-            ) : !threadVisible ? (
-                // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
-                // is at the same viewport height as the QuestionInput text that appear after going into a thread.
-                // This makes the transition from one view into another just that bit smoother visually.
-                <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
-                    <div className="flex-1 items-center justify-center flex flex-col gap-3">
-                        <Intro />
-                        <QuestionInput />
-                        <QuestionSuggestions />
+            <BindThreadLogic>
+                {conversationHistoryVisible ? (
+                    <ConversationHistory sidePanel={sidePanel} />
+                ) : !threadVisible ? (
+                    // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
+                    // is at the same viewport height as the QuestionInput text that appear after going into a thread.
+                    // This makes the transition from one view into another just that bit smoother visually.
+                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                            <Intro />
+                            <QuestionInput />
+                            <QuestionSuggestions />
+                        </div>
+                        <HistoryPreview sidePanel={sidePanel} />
                     </div>
-                    <HistoryPreview sidePanel={sidePanel} />
-                </div>
-            ) : (
-                <>
-                    <Thread />
-                    <QuestionInput isFloating />
-                </>
-            )}
+                ) : (
+                    <>
+                        <Thread />
+                        <QuestionInput isFloating />
+                    </>
+                )}
+            </BindThreadLogic>
         </>
     )
+}
+
+function BindThreadLogic({ children }: { children: React.ReactNode }): JSX.Element {
+    const { mountedThreadLogics, threadLogicKey, conversation } = useValues(maxLogic)
+    const { cleanMountedThreadLogics, registerThreadLogic } = useActions(maxLogic)
+    const lastPathMounted = useRef<string | null>(null)
+
+    const threadProps: MaxThreadLogicProps = {
+        conversationId: threadLogicKey,
+        conversation,
+    }
+    const threadLogic = maxThreadLogic(threadProps)
+
+    if (!mountedThreadLogics[threadLogic.pathString]) {
+        batchChanges(() => {
+            threadLogic.mount()
+        })
+    } else if (lastPathMounted.current !== threadLogic.pathString) {
+        registerThreadLogic(threadLogic)
+        lastPathMounted.current = threadLogic.pathString
+    }
+
+    useEffect(() => {
+        return () => {
+            cleanMountedThreadLogics()
+        }
+    }, [cleanMountedThreadLogics])
+
+    const LogicContext = getOrCreateContextForLogicWrapper(maxThreadLogic)
+    return <LogicContext.Provider value={threadLogic}>{children}</LogicContext.Provider>
+}
+
+/**
+ * Taken from https://github.com/keajs/kea/blob/master/src/react/bind.tsx#L12
+ */
+function getOrCreateContextForLogicWrapper(logic: LogicWrapper): React.Context<BuiltLogic | undefined> {
+    let context = getContext().react.contexts.get(logic)
+    if (!context) {
+        context = React.createContext(undefined as BuiltLogic | undefined)
+        getContext().react.contexts.set(logic, context)
+    }
+    return context
 }

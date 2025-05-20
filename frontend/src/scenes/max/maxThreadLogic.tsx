@@ -1,12 +1,10 @@
 import { createParser } from 'eventsource-parser'
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
-import { projectLogic } from 'scenes/projectLogic'
 
-import { actionsModel } from '~/models/actionsModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -44,11 +42,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 
 export interface MaxThreadLogicProps {
     conversationId: string
-    conversation?: ConversationDetail
-}
-
-export function generateMaxThreadLogicKey(conversationId: string | null): string {
-    return conversationId || uuid()
+    conversation: ConversationDetail | null
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
@@ -83,15 +77,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     connect(() => ({
         values: [
-            projectLogic,
-            ['currentProject'],
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxLogic,
-            ['question', 'threadKeys'],
-            // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
-            actionsModel({ params: 'include_count=1' }),
-            ['actions'],
+            ['question', 'threadKeys', 'autoRun'],
         ],
         actions: [
             maxLogic,
@@ -100,6 +89,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'loadConversationHistory',
                 'setThreadKey',
                 'prependOrReplaceConversation as updateGlobalConversationCache',
+                'setActiveStreamingThreads',
+                'setConversationId',
+                'scrollThreadToBottom',
+                'setAutoRun',
             ],
         ],
     })),
@@ -113,9 +106,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setThread: (thread: ThreadMessage[]) => ({ thread }),
         setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         retryLastMessage: true,
-        scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
+        setTraceId: (traceId: string) => ({ traceId }),
     }),
 
     reducers(({ props }) => ({
@@ -155,16 +148,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 completeThreadGeneration: () => false,
             },
         ],
+
+        // Trace ID is used for the conversation metrics in the UI
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
     })),
 
     listeners(({ actions, values, cache, props }) => ({
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
-            if (values.threadLoading) {
-                return
-            }
-
             // Clear the question
             actions.setQuestion('')
+            // Set active streaming threads, so we now how many are running
+            actions.setActiveStreamingThreads(1)
+            // For a new conversations, set the temporary conversation ID, which will be replaced with the actual conversation ID once the first message is generated
+            if (!values.conversation) {
+                actions.setConversationId(values.conversationId)
+            }
 
             if (generationAttempt === 0) {
                 actions.addMessage({
@@ -177,6 +175,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             try {
                 // Generate a trace ID for the conversation run
                 const traceId = uuid()
+                actions.setTraceId(traceId)
 
                 cache.generationController = new AbortController()
 
@@ -207,16 +206,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 return
                             }
 
+                            const conversationWithTitle = {
+                                ...parsedResponse,
+                                title: parsedResponse.title || 'New chat',
+                            }
+
                             // Set the mapping of conversation ID and thread ID, so we can get back to this thread later.
                             if (!values.threadKeys[props.conversationId]) {
                                 actions.setThreadKey(parsedResponse.id, props.conversationId)
                             }
 
                             // Update the local cache
-                            actions.setConversation(parsedResponse)
-
+                            actions.setConversation(conversationWithTitle)
                             // Update the global conversation cache
-                            actions.updateGlobalConversationCache(parsedResponse)
+                            actions.updateGlobalConversationCache(conversationWithTitle)
+                            // Set the current conversation ID
+                            actions.setConversationId(parsedResponse.id)
                         } else if (event === AssistantEventType.Message) {
                             const parsedResponse = parseResponse<RootAssistantMessage>(data)
                             if (!parsedResponse) {
@@ -297,6 +302,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             actions.completeThreadGeneration()
+            actions.setActiveStreamingThreads(-1)
             cache.generationController = undefined
         },
 
@@ -331,20 +337,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (isVisualizationMessage(payload.message)) {
                 actions.scrollThreadToBottom()
             }
-        },
-
-        scrollThreadToBottom: ({ behavior }) => {
-            requestAnimationFrame(() => {
-                // On next frame so that the message has been rendered
-                const threadEl = document.getElementsByClassName('@container/thread')[0]
-                const scrollableEl = getScrollableContainer(threadEl)
-                if (scrollableEl) {
-                    scrollableEl.scrollTo({
-                        top: threadEl.scrollHeight,
-                        behavior: (behavior ?? 'smooth') as ScrollBehavior,
-                    })
-                }
-            })
         },
 
         completeThreadGeneration: () => {
@@ -446,12 +438,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         submissionDisabledReason: [
             (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
             (formPending, dataProcessingAccepted, question, threadLoading): string | undefined => {
+                // Allow users to cancel the generation
                 if (threadLoading) {
-                    return 'Generating...'
+                    return undefined
                 }
 
                 if (!dataProcessingAccepted) {
-                    return 'Please accept OpenAI processing data'
+                    return 'Please accept the data processing'
                 }
 
                 if (formPending) {
@@ -466,6 +459,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
     }),
+
+    afterMount(({ actions, values }) => {
+        if (values.autoRun && values.question) {
+            actions.askMax(values.question)
+            actions.setAutoRun(false)
+        }
+    }),
 ])
 
 /**
@@ -479,19 +479,6 @@ function parseResponse<T>(response: string): T | null | undefined {
     } catch {
         return null
     }
-}
-
-function getScrollableContainer(element?: Element | null): HTMLElement | null {
-    if (!element) {
-        return null
-    }
-
-    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-        return scrollableEl.parentElement
-    }
-    return scrollableEl
 }
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {

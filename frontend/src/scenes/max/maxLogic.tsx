@@ -1,5 +1,5 @@
 import { shuffle } from 'd3'
-import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, BuiltLogic, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -17,6 +17,7 @@ import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } fr
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import type { maxThreadLogicType } from './maxThreadLogicType'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -67,6 +68,7 @@ export const maxLogic = kea<maxLogicType>([
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
         setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
+        setAutoRun: (autoRun: boolean) => ({ autoRun }),
 
         /**
          * Save the logic ID for a conversation ID in a cache.
@@ -77,6 +79,9 @@ export const maxLogic = kea<maxLogicType>([
          * Prepend a conversation to the conversation history or update it in place.
          */
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+
+        registerThreadLogic: (logic: BuiltLogic<maxThreadLogicType>) => ({ logic }),
+        cleanMountedThreadLogics: true,
     }),
 
     defaults({
@@ -145,6 +150,39 @@ export const maxLogic = kea<maxLogicType>([
                 return mergeConversationHistory(state, conversation)
             },
         },
+
+        tempConversationId: [
+            generateTempId(),
+            {
+                startNewConversation: () => generateTempId(),
+            },
+        ],
+
+        autoRun: [false as boolean, { setAutoRun: (state, { autoRun }) => autoRun }],
+
+        mountedThreadLogics: [
+            {} as Record<string, BuiltLogic<maxThreadLogicType>>,
+            {
+                registerThreadLogic: (state, { logic }) => ({ ...state, [logic.pathString]: logic }),
+                cleanMountedThreadLogics: (state) => {
+                    // This action happens after the component lifecycle, so should be safe to unmount logics
+                    // as components are already unmounted.
+                    const logics = []
+                    for (const [path, logic] of Object.entries(state)) {
+                        if (!logic.isMounted()) {
+                            continue
+                        }
+
+                        if (!logic.values.threadLoading) {
+                            logic.unmount()
+                        } else {
+                            logics.push([path, logic])
+                        }
+                    }
+                    return Object.fromEntries(logics)
+                },
+            },
+        ],
     }),
 
     loaders({
@@ -185,7 +223,10 @@ export const maxLogic = kea<maxLogicType>([
         conversation: [
             (s) => [s.conversationHistory, s.conversationId],
             (conversationHistory, conversationId) => {
-                return conversationId ? conversationHistory.find((c) => c.id === conversationId) : null
+                if (conversationId && !isTempId(conversationId)) {
+                    return conversationHistory.find((c) => c.id === conversationId) ?? null
+                }
+                return null
             },
         ],
 
@@ -227,16 +268,17 @@ export const maxLogic = kea<maxLogicType>([
         conversationLoading: [
             (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
-                return !conversationHistory.length && conversationHistoryLoading && conversationId && !conversation
+                return (
+                    !conversationHistory.length &&
+                    conversationHistoryLoading &&
+                    conversationId &&
+                    !isTempId(conversationId) &&
+                    !conversation
+                )
             },
         ],
 
-        threadVisible: [
-            (s) => [s.activeStreamingThreads, s.conversationId],
-            (activeStreamingThreads, conversationId) => {
-                return !!(activeStreamingThreads > 0 || conversationId)
-            },
-        ],
+        threadVisible: [(s) => [s.conversationId], (conversationId) => !!conversationId],
 
         backButtonDisabled: [
             (s) => [s.threadVisible, s.conversationHistoryVisible],
@@ -252,9 +294,9 @@ export const maxLogic = kea<maxLogicType>([
                     return 'Chat history'
                 }
 
-                // Existing conversation
-                if (conversation) {
-                    return conversation.title ?? 'New chat'
+                // Existing conversation or the first generation is in progress
+                if (conversation || isTempId(conversationId)) {
+                    return conversation?.title ?? 'New chat'
                 }
 
                 // Conversation is loading
@@ -263,6 +305,16 @@ export const maxLogic = kea<maxLogicType>([
                 }
 
                 return 'Max'
+            },
+        ],
+
+        threadLogicKey: [
+            (s) => [s.threadKeys, s.conversationId, s.tempConversationId],
+            (threadKeys, conversationId, tempConversationId) => {
+                if (conversationId) {
+                    return threadKeys[conversationId] || conversationId
+                }
+                return tempConversationId
             },
         ],
     }),
@@ -312,14 +364,9 @@ export const maxLogic = kea<maxLogicType>([
             })
         },
 
-        startNewConversation: () => {
-            if (values.conversationId) {
-                actions.startNewConversation()
-            }
-        },
-
         loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            if (!values.conversationId) {
+            // If the current chat is not a chat with ID, don't update the thread
+            if (!values.conversationId || isTempId(values.conversationId)) {
                 return
             }
 
@@ -409,6 +456,7 @@ export const maxLogic = kea<maxLogicType>([
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         }
+
         // If there is a prefill question from side panel state (from opening Max within the app), use it
         if (
             !values.question &&
@@ -417,10 +465,9 @@ export const maxLogic = kea<maxLogicType>([
             sidePanelStateLogic.values.selectedTabOptions
         ) {
             const cleanedQuestion = sidePanelStateLogic.values.selectedTabOptions.replace(/^!/, '')
+            actions.setQuestion(cleanedQuestion)
             if (sidePanelStateLogic.values.selectedTabOptions.startsWith('!')) {
-                actions.askMax(cleanedQuestion)
-            } else {
-                actions.setQuestion(cleanedQuestion)
+                actions.setAutoRun(true)
             }
         }
 
@@ -518,4 +565,12 @@ export function mergeConversations(
         ...newObj,
         messages: oldObj?.messages ?? [],
     }
+}
+
+export function generateTempId(): string {
+    return `new-${uuid()}`
+}
+
+export function isTempId(id?: string | null): boolean {
+    return id?.startsWith('new-') ?? false
 }

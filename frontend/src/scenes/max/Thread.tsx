@@ -19,7 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -44,7 +44,7 @@ import { ProductKey } from '~/types'
 
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
-import { generateMaxThreadLogicKey, maxThreadLogic } from './maxThreadLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -56,7 +56,8 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { conversationLoading, conversationId, conversation } = useValues(maxLogic)
+    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
@@ -70,47 +71,31 @@ export function Thread(): JSX.Element | null {
                     <MessageGroupSkeleton groupType="ai" className="opacity-10" />
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
+            ) : threadGrouped.length > 0 ? (
+                threadGrouped.map((group, index) => (
+                    <MessageGroup
+                        key={index}
+                        messages={group}
+                        index={index}
+                        isFinal={index === threadGrouped.length - 1}
+                    />
+                ))
             ) : (
-                <BindLogic
-                    logic={maxThreadLogic}
-                    props={{ conversationId: generateMaxThreadLogicKey(conversationId), conversation }}
-                >
-                    <ThreadRenderer />
-                </BindLogic>
+                conversationId && (
+                    <div className="flex flex-1 items-center justify-center">
+                        <ProductIntroduction
+                            isEmpty
+                            productName="Max"
+                            productKey={ProductKey.MAX}
+                            thingName="message"
+                            titleOverride="Start chatting with Max"
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                            docsURL="https://posthog.com/docs/data/max-ai"
+                        />
+                    </div>
+                )
             )}
         </div>
-    )
-}
-
-function ThreadRenderer(): JSX.Element {
-    const { conversationId } = useValues(maxLogic)
-    const { threadGrouped } = useValues(maxThreadLogic)
-
-    return (
-        <>
-            {threadGrouped.length > 0
-                ? threadGrouped.map((group, index) => (
-                      <MessageGroup
-                          key={index}
-                          messages={group}
-                          index={index}
-                          isFinal={index === threadGrouped.length - 1}
-                      />
-                  ))
-                : conversationId && (
-                      <div className="flex flex-1 items-center justify-center">
-                          <ProductIntroduction
-                              isEmpty
-                              productName="Max"
-                              productKey={ProductKey.MAX}
-                              thingName="message"
-                              titleOverride="Start chatting with Max"
-                              description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
-                              docsURL="https://posthog.com/docs/data/max-ai"
-                          />
-                      </div>
-                  )}
-        </>
     )
 }
 
@@ -339,7 +324,7 @@ interface AssistantMessageFormProps {
 }
 
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     return (
         <div className="flex flex-wrap gap-2 mt-1">
             {form.options.map((option) => (
@@ -425,7 +410,7 @@ function VisualizationAnswer({
 }
 
 function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     return (
         <LemonButton
@@ -442,8 +427,8 @@ function RetriableFailureActions(): JSX.Element {
 }
 
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
-    const { traceId } = useValues(maxLogic)
-    const { retryLastMessage } = useActions(maxLogic)
+    const { traceId } = useValues(maxThreadLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
