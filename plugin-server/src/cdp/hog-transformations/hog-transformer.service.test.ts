@@ -1277,10 +1277,10 @@ describe('HogTransformer', () => {
             const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).not.toHaveBeenCalled()
-            expect(result.scheduledPromises.length).toBe(1) // Only the produceQueuedMessages promise
+            expect(hogTransformer.promises.size).toBe(1)
 
             observeResultsSpy.mockRestore()
         })
@@ -1326,10 +1326,10 @@ describe('HogTransformer', () => {
                 .mockImplementation(() => Promise.resolve())
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).toHaveBeenCalled()
-            expect(result.scheduledPromises.length).toBe(2) // Both produceQueuedMessages and observeResults promises
+            expect(hogTransformer.promises.size).toBe(2) // Both produceQueuedMessages and observeResults promises
 
             observeResultsSpy.mockRestore()
         })
