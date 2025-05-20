@@ -1,5 +1,5 @@
 import { IconBox, IconDocument, IconList, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'
@@ -70,7 +70,28 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
                 <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 <ExceptionCardActions>
                     {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
-                    <LemonButton sideIcon={<IconTarget />} size="xsmall" type="secondary">
+                    <LemonButton
+                        sideIcon={<IconTarget />}
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'View moment',
+                                content: (
+                                    <div className="flex flex-col items-center">
+                                        <img
+                                            src="/static/error-tracking/error-moment.gif"
+                                            alt="Error moment visualization"
+                                            className="max-w-full h-auto"
+                                        />
+                                    </div>
+                                ),
+                                primaryButton: {
+                                    children: 'Close',
+                                },
+                            })
+                        }}
+                    >
                         <div className="flex items-center gap-2">
                             <span>View moment</span>
                         </div>
