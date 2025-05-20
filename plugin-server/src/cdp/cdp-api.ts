@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
+import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
@@ -29,6 +30,7 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -37,6 +39,7 @@ export class CdpApi {
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
     }
 
     public get service(): PluginServerService {
@@ -315,30 +318,29 @@ export class CdpApi {
 
     private postWebhook =
         () =>
-        async (req: express.Request, res: express.Response): Promise<void> => {
+        async (req: express.Request, res: express.Response): Promise<any> => {
             // TODO: Source handler service that takes care of finding the relevant function,
             // running it (maybe) and scheduling the job if it gets suspended
 
-            // const { id } = req.params
-            // const { state } = req.body
+            const { webhook_id } = req.params
 
-            // // Check that state is valid
-            // if (!Object.values(HogWatcherState).includes(state)) {
-            //     res.status(400).json({ error: 'Invalid state' })
-            //     return
-            // }
+            try {
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
 
-            // const summary = await this.hogWatcher.getState(id)
-
-            // // Only allow patching the status if it is different from the current status
-
-            // if (summary.state !== state) {
-            //     await this.hogWatcher.forceStateChange(id, state)
-            // }
-
-            // // Hacky - wait for a little to give a chance for the state to change
-            // await delay(100)
-
-            res.status(404).json({ error: 'Not found' })
+                if (!result.error) {
+                    return res.status(500).json({
+                        status: 'Unhandled error',
+                    })
+                } else if (!result.finished) {
+                    return res.status(201).json({
+                        status: 'queued',
+                    })
+                }
+                return res.status(200).json({
+                    status: 'ok',
+                })
+            } catch (error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
         }
 }

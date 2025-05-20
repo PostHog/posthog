@@ -194,6 +194,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public async stop(): Promise<void> {
         await this.kafkaConsumer.disconnect()
+        await this.cyclotronJobQueue.stop()
         await super.stop()
     }
 

@@ -2,12 +2,7 @@ import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import {
-    HogFunctionInvocation,
-    HogFunctionInvocationJobQueue,
-    HogFunctionInvocationResult,
-    HogFunctionTypeType,
-} from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationJobQueue, HogFunctionInvocationResult } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 /**
@@ -16,7 +11,6 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronJobQueue: CyclotronJobQueue
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
     private queue: HogFunctionInvocationJobQueue
 
     constructor(hub: Hub, queue: HogFunctionInvocationJobQueue = 'hog') {
