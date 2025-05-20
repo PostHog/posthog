@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -10,14 +10,8 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { moveToLogicType } from './moveToLogicType'
 
-export interface MoveToLogicProps {
-    onMoveTo?: (folder: string | null) => void
-    defaultFolder?: string
-}
-
 export const moveToLogic = kea<moveToLogicType>([
     path(['lib', 'components', 'MoveTo', 'moveToLogic']),
-    props({} as MoveToLogicProps),
     connect(() => ({
         values: [
             projectTreeDataLogic,
