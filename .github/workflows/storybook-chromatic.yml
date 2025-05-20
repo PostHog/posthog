@@ -377,9 +377,13 @@ jobs:
                         // Split e.g. 'chromium-1-commitHash' into ['chromium', '1' 'commitHash']
                         const [browser, shardNumber, diffKey] = key.split('-')
                         // Sum up the counts - but not the commit hash
-                        if (diffKey = 'pathsFlapping') {
-                          for (const path of rawValue.split(',')) {
-                            flaps.push([parseInt(shardNumber), path])
+                        if (diffKey === 'pathsFlapping') {
+                          if (rawValue && typeof rawValue === 'string') { // Ensure rawValue is a string and not empty
+                            for (const path of rawValue.split(',')) {
+                              if (path) { // Ensure path is not an empty string after split
+                                flaps.push([parseInt(shardNumber), path.trim()])
+                              }
+                            }
                           }
                         } else if (diffKey === 'commitHash') {
                           diffByBrowser[browser].commitHashes.push([parseInt(shardNumber), rawValue])
