@@ -307,14 +307,19 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
 
 // Chart controls component
 function ChartControls(): JSX.Element {
-    const { metricIndex, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen } = useDeltaChartContext()
+    const { metricIndex, isSecondary, primaryMetricsLengthWithSharedMetrics, hasEnoughDataForResults, setIsModalOpen } =
+        useDeltaChartContext()
 
     return (
         <>
-            {/* Chart is z-index 100, so we need to be above it */}
-            <div className="absolute top-2 left-2 z-[102]">
-                <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
-            </div>
+            {hasEnoughDataForResults && (
+                <>
+                    {/* Chart is z-index 100, so we need to be above it */}
+                    <div className="absolute top-2 left-2 z-[102]">
+                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                    </div>
+                </>
+            )}
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
                     className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
@@ -387,6 +392,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
 
     return (
         <div className="relative w-full max-w-screen">
+            <ChartControls />
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
