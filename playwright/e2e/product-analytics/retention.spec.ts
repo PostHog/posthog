@@ -13,6 +13,7 @@ test.describe('Retention', () => {
         // NOTE: First wait for results to load, try and make the test more
         // stable. This is to try and avoid an issue where after selecting a
         // filter property, the results section would be blank
+        await page.locator('body').evaluate((el) => el.scrollTo(0, el.scrollHeight))
         await expect(page.locator('[data-attr=retention-table]')).toBeVisible()
 
         // Apply filter
