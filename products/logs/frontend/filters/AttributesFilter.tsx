@@ -32,8 +32,6 @@ const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
 
     return (
         <div className="border">
-            <div>Is root: {String(rootKey === currentKey)}</div>
-            <div>{JSON.stringify(filterGroup)}</div>
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
