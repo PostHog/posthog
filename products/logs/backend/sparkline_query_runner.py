@@ -47,6 +47,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                 SELECT
                     dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
                 FROM numbers(floor(dateDiff({interval}, start_time_bucket, end_time_bucket) / {interval_count} + 1))
+                WHERE time_bucket >= {date_from}
             ),
             actual_counts AS (
                 SELECT

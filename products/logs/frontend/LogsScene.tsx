@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparkline, logsLoading, hasRunQuery } = useValues(logsLogic)
+    const { wrapBody, logs, sparkline, logsLoading, sparklineLoading, hasRunQuery } = useValues(logsLogic)
     const { runQuery } = useActions(logsLogic)
 
     useEffect(() => {
@@ -61,7 +61,13 @@ export function LogsScene(): JSX.Element {
 
             {hasRunQuery ? (
                 <>
-                    {sparkline.length > 0 && <Sparkline labels={labels} data={timeseries} className="w-full" />}
+                    {sparkline.length > 0 && (
+                        <Sparkline
+                            labels={labels}
+                            data={timeseries}
+                            className={sparklineLoading ? 'opacity-50 w-full' : 'w-full'}
+                        />
+                    )}
                     <DisplayOptions />
                     <div className="flex-1">
                         <LemonTable
