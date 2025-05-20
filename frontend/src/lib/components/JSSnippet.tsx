@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import posthog from 'posthog-js'
-import { proxyLogic, ProxyRecord } from 'scenes/settings/environment/proxyLogic'
+import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 function snippetFunctions(arrayJs = '/static/array.js'): string {
@@ -28,19 +28,6 @@ type SnippetOption = {
     content: string
     enabled: boolean
     comment?: string
-}
-
-function domainFor(proxyRecord: ProxyRecord | undefined): string {
-    if (!proxyRecord) {
-        return apiHostOrigin()
-    }
-
-    let domain = proxyRecord.domain
-    if (!domain.startsWith('https://')) {
-        domain = `https://${domain}`
-    }
-
-    return domain
 }
 
 export function useJsSnippet(indent = 0, arrayJs?: string): string {

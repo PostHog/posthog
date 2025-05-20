@@ -15,6 +15,8 @@ import {
 
 export const SURVEY_PAGE_SIZE = 100
 
+export const LINK_PAGE_SIZE = 100
+
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',

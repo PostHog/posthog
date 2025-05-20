@@ -405,6 +405,9 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
+                    "$ref": "#/definitions/LogsQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -554,6 +557,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/LogsQueryResponse"
                 }
             ]
         },
@@ -615,7 +621,13 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query"],
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query",
+                "analyze_user_interviews",
+                "create_and_query_insight"
+            ],
             "type": "string"
         },
         "AssistantDateRange": {
@@ -1627,6 +1639,9 @@
                 "ui_payload": {
                     "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                     "type": "object"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -3618,6 +3633,84 @@
             ],
             "type": "object"
         },
+        "CachedLogsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedPathsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -4910,6 +5003,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -6083,6 +6179,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedPreAggregatedTables": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -7247,6 +7346,9 @@
                 "id": {
                     "type": "string"
                 },
+                "kind": {
+                    "$ref": "#/definitions/DatabaseSchemaManagedViewTableKind"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -7256,13 +7358,20 @@
                 "row_count": {
                     "type": "number"
                 },
+                "source_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
                 }
             },
-            "required": ["fields", "id", "name", "query", "type"],
+            "required": ["fields", "id", "kind", "name", "query", "type"],
             "type": "object"
+        },
+        "DatabaseSchemaManagedViewTableKind": {
+            "const": "revenue_analytics",
+            "type": "string"
         },
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
@@ -11895,6 +12004,161 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "LogMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "attributes": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "event_name": {
+                    "type": "string"
+                },
+                "instrumentation_scope": {
+                    "type": "string"
+                },
+                "level": {
+                    "$ref": "#/definitions/LogSeverityLevel"
+                },
+                "observed_timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "resource": {
+                    "type": "string"
+                },
+                "severity_number": {
+                    "type": "number"
+                },
+                "severity_text": {
+                    "$ref": "#/definitions/LogSeverityLevel"
+                },
+                "span_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "trace_id": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "uuid",
+                "trace_id",
+                "span_id",
+                "body",
+                "attributes",
+                "timestamp",
+                "observed_timestamp",
+                "severity_text",
+                "severity_number",
+                "level",
+                "resource",
+                "instrumentation_scope",
+                "event_name"
+            ],
+            "type": "object"
+        },
+        "LogSeverityLevel": {
+            "enum": ["debug", "info", "warn", "error"],
+            "type": "string"
+        },
+        "LogsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "LogsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "enum": ["latest", "earliest"],
+                    "type": "string"
+                },
+                "resource": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/LogsQueryResponse"
+                },
+                "searchTerm": {
+                    "type": "string"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["dateRange", "kind", "orderBy", "severityLevels"],
+            "type": "object"
+        },
+        "LogsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {
@@ -12063,6 +12327,7 @@
                 "RevenueExampleEventsQuery",
                 "RevenueExampleDataWarehouseTablesQuery",
                 "ErrorTrackingQuery",
+                "LogsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
                 "SavedInsightNode",
@@ -13617,6 +13882,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -14307,6 +14575,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -15340,6 +15611,52 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -15674,6 +15991,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogsQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
@@ -16864,6 +17184,9 @@
                         "ui_payload": {
                             "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                             "type": "object"
+                        },
+                        "visible": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["content", "tool_call_id", "type"],
@@ -18922,6 +19245,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

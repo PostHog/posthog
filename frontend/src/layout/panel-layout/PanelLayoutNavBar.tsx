@@ -9,6 +9,7 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
+    IconPineapple,
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
@@ -204,6 +205,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                   },
               ]
             : []),
+        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+            ? [
+                  {
+                      identifier: 'Games',
+                      id: 'Games',
+                      icon: <IconPineapple />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Games')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                  },
+              ]
+            : []),
         ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
             ? []
             : [
@@ -335,9 +352,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            {item.identifier === 'Recent' ||
-                                            item.identifier === 'Project' ||
-                                            item.identifier === 'Products' ? (
+                                            {item.showChevron ? (
                                                 <ButtonPrimitive
                                                     active={activePanelIdentifier === item.id}
                                                     className="group"
@@ -398,7 +413,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <div className="border-b border-primary h-px my-1" />
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
-                                    <div className={!isLayoutNavCollapsed ? 'pt-1' : ''}>
+                                    <div
+                                        className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
+                                    >
                                         <Shortcuts />
                                     </div>
                                 ) : (
