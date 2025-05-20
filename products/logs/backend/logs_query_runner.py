@@ -2,12 +2,14 @@ import datetime as dt
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
+
+from posthog.hogql.parser import parse_select, parse_expr, parse_order_expr
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import CachedLogsQueryResponse, LogsQuery, LogsQueryResponse
+from posthog.schema import CachedLogsQueryResponse, HogQLFilters, LogsQuery, LogsQueryResponse, IntervalType
 
 
 class LogsQueryRunner(QueryRunner):
@@ -34,6 +36,7 @@ class LogsQueryRunner(QueryRunner):
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=HogQLFilters(dateRange=self.query.dateRange),
             # needed for CH cloud
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
@@ -61,100 +64,73 @@ class LogsQueryRunner(QueryRunner):
         return LogsQueryResponse(results=results, **self.paginator.response_params())
 
     def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(
-            select=self.select(),
-            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
-            where=self.where(),
-            order_by=[
-                ast.OrderExpr(
-                    expr=ast.Field(chain=["timestamp"]),
-                    order="ASC" if self.query.orderBy == "earliest" else "DESC",
-                )
-            ],
-        )
+        query = parse_select("""
+            SELECT
+            uuid,
+            trace_id,
+            span_id,
+            body,
+            attributes,
+            timestamp,
+            observed_timestamp,
+            severity_text,
+            severity_number,
+            level,
+            resource,
+            instrumentation_scope,
+            event_name
+            FROM logs
+        """)
 
-    def select(self) -> list[ast.Expr]:
-        return [
-            ast.Alias(
-                alias="uuid",
-                expr=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])]),
-            ),
-            ast.Field(chain=["trace_id"]),
-            ast.Field(chain=["span_id"]),
-            ast.Field(chain=["body"]),
-            ast.Alias(alias="attributes", expr=ast.Field(chain=["_attributes"])),
-            ast.Field(chain=["timestamp"]),
-            ast.Field(chain=["observed_timestamp"]),
-            ast.Field(chain=["severity_text"]),
-            ast.Field(chain=["severity_number"]),
-            ast.Field(chain=["level"]),
-            ast.Alias(alias="resource", expr=ast.Field(chain=["_resource"])),
-            ast.Field(chain=["instrumentation_scope"]),
-            ast.Field(chain=["event_name"]),
-        ]
+        if not isinstance(query, ast.SelectQuery):
+            raise Exception("NO!")
 
-    def date_filter_expr(self) -> ast.Expr:
-        field_to_compare = ast.Field(chain=["logs", "timestamp"])
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=field_to_compare,
-                    right=self.query_date_range.date_from_to_start_of_interval_hogql(),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=field_to_compare,
-                    right=self.query_date_range.date_to_as_hogql(),
-                ),
-            ]
-        )
+        query.where = self.where()
+        query.order_by = [parse_order_expr("timestamp ASC" if self.query.orderBy == "earliest" else "timestamp DESC")]
+
+        return query
 
     def where(self):
-        exprs: list[ast.Expr] = []
+        exprs: list[ast.Expr] = [
+            ast.Placeholder(expr=ast.Field(chain=["filters"])),
+        ]
 
-        exprs.append(self.date_filter_expr())
-
-        if self.query.searchTerm is not None:
+        if self.query.severityLevels:
             exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(
-                        name="position",
-                        args=[
-                            ast.Call(name="lower", args=[ast.Field(chain=["body"])]),
-                            ast.Call(name="lower", args=[ast.Constant(value=self.query.searchTerm)]),
-                        ],
-                    ),
-                    right=ast.Constant(value=0),
+                parse_expr(
+                    "severity_text IN {severityLevels}",
+                    placeholders={
+                        "severityLevels": ast.Tuple(
+                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
+                        )
+                    },
                 )
             )
-
-        if len(self.query.severityLevels) > 0:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["level"]),
-                    right=ast.Constant(value=[str(level) for level in self.query.severityLevels]),
-                )
-            )
-
-        # TODO
-        # for filter in self.query.attribute_filters:
-        #     exprs.append(property_to_expr(filter, self.team))
-
-        if len(exprs) == 0:
-            return ast.Constant(value=True)
-        elif len(exprs) == 1:
-            return exprs[0]
 
         return ast.And(exprs=exprs)
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
-        return QueryDateRange(
+        qdr = QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
-            interval=None,
+            interval=IntervalType.MINUTE,
             now=dt.datetime.now(),
         )
+
+        if qdr.date_to() - qdr.date_from() > dt.timedelta(hours=9):
+            qdr = QueryDateRange(
+                date_range=self.query.dateRange,
+                team=self.team,
+                interval=IntervalType.HOUR,
+                now=dt.datetime.now(),
+            )
+        if qdr.date_to() - qdr.date_from() > dt.timedelta(days=9):
+            qdr = QueryDateRange(
+                date_range=self.query.dateRange,
+                team=self.team,
+                interval=IntervalType.DAY,
+                now=dt.datetime.now(),
+            )
+
+        return qdr
