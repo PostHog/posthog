@@ -142,7 +142,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_SUBSCRIPTION_ITEM_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
                     ],
                 },
             },
@@ -292,13 +296,6 @@ class TestExternalDataSource(APIBaseTest):
                         },
                         {
                             "name": STRIPE_INVOICE_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "incremental",
-                            "incremental_field": "created",
-                            "incremental_field_type": "integer",
-                        },
-                        {
-                            "name": STRIPE_CHARGE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
