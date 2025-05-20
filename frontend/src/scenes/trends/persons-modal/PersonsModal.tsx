@@ -401,6 +401,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         <>
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
+                                <IconAIText className="ml-1 mt-1 text-md" />
                             </div>
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
@@ -497,7 +498,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                     </div>
                                 ),
                             },
-                            { key: 'summarize', label: 'Summarize', content: <PersonSummariesTable /> },
+                            { key: 'summary', label: 'Summary', content: <PersonSummariesTable /> },
                         ]}
                     />
                 </div>
@@ -517,6 +518,13 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     )
 }
 
+interface Session {
+    id: string
+    timestamp: string
+    hasRecording: boolean
+    summary: string
+}
+
 interface SummaryData {
     id: number
     period: string
@@ -527,12 +535,7 @@ interface SummaryData {
     details: {
         criticalIssues: Array<{
             description: string
-            sessions: Array<{
-                id: string
-                timestamp: string
-                hasRecording: boolean
-                summary: string
-            }>
+            sessions: Array<Session>
         }>
         commonJourneys: Array<{
             name: string
@@ -540,286 +543,231 @@ interface SummaryData {
         }>
         edgeCases: Array<{
             description: string
-            sessions: Array<{
-                id: string
-                timestamp: string
-                hasRecording: boolean
-                summary: string
-            }>
+            sessions: Array<Session>
         }>
         summary: string
     }
 }
 
 function PersonSummariesTable(): JSX.Element {
-    const sampleData: SummaryData[] = [
-        {
-            id: 1,
-            period: '2024-03-01 to 2024-03-15',
-            sessionsAnalyzed: 12,
-            keyInsights: 5,
-            pains: 2,
-            status: 'success',
-            details: {
-                criticalIssues: [
-                    {
-                        description: 'Authentication timeouts during morning sessions',
-                        sessions: [
-                            {
-                                id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
-                                timestamp: '2024-03-15 09:15:23',
-                                hasRecording: true,
-                                summary: 'User attempted to log in 3 times, each attempt timed out after 30 seconds.',
-                            },
-                        ],
-                    },
-                ],
-                commonJourneys: [
-                    {
-                        name: 'Morning Analytics Review',
-                        path: 'Login → Dashboard → Analytics → Filter by Date → Export Data',
-                    },
-                ],
-                edgeCases: [
-                    {
-                        description: 'Consistently attempts to bulk export data despite size limitations',
-                        sessions: [
-                            {
-                                id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
-                                timestamp: '2024-03-12 15:30:22',
-                                hasRecording: true,
-                                summary: 'User attempted to export 12 months of data in one go, hitting the 100MB limit.',
-                            },
-                        ],
-                    },
-                ],
-                summary: 'User shows consistent morning activity patterns with focus on data analysis.',
-            },
+    const sampleData: SummaryData = {
+        id: 1,
+        period: '2024-03-01 to 2024-03-15',
+        sessionsAnalyzed: 10,
+        keyInsights: 3,
+        pains: 1,
+        status: 'failure',
+        details: {
+            criticalIssues: [
+                {
+                    description: 'Repeatedly abandons upgrade flow after viewing pricing',
+                    sessions: [
+                        {
+                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
+                            timestamp: '2024-03-15 14:23:45',
+                            hasRecording: true,
+                            summary: 'User viewed pricing page for 2 minutes, then closed the modal without upgrading.',
+                        },
+                        {
+                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
+                            timestamp: '2024-03-12 11:15:22',
+                            hasRecording: true,
+                            summary: 'User compared different plan tiers for 3 minutes, then navigated away.',
+                        },
+                    ],
+                },
+            ],
+            commonJourneys: [
+                {
+                    name: 'Pricing Research Pattern',
+                    path: 'Dashboard → Billing → View Plans → Compare Features → Close',
+                },
+                {
+                    name: 'Regular Usage Pattern',
+                    path: 'Login → Dashboard → Analytics → Export Data → Logout',
+                },
+            ],
+            edgeCases: [
+                {
+                    description: 'Consistently uses free tier features despite frequent pricing checks',
+                    sessions: [
+                        {
+                            id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
+                            timestamp: '2024-03-10 16:30:22',
+                            hasRecording: true,
+                            summary: 'User reached free tier limits, viewed upgrade options, but continued using free features.',
+                        },
+                    ],
+                },
+            ],
+            summary:
+                'User is an active free tier user who regularly researches pricing but hasn\'t converted to a paid plan, while attempting to upgrade multiple times.',
         },
-    ]
+    }
 
     return (
-        <LemonTable
-            dataSource={sampleData}
-            columns={[
-                {
-                    title: 'Summary Period',
-                    dataIndex: 'period',
-                    width: 200,
-                },
-                {
-                    title: 'Sessions',
-                    dataIndex: 'sessionsAnalyzed',
-                    width: 100,
-                },
-                {
-                    title: 'Insights',
-                    dataIndex: 'keyInsights',
-                    width: 80,
-                },
-                {
-                    title: 'Pains',
-                    dataIndex: 'pains',
-                    width: 80,
-                },
-                {
-                    title: 'Status',
-                    dataIndex: 'status',
-                    width: 100,
-                    render: (_, record) => (
-                        <LemonTag type={record.status === 'success' ? 'success' : 'danger'}>
-                            {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
-                        </LemonTag>
-                    ),
-                },
-            ]}
-            expandable={{
-                expandedRowRender: (record) => (
-                    <div className="px-4 py-2 bg-bg-light">
-                        <div className="flex flex-col">
-                            <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
-                                <IconAIText />
-                                Person's Session Analysis
-                                <LemonTag type="completion" size="medium">
-                                    ALPHA
-                                </LemonTag>
-                            </h3>
+        <div className="px-4 py-2 bg-bg-light">
+            <div className="flex flex-col">
+                <div className="mb-2 mt-2">
+                    <LemonBanner type={sampleData.status === 'success' ? 'success' : 'error'} className="mb-4">
+                        <div className="text-sm font-normal">
+                            <div>{sampleData.details.summary}</div>
+                        </div>
+                    </LemonBanner>
+                    <LemonDivider />
+                </div>
 
-                            <div className="mb-2">
-                                <LemonBanner type={record.status === 'success' ? 'success' : 'error'} className="mb-4">
-                                    <div className="text-sm font-normal">
-                                        <div>{record.details.summary}</div>
-                                    </div>
-                                </LemonBanner>
-                                <LemonDivider />
-                            </div>
-
-                            <div className="space-y-8">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <h4 className="text-lg font-semibold m-0">Critical Issues</h4>
-                                        <LemonTag type="danger" size="small">
-                                            {record.details.criticalIssues.length} issues
-                                        </LemonTag>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {record.details.criticalIssues.map((issue, i) => (
-                                            <SessionSegmentCollapse
-                                                key={i}
-                                                isFailed={true}
-                                                header={
-                                                    <div className="flex flex-row gap-2 items-center">
-                                                        <h3 className="text-sm font-medium mb-0">{issue.description}</h3>
-                                                        <LemonTag size="small" type="default">
-                                                            {issue.sessions.length} sessions
-                                                        </LemonTag>
-                                                    </div>
-                                                }
-                                                content={
-                                                    <div className="space-y-0">
-                                                        {issue.sessions.map((session, j) => (
-                                                            <div key={j}>
-                                                                <div className="text-sm py-2">
-                                                                    <div className="flex items-center justify-between mb-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-muted">
-                                                                                {session.timestamp}
-                                                                            </span>
-                                                                            <span className="text-muted">•</span>
-                                                                            <span className="text-muted">{session.id}</span>
-                                                                        </div>
-                                                                        <div className="flex gap-1">
-                                                                            <LemonButton
-                                                                                sideIcon={<IconTarget />}
-                                                                                size="xsmall"
-                                                                                type="secondary"
-                                                                            >
-                                                                                <span>View moment</span>
-                                                                            </LemonButton>
-                                                                            <LemonButton
-                                                                                sideIcon={<IconPlayCircle />}
-                                                                                size="xsmall"
-                                                                                type="secondary"
-                                                                            >
-                                                                                View recording
-                                                                            </LemonButton>
-                                                                        </div>
-                                                                    </div>
-                                                                    <p className="mb-0">{session.summary}</p>
-                                                                </div>
-                                                                {j < issue.sessions.length - 1 && (
-                                                                    <div className="h-px bg-border" />
-                                                                )}
+                <div className="space-y-8">
+                    <div>
+                        <div className="flex items-center gap-2 mb-4">
+                            <h4 className="text-lg font-semibold m-0">Critical Issues</h4>
+                            <LemonTag type="danger" size="small">
+                                {sampleData.details.criticalIssues.length} issues
+                            </LemonTag>
+                        </div>
+                        <div className="space-y-2">
+                            {sampleData.details.criticalIssues.map((issue, i) => (
+                                <SessionSegmentCollapse
+                                    key={i}
+                                    isFailed={true}
+                                    header={
+                                        <div className="flex flex-row gap-2 items-center">
+                                            <h3 className="text-sm font-medium mb-0">{issue.description}</h3>
+                                            <LemonTag size="small" type="default">
+                                                {issue.sessions.length} sessions
+                                            </LemonTag>
+                                        </div>
+                                    }
+                                    content={
+                                        <div className="space-y-0">
+                                            {issue.sessions.map((session: Session, j: number) => (
+                                                <div key={j}>
+                                                    <div className="text-sm py-2">
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-muted">{session.timestamp}</span>
+                                                                <span className="text-muted">•</span>
+                                                                <span className="text-muted">{session.id}</span>
                                                             </div>
-                                                        ))}
-                                                    </div>
-                                                }
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <h4 className="text-lg font-semibold m-0">Common User Journeys</h4>
-                                        <LemonTag type="default" size="small">
-                                            {record.details.commonJourneys.length} patterns
-                                        </LemonTag>
-                                    </div>
-                                    <div className="space-y-4">
-                                        {record.details.commonJourneys.map((journey, i) => (
-                                            <div key={i} className="bg-bg-light border rounded p-3">
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    <h3 className="text-sm font-medium mb-0">{journey.name}</h3>
-                                                    <LemonTag size="small" type="default">
-                                                        common
-                                                    </LemonTag>
-                                                </div>
-                                                <div className="flex items-center gap-1 text-sm">
-                                                    {journey.path.split(' → ').map((step, j) => (
-                                                        <React.Fragment key={j}>
-                                                            {j > 0 && (
-                                                                <IconChevronDown className="w-4 h-4 rotate-270 text-muted" />
-                                                            )}
-                                                            <span className="text-muted">{step}</span>
-                                                        </React.Fragment>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="mb-4">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <h4 className="text-lg font-semibold m-0">Interesting Edge Cases</h4>
-                                        <LemonTag type="default" size="small">
-                                            {record.details.edgeCases.length} cases
-                                        </LemonTag>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {record.details.edgeCases.map((edgeCase, i) => (
-                                            <SessionSegmentCollapse
-                                                key={i}
-                                                header={
-                                                    <div className="flex flex-row gap-2 items-center">
-                                                        <h3 className="text-sm font-medium mb-0">{edgeCase.description}</h3>
-                                                        <LemonTag size="small" type="default">
-                                                            {edgeCase.sessions.length} sessions
-                                                        </LemonTag>
-                                                    </div>
-                                                }
-                                                content={
-                                                    <div className="space-y-0">
-                                                        {edgeCase.sessions.map((session, j) => (
-                                                            <div key={j}>
-                                                                <div className="text-sm py-2">
-                                                                    <div className="flex items-center justify-between mb-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-muted">
-                                                                                {session.timestamp}
-                                                                            </span>
-                                                                            <span className="text-muted">•</span>
-                                                                            <span className="text-muted">{session.id}</span>
-                                                                        </div>
-                                                                        <div className="flex gap-1">
-                                                                            <LemonButton
-                                                                                sideIcon={<IconTarget />}
-                                                                                size="xsmall"
-                                                                                type="secondary"
-                                                                            >
-                                                                                <span>View moment</span>
-                                                                            </LemonButton>
-                                                                            <LemonButton
-                                                                                sideIcon={<IconPlayCircle />}
-                                                                                size="xsmall"
-                                                                                type="secondary"
-                                                                            >
-                                                                                View recording
-                                                                            </LemonButton>
-                                                                        </div>
-                                                                    </div>
-                                                                    <p className="mb-0">{session.summary}</p>
-                                                                </div>
-                                                                {j < edgeCase.sessions.length - 1 && (
-                                                                    <div className="h-px bg-border" />
-                                                                )}
+                                                            <div className="flex gap-1">
+                                                                <LemonButton
+                                                                    sideIcon={<IconTarget />}
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                >
+                                                                    <span>View moment</span>
+                                                                </LemonButton>
+                                                                <LemonButton
+                                                                    sideIcon={<IconPlayCircle />}
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                >
+                                                                    View recording
+                                                                </LemonButton>
                                                             </div>
-                                                        ))}
+                                                        </div>
+                                                        <p className="mb-0">{session.summary}</p>
                                                     </div>
-                                                }
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
+                                                    {j < issue.sessions.length - 1 && <div className="h-px bg-border" />}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    }
+                                />
+                            ))}
                         </div>
                     </div>
-                ),
-                rowExpandable: () => true,
-                noIndent: true,
-            }}
-        />
+
+                    <div>
+                        <div className="flex items-center gap-2 mb-4">
+                            <h4 className="text-lg font-semibold m-0">Common User Journeys</h4>
+                            <LemonTag type="default" size="small">
+                                {sampleData.details.commonJourneys.length} patterns
+                            </LemonTag>
+                        </div>
+                        <div className="space-y-4">
+                            {sampleData.details.commonJourneys.map((journey, i) => (
+                                <div key={i} className="bg-bg-light border rounded p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <h3 className="text-sm font-medium mb-0">{journey.name}</h3>
+                                        <LemonTag size="small" type="default">
+                                            common
+                                        </LemonTag>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-sm">
+                                        {journey.path.split(' → ').map((step, j) => (
+                                            <React.Fragment key={j}>
+                                                {j > 0 && <IconChevronDown className="w-4 h-4 rotate-270 text-muted" />}
+                                                <span className="text-muted">{step}</span>
+                                            </React.Fragment>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mb-4">
+                        <div className="flex items-center gap-2 mb-4">
+                            <h4 className="text-lg font-semibold m-0">Interesting Edge Cases</h4>
+                            <LemonTag type="default" size="small">
+                                {sampleData.details.edgeCases.length} cases
+                            </LemonTag>
+                        </div>
+                        <div className="space-y-2">
+                            {sampleData.details.edgeCases.map((edgeCase, i) => (
+                                <SessionSegmentCollapse
+                                    key={i}
+                                    header={
+                                        <div className="flex flex-row gap-2 items-center">
+                                            <h3 className="text-sm font-medium mb-0">{edgeCase.description}</h3>
+                                            <LemonTag size="small" type="default">
+                                                {edgeCase.sessions.length} sessions
+                                            </LemonTag>
+                                        </div>
+                                    }
+                                    content={
+                                        <div className="space-y-0">
+                                            {edgeCase.sessions.map((session: Session, j: number) => (
+                                                <div key={j}>
+                                                    <div className="text-sm py-2">
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-muted">{session.timestamp}</span>
+                                                                <span className="text-muted">•</span>
+                                                                <span className="text-muted">{session.id}</span>
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                <LemonButton
+                                                                    sideIcon={<IconTarget />}
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                >
+                                                                    <span>View moment</span>
+                                                                </LemonButton>
+                                                                <LemonButton
+                                                                    sideIcon={<IconPlayCircle />}
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                >
+                                                                    View recording
+                                                                </LemonButton>
+                                                            </div>
+                                                        </div>
+                                                        <p className="mb-0">{session.summary}</p>
+                                                    </div>
+                                                    {j < edgeCase.sessions.length - 1 && <div className="h-px bg-border" />}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    }
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     )
 }
 
