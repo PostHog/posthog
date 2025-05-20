@@ -139,6 +139,9 @@ dependencies = [
     "elevenlabs>=1.58.1",
     "django-oauth-toolkit>=3.0.1",
     "langchain-perplexity>=0.1.1",
+    "opentelemetry-sdk==1.33.1",
+    "opentelemetry-instrumentation-django==0.54b1",
+    "opentelemetry-instrumentation-asgi>=0.54b1",
 ]
 
 [dependency-groups]
