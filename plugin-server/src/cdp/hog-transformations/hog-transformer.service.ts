@@ -58,7 +58,7 @@ export class HogTransformerService {
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
     private cachedStates: Record<string, HogWatcherState> = {}
-    protected promises: Set<Promise<any>> = new Set()
+    public readonly promises: Set<Promise<any>> = new Set()
 
     constructor(hub: Hub) {
         this.hub = hub

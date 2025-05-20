@@ -278,8 +278,10 @@ export class IngestionConsumer {
         })
 
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
-        await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        await this.hogTransformer.logger.debug('🔁', `Processed batch`)
+        await this.runInstrumented('awaitScheduledWork', () => {
+            return Promise.all([...this.promises, ...this.hogTransformer.promises])
+        })
+        logger.debug('🔁', `Processed batch`)
 
         personsStoreForBatch.reportBatch()
 
