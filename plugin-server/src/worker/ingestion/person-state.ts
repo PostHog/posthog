@@ -342,7 +342,7 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonDeprecated(person, update)
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonForUpdate(person, update)
             const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
@@ -760,7 +760,7 @@ export class PersonState {
             .inc()
 
         const [mergedPerson, kafkaMessages] = await this.personStore.inTransaction('mergePeople', async (tx) => {
-            const [person, updatePersonMessages] = await this.personStore.updatePersonDeprecated(
+            const [person, updatePersonMessages] = await this.personStore.updatePersonForMerge(
                 mergeInto,
                 {
                     created_at: createdAt,
