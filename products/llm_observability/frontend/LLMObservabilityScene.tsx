@@ -1,5 +1,5 @@
 import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -10,6 +10,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -179,7 +181,44 @@ function LLMObservabilityNoEvents(): JSX.Element {
 
 export function LLMObservabilityScene(): JSX.Element {
     const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmObservabilityLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+
+    const tabs: LemonTab<string>[] = [
+        {
+            key: 'dashboard',
+            label: 'Dashboard',
+            content: <LLMObservabilityDashboard />,
+            link: combineUrl(urls.llmObservabilityDashboard(), searchParams).url,
+        },
+        {
+            key: 'traces',
+            label: 'Traces',
+            content: hasSentAiGenerationEvent ? <LLMObservabilityTraces /> : <LLMObservabilityNoEvents />,
+            link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
+        },
+        {
+            key: 'generations',
+            label: 'Generations',
+            content: hasSentAiGenerationEvent ? <LLMObservabilityGenerations /> : <LLMObservabilityNoEvents />,
+            link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
+        },
+        {
+            key: 'users',
+            label: 'Users',
+            content: hasSentAiGenerationEvent ? <LLMObservabilityUsers /> : <LLMObservabilityNoEvents />,
+            link: combineUrl(urls.llmObservabilityUsers(), searchParams).url,
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
+        tabs.push({
+            key: 'playground',
+            label: 'Playground',
+            content: <LLMObservabilityPlaygroundScene />,
+            link: combineUrl(urls.llmObservabilityPlayground(), searchParams).url,
+        })
+    }
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
@@ -202,46 +241,7 @@ export function LLMObservabilityScene(): JSX.Element {
             ) : (
                 <IngestionStatusCheck />
             )}
-            <LemonTabs
-                activeKey={activeTab}
-                data-attr="llm-observability-tabs"
-                tabs={[
-                    {
-                        key: 'dashboard',
-                        label: 'Dashboard',
-                        content: <LLMObservabilityDashboard />,
-                        link: combineUrl(urls.llmObservabilityDashboard(), searchParams).url,
-                    },
-                    {
-                        key: 'traces',
-                        label: 'Traces',
-                        content: hasSentAiGenerationEvent ? <LLMObservabilityTraces /> : <LLMObservabilityNoEvents />,
-                        link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
-                    },
-                    {
-                        key: 'generations',
-                        label: 'Generations',
-                        content: hasSentAiGenerationEvent ? (
-                            <LLMObservabilityGenerations />
-                        ) : (
-                            <LLMObservabilityNoEvents />
-                        ),
-                        link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
-                    },
-                    {
-                        key: 'users',
-                        label: 'Users',
-                        content: hasSentAiGenerationEvent ? <LLMObservabilityUsers /> : <LLMObservabilityNoEvents />,
-                        link: combineUrl(urls.llmObservabilityUsers(), searchParams).url,
-                    },
-                    {
-                        key: 'playground',
-                        label: 'Playground',
-                        content: <LLMObservabilityPlaygroundScene />,
-                        link: combineUrl(urls.llmObservabilityPlayground(), searchParams).url,
-                    },
-                ]}
-            />
+            <LemonTabs activeKey={activeTab} data-attr="llm-observability-tabs" tabs={tabs} />
         </BindLogic>
     )
 }

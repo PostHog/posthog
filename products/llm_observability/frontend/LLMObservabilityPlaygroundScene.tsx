@@ -153,11 +153,16 @@ function MessageEditor({ message, index }: { message: Message; index: number }):
 }
 
 function OutputPanel(): JSX.Element {
-    const { submitting, currentResponse, model, lastRunDetails } = useValues(llmObservabilityPlaygroundLogic)
+    const { submitting, currentResponse, model, lastRunDetails, messages } = useValues(llmObservabilityPlaygroundLogic)
     const { submitPrompt, addResponseToHistory, addCurrentRunToComparison } = useActions(
         llmObservabilityPlaygroundLogic
     )
     const [configOpen, setConfigOpen] = useState(true)
+
+    let runDisabledReason = undefined
+    if (messages.length === 0) {
+        runDisabledReason = 'Add messages to start the conversation'
+    }
 
     return (
         <div className="flex-1 flex flex-col h-full">
@@ -168,7 +173,7 @@ function OutputPanel(): JSX.Element {
                         icon={<IconPlay />}
                         onClick={submitPrompt}
                         loading={submitting}
-                        disabledReason={submitting ? 'Generating...' : undefined}
+                        disabledReason={submitting ? 'Generating...' : runDisabledReason}
                     >
                         Run
                     </LemonButton>
@@ -181,7 +186,7 @@ function OutputPanel(): JSX.Element {
                     active={configOpen}
                     tooltip={configOpen ? 'Hide configuration' : 'Show configuration'}
                 >
-                    Config
+                    Toggle Config
                 </LemonButton>
             </div>
 

@@ -10,7 +10,7 @@ Endpoints:
 import json
 import posthoganalytics
 from rest_framework import viewsets
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import serializers
 from rest_framework.decorators import action
@@ -70,7 +70,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     Proxies LLM calls from the editor
     """
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
@@ -78,22 +78,16 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return [EditorProxyBurstRateThrottle(), EditorProxySustainedRateThrottle()]
 
     def validate_feature_flag(self, request):
-        result_api_key = PersonalAPIKeyAuthentication().authenticate(request)
         result_session = SessionAuthentication().authenticate(request)
         # Pick whichever authentication succeeded
-        if result_api_key is not None:
-            user, _ = result_api_key
-        elif result_session is not None:
+        if result_session is not None:
             user, _ = result_session
         else:
             return False
         llm_observability_enabled = posthoganalytics.feature_enabled(
             "llm-observability-playground", user.email, person_properties={"email": user.email}
         )
-        llm_editor_proxy_enabled = posthoganalytics.feature_enabled(
-            "llm-editor-proxy", user.email, person_properties={"email": user.email}
-        )
-        return llm_observability_enabled or llm_editor_proxy_enabled
+        return llm_observability_enabled
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
         if not messages:
