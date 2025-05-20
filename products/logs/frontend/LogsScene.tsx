@@ -1,6 +1,5 @@
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -10,19 +9,18 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
+import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
-import { AttributesFilter } from './filters/AttributesFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
-import { useEffect } from 'react'
 
 export const scene: SceneExport = {
     component: LogsScene,
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparkline, logsLoading, hasRunQuery, filters } = useValues(logsLogic)
+    const { wrapBody, logs, sparkline, logsLoading, hasRunQuery } = useValues(logsLogic)
     const { runQuery } = useActions(logsLogic)
 
     useEffect(() => {
@@ -34,16 +32,16 @@ export function LogsScene(): JSX.Element {
     let i = -1
     const timeseries = Object.entries(
         sparkline.reduce((accumulator, currentItem) => {
-            if (currentItem[0] !== lastTime) {
-                labels.push(currentItem[0])
-                lastTime = currentItem[0]
+            if (currentItem.time !== lastTime) {
+                labels.push(currentItem.time)
+                lastTime = currentItem.time
                 i++
             }
-            const key = currentItem[1]
+            const key = currentItem.level
             if (!accumulator[key]) {
                 accumulator[key] = Array(sparkline.length)
             }
-            accumulator[key][i] = currentItem[2]
+            accumulator[key][i] = currentItem.count
             return accumulator
         }, {})
     ).map(([level, data]) => ({
