@@ -131,6 +131,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
+                        ...(props.showNumericalPropsOnly ? { is_numerical: 'true' } : {}),
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
                         // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
@@ -343,6 +344,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         items: [
             (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
             (remoteItems, localItems, showNumericalPropsOnly) => {
+                // NOTE: This might not be needed because we're filtering on the backend to improve loading performance
+                // That said, there might be some edge cases where the backend is NOT filtering on the same way
+                // as we are here in the frontend, so let's keep this here
                 const results = [...localItems.results, ...remoteItems.results].filter((result) => {
                     if (!showNumericalPropsOnly) {
                         return true
