@@ -4,7 +4,7 @@ import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHe
 import { getOnClickTooltip, onCellClick, replayActiveHoursHeatMapLogic } from './replayActiveHoursHeatMapLogic'
 
 export const ReplayActiveHoursHeatMap = (): JSX.Element => {
-    const { calendarHeatmapProps, recordingsPerHourLoading } = useValues(
+    const { calendarHeatmapProps, recordingsPerHourLoading, isClickable } = useValues(
         replayActiveHoursHeatMapLogic({ scene: 'templates' })
     )
 
@@ -22,6 +22,7 @@ export const ReplayActiveHoursHeatMap = (): JSX.Element => {
                 getOverallAggregationTooltip={() => ''}
                 getOnClickTooltip={getOnClickTooltip}
                 onClick={onCellClick}
+                isClickable={isClickable}
                 showColumnAggregations={false}
                 showRowAggregations={false}
             />

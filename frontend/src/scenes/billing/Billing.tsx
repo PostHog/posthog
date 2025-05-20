@@ -25,6 +25,7 @@ import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
+import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
@@ -81,17 +82,7 @@ export function Billing(): JSX.Element {
     }
 
     if (restrictionReason) {
-        return (
-            <div className="deprecated-space-y-4">
-                <h1>Billing</h1>
-                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
-                <div className="flex">
-                    <LemonButton type="primary" to={urls.default()}>
-                        Go back home
-                    </LemonButton>
-                </div>
-            </div>
-        )
+        return <BillingNoAccess reason={restrictionReason} />
     }
 
     if (!billing && !billingLoading) {

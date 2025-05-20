@@ -118,6 +118,7 @@ class PendingDeletesTable:
             )
             ENGINE = ReplicatedReplacingMergeTree('{self.zk_path}', '{{shard}}-{{replica}}')
             ORDER BY (team_id, deletion_type, key)
+            SETTINGS replicated_can_become_leader = 1
         """
 
     @property
