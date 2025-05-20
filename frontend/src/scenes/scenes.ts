@@ -294,6 +294,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
+        activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
     },
     [Scene.ProjectHomepage]: {
