@@ -137,6 +137,10 @@ def produce_replay_summary(
     block_first_timestamps: list[datetime] | None = None,
     block_last_timestamps: list[datetime] | None = None,
 ):
+    """
+    Creates a session replay event in ClickHouse for testing purposes.
+    Writes session replay data directly to ClickHouse and creates associated analytics events.
+    """
     if log_messages is None:
         log_messages = {}
 
