@@ -53,7 +53,7 @@ type DeltaChartContextType = {
     experimentId: ExperimentIdType
     experiment: Experiment
     variants: FunnelExperimentVariant[] | TrendExperimentVariant[]
-    hasMinimumExposureForResults: boolean
+    hasEnoughDataForResults: boolean
     featureFlags: Record<string, any>
     primaryMetricsLengthWithSharedMetrics: number
 
@@ -368,12 +368,12 @@ function ChartTooltips(): JSX.Element {
 
 // Main chart content component
 function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement> }): JSX.Element {
-    const { result, metric, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
+    const { result, metric, hasEnoughDataForResults, resultsLoading, experiment, error, dimensions } =
         useDeltaChartContext()
 
     const { chartHeight } = dimensions
 
-    if (result && hasMinimumExposureForResults) {
+    if (result && hasEnoughDataForResults) {
         return (
             <div className="relative w-full max-w-screen">
                 <ChartControls />
@@ -390,7 +390,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
-                hasMinimumExposure={hasMinimumExposureForResults}
+                hasMinimumExposure={hasEnoughDataForResults}
                 metric={metric}
                 error={error}
             />
@@ -434,7 +434,7 @@ export function DeltaChart({
         secondaryMetricResultsLoading,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
-        hasMinimumExposureForResults,
+        hasEnoughDataForResults,
     } = useValues(experimentLogic)
 
     const { openVariantDeltaTimeseriesModal } = useActions(experimentLogic)
@@ -495,7 +495,7 @@ export function DeltaChart({
         experimentId: experimentId as ExperimentIdType, // Cast to ensure type compatibility
         experiment,
         variants,
-        hasMinimumExposureForResults,
+        hasEnoughDataForResults,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
 

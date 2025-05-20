@@ -35,7 +35,8 @@ export function ChartEmptyState({
                         <IconActivity fontSize="1em" />
                     </LemonTag>
                     <span>
-                        Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures per variant to show results
+                        Not enough data yet. Waiting for at least {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures and
+                        10+ data points per variant
                     </span>
                 </div>
             ) : (
