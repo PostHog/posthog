@@ -47,6 +47,7 @@ from posthog.models.event.sql import (
     DROP_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
+    TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -63,6 +64,10 @@ from posthog.models.person.sql import (
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
+from posthog.models.property_definition import (
+    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
+    PROPERTY_DEFINITIONS_TABLE_SQL,
+)
 from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
     DROP_SESSION_MATERIALIZED_VIEW_SQL,
@@ -1074,12 +1079,14 @@ def reset_clickhouse_database() -> None:
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
+            DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_TABLE_SQL(),
             DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
@@ -1094,6 +1101,7 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_TABLE_SQL(),
             EVENTS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
+            PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
             SESSIONS_TABLE_SQL(),
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
