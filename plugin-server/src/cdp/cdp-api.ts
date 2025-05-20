@@ -64,6 +64,7 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
 
         return router
     }
@@ -311,4 +312,33 @@ export class CdpApi {
             await this.hogFunctionMonitoringService.produceQueuedMessages()
         }
     }
+
+    private postWebhook =
+        () =>
+        async (req: express.Request, res: express.Response): Promise<void> => {
+            // TODO: Source handler service that takes care of finding the relevant function,
+            // running it (maybe) and scheduling the job if it gets suspended
+
+            // const { id } = req.params
+            // const { state } = req.body
+
+            // // Check that state is valid
+            // if (!Object.values(HogWatcherState).includes(state)) {
+            //     res.status(400).json({ error: 'Invalid state' })
+            //     return
+            // }
+
+            // const summary = await this.hogWatcher.getState(id)
+
+            // // Only allow patching the status if it is different from the current status
+
+            // if (summary.state !== state) {
+            //     await this.hogWatcher.forceStateChange(id, state)
+            // }
+
+            // // Hacky - wait for a little to give a chance for the state to change
+            // await delay(100)
+
+            res.status(404).json({ error: 'Not found' })
+        }
 }
