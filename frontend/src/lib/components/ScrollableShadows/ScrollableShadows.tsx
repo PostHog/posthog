@@ -48,7 +48,11 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             {...props}
         >
             <div
-                className={clsx('ScrollableShadows__inner', styledScrollbars && 'styled-scrollbars', innerClassName)}
+                className={clsx(
+                    'ScrollableShadows__inner',
+                    styledScrollbars && 'show-scrollbar-on-hover',
+                    innerClassName
+                )}
                 ref={(refValue) => {
                     scrollRefScrollable.current = refValue
                     if (scrollRef) {

@@ -14,6 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
+from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
@@ -29,6 +30,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -40,7 +42,12 @@ from ee.hogai.utils.state import (
     validate_state_update,
     validate_value_update,
 )
-from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import (
+    AssistantMode,
+    AssistantNodeName,
+    AssistantState,
+    PartialAssistantState,
+)
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Action, Team, User
@@ -49,7 +56,6 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -98,6 +104,7 @@ class Assistant:
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
+    _custom_update_ids: set[str]
 
     def __init__(
         self,
@@ -145,6 +152,7 @@ class Assistant:
             else None
         )
         self._trace_id = trace_id
+        self._custom_update_ids = set()
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -158,7 +166,7 @@ class Assistant:
         state = self._init_or_update_state()
         config = self._get_config()
         generator: Iterator[Any] = self._graph.stream(
-            state, config=config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
+            state, config=config, stream_mode=["messages", "values", "updates", "debug", "custom"], subgraphs=True
         )
 
         with self._lock_conversation():
@@ -173,10 +181,17 @@ class Assistant:
             try:
                 last_viz_message = None
                 for update in generator:
-                    if message := self._process_update(update):
-                        if isinstance(message, VisualizationMessage):
-                            last_viz_message = message
-                        yield self._serialize_message(message)
+                    if messages := self._process_update(update):
+                        for message in messages:
+                            if isinstance(message, VisualizationMessage):
+                                last_viz_message = message
+                            if hasattr(message, "id"):
+                                if update[1] == "custom":
+                                    # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
+                                    self._custom_update_ids.add(message.id)
+                                elif message.id in self._custom_update_ids:
+                                    continue
+                            yield self._serialize_message(message)
 
                 # Check if the assistant has requested help.
                 state = self._graph.get_state(config)
@@ -344,23 +359,25 @@ class Assistant:
             case _:
                 return None
 
-    def _process_update(self, update: Any) -> BaseModel | None:
+    def _process_update(self, update: Any) -> list[BaseModel] | None:
+        if update[1] == "custom":
+            # Custom streams come from a tool call
+            update = update[2]
         update = update[1:]  # we remove the first element, which is the node/subgraph node name
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state)
-        elif is_value_update(update) and (new_message := self._process_value_update(update)):
-            return new_message
+        elif is_value_update(update) and (new_messages := self._process_value_update(update)):
+            return new_messages
         elif is_message_update(update) and (new_message := self._process_message_update(update)):
-            return new_message
+            return [new_message]
         elif is_task_started_update(update) and (new_message := self._process_task_started_update(update)):
-            return new_message
+            return [new_message]
         return None
 
-    def _process_value_update(self, update: GraphValueUpdateTuple) -> BaseModel | None:
+    def _process_value_update(self, update: GraphValueUpdateTuple) -> list[BaseModel] | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
-
         # this needs full type annotation otherwise mypy complains
         visualization_nodes: (
             dict[AssistantNodeName, type[AssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
@@ -374,26 +391,19 @@ class Assistant:
             if not isinstance(node_val, PartialAssistantState):
                 return None
             if node_val.messages:
-                return node_val.messages[0]
+                return list(node_val.messages)
             elif node_val.intermediate_steps:
-                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+                return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
 
         for node_name in VERBOSE_NODES:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
+                    _messages: list[BaseModel] = []
                     for candidate_message in node_val.messages:
-                        if (
-                            # Filter out tool calls without a UI payload
-                            not isinstance(candidate_message, AssistantToolCallMessage)
-                            or candidate_message.ui_payload is not None
-                        ) and (
-                            # Also filter out empty assistant messages
-                            not isinstance(candidate_message, AssistantMessage)
-                            or isinstance(candidate_message, AssistantMessage)
-                            and candidate_message.content
-                        ):
-                            return candidate_message
+                        if should_output_assistant_message(candidate_message):
+                            _messages.append(candidate_message)
+                    return _messages
 
         return None
 
@@ -412,7 +422,7 @@ class Assistant:
                         )
                 if self._chunks.content:
                     # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
-                    return AssistantMessage(content=self._chunks.content)
+                    return AssistantMessage(content=cast(str, self._chunks.content))
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
@@ -433,7 +443,7 @@ class Assistant:
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"
-        json_conversation = json.dumps({"id": str(self._conversation.id)})
+        json_conversation = json.dumps(ConversationMinimalSerializer(self._conversation).data)
         output += f"data: {json_conversation}\n\n"
         return output
 
