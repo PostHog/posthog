@@ -7,7 +7,7 @@ import { ErrorChecklist } from './ErrorChecklist'
 interface ChartEmptyStateProps {
     height: number
     experimentStarted: boolean
-    hasMinimumExposure: boolean
+    hasEnoughDataForResults: boolean
     metric: any
     error?: any
 }
@@ -15,7 +15,7 @@ interface ChartEmptyStateProps {
 export function ChartEmptyState({
     height,
     experimentStarted,
-    hasMinimumExposure,
+    hasEnoughDataForResults,
     error,
     metric,
 }: ChartEmptyStateProps): JSX.Element {
@@ -29,7 +29,7 @@ export function ChartEmptyState({
                     </LemonTag>
                     <span>Waiting for experiment to start&hellip;</span>
                 </div>
-            ) : !hasMinimumExposure ? (
+            ) : !hasEnoughDataForResults ? (
                 <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
                     <LemonTag size="small" className="mr-2">
                         <IconActivity fontSize="1em" />

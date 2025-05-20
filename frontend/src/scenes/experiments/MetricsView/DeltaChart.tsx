@@ -396,7 +396,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
-                hasMinimumExposure={hasEnoughDataForResults}
+                hasEnoughDataForResults={hasEnoughDataForResults}
                 metric={metric}
                 error={error}
             />
