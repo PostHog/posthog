@@ -190,7 +190,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 const eventNames = rawRevenueSources.events.map((e) => e.eventName)
 
                 return managedViews
-                    .filter((view) => view.kind === DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS)
+                    .filter((view) => view.kind === DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE)
                     .filter((view) => {
                         // Comes from a Data Warehouse source
                         if (view.source_id) {
