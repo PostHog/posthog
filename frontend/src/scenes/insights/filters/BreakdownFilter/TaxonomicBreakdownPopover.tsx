@@ -49,6 +49,7 @@ export const TaxonomicBreakdownPopover = ({
 
     return (
         <Popover
+            style={{ minHeight: '200px' }}
             overlay={
                 <TaxonomicFilter
                     groupType={taxanomicType}
