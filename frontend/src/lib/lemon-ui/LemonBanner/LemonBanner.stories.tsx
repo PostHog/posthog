@@ -21,7 +21,7 @@ const WideTemplate: StoryFn<typeof LemonBanner> = (props: LemonBannerProps) => {
     // See: https://stackoverflow.com/a/73980194/3515268
     return (
         <div id="target" className="w-120">
-            <LemonBanner {...props} />
+            <LemonBanner {...props} className={Math.random() > 0.5 ? 'bg-red-500' : ''} />
         </div>
     )
 }
