@@ -22,6 +22,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+from posthog.warehouse.api.lineage import LineageViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -674,6 +675,8 @@ register_grandfathered_environment_nested_viewset(
     "environment_data_modeling_jobs",
     ["team_id"],
 )
+
+environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
 
 environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
 

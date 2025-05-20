@@ -5406,3 +5406,19 @@ export interface ProjectTreeRef {
      */
     ref: string | null
 }
+
+export interface LineageNode {
+    id: string
+    name: string
+    type: 'root' | 'intermediate' | 'leaf'
+}
+
+export interface LineageEdge {
+    source: string
+    target: string
+}
+
+export interface LineageGraph {
+    nodes: LineageNode[]
+    edges: LineageEdge[]
+}

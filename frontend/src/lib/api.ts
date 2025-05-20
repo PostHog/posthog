@@ -86,6 +86,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LineageGraph,
     LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
@@ -1153,6 +1154,13 @@ class ApiRequest {
 
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
+    }
+
+    public upstream(modelId: string, modelType: string): ApiRequest {
+        return this.environmentsDetail().addPathComponent('lineage').addPathComponent('get_upstream').withQueryString({
+            model_id: modelId,
+            type: modelType,
+        })
     }
 
     // ActivityLog
@@ -3119,7 +3127,11 @@ const api = {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
-
+    upstream: {
+        async get(modelId: string, modelType: string): Promise<LineageGraph> {
+            return await new ApiRequest().upstream(modelId, modelType).get()
+        },
+    },
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
