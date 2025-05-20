@@ -196,6 +196,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
 
+        CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
