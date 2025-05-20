@@ -14,7 +14,7 @@ import {
     isInsightVizNode,
     isTrendsQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterLogicalOperator } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -131,7 +131,17 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             } else if (isTrendsQuery(cleanedQuery) && series.math && getMathTypeWarning(series.math, query, false)) {
                 series.math = BaseMathType.UniqueUsers
             }
+            if (series.properties?.length === 0) {
+                delete series.properties // Remove no-op series filters altogether
+            }
         })
+    }
+    if (!cleanedQuery.properties || (Array.isArray(cleanedQuery.properties) && cleanedQuery.properties.length === 0)) {
+        // Ensure the default empty filter group is present, so that it shows up in the UI
+        cleanedQuery.properties = {
+            type: FilterLogicalOperator.And,
+            values: [],
+        }
     }
 
     if (opts?.ignoreVisualizationOnlyChanges) {

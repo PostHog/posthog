@@ -31,6 +31,7 @@ import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { compareDataNodeQuery } from 'scenes/insights/utils/queryUtils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { twMerge } from 'tailwind-merge'
@@ -43,7 +44,7 @@ import {
     FailureMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
@@ -136,7 +137,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
     const { tools } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
+    const insightBeingEditedQuery = (tools?.find((tool) => tool.name === 'create_and_query_insight')?.context
+        .current_query ?? null) as InsightVizNode | null
 
     return (
         <MessageGroupContainer groupType={groupType}>
@@ -192,7 +194,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 key={messageIndex}
                                 message={message}
                                 status={message.status}
-                                isEditingInsight={isEditingInsight}
+                                insightBeingEditedQuery={insightBeingEditedQuery}
                             />
                         )
                     } else if (isReasoningMessage(message)) {
@@ -361,21 +363,20 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
 function VisualizationAnswer({
     message,
     status,
-    isEditingInsight,
+    insightBeingEditedQuery,
 }: {
     message: VisualizationMessage
     status?: MessageStatus
-    isEditingInsight: boolean
+    insightBeingEditedQuery: InsightQueryNode | null
 }): JSX.Element | null {
     const { insight } = useValues(insightSceneLogic)
     const { setQuery } = useActions(insightVizDataLogic({ dashboardItemId: insight?.short_id }))
     const [isSummaryShown, setIsSummaryShown] = useState(false)
-    const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const [isApplied, setIsApplied] = useState(false)
+    const [isCollapsed, setIsCollapsed] = useState(!!insightBeingEditedQuery)
 
     useEffect(() => {
-        setIsCollapsed(isEditingInsight)
-    }, [isEditingInsight])
+        setIsCollapsed(!!insightBeingEditedQuery)
+    }, [!!insightBeingEditedQuery])
 
     const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
@@ -388,6 +389,9 @@ function VisualizationAnswer({
 
         return null
     }, [message])
+
+    const isApplied: boolean =
+        !!query?.source && !!insightBeingEditedQuery && compareDataNodeQuery(query.source, insightBeingEditedQuery)
 
     return status !== 'completed'
         ? null
@@ -413,16 +417,14 @@ function VisualizationAnswer({
                                   </h5>
                               </LemonButton>
                           </div>
-                          {isEditingInsight ? (
+                          {insightBeingEditedQuery ? (
                               <LemonButton
-                                  onClick={() => {
-                                      setQuery(query)
-                                      setIsApplied(true)
-                                  }}
+                                  onClick={() => setQuery(query)}
                                   sideIcon={isApplied ? <IconCheck /> : <IconSync />}
                                   size="xsmall"
+                                  disabled={isApplied}
                               >
-                                  Apply to current insight
+                                  {isApplied ? 'Applied' : 'Apply'} to current insight
                               </LemonButton>
                           ) : (
                               <LemonButton
