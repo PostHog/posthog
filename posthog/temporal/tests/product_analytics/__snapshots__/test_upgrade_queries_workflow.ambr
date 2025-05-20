@@ -3,9 +3,9 @@
   '''
   WITH latest(kind, v_latest) AS (
                                   VALUES ('InsightVizNode',
-                                          3),('TrendsQuery',
-                                              5),('EventsNode',
-                                                  7))
+                                          4),('TrendsQuery',
+                                              6),('EventsNode',
+                                                  8))
   SELECT DISTINCT i.id
   FROM posthog_dashboarditem AS i
   CROSS JOIN latest AS l
