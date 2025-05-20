@@ -1387,8 +1387,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where,
-                        after: dateRange.date_from || startDate,
-                        before: dateRange.date_to || endDate,
+                        after: dateRange?.date_from || startDate,
+                        before: dateRange?.date_to || endDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
