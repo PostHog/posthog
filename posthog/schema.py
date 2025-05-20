@@ -9859,6 +9859,9 @@ class ExperimentQuery(BaseModel):
     )
     name: Optional[str] = None
     response: Optional[ExperimentQueryResponse] = None
+    stats_method: Optional[Literal["bayesian", "frequentist"]] = Field(
+        default="bayesian", description="Statistical method used for analysis: bayesian or frequentist"
+    )
 
 
 class ExperimentTrendsQuery(BaseModel):
