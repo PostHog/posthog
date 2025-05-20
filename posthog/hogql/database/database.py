@@ -103,6 +103,7 @@ from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedViewTableKind,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
@@ -119,6 +120,9 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
     RevenueAnalyticsBaseView,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    RevenueAnalyticsChargeView,
 )
 
 if TYPE_CHECKING:
@@ -982,7 +986,9 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
-                kind="revenue_analytics",
+                kind=DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
+                if isinstance(view, RevenueAnalyticsChargeView)
+                else DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
                 source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )
