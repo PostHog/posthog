@@ -57,19 +57,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
             panelLayoutLogic,
-            ['searchTerm', 'projectTreeMode'],
+            ['projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
             projectTreeDataLogic,
             [
-                'unfiledItems',
-                'unfiledItemsLoading',
                 'folders',
                 'folderStates',
                 'folderLoadOffset',
                 'users',
-                'savedItems',
-                'savedItemsLoading',
                 'viableItems',
                 'viableItemsById',
                 'sortedItems',
@@ -79,27 +75,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         actions: [
             panelLayoutLogic,
-            ['setSearchTerm', 'setProjectTreeMode'],
+            ['setActivePanelIdentifier', 'setProjectTreeMode'],
             projectTreeDataLogic,
             [
-                'loadUnfiledItems',
                 'loadFolder',
                 'loadFolderIfNotLoaded',
                 'loadFolderStart',
                 'loadFolderSuccess',
-                'loadFolderFailure',
                 'addUsers',
                 'addResults',
                 'createSavedItem',
                 'deleteSavedItem',
-                'syncTypeAndRef',
                 'deleteTypeAndRef',
                 'movedItem',
                 'queueAction',
-                'removeQueuedAction',
                 'deleteItem',
                 'moveItem',
-                'setLastNewFolder',
             ],
         ],
     })),
@@ -121,6 +112,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             editAfter,
             callback,
         }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        clearSearch: true,
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         loadRecentResults: (type: 'start' | 'end') => ({ type }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
@@ -220,6 +213,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     })),
     reducers({
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+                clearSearch: () => '',
+            },
+        ],
         searchResults: [
             { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
             {
@@ -442,23 +442,38 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }),
         ],
         projectTreeOnlyFolders: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
-            (viableItems, folderStates, checkedItems, users): TreeDataItem[] => [
-                {
-                    id: '/',
-                    name: '/',
-                    displayName: <>Project root</>,
-                    record: { type: 'folder', path: '' },
-                    children: convertFileSystemEntryToTreeDataItem({
-                        imports: viableItems,
-                        folderStates,
-                        checkedItems,
-                        root: 'project',
-                        disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
-                        users,
-                    }),
-                },
-            ],
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.searchTerm, s.searchedTreeItems],
+            (viableItems, folderStates, checkedItems, users, searchTerm, searchedTreeItems): TreeDataItem[] => {
+                if (searchTerm) {
+                    return [
+                        {
+                            id: '/',
+                            name: '/',
+                            displayName: <>Project root</>,
+                            record: { type: 'folder', path: '' },
+                            children: searchedTreeItems,
+                        },
+                    ]
+                }
+
+                return [
+                    {
+                        id: '/',
+                        name: '/',
+                        displayName: <>Project root</>,
+                        record: { type: 'folder', path: '' },
+                        children: convertFileSystemEntryToTreeDataItem({
+                            imports: viableItems,
+                            folderStates,
+                            checkedItems,
+                            root: 'project',
+                            disabledReason: (item) =>
+                                item.type !== 'folder' ? 'Only folders can be selected' : undefined,
+                            users,
+                        }),
+                    },
+                ]
+            },
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -756,6 +771,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     listeners(({ actions, values, key }) => ({
+        setActivePanelIdentifier: () => {
+            // clear search term when changing panel
+            actions.clearSearch()
+        },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {
                 const rootItems = values.folders['']
@@ -926,7 +945,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
-                    actions.moveItem(item, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true)
+                    actions.moveItem(item, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true, key)
                     if (item.type === 'folder') {
                         skipInFolder = item.path
                     }
@@ -988,7 +1007,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
-                    actions.deleteItem(item)
+                    actions.deleteItem(item, key)
                     if (item.type === 'folder') {
                         skipInFolder = item.path
                     }
@@ -1053,7 +1072,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const splits = splitPath(item.path)
             if (splits.length > 0) {
                 if (value) {
-                    actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
+                    actions.moveItem(item, joinPath([...splits.slice(0, -1), value]), false, key)
                     actions.setEditingItemId('')
                 }
             }
@@ -1122,11 +1141,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
-        setLastNewFolder: ({ folder }) => {
-            if (folder) {
-                actions.assureVisibility({ type: 'folder', ref: folder })
-            }
-        },
     })),
     subscriptions(({ actions, values }) => ({
         projectTreeRef: (newRef: ProjectTreeRef | null) => {
@@ -1150,11 +1164,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 ])
 
 export function refreshTreeItem(type: string, ref: string): void {
-    projectTreeLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+    projectTreeDataLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
 }
 
 export function deleteFromTree(type: string, ref: string): void {
-    projectTreeLogic.findMounted()?.actions.deleteTypeAndRef(type, ref)
+    projectTreeDataLogic.findMounted()?.actions.deleteTypeAndRef(type, ref)
 }
 
 export function getLastNewFolder(): string | undefined {

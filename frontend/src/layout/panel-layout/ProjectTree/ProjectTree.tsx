@@ -43,6 +43,8 @@ export interface ProjectTreeProps {
     sortMethod: ProjectTreeSortMethod
 }
 
+export const PROJECT_TREE_KEY = 'project-tree'
+
 export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
         projectTreeItems,
@@ -66,9 +68,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         selectMode,
         projectTreeRef,
         projectTreeRefEntry,
-    } = useValues(projectTreeLogic({ key: 'project-tree' }))
+    } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { treeItemsNew } = useValues(projectTreeDataLogic)
-    const key = 'project-tree'
+    const { setLastNewFolder } = useActions(projectTreeDataLogic)
 
     const {
         createFolder,
@@ -80,7 +82,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        setLastNewFolder,
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
@@ -92,7 +93,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
-    } = useActions(projectTreeLogic({ key }))
+    } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -352,7 +353,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, key)
+                            deleteItem(item.record as unknown as FileSystemEntry, PROJECT_TREE_KEY)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -362,7 +363,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, key)
+                            deleteItem(item.record as unknown as FileSystemEntry, PROJECT_TREE_KEY)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
@@ -519,7 +520,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     } else {
                         const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
                         if (isValidMove) {
-                            moveItem(oldItem, newPath)
+                            moveItem(oldItem, newPath, false, PROJECT_TREE_KEY)
                         }
                     }
                 }}
@@ -738,7 +739,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                 destinationFolder
                             )
                             if (isValidMove) {
-                                moveItem(movingItems[0] as unknown as FileSystemEntry, newPath)
+                                moveItem(movingItems[0] as unknown as FileSystemEntry, newPath, false, PROJECT_TREE_KEY)
                             }
                         }
                         // Clear the moving items and close the modal

@@ -49,7 +49,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
-        moveItem: (item: FileSystemEntry, newPath: string, force = false, projectTreeLogicKey: string) => ({
+        moveItem: (item: FileSystemEntry, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
             item,
             newPath,
             force,
@@ -70,7 +70,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             {
                 loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
-                    if (response.results.length > 0) {
+                    if (response.results?.length > 0) {
                         actions.loadFolder('Unfiled')
                         for (const folder of Object.keys(values.folders)) {
                             if (folder.startsWith('Unfiled/')) {
