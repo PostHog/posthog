@@ -8,6 +8,7 @@ import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewReco
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
@@ -78,8 +79,28 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
                             LemonDialog.open({
                                 title: 'View moment',
                                 content: (
-                                    <div className="flex flex-col items-center">
-                                        <img
+                                    <div className="flex flex-col items-center gap-4">
+                                        <div className="flex flex-col gap-2 w-full">
+                                            <div className="flex justify-between items-center w-full">
+                                                <div className="flex items-center gap-4 text-sm">
+                                                    <div>
+                                                        <span className="font-semibold">Session ID:</span> {sessionId}
+                                                    </div>
+                                                    <div>
+                                                        <span className="font-semibold">Moment start:</span>{' '}
+                                                        May 20, 2025 11:32:42 AM
+                                                    </div>
+                                                    <div>
+                                                        <span className="font-semibold">Moment end:</span>{' '}
+                                                        May 20, 2025 11:32:56 AM
+                                                    </div>
+                                                </div>
+                                                <LemonButton sideIcon={<IconPlayCircle />} size="xsmall" type="secondary">
+                                                    View full recording
+                                                </LemonButton>
+                                            </div>
+                                        </div>
+                                        <img 
                                             src="/static/error-tracking/error-moment.gif"
                                             alt="Error moment visualization"
                                             className="max-w-full h-auto"
