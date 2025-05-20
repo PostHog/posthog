@@ -46,7 +46,7 @@ export function wrapWithShortcutIcon(icon: React.ReactNode): JSX.Element {
     return (
         <div className="relative">
             {icon}
-            <IconShortcut className="absolute bottom-[-0.15rem] left-[-0.25rem] size-3 [&_path]:fill-white" />
+            <IconShortcut className="icon-shortcut absolute bottom-[-0.15rem] left-[-0.25rem] [&_path]:fill-white" />
         </div>
     )
 }
