@@ -13,16 +13,16 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
+import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { FolderState, ProjectTreeAction } from './types'
+import { ProjectTreeAction } from './types'
 import {
-    appendResultsToFolders,
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
     joinPath,
@@ -31,7 +31,6 @@ import {
     unescapePath,
 } from './utils'
 
-const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 
@@ -63,11 +62,40 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['searchTerm', 'projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
+            projectTreeDataLogic,
+            [
+                'unfiledItems',
+                'unfiledItemsLoading',
+                'folders',
+                'folderStates',
+                'folderLoadOffset',
+                'users',
+                'savedItems',
+                'savedItemsLoading',
+            ],
         ],
-        actions: [panelLayoutLogic, ['setSearchTerm', 'setProjectTreeMode']],
+        actions: [
+            panelLayoutLogic,
+            ['setSearchTerm', 'setProjectTreeMode'],
+            projectTreeDataLogic,
+            [
+                'loadUnfiledItems',
+                'loadFolder',
+                'loadFolderIfNotLoaded',
+                'loadFolderStart',
+                'loadFolderSuccess',
+                'loadFolderFailure',
+                'addUsers',
+                'addResults',
+                'createSavedItem',
+                'deleteSavedItem',
+                'syncTypeAndRef',
+                'deleteTypeAndRef',
+                'movedItem',
+            ],
+        ],
     })),
     actions({
-        loadUnfiledItems: true,
         addFolder: (folder: string, editAfter = true, callback?: (folder: string) => void) => ({
             folder,
             editAfter,
@@ -75,27 +103,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
-        movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         linkItem: (oldPath: string, newPath: string, force = false) => ({ oldPath, newPath, force }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
-        createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
         setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
         setLastViewedId: (id: string) => ({ id }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
-        loadFolderIfNotLoaded: (folderId: string) => ({ folderId }),
         setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
-        loadFolder: (folder: string) => ({ folder }),
-        loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
-            folder,
-            entries,
-            hasMore,
-            offsetIncrease,
-        }),
-        loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (value: string, item: FileSystemEntry) => ({ value, item }),
         createFolder: (parentPath: string, editAfter = true, callback?: (folder: string) => void) => ({
             parentPath,
@@ -114,9 +129,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         linkCheckedItems: (path: string) => ({ path }),
         deleteCheckedItems: true,
         checkSelectedFolders: true,
-        syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
-        deleteTypeAndRef: (type: string, ref: string) => ({ type, ref }),
-        updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
         setEditingItemId: (id: string) => ({ id }),
@@ -124,26 +136,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
-        addUsers: (users: UserBasicType[]) => ({ users }),
     }),
     loaders(({ actions, values }) => ({
-        unfiledItems: [
-            false as boolean,
-            {
-                loadUnfiledItems: async () => {
-                    const response = await api.fileSystem.unfiled()
-                    if (response.results.length > 0) {
-                        actions.loadFolder('Unfiled')
-                        for (const folder of Object.keys(values.folders)) {
-                            if (folder.startsWith('Unfiled/')) {
-                                actions.loadFolder(folder)
-                            }
-                        }
-                    }
-                    return true
-                },
-            },
-        ],
         searchResults: [
             { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
             {
@@ -166,6 +160,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (response.users?.length > 0) {
                         actions.addUsers(response.users)
                     }
+                    actions.addResults(response as SearchResults)
                     return {
                         searchTerm,
                         results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
@@ -210,6 +205,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (response.users?.length > 0) {
                         actions.addUsers(response.users)
                     }
+                    actions.addResults(response as RecentResults)
                     return {
                         results,
                         hasMore,
@@ -335,123 +331,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     })),
     reducers({
-        folders: [
-            {} as Record<string, FileSystemEntry[]>,
-            {
-                loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
-                createSavedItem: (state, { savedItem }) => {
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    return {
-                        ...state,
-                        [folder]: (state[folder] || []).find((f) => f.id === savedItem.id)
-                            ? state[folder].map((item) => (item.id === savedItem.id ? savedItem : item))
-                            : [...(state[folder] || []), savedItem],
-                    }
-                },
-                loadSearchResultsSuccess: (state, { searchResults }) => {
-                    return appendResultsToFolders(searchResults, state)
-                },
-                loadRecentResultsSuccess: (state, { recentResults }) => {
-                    return appendResultsToFolders(recentResults, state)
-                },
-                deleteSavedItem: (state, { savedItem }) => {
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    const newState = {
-                        ...state,
-                        [folder]: state[folder].filter((item) => item.id !== savedItem.id),
-                    }
-                    if (savedItem.type === 'folder') {
-                        for (const folder of Object.keys(newState)) {
-                            if (folder === savedItem.path || folder.startsWith(savedItem.path + '/')) {
-                                delete newState[folder]
-                            }
-                        }
-                    }
-                    return newState
-                },
-                movedItem: (state, { oldPath, newPath, item }) => {
-                    const newState = { ...state }
-                    const oldParentFolder = joinPath(splitPath(oldPath).slice(0, -1))
-                    for (const folder of Object.keys(newState)) {
-                        if (folder === oldParentFolder) {
-                            newState[folder] = newState[folder].filter((i) => i.id !== item.id)
-                            const newParentFolder = joinPath(splitPath(newPath).slice(0, -1))
-                            newState[newParentFolder] = [
-                                ...(newState[newParentFolder] ?? []),
-                                { ...item, path: newPath },
-                            ]
-                        } else if (folder === oldPath || folder.startsWith(oldPath + '/')) {
-                            const newFolder = newPath + folder.slice(oldPath.length)
-                            newState[newFolder] = [
-                                ...(newState[newFolder] ?? []),
-                                ...newState[folder].map((item) => ({
-                                    ...item,
-                                    path: newFolder + item.path.slice(folder.length),
-                                })),
-                            ]
-                            delete newState[folder]
-                        }
-                    }
-                    return newState
-                },
-                updateSyncedFiles: (state, { files }) => {
-                    const newState = { ...state }
-                    for (const file of files) {
-                        const folder = joinPath(splitPath(file.path).slice(0, -1))
-                        if (newState[folder]) {
-                            if (newState[folder].find((f) => f.id === file.id)) {
-                                newState[folder] = newState[folder].map((f) =>
-                                    f.id === file.id ? { ...f, ...file } : f
-                                )
-                            } else {
-                                newState[folder] = [...newState[folder], file]
-                            }
-                        } else {
-                            newState[folder] = [file]
-                        }
-                    }
-                    return newState
-                },
-                deleteTypeAndRef: (state, { type, ref }) => {
-                    const newState = { ...state }
-                    for (const [folder, files] of Object.entries(newState)) {
-                        if (
-                            files.some(
-                                (file) =>
-                                    (type.endsWith('/') ? file.type?.startsWith(type) : file.type === type) &&
-                                    file.ref === ref
-                            )
-                        ) {
-                            newState[folder] = files.filter(
-                                (file) =>
-                                    (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
-                                    file.ref !== ref
-                            )
-                        }
-                    }
-                    return newState
-                },
-            },
-        ],
-        folderLoadOffset: [
-            {} as Record<string, number>,
-            {
-                loadFolderSuccess: (state, { folder, offsetIncrease }) => {
-                    return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
-                },
-            },
-        ],
-        folderStates: [
-            {} as Record<string, FolderState>,
-            {
-                loadFolderStart: (state, { folder }) => ({ ...state, [folder]: 'loading' }),
-                loadFolderSuccess: (state, { folder, hasMore }) => ({
-                    ...state,
-                    [folder]: hasMore ? 'has-more' : 'loaded',
-                }),
-                loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
-            },
-        ],
         searchResults: [
             { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
             {
@@ -484,13 +363,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ),
                     }
                 },
-                updateSyncedFiles: (state, { files }) => {
-                    const newIdsSet = new Set(files.map((file) => file.id))
+                addResults: (state, { results }) => {
+                    const newIdsSet = new Set(results.results.map((file) => file.id))
                     const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
                     if (hasAnyNewIds) {
                         const newResults = state.results.map((result) => {
                             if (newIdsSet.has(result.id)) {
-                                const file = files.find((file) => file.id === result.id)
+                                const file = results.results.find((file) => file.id === result.id)
                                 return { ...result, ...file }
                             }
                             return result
@@ -547,13 +426,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
-                updateSyncedFiles: (state, { files }) => {
-                    const newIdsSet = new Set(files.map((file) => file.id))
+                addResults: (state, { results }) => {
+                    const newIdsSet = new Set(results.results.map((file) => file.id))
                     const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
                     if (hasAnyNewIds) {
                         const newResults = state.results.map((result) => {
                             if (newIdsSet.has(result.id)) {
-                                const file = files.find((file) => file.id === result.id)
+                                const file = results.results.find((file) => file.id === result.id)
                                 return { ...result, ...file }
                             }
                             return result
@@ -561,21 +440,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         return { ...state, results: newResults }
                     }
                     return state
-                },
-            },
-        ],
-        users: [
-            {} as Record<string, UserBasicType>,
-            {
-                addUsers: (state, { users }) => {
-                    if (!users || users.length === 0) {
-                        return state
-                    }
-                    const newState = { ...state }
-                    for (const user of users) {
-                        newState[user.id] = user
-                    }
-                    return newState
                 },
             },
         ],
@@ -691,15 +555,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         treeTableColumnOffsets: [
             (s) => [s.treeTableColumnSizes],
             (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
-        ],
-        savedItems: [
-            (s) => [s.folders, s.folderStates],
-            (folders): FileSystemEntry[] =>
-                Object.entries(folders).reduce((acc, [_, items]) => [...acc, ...items], [] as FileSystemEntry[]),
-        ],
-        savedItemsLoading: [
-            (s) => [s.folderStates],
-            (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
         ],
         viableItems: [
             // Combine savedItems with pendingActions
@@ -1168,40 +1023,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadFolder: async ({ folder }) => {
-            const currentState = values.folderStates[folder]
-            if (currentState === 'loading' || currentState === 'loaded') {
-                return
-            }
-            actions.loadFolderStart(folder)
-            try {
-                const previousFiles = values.folders[folder] || []
-                const offset = values.folderLoadOffset[folder] ?? 0
-                const response = await api.fileSystem.list({
-                    parent: folder,
-                    depth: splitPath(folder).length + 1,
-                    limit: PAGINATION_LIMIT + 1,
-                    offset: offset,
-                })
-
-                let files = response.results
-                let hasMore = false
-                if (files.length > PAGINATION_LIMIT) {
-                    files = files.slice(0, PAGINATION_LIMIT)
-                    hasMore = true
-                }
-                const fileIds = new Set(files.map((file) => file.id))
-                const previousUniqueFiles = previousFiles.filter(
-                    (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
-                )
-                if (response.users?.length > 0) {
-                    actions.addUsers(response.users)
-                }
-                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
-            } catch (error) {
-                actions.loadFolderFailure(folder, String(error))
-            }
-        },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {
                 const rootItems = values.folders['']
@@ -1590,15 +1411,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
-        syncTypeAndRef: async ({ type, ref }) => {
-            const items = await (type.endsWith('/')
-                ? api.fileSystem.list({ type__startswith: type, ref })
-                : api.fileSystem.list({ type, ref }))
-            if (items.users?.length > 0) {
-                actions.addUsers(items.users)
-            }
-            actions.updateSyncedFiles(items.results)
-        },
         setLastNewFolder: ({ folder }) => {
             if (folder) {
                 actions.assureVisibility({ type: 'folder', ref: folder })
@@ -1620,7 +1432,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     afterMount(({ actions, values }) => {
         actions.loadFolder('')
-        actions.loadUnfiledItems()
         if (values.projectTreeRef) {
             actions.assureVisibility(values.projectTreeRef)
         }

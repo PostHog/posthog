@@ -18,7 +18,7 @@ import type { shortcutsLogicType } from './shortcutsLogicType'
 export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['layout', 'panel-layout', 'Shortcuts', 'shortcutsLogic']),
     connect(() => ({
-        actions: [projectTreeLogic, ['updateSyncedFiles', 'deleteTypeAndRef']],
+        actions: [projectTreeLogic, ['addResults', 'deleteTypeAndRef']],
         values: [projectTreeLogic, ['projectTreeItems', 'treeItemsNew'], productTreeLogic, ['productTreeItems']],
     })),
     actions({
@@ -58,9 +58,9 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
             [] as FileSystemEntry[],
             {
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
-                updateSyncedFiles: (state, { files }) => {
+                addResults: (state, { results }) => {
                     const filesByTypeAndRef = Object.fromEntries(
-                        files.map((file) => [`${file.type}//${file.ref}`, file])
+                        results.results.map((file) => [`${file.type}//${file.ref}`, file])
                     )
                     return state.map((item) => {
                         const file = filesByTypeAndRef[`${item.type}//${item.ref}`]
