@@ -11,7 +11,6 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-chrono-tz = "0.8.4"
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
