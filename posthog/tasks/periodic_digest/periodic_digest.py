@@ -168,10 +168,23 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             {
                 "name": playlist.name or playlist.derived_name or "Untitled",
                 "id": playlist.short_id,
+                "type": playlist.type,
                 "count": playlist.count,
                 "has_more_available": playlist.has_more_available,
+                "url_path": playlist.playlist_url_path(),
             }
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
+        ],
+        interesting_playlists=[
+            {
+                "name": playlist.name or playlist.derived_name or "Untitled",
+                "id": playlist.short_id,
+                "type": playlist.type,
+                "count": playlist.count,
+                "has_more_available": playlist.has_more_available,
+                "url_path": playlist.playlist_url_path(),
+            }
+            for playlist in all_digest_data["teams_with_interesting_playlists"].get(team.id, [])
         ],
         new_experiments_launched=[
             {

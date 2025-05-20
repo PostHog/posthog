@@ -1,6 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime, timedelta
+from typing import Literal
 
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import Now
@@ -26,10 +27,19 @@ class CountedPlaylist:
     # for a saved filter this is the count of at most the first page
     count: int | None
     has_more_available: bool
+    type: Literal["collection", "saved_filter"]
     # the number of times this was viewed
     view_count: int | None = None
     # the number of users that viewed this
     user_count: int | None = None
+
+    def url_path(self):
+        if self.type == "collection":
+            return f"/replay/playlists/{self.short_id}"
+        elif self.type == "saved_filter":
+            return f"/replay/home/?filterId={self.short_id}"
+        else:
+            raise Exception(f"Unknown playlist type: {self.type}")
 
 
 def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
@@ -48,9 +58,11 @@ def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
 
     playlists = list(qs)
 
-    # we want a list of cached counts for each playlist if available
-    # or None so that the list of cached counts is the same length
-    # and we can zip it with the playlists
+    # For each playlist,
+    # we want a list of cached counts (if there is one)
+    # or None (if there is not).
+    # So that the list of cached counts is the same length as the list of playlists.
+    # And we can zip them together
     # to only loop over the playlists once
     cached_playlist_counts = []
     if playlist_count_redis_prefix:
@@ -87,6 +99,9 @@ def _prepare_counted_playlists(qs: QuerySet) -> list[CountedPlaylist]:
                 has_more_available=has_more,
                 view_count=playlist["view_count"],
                 user_count=playlist["user_count"],
+                # not all playlists have type explicitly set...
+                # you can be 99% sure if there's a pinned item then it's a collection
+                type=playlist.get("type", "collection" if playlist.get("pinned_item_count", 0) > 0 else "saved_filter"),
             )
         )
 
@@ -130,7 +145,7 @@ def get_teams_with_interesting_playlists(end: datetime) -> list[CountedPlaylist]
                 distinct=True,
             ),
         )
-        .values("team_id", "name", "short_id", "derived_name", "pinned_item_count", "view_count", "user_count")
+        .values("team_id", "name", "short_id", "derived_name", "pinned_item_count", "view_count", "user_count", "type")
     )
 
     return _prepare_counted_playlists(qs)
@@ -164,7 +179,7 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[Counted
                 distinct=True,
             ),
         )
-        .values("team_id", "name", "short_id", "derived_name", "pinned_item_count", "view_count", "user_count")
+        .values("team_id", "name", "short_id", "derived_name", "pinned_item_count", "view_count", "user_count", "type")
     )
 
     return _prepare_counted_playlists(qs)
