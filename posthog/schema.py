@@ -743,6 +743,11 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
+class DatabaseSchemaManagedViewTableKind(StrEnum):
+    REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
+    REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+
+
 class DatabaseSchemaSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8669,7 +8674,7 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
-    kind: Literal["revenue_analytics"] = "revenue_analytics"
+    kind: DatabaseSchemaManagedViewTableKind
     name: str
     query: HogQLQuery
     row_count: Optional[float] = None
