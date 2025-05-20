@@ -12,10 +12,12 @@ from posthog.hogql_queries.experiments import (
 P_VALUE_THRESHOLD = 0.05
 
 
-def calculate_conversion_rate_and_ci(success_count: float, failure_count: float, confidence: float = 0.95) -> tuple[float, float, float]:
+def calculate_conversion_rate_and_ci(
+    success_count: float, failure_count: float, confidence: float = 0.95
+) -> tuple[float, float, float]:
     """
     Calculate the conversion rate and confidence interval using a frequentist approach.
-    
+
     Parameters:
     -----------
     success_count : float
@@ -24,7 +26,7 @@ def calculate_conversion_rate_and_ci(success_count: float, failure_count: float,
         Number of non-conversions (failures)
     confidence : float, optional
         Confidence level (default: 0.95 for 95% confidence)
-        
+
     Returns:
     --------
     tuple[float, float, float]
@@ -62,20 +64,17 @@ def calculate_conversion_rate_and_ci(success_count: float, failure_count: float,
     return conversion_rate, lower_bound, upper_bound
 
 
-def calculate_p_value(
-    control: ExperimentVariantFunnelsBaseStats,
-    variant: ExperimentVariantFunnelsBaseStats
-) -> float:
+def calculate_p_value(control: ExperimentVariantFunnelsBaseStats, variant: ExperimentVariantFunnelsBaseStats) -> float:
     """
     Calculate the p-value for a two-proportion z-test between control and variant.
-    
+
     Parameters:
     -----------
     control : ExperimentVariantFunnelsBaseStats
         Control variant statistics
     variant : ExperimentVariantFunnelsBaseStats
         Test variant statistics
-        
+
     Returns:
     --------
     float
@@ -100,7 +99,7 @@ def calculate_p_value(
     pooled_prop = (control_success + variant_success) / (control_total + variant_total)
 
     # Standard error of the difference between proportions
-    se = np.sqrt(pooled_prop * (1 - pooled_prop) * (1/control_total + 1/variant_total))
+    se = np.sqrt(pooled_prop * (1 - pooled_prop) * (1 / control_total + 1 / variant_total))
 
     # If standard error is 0 (extremely rare), return 1.0 (non-significant)
     if se == 0:
@@ -116,19 +115,18 @@ def calculate_p_value(
 
 
 def calculate_p_values(
-    control: ExperimentVariantFunnelsBaseStats,
-    variants: list[ExperimentVariantFunnelsBaseStats]
+    control: ExperimentVariantFunnelsBaseStats, variants: list[ExperimentVariantFunnelsBaseStats]
 ) -> list[float]:
     """
     Calculate p-values for each test variant compared to control.
-    
+
     Parameters:
     -----------
     control : ExperimentVariantFunnelsBaseStats
         Control variant statistics
     variants : list[ExperimentVariantFunnelsBaseStats]
         List of test variants to compare against control
-        
+
     Returns:
     --------
     list[float]
@@ -139,33 +137,34 @@ def calculate_p_values(
 
     # For the control, we need to compare it with the best-performing variant
     if variants:
-        conversion_rates = [variant.success_count / max(1, variant.success_count + variant.failure_count) for variant in variants]
+        conversion_rates = [
+            variant.success_count / max(1, variant.success_count + variant.failure_count) for variant in variants
+        ]
         best_variant_idx = np.argmax(conversion_rates)
         control_p_value = calculate_p_value(variants[best_variant_idx], control)
     else:
         control_p_value = 1.0
 
     # Return the p-values in the format [control_vs_best, variant1_vs_control, variant2_vs_control, ...]
-    return [control_p_value] + variant_p_values
+    return [control_p_value, *variant_p_values]
 
 
 def calculate_probabilities_frequentist(
-    control: ExperimentVariantFunnelsBaseStats,
-    variants: list[ExperimentVariantFunnelsBaseStats]
+    control: ExperimentVariantFunnelsBaseStats, variants: list[ExperimentVariantFunnelsBaseStats]
 ) -> list[float]:
     """
     Calculate win probabilities for each variant based on frequentist p-values.
-    
+
     The function converts p-values into win probabilities in a way that's compatible
     with the Bayesian interface expected by the experiment query runner.
-    
+
     Parameters:
     -----------
     control : ExperimentVariantFunnelsBaseStats
         Control variant statistics
     variants : list[ExperimentVariantFunnelsBaseStats]
         List of test variants to compare against control
-        
+
     Returns:
     --------
     list[float]
@@ -188,19 +187,18 @@ def calculate_probabilities_frequentist(
 
 
 def calculate_expected_lift(
-    control: ExperimentVariantFunnelsBaseStats,
-    variant: ExperimentVariantFunnelsBaseStats
+    control: ExperimentVariantFunnelsBaseStats, variant: ExperimentVariantFunnelsBaseStats
 ) -> float:
     """
     Calculate the expected lift (relative improvement) from control to variant.
-    
+
     Parameters:
     -----------
     control : ExperimentVariantFunnelsBaseStats
         Control variant statistics
     variant : ExperimentVariantFunnelsBaseStats
         Test variant to compare against control
-        
+
     Returns:
     --------
     float
@@ -224,22 +222,21 @@ def calculate_expected_lift(
 
 
 def calculate_expected_loss_frequentist(
-    target_variant: ExperimentVariantFunnelsBaseStats,
-    variants: list[ExperimentVariantFunnelsBaseStats]
+    target_variant: ExperimentVariantFunnelsBaseStats, variants: list[ExperimentVariantFunnelsBaseStats]
 ) -> float:
     """
     Calculate expected loss if choosing the target variant over others.
-    
+
     In frequentist terms, this estimates the opportunity cost of choosing
     the target variant instead of potentially better alternatives.
-    
+
     Parameters:
     -----------
     target_variant : ExperimentVariantFunnelsBaseStats
         The variant being evaluated for loss
     variants : list[ExperimentVariantFunnelsBaseStats]
         List of other variants to compare against
-        
+
     Returns:
     --------
     float
@@ -271,11 +268,11 @@ def calculate_expected_loss_frequentist(
 def are_results_significant_frequentist(
     control: ExperimentVariantFunnelsBaseStats,
     variants: list[ExperimentVariantFunnelsBaseStats],
-    probabilities: Optional[list[float]] = None
+    probabilities: Optional[list[float]] = None,
 ) -> tuple[ExperimentSignificanceCode, float]:
     """
     Determine if the experiment results are statistically significant using frequentist methods.
-    
+
     Parameters:
     -----------
     control : ExperimentVariantFunnelsBaseStats
@@ -284,7 +281,7 @@ def are_results_significant_frequentist(
         List of statistics for test variants to compare against control
     probabilities : Optional[list[float]], optional
         Pre-calculated probabilities (will be calculated if not provided)
-        
+
     Returns:
     --------
     tuple[ExperimentSignificanceCode, float]
@@ -306,13 +303,13 @@ def are_results_significant_frequentist(
     max_probability = max(probabilities)
     if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
         # Find best performing variant
-        all_variants = [control] + variants
+        all_variants = [control, *variants]
         conversion_rates = [v.success_count / (v.success_count + v.failure_count) for v in all_variants]
         best_idx = np.argmax(conversion_rates)
         best_variant = all_variants[best_idx]
 
         # If we have a winner, calculate expected loss
-        other_variants = all_variants[:best_idx] + all_variants[best_idx + 1:]
+        other_variants = all_variants[:best_idx] + all_variants[best_idx + 1 :]
         expected_loss = calculate_expected_loss_frequentist(best_variant, other_variants)
 
         # Check if expected loss is too high
@@ -326,19 +323,18 @@ def are_results_significant_frequentist(
 
 
 def calculate_confidence_intervals_frequentist(
-    variants: list[ExperimentVariantFunnelsBaseStats],
-    confidence: float = 0.95
+    variants: list[ExperimentVariantFunnelsBaseStats], confidence: float = 0.95
 ) -> dict[str, list[float]]:
     """
     Calculate frequentist confidence intervals for conversion rates of each variant.
-    
+
     Parameters:
     -----------
     variants : list[ExperimentVariantFunnelsBaseStats]
         List of all variants (including control)
     confidence : float, optional
         Confidence level (default: 0.95 for 95% confidence)
-        
+
     Returns:
     --------
     dict[str, list[float]]
@@ -351,9 +347,7 @@ def calculate_confidence_intervals_frequentist(
         failure_count = variant.failure_count
 
         # Calculate conversion rate and confidence interval
-        _, lower_bound, upper_bound = calculate_conversion_rate_and_ci(
-            success_count, failure_count, confidence
-        )
+        _, lower_bound, upper_bound = calculate_conversion_rate_and_ci(success_count, failure_count, confidence)
 
         intervals[variant.key] = [float(lower_bound), float(upper_bound)]
 
