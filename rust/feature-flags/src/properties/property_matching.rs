@@ -1515,6 +1515,20 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
+        assert!(match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!(1710979200))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_exact,
+            &HashMap::from([("date".to_string(), json!("1710979200"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
         // Test with invalid date format
         assert!(!match_property(
             &property_exact,
