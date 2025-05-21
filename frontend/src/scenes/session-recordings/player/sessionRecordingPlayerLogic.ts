@@ -1,7 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
 import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
-import { toJpeg } from 'html-to-image'
+import { toBlob } from 'html-to-image'
 import {
     actions,
     afterMount,
@@ -1316,12 +1316,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const dataUrl = await toJpeg(iframe, { quality: 0.95 })
-            if (dataUrl) {
-                const link = document.createElement('a')
-                link.download = 'screenshot.jpeg'
-                link.href = dataUrl
-                link.click()
+            try {
+                const blob = await toBlob(iframe)
+                if (blob) {
+                    const file = new File([blob], 'screenshot.jpeg', { type: 'image/jpeg' })
+                    downloadFile(file)
+                }
+            } catch (e) {
+                lemonToast.error('Failed to take screenshot')
             }
         },
         openHeatmap: () => {
