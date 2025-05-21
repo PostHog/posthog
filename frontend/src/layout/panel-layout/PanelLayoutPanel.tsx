@@ -254,6 +254,7 @@ export function PanelLayoutPanel({
                         }}
                         onClear={() => clearSearch()}
                         onChange={(value) => setSearchTerm(value)}
+                        autoFocus={true}
                     />
                     {showFilterDropdown && <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />}
                 </div>

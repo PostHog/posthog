@@ -1,4 +1,4 @@
-import { IconSearch, IconX } from '@posthog/icons'
+import { IconInfo, IconSearch, IconX } from '@posthog/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
@@ -216,7 +216,6 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
 
         return (
             <ListBox ref={listBoxRef} className="w-full" virtualFocus ignoreFocusIndex={0}>
-
                 <PopoverPrimitive open={open} onOpenChange={setOpen}>
                     <ListBox.Item asChild>
                         <PopoverPrimitiveTrigger asChild>
@@ -289,7 +288,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                         ) : null}
                                     </>
                                 ))}
-                                {currentHint && <div className="px-2 py-1 text-sm text-muted">{currentHint}</div>}
+                                {currentHint && (
+                                    <div className="px-2 py-1 text-sm text-muted">
+                                        <IconInfo /> {currentHint}
+                                    </div>
+                                )}
                             </ul>
                         </PopoverPrimitiveContent>
                     )}

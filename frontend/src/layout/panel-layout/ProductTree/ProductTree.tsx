@@ -4,7 +4,7 @@ import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/Le
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { RefObject, useRef, useState } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
@@ -18,7 +18,7 @@ export function ProductTree(): JSX.Element {
     const { setSearchTerm, clearSearch } = useActions(productTreeLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
     const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
-    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { setPanelTreeRef, showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
 
@@ -57,6 +57,10 @@ export function ProductTree(): JSX.Element {
             </>
         )
     }
+
+    useEffect(() => {
+        setPanelTreeRef(treeRef)
+    }, [treeRef, setPanelTreeRef])
 
     return (
         <PanelLayoutPanel
