@@ -38,7 +38,7 @@ SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMP
 SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
 
 # can be * for all teams or a number to limit to any team with an id less than the number
-SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS", "-1")
+SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS", "3")
 
 # a AI model to use for session recording filters
 SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
