@@ -8,8 +8,6 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage } from '~/types'
-
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { LogsViewer } from './LogsViewer'
@@ -176,17 +174,11 @@ function HogFunctionLogsStatus({
                         },
                     },
                     {
-                        label: 'View event in configuration tab',
+                        label: 'Test with this event in configuration',
                         onClick: () => {
                             loadSampleGlobals({ eventId })
                             toggleExpanded(true)
-                            router.actions.push(
-                                urls.pipelineNode(
-                                    PipelineStage.Destination,
-                                    'hog-' + hogFunctionId,
-                                    PipelineNodeTab.Configuration
-                                )
-                            )
+                            router.actions.push(urls.hogFunction(hogFunctionId) + '?tab=configuration')
                         },
                     },
                 ]}
