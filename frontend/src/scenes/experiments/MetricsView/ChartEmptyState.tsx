@@ -1,13 +1,13 @@
 import { IconActivity, IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_EVENTS_FOR_RESULTS } from '../constants'
 import { ErrorChecklist } from './ErrorChecklist'
 
 interface ChartEmptyStateProps {
     height: number
     experimentStarted: boolean
-    hasMinimumExposure: boolean
+    hasEnoughDataForResults: boolean
     metric: any
     error?: any
 }
@@ -15,7 +15,7 @@ interface ChartEmptyStateProps {
 export function ChartEmptyState({
     height,
     experimentStarted,
-    hasMinimumExposure,
+    hasEnoughDataForResults,
     error,
     metric,
 }: ChartEmptyStateProps): JSX.Element {
@@ -29,13 +29,14 @@ export function ChartEmptyState({
                     </LemonTag>
                     <span>Waiting for experiment to start&hellip;</span>
                 </div>
-            ) : !hasMinimumExposure ? (
+            ) : !hasEnoughDataForResults ? (
                 <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
                     <LemonTag size="small" className="mr-2">
                         <IconActivity fontSize="1em" />
                     </LemonTag>
                     <span>
-                        Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures per variant to show results
+                        Not enough data yet. Waiting for at least {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures and{' '}
+                        {EXPERIMENT_MIN_METRIC_EVENTS_FOR_RESULTS}+ metric events per variant
                     </span>
                 </div>
             ) : (

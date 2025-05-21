@@ -3892,6 +3892,8 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tonic 0.12.3",
+ "tonic-web",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -7232,6 +7234,26 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tonic-web"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5299dd20801ad736dccb4a5ea0da7376e59cd98f213bf1c3d478cf53f4834b58"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "pin-project",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tower-http",
  "tower-layer",
  "tower-service",
  "tracing",

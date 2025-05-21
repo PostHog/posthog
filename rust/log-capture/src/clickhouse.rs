@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::{config::Config, log_record::LogRow};
 
+#[derive(Clone)]
 pub struct ClickHouseWriter {
     pub client: Client,
     _sink: mpsc::Sender<InsertTask>,

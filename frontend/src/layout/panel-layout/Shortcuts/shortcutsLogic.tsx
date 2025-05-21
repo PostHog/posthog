@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
@@ -18,8 +18,13 @@ import type { shortcutsLogicType } from './shortcutsLogicType'
 export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['layout', 'panel-layout', 'Shortcuts', 'shortcutsLogic']),
     connect(() => ({
-        actions: [projectTreeLogic, ['updateSyncedFiles', 'deleteTypeAndRef']],
-        values: [projectTreeLogic, ['projectTreeItems', 'treeItemsNew'], productTreeLogic, ['productTreeItems']],
+        actions: [projectTreeDataLogic, ['addLoadedResults', 'deleteTypeAndRef']],
+        values: [
+            projectTreeDataLogic,
+            ['viableItems', 'treeItemsNew', 'folderStates', 'users'],
+            productTreeLogic,
+            ['productTreeItems'],
+        ],
     })),
     actions({
         showModal: true,
@@ -58,9 +63,9 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
             [] as FileSystemEntry[],
             {
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
-                updateSyncedFiles: (state, { files }) => {
+                addLoadedResults: (state, { results }) => {
                     const filesByTypeAndRef = Object.fromEntries(
-                        files.map((file) => [`${file.type}//${file.ref}`, file])
+                        results.results.map((file) => [`${file.type}//${file.ref}`, file])
                     )
                     return state.map((item) => {
                         const file = filesByTypeAndRef[`${item.type}//${item.ref}`]
@@ -89,21 +94,32 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
     }),
     selectors({
         shortcuts: [
-            (s) => [s.shortcutData],
-            (shortcutData) =>
+            (s) => [s.shortcutData, s.folderStates],
+            (shortcutData, folderStates) =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: [...shortcutData],
                     recent: true,
                     checkedItems: {},
-                    folderStates: {},
+                    folderStates,
                     root: 'shortcuts',
                     searchTerm: '',
                     allShortcuts: true,
                 }).sort((a, b) => a.name.localeCompare(b.name)),
         ],
         shortcutsLoading: [(s) => [s.shortcutDataLoading], (loading) => loading],
+        projectTree: [
+            (s) => [s.viableItems, s.folderStates, s.users],
+            (viableItems, folderStates, users): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem({
+                    imports: viableItems,
+                    folderStates,
+                    checkedItems: {},
+                    root: 'project',
+                    users,
+                }),
+        ],
         treeItemsCombined: [
-            (s) => [s.projectTreeItems, s.productTreeItems, s.treeItemsNew],
+            (s) => [s.projectTree, s.productTreeItems, s.treeItemsNew],
             (project, products, allNew): TreeDataItem[] => {
                 function addNewLabel(item: TreeDataItem): TreeDataItem {
                     if (item.children) {
