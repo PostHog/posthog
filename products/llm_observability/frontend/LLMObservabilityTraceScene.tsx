@@ -1,8 +1,17 @@
-import { IconAIText, IconMessage, IconReceipt } from '@posthog/icons'
-import { LemonDivider, LemonTable, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { IconAIText, IconChat, IconMessage, IconReceipt } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonTable,
+    LemonTag,
+    LemonTagProps,
+    Link,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -22,6 +31,7 @@ import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationM
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
+import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
 import { llmObservabilityTraceDataLogic, TraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import {
@@ -373,6 +383,27 @@ function EventContentDisplay({
 }
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
+    const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+
+    const showPlaygroundButton = event && isLLMTraceEvent(event) && event.event === '$ai_generation'
+
+    const handleTryInPlayground = (): void => {
+        if (!event) {
+            return
+        }
+
+        let model: string | undefined = undefined
+        let input: any = undefined
+
+        if (isLLMTraceEvent(event)) {
+            model = event.properties.$ai_model
+            // Prefer $ai_input if available, otherwise fallback to $ai_input_state
+            input = event.properties.$ai_input ?? event.properties.$ai_input_state
+        }
+
+        setupPlaygroundFromEvent({ model, input })
+    }
+
     return (
         <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
             {!event ? (
@@ -404,17 +435,30 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                             />
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                        {hasSessionID(event) && (
-                            <div className="flex flex-row items-center gap-2">
-                                <Link
-                                    to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
-                                    className="flex flex-row gap-1 items-center"
+                        <div className="flex flex-row items-center gap-2">
+                            {showPlaygroundButton && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconChat />}
+                                    onClick={handleTryInPlayground}
+                                    tooltip="Try this prompt in the playground"
                                 >
-                                    <IconOpenInNew />
-                                    <span>View session recording</span>
-                                </Link>
-                            </div>
-                        )}
+                                    Try in Playground
+                                </LemonButton>
+                            )}
+                            {hasSessionID(event) && (
+                                <div className="flex flex-row items-center gap-2">
+                                    <Link
+                                        to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
+                                        className="flex flex-row gap-1 items-center"
+                                    >
+                                        <IconOpenInNew />
+                                        <span>View session recording</span>
+                                    </Link>
+                                </div>
+                            )}
+                        </div>
                     </header>
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (

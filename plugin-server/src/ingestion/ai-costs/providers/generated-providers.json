@@ -182,6 +182,13 @@
         }
     },
     {
+        "model": "codex-mini",
+        "cost": {
+            "prompt_token": 0.0000015,
+            "completion_token": 0.000006
+        }
+    },
+    {
         "model": "command",
         "cost": {
             "prompt_token": 0.000001,
@@ -406,6 +413,20 @@
         }
     },
     {
+        "model": "gemini-2.5-flash-preview-05-20",
+        "cost": {
+            "prompt_token": 1.5e-7,
+            "completion_token": 6e-7
+        }
+    },
+    {
+        "model": "gemini-2.5-flash-preview-05-20:thinking",
+        "cost": {
+            "prompt_token": 1.5e-7,
+            "completion_token": 0.0000035
+        }
+    },
+    {
         "model": "gemini-2.5-flash-preview:thinking",
         "cost": {
             "prompt_token": 1.5e-7,
@@ -438,13 +459,6 @@
         "cost": {
             "prompt_token": 3.75e-8,
             "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b-exp",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
         }
     },
     {
@@ -707,13 +721,6 @@
         }
     },
     {
-        "model": "learnlm-1.5-pro-experimental:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
         "model": "llama-2-70b-chat",
         "cost": {
             "prompt_token": 9e-7,
@@ -842,8 +849,8 @@
     {
         "model": "llama-3.3-70b-instruct",
         "cost": {
-            "prompt_token": 9e-8,
-            "completion_token": 3.5e-7
+            "prompt_token": 7e-8,
+            "completion_token": 2.5e-7
         }
     },
     {
@@ -854,9 +861,16 @@
         }
     },
     {
+        "model": "llama-3.3-8b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "llama-4-maverick",
         "cost": {
-            "prompt_token": 1.7e-7,
+            "prompt_token": 1.6e-7,
             "completion_token": 6e-7
         }
     },
@@ -989,7 +1003,7 @@
     {
         "model": "mistral-nemo",
         "cost": {
-            "prompt_token": 3e-8,
+            "prompt_token": 2e-8,
             "completion_token": 7e-8
         }
     },
