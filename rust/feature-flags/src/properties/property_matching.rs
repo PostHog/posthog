@@ -301,7 +301,7 @@ fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<
     if let Some(date_str) = value.as_str() {
         // First try parsing as a float timestamp
         if let Ok(num) = date_str.parse::<f64>() {
-            return Some(parse_float_timestamp(num)?);
+            return parse_float_timestamp(num);
         }
         // Then try relative date parsing
         return parse_date_string(date_str);
@@ -310,7 +310,7 @@ fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<
     if let Some(num) = value.as_number() {
         // Unix timestamps are the number of seconds since epoch (January 1, 1970, at 00:00:00 UTC)
         let seconds_f = num.as_f64()?;
-        return Some(parse_float_timestamp(seconds_f)?);
+        return parse_float_timestamp(seconds_f);
     }
 
     None
@@ -1642,11 +1642,11 @@ mod test_match_properties {
         let expected_date = DateTime::parse_from_rfc3339("2028-03-10T05:09:07.867530107Z")
             .unwrap()
             .with_timezone(&Utc);
-        let timestamp_number = 1836277747.867530;
+        let timestamp_number = 1836277747.86753;
         let date = determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)));
         assert_eq!(date, Some(expected_date));
 
-        let timestamp_string = "1836277747.867530";
+        let timestamp_string = "1836277747.86753";
         let date = determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)));
         assert_eq!(date, Some(expected_date));
     }
