@@ -1,0 +1,129 @@
+import enum
+from urllib.parse import urlparse
+from django.conf import settings
+from oauth2_provider.models import (
+    AbstractAccessToken,
+    AbstractIDToken,
+    AbstractRefreshToken,
+    AbstractGrant,
+    AbstractApplication,
+)
+
+from posthog.models.utils import UUIDT
+
+from django.db import models
+from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
+
+
+class OAuthApplicationAccessLevel(enum.Enum):
+    ALL = "all"
+    ORGANIZATION = "organization"
+    TEAM = "team"
+
+
+class OAuthApplication(AbstractApplication):
+    class Meta(AbstractApplication.Meta):
+        verbose_name = "OAuth Application"
+        verbose_name_plural = "OAuth Applications"
+        swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(skip_authorization=False),
+                name="enforce_skip_authorization_false",
+            ),
+            # Note: We do not support HS256 since we don't want to store the client secret in plaintext
+            models.CheckConstraint(check=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
+            models.CheckConstraint(
+                check=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
+                name="enforce_supported_grant_types",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        allowed_schemes = ["http", "https"] if settings.DEBUG else ["https"]
+
+        for uri in self.redirect_uris.split(" "):
+            if not uri:
+                continue
+
+            parsed_uri = urlparse(uri)
+
+            if parsed_uri.scheme not in allowed_schemes:
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
+                    }
+                )
+
+            if not parsed_uri.netloc:
+                raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
+
+            if parsed_uri.fragment:
+                raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+    # Note: We do not require an organization or user to be linked to an OAuth application - this is so that we can support dynamic client registration
+    organization: models.ForeignKey = models.ForeignKey(
+        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    user: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+
+class OAuthAccessToken(AbstractAccessToken):
+    class Meta(AbstractAccessToken.Meta):
+        verbose_name = "OAuth Access Token"
+        verbose_name_plural = "OAuth Access Tokens"
+        swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+
+class OAuthIDToken(AbstractIDToken):
+    class Meta(AbstractIDToken.Meta):
+        verbose_name = "OAuth ID Token"
+        verbose_name_plural = "OAuth ID Tokens"
+        swappable = "OAUTH2_PROVIDER_ID_TOKEN_MODEL"
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+
+class OAuthRefreshToken(AbstractRefreshToken):
+    class Meta(AbstractRefreshToken.Meta):
+        verbose_name = "OAuth Refresh Token"
+        verbose_name_plural = "OAuth Refresh Tokens"
+        swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+
+class OAuthGrant(AbstractGrant):
+    class Meta(AbstractGrant.Meta):
+        verbose_name = "OAuth Grant"
+        verbose_name_plural = "OAuth Grants"
+        swappable = "OAUTH2_PROVIDER_GRANT_MODEL"
+
+        # Note: We do not support plaintext code challenge methods since they are not secure
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
+                name="enforce_supported_code_challenge_method",
+            )
+        ]
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
