@@ -44,6 +44,7 @@ export interface ProjectTreeLogicProps {
     key: string
     defaultSortMethod?: ProjectTreeSortMethod
     defaultOnlyFolders?: boolean
+    root?: string
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -67,6 +68,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'sortedItems',
                 'loadingPaths',
                 'lastNewFolder',
+                'getStaticTreeItems',
             ],
         ],
         actions: [
@@ -481,7 +483,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        searchedTreeItems: [
+        searchTreeItems: [
             (s) => [
                 s.searchResults,
                 s.searchResultsLoading,
@@ -549,10 +551,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         projectTreeItems: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
-            (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
+            (searchTerm, searchTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
-                    return searchedTreeItems
+                    return searchTreeItems
                 }
                 if (sortMethod === 'recent') {
                     return recentTreeItems
@@ -568,6 +570,107 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     ]
                 }
                 return projectTree
+            },
+        ],
+        fullFileSystem: [
+            (s) => [
+                s.searchTerm,
+                s.searchTreeItems,
+                s.searchResultsLoading,
+                s.projectTree,
+                s.loadingPaths,
+                s.recentTreeItems,
+                s.recentResultsLoading,
+                s.sortMethod,
+                s.getStaticTreeItems,
+            ],
+            (
+                searchTerm,
+                searchTreeItems,
+                searchResultsLoading,
+                projectTree,
+                loadingPaths,
+                recentTreeItems,
+                recentResultsLoading,
+                sortMethod,
+                getStaticTreeItems
+            ): TreeDataItem[] => {
+                const folderLoading = [
+                    {
+                        id: `folder-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        type: 'loading-indicator',
+                    },
+                ]
+                const root: TreeDataItem[] = [
+                    {
+                        id: 'project://',
+                        name: 'project://',
+                        displayName: <>Project</>,
+                        record: { type: 'folder', path: '' },
+                        children: searchTerm
+                            ? searchResultsLoading && searchTreeItems.length === 0
+                                ? folderLoading
+                                : searchTreeItems
+                            : sortMethod === 'recent'
+                            ? recentResultsLoading && recentTreeItems.length === 0
+                                ? folderLoading
+                                : recentTreeItems
+                            : loadingPaths[''] && projectTree.length === 0
+                            ? folderLoading
+                            : projectTree,
+                    } as TreeDataItem,
+                    ...getStaticTreeItems(searchTerm),
+                ]
+                return root
+            },
+        ],
+        fullFileSystemFiltered: [
+            (s) => [s.fullFileSystem, (_, props) => props.root, s.searchTerm],
+            (fullFileSystem, root, searchTerm): TreeDataItem[] => {
+                let firstFolders = fullFileSystem
+
+                if (root?.includes('://')) {
+                    const parts = root.split('://')
+                    const type = parts[0]
+                    const ref = parts.slice(1).join('://')
+                    const firstfolder = fullFileSystem.find((item) => item.id == `${type}://`)
+                    if (firstfolder) {
+                        if (ref) {
+                            const found = findInProjectTree(`project-folder/${ref}`, firstfolder.children ?? [])
+                            firstFolders = found?.children ?? []
+                        } else {
+                            firstFolders = firstfolder.children ?? []
+                        }
+                    } else {
+                        firstFolders = []
+                    }
+                } else if (root) {
+                    firstFolders = fullFileSystem.filter((item) => item.id.startsWith(root))
+                }
+
+                if (!searchTerm) {
+                    return firstFolders
+                }
+                const term = searchTerm.toLowerCase()
+
+                const filterTree = (nodes: TreeDataItem[]): TreeDataItem[] =>
+                    nodes.reduce<TreeDataItem[]>((acc, node) => {
+                        const children = node.children ? filterTree(node.children) : undefined
+                        const path =
+                            typeof node.record === 'object' && node.record && 'path' in node.record
+                                ? (node.record as { path?: string }).path ?? ''
+                                : ''
+                        const matches = path.toLowerCase().includes(term)
+
+                        if (matches || (children && children.length)) {
+                            acc.push({ ...node, children })
+                        }
+                        return acc
+                    }, [])
+
+                return filterTree(firstFolders)
             },
         ],
         treeTableColumnOffsets: [
@@ -1048,7 +1151,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
     })),
     afterMount(({ actions, values, props }) => {
-        actions.loadFolder('')
+        if (props.root) {
+            if (props.root.startsWith('project://')) {
+                actions.loadFolder(props.root.slice('project://'.length))
+            }
+        } else {
+            actions.loadFolder('')
+        }
         if (values.projectTreeRef) {
             actions.assureVisibility(values.projectTreeRef)
         }
