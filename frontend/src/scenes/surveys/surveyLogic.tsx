@@ -1207,15 +1207,12 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // ----- Handle TO date -----
                 // Parse the date string or use current time
-                let toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
+                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
 
                 // Use survey end date as upper bound if it exists
-                const surveyEndDayjs = survey.end_date ? dayjs(getSurveyEndDateForQuery(survey)) : null
-                if (surveyEndDayjs && toDateDayjs.isAfter(surveyEndDayjs)) {
-                    toDateDayjs = surveyEndDayjs
-                }
-
-                const toDate = toDateDayjs.utc().format(DATE_FORMAT)
+                const toDate = survey.end_date
+                    ? getSurveyEndDateForQuery(survey)
+                    : toDateDayjs.utc().format(DATE_FORMAT)
 
                 return `AND timestamp >= '${fromDate}'
                 AND timestamp <= '${toDate}'`
