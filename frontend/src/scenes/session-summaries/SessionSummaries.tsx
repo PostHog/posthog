@@ -876,27 +876,34 @@ function PerformanceMetrics(): JSX.Element {
     ]
 
     return (
-        <div className="p-4">
-            <div className="flex items-center gap-2 mb-4">
-                <h3 className="text-lg font-semibold m-0">Performance Features</h3>
-                <LemonTag type="completion" size="medium">
-                    ALPHA
-                </LemonTag>
+        <div>
+            <div className="flex items-center mb-4">
+                <h3 className="text-lg font-semibold m-0">Session Summaries Performance</h3>
             </div>
             
             <div className="flex h-24 rounded-lg overflow-hidden border mb-6">
                 {segments.map((segment, index) => (
                     <div
                         key={index}
-                        className={`${segment.color} ${segment.width} flex flex-col items-center justify-center text-white relative group`}
+                        className={`${segment.color} ${segment.width} flex flex-col items-center justify-center relative group`}
                     >
-                        <div className="text-sm font-medium mb-1 text-center px-1 break-words">
+                        <div className={`text-sm font-medium mb-1 text-center px-1 break-words ${
+                            segment.color === 'bg-warning' ? 'text-gray-900' : 'text-white'
+                        }`}>
                             {segment.label}
                         </div>
-                        <div className="text-xs opacity-80 mb-1">{segment.value} improvement</div>
-                        <div className="text-xs opacity-60">{segment.description}</div>
+                        <div className={`text-xs mb-1 ${
+                            segment.color === 'bg-warning' ? 'text-gray-900' : 'text-white opacity-90'
+                        }`}>
+                            {segment.value} improvement
+                        </div>
+                        <div className={`text-xs ${
+                            segment.color === 'bg-warning' ? 'text-gray-700' : 'text-white opacity-70'
+                        }`}>
+                            {segment.description}
+                        </div>
                         {index < segments.length - 1 && (
-                            <div className="absolute right-0 top-0 bottom-0 w-px bg-white/20" />
+                            <div className="absolute right-0 top-0 bottom-0 w-px bg-black/10" />
                         )}
                     </div>
                 ))}
