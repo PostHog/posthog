@@ -35,7 +35,9 @@ export const logsLogic = kea<logsLogicType>([
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
             {
-                setDateRange: (_, { dateRange }) => dateRange,
+                setDateRange: (_, { dateRange }) => {
+                    return dateRange
+                },
             },
         ],
         orderBy: [
