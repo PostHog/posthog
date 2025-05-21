@@ -66,6 +66,9 @@ export function Surveys(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
+                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                            Have any questions or feedback?
+                        </LemonButton>
                         <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
@@ -102,9 +105,6 @@ export function Surveys(): JSX.Element {
                             </Link>{' '}
                             to learn more.
                         </div>
-                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
-                            Have any questions or feedback?
-                        </LemonButton>
                     </>
                 }
                 tabbedPage
