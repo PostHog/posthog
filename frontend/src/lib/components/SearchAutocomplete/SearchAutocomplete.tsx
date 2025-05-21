@@ -9,8 +9,8 @@ import {
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { forwardRef, useRef, useState } from 'react'
 
-type Category = string
-type Suggestion = { label: string; value: string }
+type Category = { label: string; hint?: string }
+type Suggestion = { label: string; value: string; hint?: string }
 type Hint = string
 
 export interface SearchAutocompleteProps {
@@ -34,7 +34,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         const inputRef = useRef<HTMLInputElement>(null)
 
         // Base category suggestions (e.g. "user", "type", "name")
-        const baseCategories = searchData.map(([cat]) => ({ value: cat, label: cat }))
+        const baseCategories: Suggestion[] = searchData.map(([cat]) => ({
+            value: cat.label,
+            label: cat.label,
+            hint: cat.hint,
+        }))
 
         // Extracts the last space-separated token for parsing
         const getLastToken = (input: string): string => {
@@ -47,7 +51,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             const lastToken = getLastToken(input).trim()
             const hasColon = lastToken.includes(':')
             const [rawCategory, rawValue = ''] = lastToken.split(':')
-            const matchedCategory = searchData.find(([cat]) => cat === rawCategory)
+            const matchedCategory = searchData.find(([cat]) => cat.label === rawCategory)
 
             const value = rawValue.trim()
             const cleanValue = value.startsWith('!') || value.startsWith('-') ? value.slice(1) : value
@@ -55,6 +59,12 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             const suffixes = [':', ':!', ':-']
             const isValueEntryPoint = suffixes.some((suffix) => input.trim().endsWith(`${rawCategory}${suffix}`))
             const endsWithSpace = input.endsWith(' ')
+
+            const excludeOption: Suggestion = {
+                label: 'Exclude…',
+                value: '!__placeholder__',
+                hint: 'Exclude the following',
+            }
 
             // "user:me " → new token begins, show base categories again
             if (endsWithSpace) {
@@ -84,7 +94,6 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             // "user:" → suggest values (with optional "Exclude…" option)
             if (matchedCategory && isValueEntryPoint) {
                 const base = matchedCategory[1] || []
-                const excludeOption: Suggestion = { label: 'Exclude…', value: '!__placeholder__' }
                 return [isNegated ? base : [excludeOption, ...base], matchedCategory[2]]
             }
 
@@ -102,7 +111,6 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                     s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
                 )
 
-                const excludeOption: Suggestion = { label: 'Exclude…', value: '!__placeholder__' }
                 return [isNegated ? filtered : [excludeOption, ...filtered], matchedCategory[2]]
             }
 
@@ -132,9 +140,9 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             const tokens = value.trim().split(/\s+/)
             const lastToken = getLastToken(value)
             const [category, partialRaw = ''] = lastToken.split(':')
-            const matched = searchData.find(([cat]) => cat === category)
+            const matched = searchData.find(([cat]) => cat.label === category)
 
-            const isCategory = searchData.some(([cat]) => cat === suggestion.value)
+            const isCategory = searchData.some(([cat]) => cat.label === suggestion.value)
             const inputEndsWithSpace = value.endsWith(' ')
             let newInput = ''
 
@@ -243,6 +251,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                             iconOnly
                                             onClick={() => {
                                                 setValue('')
+                                                setSuggestions(baseCategories)
                                                 onClear()
                                             }}
                                             className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
@@ -272,19 +281,26 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 setSuggestions(newSuggestions)
                                 setCurrentHint(newHint)
                             }}
-                            className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"
+                            className="primitive-menu-content min-w-[var(--radix-popover-trigger-width)] max-w-none"
                         >
                             <ul className="flex flex-col gap-px p-1">
-                                <ButtonPrimitive menuItem disabled>
-                                    <IconSearch className="size-4" />
-                                    {value ? value : 'Type to search...'}
-                                </ButtonPrimitive>
+                                <ListBox.Item asChild key={value} aria-disabled="true">
+                                    <ButtonPrimitive menuItem disabled>
+                                        <IconSearch className="size-4" />
+                                        {value ? value : 'Type to search...'}
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
 
                                 {suggestions.map((item) => (
                                     <>
                                         <ListBox.Item asChild key={item.value}>
                                             <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
-                                                {item.label}
+                                                {item.label}{' '}
+                                                {item.hint ? (
+                                                    <span className="text-xxs text-tertiary italic pt-1">
+                                                        {item.hint}
+                                                    </span>
+                                                ) : null}
                                             </ButtonPrimitive>
                                         </ListBox.Item>
                                         {item.value === '!__placeholder__' ? (
@@ -293,7 +309,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                     </>
                                 ))}
                                 {currentHint && (
-                                    <div className="px-2 py-1 text-sm text-muted">
+                                    <div className="px-2 py-1 text-sm text-tertiary">
                                         <IconInfo /> {currentHint}
                                     </div>
                                 )}

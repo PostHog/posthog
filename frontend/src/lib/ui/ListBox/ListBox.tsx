@@ -56,6 +56,7 @@ export const ListBox = ({
         ).filter(
             (el) =>
                 !(el.hidden || window.getComputedStyle(el).display === 'none') &&
+                el.getAttribute('aria-disabled') !== 'true' &&
                 el.getAttribute('data-virtual-focus-ignore') !== 'true'
         )
     }
@@ -142,12 +143,11 @@ ListBox.displayName = 'ListBox'
 interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
     children: ReactNode
     asChild?: boolean
-    keepFocus?: boolean
     virtualFocusIgnore?: boolean
 }
 
 ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    ({ children, asChild, onClick, virtualFocusIgnore, keepFocus, ...props }, ref): JSX.Element => {
+    ({ children, asChild, onClick, virtualFocusIgnore, ...props }, ref): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {

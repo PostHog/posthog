@@ -234,13 +234,30 @@ export function PanelLayoutPanel({
                     <SearchAutocomplete
                         inputPlaceholder={searchPlaceholder}
                         searchData={[
-                            ['user', [{ value: 'me', label: 'Me' }], 'enter a user, quotes are supported'],
                             [
-                                'type',
-                                productTypes.map(([value, label]) => ({ value, label })),
-                                'enter a type, quotes are supported',
+                                {
+                                    label: 'user',
+                                    hint: 'Search by user',
+                                },
+                                [{ value: 'me', label: 'Me', hint: 'My stuff' }],
+                                'enter a user, quotes are supported',
                             ],
-                            ['name', undefined, 'enter a name, quotes are supported'],
+                            [
+                                {
+                                    label: 'type',
+                                    hint: 'Search by type',
+                                },
+                                productTypes.map(([value, label]) => ({ value, label })),
+                                'enter a type',
+                            ],
+                            [
+                                {
+                                    label: 'name',
+                                    hint: 'Search by name',
+                                },
+                                undefined,
+                                'enter a name, quotes are supported',
+                            ],
                         ]}
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowDown') {

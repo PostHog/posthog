@@ -32,10 +32,11 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 className="flex flex-col gap-px max-h-[400px] overflow-y-auto border-1 border-dashed border-darkgray p-2"
                 {...props}
             >
-                <ListBox.Item asChild className="mb-4">
+                <ListBox.Item asChild className="mb-4" virtualFocusIgnore>
                     <LemonInput
                         fullWidth
                         className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
+                        value="This is virtually ignored in the keyboard navigation"
                     />
                 </ListBox.Item>
                 <ListBox.Item asChild>
