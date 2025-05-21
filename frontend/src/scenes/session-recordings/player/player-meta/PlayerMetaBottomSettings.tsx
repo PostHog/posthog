@@ -82,7 +82,7 @@ function InspectDOM(): JSX.Element {
             title="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
             label="Inspect DOM"
             data-attr="explore-dom"
-            onClick={() => openExplorer()}
+            onClick={openExplorer}
             disabledReason={
                 sessionPlayerMetaData?.snapshot_source === 'mobile' ? 'Only available for web recordings' : undefined
             }
@@ -92,7 +92,6 @@ function InspectDOM(): JSX.Element {
 }
 
 function Screenshot(): JSX.Element {
-    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
@@ -100,10 +99,7 @@ function Screenshot(): JSX.Element {
             title="Take a screenshot of the current frame"
             label="Screenshot"
             data-attr="screenshot"
-            onClick={() => takeScreenshot()}
-            disabledReason={
-                sessionPlayerMetaData?.snapshot_source === 'mobile' ? 'Only available for web recordings' : undefined
-            }
+            onClick={takeScreenshot}
             icon={<IconLlmPromptEvaluation />}
         />
     )
