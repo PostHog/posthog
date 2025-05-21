@@ -29,7 +29,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -169,7 +170,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -179,7 +181,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -217,7 +220,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -227,7 +231,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -265,7 +270,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                         groups.group_type_index AS index,
@@ -283,7 +289,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -452,7 +459,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -462,7 +470,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -522,7 +531,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -532,7 +542,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -581,7 +592,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfHour(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -591,7 +603,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -734,7 +747,8 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                             allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
@@ -744,7 +758,8 @@
         ORDER BY num_intervals ASC)
      GROUP BY num_intervals
      ORDER BY num_intervals ASC)
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
+                     readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
