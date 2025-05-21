@@ -515,6 +515,7 @@ class TestBillingAPI(APILicensedTest):
                     "percentage_usage": 0,
                     "current_amount_usd": 0.0,
                     "has_exceeded_limit": False,
+                    "projected_amount": 0,
                     "projected_amount_usd": 0.0,
                     "projected_amount_usd_with_limit": 0.0,
                     "projected_usage": 0,
