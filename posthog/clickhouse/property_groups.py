@@ -151,6 +151,11 @@ event_property_group_definitions = {
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
             column_type_name="group",
         ),
+        "ai": PropertyGroupDefinition(
+            f"key LIKE '$ai_%'",
+            lambda key: key.startswith("$ai_"),
+            column_type_name="group",
+        ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
             lambda key: key.startswith("$feature/"),
