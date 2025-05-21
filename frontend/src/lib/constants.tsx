@@ -264,7 +264,7 @@ export const FEATURE_FLAGS = {
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-cdp
     REPLAY_ACTIVE_HOURS_HEATMAP: 'replay-active-hours-heatmap', // owner: @pauldambra #team-replay
-    LINK: 'link', // owner: @marconlp #team-link
+    LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     LOGS: 'logs', // owner: @david @frank @olly @ross
