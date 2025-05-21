@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.parser import parse_select
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.schema import HogQLFilters
 
 from products.logs.backend.logs_query_runner import (
     LogsQueryRunner,
@@ -21,6 +22,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=HogQLFilters(dateRange=self.query.dateRange),
             # needed for CH cloud
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
@@ -40,32 +42,33 @@ class SparklineQueryRunner(LogsQueryRunner):
     def to_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
-        WITH
-            {date_from_start_of_interval} AS start_time_bucket,
-            {date_to_start_of_interval} AS end_time_bucket,
-            all_minutes AS (
                 SELECT
-                    dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
-                FROM numbers(floor(dateDiff({interval}, start_time_bucket, end_time_bucket) / {interval_count} + 1))
-                WHERE time_bucket >= {date_from}
-            ),
-            actual_counts AS (
-                SELECT
-                    toStartOfInterval(timestamp, {one_interval_period}) AS time,
+                    am.time_bucket AS time,
                     level,
-                    count() AS event_count
-                FROM logs
-                WHERE {where}
-                GROUP BY level, time
-            )
-        SELECT
-            am.time_bucket AS time,
-            level,
-            ifNull(ac.event_count, 0) AS count
-        FROM all_minutes AS am
-        LEFT JOIN actual_counts AS ac ON am.time_bucket = ac.time
-        ORDER BY time asc
-        LIMIT 1000
+                    ifNull(ac.event_count, 0) AS count
+                FROM (
+                    SELECT
+                        dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
+                    FROM numbers(
+                        floor(
+                            dateDiff({interval},
+                                     {date_from_start_of_interval},
+                                     {date_to_start_of_interval}) / {interval_count} + 1
+                                    )
+                        )
+                    WHERE time_bucket >= {date_from}
+                ) AS am
+                LEFT JOIN (
+                    SELECT
+                        toStartOfInterval(timestamp, {one_interval_period}) AS time,
+                        level,
+                        count() AS event_count
+                    FROM logs
+                    WHERE {where}
+                    GROUP BY level, time
+                ) AS ac ON am.time_bucket = ac.time
+                ORDER BY time asc
+                LIMIT 1000
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
