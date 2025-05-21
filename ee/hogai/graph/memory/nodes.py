@@ -292,7 +292,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="o4-mini", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
