@@ -101,6 +101,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 percentage_usage=0,
                 projected_usage=0,
                 projected_amount_usd="0.00",
+                projected_amount_usd_with_limit="0.00",
                 usage_key="events",
                 addons=[
                     CustomerProductAddon(
@@ -243,6 +244,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                 projected_usage=0,
                 projected_amount=0,
                 projected_amount_usd=0.00,
+                projected_amount_usd_with_limit=0.00,
                 usage_key="events",
             )
         ]
@@ -401,6 +403,7 @@ class TestBillingAPI(APILicensedTest):
                     "has_exceeded_limit": False,
                     "unit_amount_usd": "0.00",
                     "projected_amount_usd": "0.00",
+                    "projected_amount_usd_with_limit": "0.00",
                     "projected_usage": 0,
                     "usage_key": "events",
                     "addons": [
@@ -513,7 +516,7 @@ class TestBillingAPI(APILicensedTest):
                     "current_amount_usd": 0.0,
                     "has_exceeded_limit": False,
                     "projected_amount_usd": 0.0,
-                    "projected_amount": 0,
+                    "projected_amount_usd_with_limit": 0.0,
                     "projected_usage": 0,
                     "tiered": True,
                     "unit_amount_usd": "0.00",
