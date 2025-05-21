@@ -312,6 +312,11 @@ export const WelcomeWithLatestConversations: StoryFn = () => {
 
     return <Template sidePanel />
 }
+WelcomeWithLatestConversations.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const ChatHistory: StoryFn = () => {
     useStorybookMocks({
