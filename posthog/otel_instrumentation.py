@@ -5,6 +5,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -60,7 +61,19 @@ def initialize_otel():
         service_name = os.environ.get("OTEL_SERVICE_NAME", "posthog-django-default")
         resource = Resource.create(attributes={"service.name": service_name})
 
-        provider = TracerProvider(resource=resource)
+        sampling_ratio_str = os.environ.get("OTEL_TRACES_SAMPLING_RATIO", "1.0")
+        sampling_ratio = float(sampling_ratio_str)
+
+        sampler = ParentBased(TraceIdRatioBased(sampling_ratio))
+        logger.info(
+            "otel_sampler_configured",
+            sampler_type=sampler.__class__.__name__,
+            root_sampler_type=sampler._root.__class__.__name__,
+            ratio=sampling_ratio,
+            source_module="otel_instrumentation",
+        )
+
+        provider = TracerProvider(resource=resource, sampler=sampler)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)

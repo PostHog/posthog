@@ -3,6 +3,8 @@ from unittest import mock
 import logging
 import os
 
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+
 from posthog.otel_instrumentation import initialize_otel, _otel_django_request_hook, _otel_django_response_hook
 from posthog.test.base import BaseTest
 
@@ -88,7 +90,16 @@ class TestOtelInstrumentation(BaseTest):
 
         # Assert
         mock_resource_cls.create.assert_called_once_with(attributes={"service.name": "test-service"})
-        mock_tracer_provider_cls.assert_called_once_with(resource=mock_resource_instance)
+
+        # Check TracerProvider call with sampler
+        self.assertEqual(mock_tracer_provider_cls.call_count, 1)
+        call_args = mock_tracer_provider_cls.call_args
+        self.assertEqual(call_args[1]["resource"], mock_resource_instance)
+        sampler_arg = call_args[1]["sampler"]
+        self.assertIsInstance(sampler_arg, ParentBased)
+        self.assertIsInstance(sampler_arg._root, TraceIdRatioBased)
+        self.assertEqual(sampler_arg._root.rate, 1.0)
+
         mock_otlp_exporter_cls.assert_called_once_with()
         mock_batch_processor_cls.assert_called_once_with(mock_otlp_exporter_cls.return_value)
         mock_provider_instance.add_span_processor.assert_called_once_with(mock_batch_processor_cls.return_value)
@@ -117,6 +128,7 @@ class TestOtelInstrumentation(BaseTest):
         # Check structlog logging calls
         found_init_success_log = False
         found_sdk_config_log = False
+        found_sampler_config_log = False
         for call_args_tuple in mock_structlog_logger.info.call_args_list:
             args, kwargs = call_args_tuple
             event_name = args[0] if args else None
@@ -125,9 +137,13 @@ class TestOtelInstrumentation(BaseTest):
                     found_init_success_log = True
             elif event_name == "otel_sdk_logging_config_from_instrumentation_module":
                 found_sdk_config_log = True
+            elif event_name == "otel_sampler_configured":
+                if kwargs.get("ratio") == 1.0 and kwargs.get("root_sampler_type") == "TraceIdRatioBased":
+                    found_sampler_config_log = True
 
         self.assertTrue(found_init_success_log, "Expected OTel initialization success log not found or incorrect.")
         self.assertTrue(found_sdk_config_log, "Expected OTel SDK logging configuration log not found.")
+        self.assertTrue(found_sampler_config_log, "Expected OTel sampler configuration log not found or incorrect.")
 
         # Check standard library logger configurations
         root_logger = logging.getLogger()
@@ -214,3 +230,69 @@ class TestOtelInstrumentation(BaseTest):
         _otel_django_response_hook(mock_span, mock_request, mock_response)
 
         mock_span.set_attribute.assert_not_called()
+
+    @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
+    @mock.patch("posthog.otel_instrumentation.RedisInstrumentor")
+    @mock.patch("posthog.otel_instrumentation.DjangoInstrumentor")
+    @mock.patch("posthog.otel_instrumentation.BatchSpanProcessor")
+    @mock.patch("posthog.otel_instrumentation.OTLPSpanExporter")
+    @mock.patch("posthog.otel_instrumentation.TracerProvider")
+    @mock.patch("posthog.otel_instrumentation.Resource")
+    @mock.patch("opentelemetry.trace.set_tracer_provider")
+    @mock.patch.dict(
+        os.environ,
+        {
+            "OTEL_SERVICE_NAME": "test-service-custom-sample",
+            "OTEL_SDK_DISABLED": "false",
+            "OTEL_PYTHON_LOG_LEVEL": "info",
+            "OTEL_TRACES_SAMPLING_RATIO": "0.5",
+        },
+        clear=True,
+    )
+    @mock.patch("posthog.otel_instrumentation.logger")
+    def test_initialize_otel_with_custom_sampling_ratio(
+        self,
+        mock_structlog_logger,
+        mock_set_tracer_provider,
+        mock_resource_cls,
+        mock_tracer_provider_cls,
+        mock_otlp_exporter_cls,
+        mock_batch_processor_cls,
+        mock_django_instrumentor_cls,
+        mock_redis_instrumentor_cls,
+        mock_psycopg_instrumentor_cls,
+    ):
+        # Arrange
+        mock_resource_instance = mock.Mock()
+        mock_resource_cls.create.return_value = mock_resource_instance
+        mock_provider_instance = mock.Mock()
+        mock_tracer_provider_cls.return_value = mock_provider_instance
+
+        # Act
+        initialize_otel()
+
+        # Assert
+        mock_resource_cls.create.assert_called_once_with(attributes={"service.name": "test-service-custom-sample"})
+
+        # Check TracerProvider call with sampler
+        self.assertEqual(mock_tracer_provider_cls.call_count, 1)
+        call_args = mock_tracer_provider_cls.call_args
+        self.assertEqual(call_args[1]["resource"], mock_resource_instance)
+        sampler_arg = call_args[1]["sampler"]
+        self.assertIsInstance(sampler_arg, ParentBased)
+        self.assertIsInstance(sampler_arg._root, TraceIdRatioBased)
+        self.assertEqual(sampler_arg._root.rate, 0.5)
+
+        mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
+
+        # Check for sampler configured log
+        found_sampler_config_log = False
+        for call_args_tuple in mock_structlog_logger.info.call_args_list:
+            args, kwargs = call_args_tuple
+            event_name = args[0] if args else None
+            if event_name == "otel_sampler_configured":
+                if kwargs.get("ratio") == 0.5:
+                    found_sampler_config_log = True
+        self.assertTrue(
+            found_sampler_config_log, "Expected OTel sampler configuration log with custom ratio not found."
+        )
