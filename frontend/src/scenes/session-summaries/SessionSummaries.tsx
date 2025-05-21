@@ -16,6 +16,11 @@ import {
     IconDashboard,
     IconGear,
     IconTrending,
+    IconRewindPlay,
+    IconGraph,
+    IconPieChart,
+    IconToggle,
+    IconWarning,
 } from '@posthog/icons'
 import { IconPlayCircle, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import React from 'react'
@@ -826,7 +831,8 @@ function PerformanceMetrics(): JSX.Element {
             width: 'w-[40%]',
             status: 'enabled',
             description: 'Active',
-            details: 'Record and replay user sessions to understand user behavior and debug issues.'
+            details: 'Record and replay user sessions to understand user behavior and debug issues.',
+            icon: <IconRewindPlay className="w-4 h-4" />
         },
         { 
             label: 'Product Analytics', 
@@ -835,7 +841,8 @@ function PerformanceMetrics(): JSX.Element {
             width: 'w-[15%]',
             status: 'enabled',
             description: 'Active',
-            details: 'Track and analyze product usage patterns to improve user experience.'
+            details: 'Track and analyze product usage patterns to improve user experience.',
+            icon: <IconGraph className="w-4 h-4" />
         },
         { 
             label: 'Web Analytics', 
@@ -844,7 +851,8 @@ function PerformanceMetrics(): JSX.Element {
             width: 'w-[15%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Monitor website traffic and user engagement metrics.'
+            details: 'Monitor website traffic and user engagement metrics.',
+            icon: <IconPieChart className="w-4 h-4" />
         },
         { 
             label: 'Feature Flags', 
@@ -853,7 +861,8 @@ function PerformanceMetrics(): JSX.Element {
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Control feature rollout and A/B testing capabilities.'
+            details: 'Control feature rollout and A/B testing capabilities.',
+            icon: <IconToggle className="w-4 h-4" />
         },
         { 
             label: 'Identified Events', 
@@ -862,7 +871,8 @@ function PerformanceMetrics(): JSX.Element {
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Track user actions with full identity context.'
+            details: 'Track user actions with full identity context.',
+            icon: <IconAIText className="w-4 h-4" />
         },
         { 
             label: 'Error Tracking', 
@@ -871,7 +881,8 @@ function PerformanceMetrics(): JSX.Element {
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Monitor and debug application errors in real-time.'
+            details: 'Monitor and debug application errors in real-time.',
+            icon: <IconWarning className="w-4 h-4" />
         },
     ]
 
@@ -881,15 +892,16 @@ function PerformanceMetrics(): JSX.Element {
                 <h3 className="text-lg font-semibold m-0">Session Summaries Performance</h3>
             </div>
             
-            <div className="flex h-24 rounded-lg overflow-hidden border mb-6">
+            <div className="flex h-48 rounded-lg overflow-hidden border mb-6">
                 {segments.map((segment, index) => (
                     <div
                         key={index}
                         className={`${segment.color} ${segment.width} flex flex-col items-center justify-center relative group`}
                     >
-                        <div className={`text-sm font-medium mb-1 text-center px-1 break-words ${
+                        <div className={`text-sm font-medium mb-1 text-center px-1 break-words flex items-center gap-1 ${
                             segment.color === 'bg-warning' ? 'text-gray-900' : 'text-white'
                         }`}>
+                            {segment.icon}
                             {segment.label}
                         </div>
                         <div className={`text-xs mb-1 ${
@@ -913,7 +925,10 @@ function PerformanceMetrics(): JSX.Element {
                 {segments.map((feature, i) => (
                     <div key={i} className="bg-bg-light border rounded p-3">
                         <div className="flex items-center gap-2 mb-2">
-                            <h3 className="text-sm font-medium mb-0">{feature.label}</h3>
+                            <div className="flex items-center gap-1">
+                                {feature.icon}
+                                <h3 className="text-sm font-medium mb-0">{feature.label}</h3>
+                            </div>
                             <LemonTag 
                                 size="small" 
                                 type={feature.status === 'enabled' ? 'success' : 'warning'}
