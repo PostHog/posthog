@@ -1,86 +1,15 @@
-import { ReadableStream } from 'node:stream/web'
-
 import { router } from 'kea-router'
-import { expectLogic, partial } from 'kea-test-utils'
-import api from 'lib/api'
+import { expectLogic } from 'kea-test-utils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
-import { Mocks } from '~/mocks/utils'
-import { AssistantEventType, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { Conversation, ConversationStatus } from '~/types'
 
+import { maxMocks, MOCK_CONVERSATION_ID, mockStream } from './__tests__/utils'
 import { maxLogic } from './maxLogic'
-
-const maxMocks: Mocks = {
-    get: {
-        '/api/environments/:team_id/conversations/': { results: [] },
-        '/api/environments/:team_id/core_memory/': { results: [] },
-    },
-    post: {
-        'api/environments/:team_id/query': { questions: ['Question'] },
-        '/api/environments/:team_id/conversations/': {},
-    },
-}
-
-const MOCK_CONVERSATION_ID = 'mock-conversation-id-from-stream'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
-
-    function mockStream(): jest.SpyInstance {
-        return jest.spyOn(api.conversations, 'stream').mockImplementation(async (payload): Promise<Response> => {
-            const encoder = new TextEncoder()
-            const stream = new ReadableStream({
-                async start(controller) {
-                    function enqueue({ event, data }: { event: AssistantEventType; data: any }): void {
-                        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
-                    }
-
-                    const conversation: Conversation = {
-                        id: MOCK_CONVERSATION_ID,
-                        status: ConversationStatus.InProgress,
-                        title: '',
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString(),
-                    }
-                    enqueue({
-                        event: AssistantEventType.Conversation,
-                        data: conversation,
-                    })
-
-                    // Clear queues
-                    await new Promise((r) => setTimeout(r))
-
-                    // Simulate the main assistant response
-                    const assistantResponseMessage: AssistantMessage = {
-                        id: 'mock-assistant-msg-1', // Finalized messages usually have an ID
-                        type: AssistantMessageType.Assistant,
-                        content: `Response to "${payload?.content}"`, // Use input from payload
-                    }
-                    enqueue({
-                        event: AssistantEventType.Message,
-                        data: assistantResponseMessage,
-                    })
-
-                    // Clear queues
-                    await new Promise((r) => setTimeout(r))
-
-                    // Close the stream
-                    controller.close()
-                },
-            })
-
-            const response = {
-                body: {
-                    getReader: () => stream.getReader(),
-                },
-            }
-
-            return response as any
-        })
-    }
 
     beforeEach(() => {
         useMocks(maxMocks)
@@ -116,70 +45,26 @@ describe('maxLogic', () => {
         })
     })
 
-    it('calls askMax when URL has hash param #panel=max:!Foo', async () => {
+    it('sets autoRun and question when URL has hash param #panel=max:!Foo', async () => {
         // Set up router with #panel=max:!Foo
         router.actions.push('', {}, { panel: 'max:!Foo' })
         sidePanelStateLogic.mount()
 
-        // Spy on askMax action
         // Must create the logic first to spy on its actions
         logic = maxLogic()
-        const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
-
-        // Only mount maxLogic after setting up the router and sidePanelStateLogic
         logic.mount()
 
-        // Check that askMax has been called with "Foo" (via sidePanelStateLogic automatically)
-        expect(askMaxSpy).toHaveBeenCalledWith('Foo')
-    })
-
-    it('does not reset the thread when it was already opened after conversations have been loaded', async () => {
-        useMocks({
-            ...maxMocks,
-            get: {
-                ...maxMocks.get,
-                [`/api/environments/:team_id/conversations/${MOCK_CONVERSATION_ID}`]: [404, { detail: 'Not found' }],
-            },
-        })
-
-        const streamSpy = mockStream()
-
-        // mount logic
-        logic = maxLogic()
-
-        // Wait for all the microtasks to finish
-        await expectLogic(logic, () => {
-            logic.mount()
-
-            // start a thread
-            logic.actions.askMax('hello')
-        }).delay(50)
-
-        expect(streamSpy).toHaveBeenCalledTimes(1)
-
+        // Only mount maxLogic after setting up the router and sidePanelStateLogic
         await expectLogic(logic).toMatchValues({
-            inProgressConversationId: null,
-            threadGrouped: [
-                [
-                    {
-                        content: 'hello',
-                        status: 'completed',
-                        type: AssistantMessageType.Human,
-                    },
-                ],
-                [
-                    {
-                        content: 'Response to "hello"',
-                        id: 'mock-assistant-msg-1',
-                        status: 'completed',
-                        type: AssistantMessageType.Assistant,
-                    },
-                ],
-            ],
+            autoRun: true,
+            question: 'Foo',
         })
     })
 
     it('resets the thread when a conversation has not been found', async () => {
+        router.actions.push('', { chat: MOCK_CONVERSATION_ID }, { panel: 'max' })
+        sidePanelStateLogic.mount()
+
         useMocks({
             ...maxMocks,
             get: {
@@ -195,365 +80,12 @@ describe('maxLogic', () => {
 
         // mount logic
         logic = maxLogic()
-
-        // Wait for all the microtasks to finish
-        await expectLogic(logic, () => {
-            logic.mount()
-
-            // start a thread
-            logic.actions.setConversationId(MOCK_CONVERSATION_ID)
-        }).delay(200)
-
-        expect(streamSpy).not.toHaveBeenCalled()
-
+        logic.mount()
+        await expectLogic(logic).delay(200)
         await expectLogic(logic).toMatchValues({
-            inProgressConversationId: null,
             conversationId: null,
-            conversation: null,
-            threadGrouped: [],
+            conversationHistory: [],
         })
-    })
-
-    it('selects threadGroup without a human message', async () => {
-        // Must create the logic first to spy on its actions
-        logic = maxLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Assistant,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'mock-assistant-msg-1',
-                },
-            ])
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'mock-assistant-msg-1',
-                    },
-                ],
-            ],
-        })
-    })
-
-    it('preserves only the latest reasoning message in threadGrouped', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
-                },
-            ])
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Reasoning,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'reasoning-2',
-                    },
-                ],
-            ],
-        })
-    })
-
-    it('groups thread correctly', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
-                },
-                {
-                    type: AssistantMessageType.Assistant,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'assistant-1',
-                },
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-2',
-                },
-            ])
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-2',
-                    },
-                ],
-            ],
-        })
-    })
-
-    it('preserves the reasoning message when the assistant message is without id', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
-                },
-                {
-                    type: AssistantMessageType.Assistant,
-                    content: 'hello',
-                    status: 'completed',
-                },
-            ])
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Reasoning,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'reasoning-2',
-                    },
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
-            ],
-        })
-    })
-
-    it('adds a thinking message to an ephemeral group', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        // Only a human message–should create an ephemeral group
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-1',
-                },
-            ])
-            logic.actions.setInProgressConversationId('new')
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
-            ],
-        })
-    })
-
-    it('adds a thinking message to the last group of messages with IDs', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        // Human and assistant messages with IDs–should append to the last group
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Assistant,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'assistant-1',
-                },
-            ])
-            logic.actions.setInProgressConversationId('new')
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
-            ],
-        })
-    })
-
-    it('does not add a thinking message when the last message is without ID', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        // Human with ID and assistant messages without ID–should not add the message
-        await expectLogic(logic, () => {
-            logic.actions.setThread([
-                {
-                    type: AssistantMessageType.Human,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Assistant,
-                    content: 'hello',
-                    status: 'completed',
-                },
-            ])
-            logic.actions.setInProgressConversationId('new')
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
-            ],
-        })
-    })
-
-    it('adds a thinking message when the thread is completely empty', async () => {
-        logic = maxLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.setInProgressConversationId('new')
-        }).toMatchValues({
-            threadGrouped: [
-                [
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
-            ],
-        })
+        expect(streamSpy).not.toHaveBeenCalled()
     })
 })

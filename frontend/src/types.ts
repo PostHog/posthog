@@ -37,7 +37,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -5331,7 +5331,7 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
-    messages: AssistantMessage[]
+    messages: RootAssistantMessage[]
 }
 
 export enum UserRole {
