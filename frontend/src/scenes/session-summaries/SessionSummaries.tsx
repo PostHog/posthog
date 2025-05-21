@@ -820,49 +820,58 @@ function PersonSummaries(): JSX.Element {
 function PerformanceMetrics(): JSX.Element {
     const segments = [
         { 
-            label: 'Query Caching', 
+            label: 'Session Replay', 
             value: '40%', 
             color: 'bg-success', 
             width: 'w-[40%]',
             status: 'enabled',
             description: 'Active',
-            details: 'Caches frequently used query results to reduce database load and improve response times.'
+            details: 'Record and replay user sessions to understand user behavior and debug issues.'
         },
         { 
-            label: 'Data Compression', 
-            value: '25%', 
+            label: 'Product Analytics', 
+            value: '15%', 
             color: 'bg-success', 
-            width: 'w-[25%]',
+            width: 'w-[15%]',
             status: 'enabled',
             description: 'Active',
-            details: 'Compresses data in transit and at rest to reduce bandwidth usage and storage costs.'
+            details: 'Track and analyze product usage patterns to improve user experience.'
         },
         { 
-            label: 'Batch Processing', 
-            value: '20%', 
+            label: 'Web Analytics', 
+            value: '15%', 
             color: 'bg-warning', 
-            width: 'w-[20%]',
+            width: 'w-[15%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Processes multiple operations in a single batch to reduce overhead and improve throughput.'
+            details: 'Monitor website traffic and user engagement metrics.'
         },
         { 
-            label: 'Parallel Queries', 
+            label: 'Feature Flags', 
             value: '10%', 
             color: 'bg-warning', 
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Executes independent queries concurrently to reduce total processing time.'
+            details: 'Control feature rollout and A/B testing capabilities.'
         },
         { 
-            label: 'Result Caching', 
-            value: '5%', 
+            label: 'Identified Events', 
+            value: '10%', 
             color: 'bg-warning', 
-            width: 'w-[5%]',
+            width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
-            details: 'Caches final results to serve identical requests instantly without reprocessing.'
+            details: 'Track user actions with full identity context.'
+        },
+        { 
+            label: 'Error Tracking', 
+            value: '10%', 
+            color: 'bg-warning', 
+            width: 'w-[10%]',
+            status: 'disabled',
+            description: 'Disabled',
+            details: 'Monitor and debug application errors in real-time.'
         },
     ]
 
@@ -881,7 +890,9 @@ function PerformanceMetrics(): JSX.Element {
                         key={index}
                         className={`${segment.color} ${segment.width} flex flex-col items-center justify-center text-white relative group`}
                     >
-                        <div className="text-sm font-medium mb-1">{segment.label}</div>
+                        <div className="text-sm font-medium mb-1 text-center px-1 break-words">
+                            {segment.label}
+                        </div>
                         <div className="text-xs opacity-80 mb-1">{segment.value} improvement</div>
                         <div className="text-xs opacity-60">{segment.description}</div>
                         {index < segments.length - 1 && (
@@ -921,7 +932,7 @@ function PerformanceMetrics(): JSX.Element {
             </div>
 
             <div className="mt-4 text-sm text-muted">
-                2 features enabled • 3 features disabled • Total potential improvement: 100%
+                2 features enabled • 4 features disabled • Total potential performance: 100%
             </div>
         </div>
     )
