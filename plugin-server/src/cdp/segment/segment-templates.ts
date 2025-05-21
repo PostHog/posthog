@@ -318,15 +318,16 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         })) as HogFunctionInputSchemaType[]
 }
 
-const APPROVED_DESTINATIONS = [
-    'segment-mixpanel',
-    'segment-amplitude',
-    'segment-launchdarkly',
-    'segment-canny',
-    'segment-fullstory-cloud',
-    'segment-drip',
-    'segment-heap',
-    'segment-pipedrive',
+// hide all destinations for now
+const APPROVED_DESTINATIONS: string[] = [
+    // 'segment-mixpanel',
+    // 'segment-amplitude',
+    // 'segment-launchdarkly',
+    // 'segment-canny',
+    // 'segment-fullstory-cloud',
+    // 'segment-drip',
+    // 'segment-heap',
+    // 'segment-pipedrive',
 ]
 
 const HIDDEN_DESTINATIONS = [
