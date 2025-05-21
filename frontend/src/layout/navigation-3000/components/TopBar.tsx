@@ -19,7 +19,6 @@ import React, { useLayoutEffect, useState } from 'react'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -43,7 +42,7 @@ export function TopBar(): JSX.Element | null {
     const { openMoveToModal } = useActions(moveToLogic)
     const [compactionRate, setCompactionRate] = useState(0)
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { addShortcutItem } = useActions(pinnedFolderLogic)
+    const { addShortcutItem } = useActions(projectTreeDataLogic)
     // Always show in full on mobile, as there we are very constrained in width, but not so much height
     const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
     const isOnboarding = router.values.location.pathname.includes('/onboarding/')

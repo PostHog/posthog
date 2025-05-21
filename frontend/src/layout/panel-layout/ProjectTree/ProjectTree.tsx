@@ -30,7 +30,6 @@ import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -59,7 +58,7 @@ export function ProjectTree({
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
-    const { setLastNewFolder, deleteShortcut } = useActions(projectTreeDataLogic)
+    const { setLastNewFolder, deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const {
         fullFileSystemFiltered,
         treeTableKeys,
@@ -103,7 +102,6 @@ export function ProjectTree({
         clearSearch,
     } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const { openMoveToModal } = useActions(moveToLogic)
-    const { addShortcutItem } = useActions(pinnedFolderLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
         useActions(panelLayoutLogic)
