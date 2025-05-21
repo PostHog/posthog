@@ -897,7 +897,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                                 },
                                                             })
                                                         }}
-                                                        label="Enabled"
+                                                        label={featureFlag.active ? 'Enabled' : 'Disabled'}
                                                         disabledReason={
                                                             accessControlDisabledReason ||
                                                             (!featureFlag.can_edit
