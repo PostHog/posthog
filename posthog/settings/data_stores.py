@@ -210,13 +210,13 @@ CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
 )
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
-# routing.
+# routing. Keys should be strings, not numbers.
 try:
     CLICKHOUSE_PER_TEAM_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
-# Per-team settings used for query execution.
+# Per-team settings used for query execution. Keys should be strings, not numbers.
 try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict[str, str] = json.loads(
         os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}")
