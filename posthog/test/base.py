@@ -325,6 +325,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # project tree and file system related replacements
+    query = re.sub(
+        r"\"href\" = '[^']+'",
+        "\"href\" = '__skipped__'",
+        query,
+    )
+
     return query
 
 

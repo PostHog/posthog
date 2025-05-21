@@ -140,6 +140,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
         ids: list[str] = request.data.get("ids", [])
+        # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
+        ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 

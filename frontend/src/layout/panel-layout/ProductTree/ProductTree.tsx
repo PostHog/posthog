@@ -8,15 +8,17 @@ import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
+import { productTreeLogic } from './productTreeLogic'
 
 export function ProductTree(): JSX.Element {
-    const { treeItemsProducts } = useValues(projectTreeLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { productTreeItems, searchTerm } = useValues(productTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(productTreeLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
-
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
 
@@ -29,22 +31,45 @@ export function ProductTree(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        addShortcutItem(item)
+                        window.open(item.record?.href, '_blank')
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
+                </MenuItem>
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        item.record && addShortcutItem(item.record as FileSystemEntry)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
+                </MenuItem>
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        void navigator.clipboard.writeText(document.location.origin + item.record?.href)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
                 </MenuItem>
             </>
         )
     }
 
     return (
-        <PanelLayoutPanel>
+        <PanelLayoutPanel
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            clearSearch={clearSearch}
+            searchPlaceholder="Search products"
+        >
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeItemsProducts}
+                data={productTreeItems}
                 itemContextMenu={(item) => {
                     return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
                 }}
@@ -68,6 +93,11 @@ export function ProductTree(): JSX.Element {
                                 : node.record.href
                         )
                     }
+                    if (!isLayoutPanelPinned) {
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                    }
+
                     node?.onClick?.(true)
                 }}
                 expandedItemIds={expandedFolders}

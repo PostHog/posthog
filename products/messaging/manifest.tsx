@@ -75,26 +75,30 @@ export const manifest: ProductManifest = {
         {
             path: `Broadcast`,
             type: 'hog_function/broadcast',
-            href: () => urls.messagingBroadcastNew(),
+            href: urls.messagingBroadcastNew(),
             flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: `Campaign`,
             type: 'hog_function/campaign',
-            href: () => urls.messagingCampaignNew(),
+            href: urls.messagingCampaignNew(),
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
     treeItemsProducts: [
         {
             path: 'Broadcasts',
-            href: () => urls.messagingBroadcasts(),
-            icon: <IconMegaphone />,
+            href: urls.messagingBroadcasts(),
+            type: 'hog_function/broadcast',
         },
         {
             path: 'Campaigns',
-            href: () => urls.messagingCampaigns(),
-            icon: <IconMegaphone />,
+            href: urls.messagingCampaigns(),
+            type: 'hog_function/campaign',
         },
     ],
+    fileSystemFilterTypes: {
+        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
+        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
+    },
 }

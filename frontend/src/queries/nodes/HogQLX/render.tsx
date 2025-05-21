@@ -1,5 +1,7 @@
+import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
@@ -37,6 +39,26 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
+                </ErrorBoundary>
+            )
+        } else if (tag === 'ExplainCSPReport') {
+            const { properties } = rest
+            return (
+                <ErrorBoundary>
+                    <ExplainCSPViolationButton
+                        properties={properties}
+                        label="Explain this CSP violation"
+                        type="primary"
+                        size="xsmall"
+                        sideIcon={<IconAI />}
+                        data-attr="hog-ql-explaincsp-button"
+                        className="inline-block"
+                        disabledReason={
+                            properties
+                                ? undefined
+                                : 'Properties of a $csp_violation event must be provided when asking for an explanation of one'
+                        }
+                    />
                 </ErrorBoundary>
             )
         } else if (tag === 'RecordingButton') {

@@ -33,14 +33,17 @@ export const manifest: ProductManifest = {
         {
             path: `Replay playlist`,
             type: 'session_recording_playlist',
-            href: () => urls.replayPlaylist('new'),
+            href: urls.replayPlaylist('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: 'Session replay',
-            href: () => urls.replay(ReplayTabs.Home),
-            icon: <IconRewindPlay />,
+            href: urls.replay(ReplayTabs.Home),
+            type: 'session_recording_playlist',
         },
     ],
+    fileSystemFilterTypes: {
+        session_recording_playlist: { name: 'Replay playlists' },
+    },
 }
