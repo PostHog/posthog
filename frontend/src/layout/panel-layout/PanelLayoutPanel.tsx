@@ -29,6 +29,9 @@ interface PanelLayoutPanelProps {
     panelActions?: React.ReactNode
     children: React.ReactNode
     showFilterDropdown?: boolean
+    searchTerm: string
+    clearSearch: () => void
+    setSearchTerm: (searchTerm: string) => void
 }
 
 const panelLayoutPanelVariants = cva({
@@ -158,14 +161,16 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
 
 export function PanelLayoutPanel({
     searchPlaceholder,
+    searchTerm,
+    clearSearch,
+    setSearchTerm,
     panelActions,
     children,
     showFilterDropdown = false,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { clearSearch, setSearchTerm, toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,
-        searchTerm,
         panelTreeRef,
         projectTreeMode,
         isLayoutNavCollapsed,

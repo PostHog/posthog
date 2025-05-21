@@ -5,7 +5,7 @@ import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -13,7 +13,7 @@ export function CombinedTree(): JSX.Element {
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { selectedItem, treeItemsCombined } = useValues(shortcutsLogic)
     const { setSelectedItem } = useActions(shortcutsLogic)
-    const { loadFolderIfNotLoaded } = useActions(projectTreeLogic)
+    const { loadFolderIfNotLoaded } = useActions(projectTreeDataLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])

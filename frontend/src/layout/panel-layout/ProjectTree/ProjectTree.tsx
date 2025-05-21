@@ -1,7 +1,7 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
+import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -30,6 +30,7 @@ import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -42,31 +43,30 @@ export interface ProjectTreeProps {
     sortMethod: ProjectTreeSortMethod
 }
 
+export const PROJECT_TREE_KEY = 'project-tree'
+
 export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
         projectTreeItems,
         treeTableKeys,
         lastViewedId,
-        viableItems,
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
         searchResults,
-        treeItemsNew,
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
         scrollTargetId,
         editingItemId,
         checkedItemsArray,
-        movingItems,
         treeTableColumnSizes,
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
-        projectTreeRef,
-        projectTreeRefEntry,
-    } = useValues(projectTreeLogic)
+    } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
+    const { setLastNewFolder } = useActions(projectTreeDataLogic)
 
     const {
         createFolder,
@@ -78,7 +78,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        setLastNewFolder,
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
@@ -86,11 +85,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         assureVisibility,
         clearScrollTarget,
         setEditingItemId,
-        setMovingItems,
         setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
-    } = useActions(projectTreeLogic)
+        setSearchTerm,
+        clearSearch,
+    } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { openMoveToModal } = useActions(moveToLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -311,11 +312,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     asChild
                     onClick={(e: any) => {
                         e.stopPropagation()
-
-                        if (checkedItemsArray.length > 0) {
-                            setMovingItems(checkedItemsArray)
+                        if (
+                            checkedItemsArray.length > 0 &&
+                            checkedItemsArray.find(({ id }) => id === item.record?.id)
+                        ) {
+                            openMoveToModal(checkedItemsArray)
                         } else {
-                            setMovingItems([item.record as unknown as FileSystemEntry])
+                            openMoveToModal([item.record as unknown as FileSystemEntry])
                         }
                     }}
                 >
@@ -350,7 +353,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
+                            deleteItem(item.record as unknown as FileSystemEntry, PROJECT_TREE_KEY)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -360,7 +363,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
+                            deleteItem(item.record as unknown as FileSystemEntry, PROJECT_TREE_KEY)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
@@ -372,6 +375,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
 
     return (
         <PanelLayoutPanel
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            clearSearch={clearSearch}
             showFilterDropdown={true}
             searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={
@@ -517,7 +523,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     } else {
                         const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
                         if (isValidMove) {
-                            moveItem(oldItem, newPath)
+                            moveItem(oldItem, newPath, false, PROJECT_TREE_KEY)
                         }
                     }
                 }}
@@ -718,36 +724,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     )
                 }}
             />
-
-            {movingItems.length > 0 && (
-                <MoveFilesModal
-                    items={movingItems}
-                    handleMove={(destinationFolder) => {
-                        // When moving the current item, remember its ref so that we could open the destination folder later on
-                        const movingCurrentRef = movingItems.some((item) => item === projectTreeRefEntry)
-                            ? projectTreeRef
-                            : null
-
-                        if (checkedItemCountNumeric > 0) {
-                            moveCheckedItems(destinationFolder)
-                        } else if (movingItems.length > 0) {
-                            const { newPath, isValidMove } = calculateMovePath(
-                                movingItems[0] as unknown as FileSystemEntry,
-                                destinationFolder
-                            )
-                            if (isValidMove) {
-                                moveItem(movingItems[0] as unknown as FileSystemEntry, newPath)
-                            }
-                        }
-                        // Clear the moving items and close the modal
-                        setMovingItems([])
-                        if (movingCurrentRef) {
-                            assureVisibility(movingCurrentRef)
-                        }
-                    }}
-                    closeModal={() => setMovingItems([])}
-                />
-            )}
         </PanelLayoutPanel>
     )
 }
