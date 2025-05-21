@@ -51,8 +51,6 @@ export const MetricHeader = ({
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
                             onClick={() => {
-                                // Use our new dedicated action for duplicating metrics
-                                // This avoids updating the entire experiment
                                 duplicateMetric(metric, isPrimaryMetric)
                             }}
                         />
