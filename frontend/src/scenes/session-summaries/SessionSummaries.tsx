@@ -1,12 +1,12 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonInput, LemonTable } from '@posthog/lemon-ui'
 import { LemonTag } from '@posthog/lemon-ui'
 import { LemonBanner } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconAIText, IconChevronDown, IconTarget } from '@posthog/icons'
+import { IconAIText, IconCalendar, IconChevronDown, IconChevronRight, IconFilter, IconTarget } from '@posthog/icons'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import React from 'react'
 
@@ -452,6 +452,20 @@ function PersonSummariesTable(): JSX.Element {
                     title: 'Person ID',
                     dataIndex: 'personId',
                     width: 120,
+                    render: (dataValue: string | number | SummaryDetails | undefined) => {
+                        const personId = dataValue as string
+                        return (
+                            <div className="flex items-center gap-2">
+                                <div
+                                    className="w-6 h-6 rounded-full flex items-center justify-center font-medium"
+                                    style={{ backgroundColor: '#cfa7d6', color: '#522b59' }}
+                                >
+                                    {personId.charAt(0).toUpperCase()}
+                                </div>
+                                <span className="truncate">{personId}</span>
+                            </div>
+                        )
+                    },
                 },
                 {
                     title: 'Summary Period',
@@ -687,11 +701,30 @@ function PersonSummariesTable(): JSX.Element {
     )
 }
 
+function PersonSummaries(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row justify-between gap-2">
+                <LemonInput type="search" placeholder="Search in summaries" />
+                <div className="flex flex-row gap-2">
+                    <LemonButton type="secondary" icon={<IconFilter />} sideIcon={<IconChevronDown />}>
+                        Filters
+                    </LemonButton>
+                    <LemonButton type="secondary" icon={<IconCalendar />} sideIcon={<IconChevronDown />}>
+                        Last 7 days
+                    </LemonButton>
+                </div>
+            </div>
+            <PersonSummariesTable />
+        </div>
+    )
+}
+
 export function SessionSummaries(): JSX.Element {
     const [tab, setTab] = useState<Tab>('person')
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col">
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as Tab)}
@@ -704,7 +737,7 @@ export function SessionSummaries(): JSX.Element {
                 ]}
             />
             <div>
-                {tab === 'person' && <PersonSummariesTable />}
+                {tab === 'person' && <PersonSummaries />}
                 {tab === 'funnel' && <div>Funnel summaries content</div>}
                 {tab === 'recording' && <div>Recording summaries content</div>}
                 {tab === 'group' && <div>Group summaries content</div>}
