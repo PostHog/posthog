@@ -432,16 +432,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 duplicateMetric: (state, { metric, isPrimary }) => {
                     const newMetric = { ...metric, id: undefined, name: `${metric.name} (copy)` }
+                    const metricsKey = isPrimary ? 'metrics' : 'metrics_secondary'
+                    const metrics = [...state[metricsKey]]
+                    const originalIndex = metrics.findIndex((m) => m === metric)
+                    metrics.splice(originalIndex + 1, 0, newMetric)
 
-                    if (isPrimary) {
-                        return {
-                            ...state,
-                            metrics: [...state.metrics, newMetric],
-                        }
-                    }
                     return {
                         ...state,
-                        metrics_secondary: [...state.metrics_secondary, newMetric],
+                        [metricsKey]: metrics,
                     }
                 },
                 addVariant: (state) => {
@@ -846,7 +844,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ values, actions }) => ({
         duplicateMetric: ({ isPrimary }) => {
             if (isPrimary) {
                 actions.loadMetricResults()
