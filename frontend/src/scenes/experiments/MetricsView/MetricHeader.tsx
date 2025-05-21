@@ -1,5 +1,5 @@
 import { IconCopy, IconPencil } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
@@ -32,10 +32,8 @@ export const MetricHeader = ({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
-        updateExperiment,
+        duplicateMetric,
     } = useActions(experimentLogic)
-
-    const { experiment } = useValues(experimentLogic)
 
     return (
         <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
@@ -53,19 +51,9 @@ export const MetricHeader = ({
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
                             onClick={() => {
-                                // Create a copy of the metric with a new name
-                                const newMetric = { ...metric, id: undefined, name: `${metric.name} (copy)` }
-
-                                // Update the experiment with the new metric
-                                if (isPrimaryMetric) {
-                                    updateExperiment({
-                                        metrics: [...experiment.metrics, newMetric],
-                                    })
-                                } else {
-                                    updateExperiment({
-                                        metrics_secondary: [...experiment.metrics_secondary, newMetric],
-                                    })
-                                }
+                                // Use our new dedicated action for duplicating metrics
+                                // This avoids updating the entire experiment
+                                duplicateMetric(metric, isPrimaryMetric)
                             }}
                         />
                         <LemonButton

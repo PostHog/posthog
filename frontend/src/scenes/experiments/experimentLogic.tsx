@@ -408,6 +408,10 @@ export const experimentLogic = kea<experimentLogicType>([
             sharedMetricIds,
             metadata,
         }),
+        duplicateMetric: (
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            isPrimary: boolean
+        ) => ({ metric, isPrimary }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
@@ -425,6 +429,20 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     return { ...state, ...experiment }
+                },
+                duplicateMetric: (state, { metric, isPrimary }) => {
+                    const newMetric = { ...metric, id: undefined, name: `${metric.name} (copy)` }
+
+                    if (isPrimary) {
+                        return {
+                            ...state,
+                            metrics: [...state.metrics, newMetric],
+                        }
+                    }
+                    return {
+                        ...state,
+                        metrics_secondary: [...state.metrics_secondary, newMetric],
+                    }
                 },
                 addVariant: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
@@ -828,7 +846,14 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ actions }) => ({
+        duplicateMetric: ({ isPrimary }) => {
+            if (isPrimary) {
+                actions.loadMetricResults()
+            } else {
+                actions.loadSecondaryMetricResults()
+            }
+        },
         createExperiment: async ({ draft, folder }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
