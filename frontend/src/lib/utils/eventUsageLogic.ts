@@ -1156,6 +1156,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_branching_logic: survey.questions.some(
                     (question) => question.branching && Object.keys(question.branching).length > 0
                 ),
+                has_partial_responses: survey.enable_partial_responses,
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {
