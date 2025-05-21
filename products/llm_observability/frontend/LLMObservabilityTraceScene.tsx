@@ -15,6 +15,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef, useState } from 'react'
@@ -384,8 +385,13 @@ function EventContentDisplay({
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const showPlaygroundButton = event && isLLMTraceEvent(event) && event.event === '$ai_generation'
+    const showPlaygroundButton =
+        event &&
+        isLLMTraceEvent(event) &&
+        event.event === '$ai_generation' &&
+        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
     const handleTryInPlayground = (): void => {
         if (!event) {
