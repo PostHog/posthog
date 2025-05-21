@@ -879,7 +879,7 @@ async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
             workflow_id=inputs.workflow_id,
             workflow_run_id=inputs.workflow_run_id,
             status=DataModelingJob.Status.FAILED,
-            error=inputs.error,
+            error="Materialization could not start",
         )
 
 
