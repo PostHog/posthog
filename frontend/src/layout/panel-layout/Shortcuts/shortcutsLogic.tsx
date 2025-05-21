@@ -4,32 +4,20 @@ import api from 'lib/api'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import {
-    convertFileSystemEntryToTreeDataItem,
-    escapePath,
-    joinPath,
-    splitPath,
-} from '~/layout/panel-layout/ProjectTree/utils'
+import { convertFileSystemEntryToTreeDataItem, escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { productTreeLogic } from '../ProductTree/productTreeLogic'
 import type { shortcutsLogicType } from './shortcutsLogicType'
 
 export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['layout', 'panel-layout', 'Shortcuts', 'shortcutsLogic']),
     connect(() => ({
         actions: [projectTreeDataLogic, ['addLoadedResults', 'deleteTypeAndRef']],
-        values: [
-            projectTreeDataLogic,
-            ['viableItems', 'treeItemsNew', 'folderStates', 'users'],
-            productTreeLogic,
-            ['productTreeItems'],
-        ],
     })),
     actions({
         showModal: true,
         hideModal: true,
-        setSelectedItem: (item: TreeDataItem | null) => ({ item }),
+        setSelectedItem: (id: TreeDataItem['id']) => ({ id }),
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
@@ -77,10 +65,10 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
                 },
             },
         ],
-        selectedItem: [
-            null as TreeDataItem | null,
+        selectedItemId: [
+            null as TreeDataItem['id'] | null,
             {
-                setSelectedItem: (_, { item }) => item,
+                setSelectedItem: (_, { id }) => id,
             },
         ],
         modalVisible: [
@@ -93,70 +81,25 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
         ],
     }),
     selectors({
+        selectedItem: [
+            (s) => [s.selectedItemId, s.shortcutData],
+            (selectedItemId, shortcutData) =>
+                selectedItemId ? shortcutData.find((item) => item.id === selectedItemId) : null,
+        ],
         shortcuts: [
-            (s) => [s.shortcutData, s.folderStates],
-            (shortcutData, folderStates) =>
+            (s) => [s.shortcutData],
+            (shortcutData) =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: [...shortcutData],
                     recent: true,
                     checkedItems: {},
-                    folderStates,
+                    folderStates: {},
                     root: 'shortcuts',
                     searchTerm: '',
                     allShortcuts: true,
                 }).sort((a, b) => a.name.localeCompare(b.name)),
         ],
         shortcutsLoading: [(s) => [s.shortcutDataLoading], (loading) => loading],
-        projectTree: [
-            (s) => [s.viableItems, s.folderStates, s.users],
-            (viableItems, folderStates, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
-                    folderStates,
-                    checkedItems: {},
-                    root: 'project',
-                    users,
-                }),
-        ],
-        treeItemsCombined: [
-            (s) => [s.projectTree, s.productTreeItems, s.treeItemsNew],
-            (project, products, allNew): TreeDataItem[] => {
-                function addNewLabel(item: TreeDataItem): TreeDataItem {
-                    if (item.children) {
-                        return { ...item, children: item.children?.map(addNewLabel) }
-                    }
-                    const pathParts = splitPath(item.record?.path ?? '')
-                    const name = `New ${pathParts.pop()?.toLowerCase()}`
-                    const newPath = joinPath([...pathParts, name])
-                    return {
-                        ...item,
-                        name: name,
-                        record: { ...item.record, path: newPath },
-                    }
-                }
-
-                return [
-                    {
-                        id: 'project',
-                        name: 'Project',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: project,
-                    },
-                    {
-                        id: 'products',
-                        name: 'Products',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: products,
-                    },
-                    {
-                        id: 'new',
-                        name: 'New',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: allNew.map(addNewLabel),
-                    },
-                ]
-            },
-        ],
     }),
     afterMount(({ actions }) => {
         actions.loadShortcuts()

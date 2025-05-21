@@ -10,6 +10,7 @@ import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/
 import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { AddShortcutModal } from '~/layout/panel-layout/Shortcuts/AddShortcutModal'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -60,6 +61,9 @@ export function Shortcuts(): JSX.Element {
         )
     }
 
+    const treeWithFolder = 'products://'
+    // const treeWithFolder = 'project://Team Banana'
+
     return (
         <>
             {!isLayoutNavCollapsed && (
@@ -86,54 +90,58 @@ export function Shortcuts(): JSX.Element {
 
             <div className="mt-[-0.25rem]">
                 {/* TODO: move this tree into popover if isLayoutNavCollapsed is true */}
-                <LemonTree
-                    ref={treeRef}
-                    contentRef={mainContentRef as RefObject<HTMLElement>}
-                    data={shortcuts}
-                    itemContextMenu={(item) => {
-                        return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
-                    }}
-                    itemSideAction={(item) => {
-                        return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
-                    }}
-                    onFolderClick={(folder) => {
-                        if (folder?.id) {
-                            if (expandedFolders.includes(folder.id)) {
-                                setExpandedFolders(expandedFolders.filter((id) => id !== folder.id))
-                            } else {
-                                setExpandedFolders([...expandedFolders, folder.id])
+                {treeWithFolder ? (
+                    <ProjectTree root={treeWithFolder} logicKey="shortcut-tree" onlyTree />
+                ) : (
+                    <LemonTree
+                        ref={treeRef}
+                        contentRef={mainContentRef as RefObject<HTMLElement>}
+                        data={shortcuts}
+                        itemContextMenu={(item) => {
+                            return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                        }}
+                        itemSideAction={(item) => {
+                            return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                        }}
+                        onFolderClick={(folder) => {
+                            if (folder?.id) {
+                                if (expandedFolders.includes(folder.id)) {
+                                    setExpandedFolders(expandedFolders.filter((id) => id !== folder.id))
+                                } else {
+                                    setExpandedFolders([...expandedFolders, folder.id])
+                                }
                             }
-                        }
-                    }}
-                    onItemClick={(node) => {
-                        node?.onClick?.(true)
-                    }}
-                    expandedItemIds={expandedFolders}
-                    onSetExpandedItemIds={setExpandedFolders}
-                    size={isLayoutNavCollapsed ? 'narrow' : 'default'}
-                    renderItemTooltip={(item) => {
-                        const user = item.record?.user as UserBasicType | undefined
+                        }}
+                        onItemClick={(node) => {
+                            node?.onClick?.(true)
+                        }}
+                        expandedItemIds={expandedFolders}
+                        onSetExpandedItemIds={setExpandedFolders}
+                        size={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                        renderItemTooltip={(item) => {
+                            const user = item.record?.user as UserBasicType | undefined
 
-                        return (
-                            <>
-                                Shortcut: <br />
-                                Name: <span className="font-semibold">{item.displayName}</span> <br />
-                                Created by:{' '}
-                                <ProfilePicture
-                                    user={user || { first_name: 'PostHog' }}
-                                    size="xs"
-                                    showName
-                                    className="font-semibold"
-                                />
-                                <br />
-                                Created at:{' '}
-                                <span className="font-semibold">
-                                    {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
-                                </span>
-                            </>
-                        )
-                    }}
-                />
+                            return (
+                                <>
+                                    Shortcut: <br />
+                                    Name: <span className="font-semibold">{item.displayName}</span> <br />
+                                    Created by:{' '}
+                                    <ProfilePicture
+                                        user={user || { first_name: 'PostHog' }}
+                                        size="xs"
+                                        showName
+                                        className="font-semibold"
+                                    />
+                                    <br />
+                                    Created at:{' '}
+                                    <span className="font-semibold">
+                                        {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                                    </span>
+                                </>
+                            )
+                        }}
+                    />
+                )}
             </div>
             <AddShortcutModal />
         </>

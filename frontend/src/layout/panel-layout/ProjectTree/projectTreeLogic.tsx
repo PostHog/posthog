@@ -44,6 +44,7 @@ export interface ProjectTreeLogicProps {
     key: string
     defaultSortMethod?: ProjectTreeSortMethod
     defaultOnlyFolders?: boolean
+    root?: string
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -67,6 +68,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'sortedItems',
                 'loadingPaths',
                 'lastNewFolder',
+                'staticTreeItems',
             ],
         ],
         actions: [
@@ -481,7 +483,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        searchedTreeItems: [
+        searchTreeItems: [
             (s) => [
                 s.searchResults,
                 s.searchResultsLoading,
@@ -549,10 +551,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         projectTreeItems: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
-            (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
+            (searchTerm, searchTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
-                    return searchedTreeItems
+                    return searchTreeItems
                 }
                 if (sortMethod === 'recent') {
                     return recentTreeItems
@@ -570,6 +572,97 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return projectTree
             },
         ],
+
+        fullFileSystem: [
+            (s) => [
+                s.searchTerm,
+                s.searchTreeItems,
+                s.searchResultsLoading,
+                s.projectTree,
+                s.loadingPaths,
+                s.recentTreeItems,
+                s.recentResultsLoading,
+                s.sortMethod,
+                s.staticTreeItems,
+            ],
+            (
+                searchTerm,
+                searchTreeItems,
+                searchResultsLoading,
+                projectTree,
+                loadingPaths,
+                recentTreeItems,
+                recentResultsLoading,
+                sortMethod,
+                staticTreeItems
+            ): TreeDataItem[] => {
+                const folderLoading = [
+                    {
+                        id: `folder-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        type: 'loading-indicator',
+                    },
+                ]
+                const root: TreeDataItem[] = [
+                    ...(searchTerm
+                        ? [
+                              {
+                                  id: 'search://',
+                                  name: 'search://',
+                                  displayName: <>search://</>,
+                                  record: { type: 'folder', path: '' },
+                                  children:
+                                      searchResultsLoading && searchTreeItems.length === 0
+                                          ? folderLoading
+                                          : searchTreeItems,
+                              },
+                          ]
+                        : []),
+                    {
+                        id: 'project://',
+                        name: 'project://',
+                        displayName: <>Project</>,
+                        record: { type: 'folder', path: '' },
+                        children:
+                            sortMethod === 'recent'
+                                ? recentResultsLoading && recentTreeItems.length === 0
+                                    ? folderLoading
+                                    : recentTreeItems
+                                : loadingPaths[''] && projectTree.length === 0
+                                ? folderLoading
+                                : projectTree,
+                    },
+                    ...staticTreeItems,
+                ]
+                return root
+            },
+        ],
+
+        fullFileSystemFiltered: [
+            (s) => [s.fullFileSystem, (_, props) => props.root],
+            (fullFileSystem, root): TreeDataItem[] => {
+                if (root?.includes('://')) {
+                    const parts = root.split('://')
+                    const type = parts[0]
+                    const ref = parts.slice(1).join('://')
+                    const firstfolder = fullFileSystem.find((item) => item.id == `${type}://`)
+                    if (firstfolder) {
+                        if (ref) {
+                            const found = findInProjectTree(`project-folder/${ref}`, firstfolder.children ?? [])
+                            return found?.children ?? []
+                        }
+                        return firstfolder.children ?? []
+                    }
+                    return []
+                }
+                if (!root) {
+                    return fullFileSystem
+                }
+                return fullFileSystem.filter((item) => item.id.startsWith(root))
+            },
+        ],
+
         treeTableColumnOffsets: [
             (s) => [s.treeTableColumnSizes],
             (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
@@ -1048,7 +1141,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
     })),
     afterMount(({ actions, values, props }) => {
-        actions.loadFolder('')
+        if (props.root) {
+            if (props.root.startsWith('project://')) {
+                actions.loadFolder(props.root.slice('project://'.length))
+            }
+        } else {
+            actions.loadFolder('')
+        }
         if (values.projectTreeRef) {
             actions.assureVisibility(values.projectTreeRef)
         }

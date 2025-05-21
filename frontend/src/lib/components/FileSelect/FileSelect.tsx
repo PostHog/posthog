@@ -11,7 +11,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-export interface FolderSelectProps {
+export interface FileSelectProps {
     /** The folder to select */
     value?: string
     /** Callback when a folder is selected */
@@ -25,9 +25,9 @@ export interface FolderSelectProps {
 /** Input component for selecting a folder */
 let counter = 0
 
-export function FolderSelect({ value, onChange, root, className }: FolderSelectProps): JSX.Element {
-    const [key] = useState(() => `folder-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root }
+export function FileSelect({ value, onChange, root, className }: FileSelectProps): JSX.Element {
+    const [key] = useState(() => `file-select-${counter++}`)
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: false, root }
 
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))

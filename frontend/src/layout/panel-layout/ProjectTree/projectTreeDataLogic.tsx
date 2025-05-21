@@ -6,7 +6,12 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { getDefaultTreeNew } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import {
+    getDefaultTreeDataManagement,
+    getDefaultTreeGames,
+    getDefaultTreeNew,
+    getDefaultTreeProducts,
+} from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
@@ -16,7 +21,7 @@ import {
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
@@ -349,20 +354,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.folderStates],
             (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
         ],
-        treeItemsNew: [
-            (s) => [s.featureFlags, s.folderStates, s.users],
-            (featureFlags, folderStates, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeNew().filter(
-                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
-                    ),
-                    checkedItems: {},
-                    folderStates,
-                    root: 'new',
-                    users,
-                    foldersFirst: false,
-                }),
-        ],
         viableItems: [
             // Combine savedItems with pendingActions
             (s) => [s.savedItems, s.pendingActions],
@@ -483,6 +474,55 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : sortedItems.find((item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref)
                 return treeItem ?? null
             },
+        ],
+        staticTreeItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): TreeDataItem[] => {
+                const convert = (imports: FileSystemImport[], root: string): TreeDataItem[] =>
+                    convertFileSystemEntryToTreeDataItem({
+                        root,
+                        imports: imports.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
+                        checkedItems: {},
+                        folderStates: {},
+                        users: {},
+                        foldersFirst: false,
+                    })
+                const staticItems: TreeDataItem[] = [
+                    {
+                        id: 'products://',
+                        name: 'products://',
+                        displayName: <>Products</>,
+                        record: { type: 'folder', path: '' },
+                        children: convert(getDefaultTreeProducts(), 'products://'),
+                    },
+                    {
+                        id: 'data-management://',
+                        name: 'data-management://',
+                        displayName: <>Data management</>,
+                        record: { type: 'folder', path: '' },
+                        children: convert(getDefaultTreeDataManagement(), 'data-management://'),
+                    },
+                    {
+                        id: 'games://',
+                        name: 'games://',
+                        displayName: <>Games</>,
+                        record: { type: 'folder', path: '' },
+                        children: convert(getDefaultTreeGames(), 'games://'),
+                    },
+                    {
+                        id: 'new://',
+                        name: 'new://',
+                        displayName: <>New</>,
+                        record: { type: 'folder', path: '' },
+                        children: convert(getDefaultTreeNew(), 'new://'),
+                    },
+                ]
+                return staticItems
+            },
+        ],
+        treeItemsNew: [
+            (s) => [s.staticTreeItems],
+            (staticTreeItems) => staticTreeItems.find((item) => item.id === 'new://')?.children ?? [],
         ],
     }),
     listeners(({ actions, values }) => ({
