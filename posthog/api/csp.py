@@ -11,23 +11,23 @@ from django.utils.html import escape
 
 logger = structlog.get_logger(__name__)
 
-"""
-| Normalized Key        | report-to format                     | report-uri format                  |
-| --------------------- | ------------------------------------ | ---------------------------------- |
-| `document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
-| `referrer`            | `body.referrer`                      | `csp-report.referrer`              |
-| `violated_directive`  | same as `effectiveDirective`         | `csp-report.violated-directive`    |
-| `effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
-| `original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
-| `disposition`         | `body.disposition`                   | `csp-report.disposition`           |
-| `blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
-| `line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
-| `column_number`       | `body.columnNumber`                  | `csp-report.column-number`         |
-| `source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
-| `status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
-| `script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
-| `user_agent`          | top-level `user_agent`               | not available                      |
-| `report_type`         | top-level `type`                     | `"csp-violation"` constant         |
+CSP_REPORT_TYPES_MAPPING_TABLE = """
+| Normalized Key             | report-to format                     | report-uri format                  |
+| -------------------------- | ------------------------------------ | ---------------------------------- |
+| `$csp_document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
+| `$csp_referrer`            | `body.referrer`                      | `csp-report.referrer`              |
+| `$csp_violated_directive`  | same as `effectiveDirective`         | `csp-report.violated-directive`    |
+| `$csp_effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
+| `$csp_original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
+| `$csp_disposition`         | `body.disposition`                   | `csp-report.disposition`           |
+| `$csp_blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
+| `$csp_line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
+| `$csp_column_number`       | `body.columnNumber`                  | `csp-report.column-number`         |
+| `$csp_source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
+| `$csp_status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
+| `$csp_script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
+| `$csp_user_agent`          | top-level `user_agent`               | not available                      |
+| `$csp_report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
 
 

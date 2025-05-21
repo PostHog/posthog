@@ -4994,6 +4994,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -6167,6 +6170,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedPreAggregatedTables": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -13857,6 +13863,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -14547,6 +14556,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -19211,6 +19223,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

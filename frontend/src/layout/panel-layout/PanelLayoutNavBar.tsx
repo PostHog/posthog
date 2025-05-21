@@ -413,7 +413,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <div className="border-b border-primary h-px my-1" />
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
-                                    <div className={!isLayoutNavCollapsed ? 'pt-1' : ''}>
+                                    <div
+                                        className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
+                                    >
                                         <Shortcuts />
                                     </div>
                                 ) : (

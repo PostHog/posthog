@@ -18,7 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeGames, getDefaultTreeNew, getDefaultTreeProducts } from './defaultTree'
+import { getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
@@ -898,34 +898,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     foldersFirst: false,
                 }),
         ],
-        treeItemsProducts: [
-            (s) => [s.featureFlags, s.folderStates, s.users],
-            (featureFlags, folderStates, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeProducts().filter(
-                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
-                    ),
-                    checkedItems: {},
-                    folderStates,
-                    root: 'explore',
-                    users,
-                    foldersFirst: false,
-                }),
-        ],
-        treeItemsGames: [
-            (s) => [s.featureFlags, s.folderStates, s.users],
-            (featureFlags, folderStates, users): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeGames().filter(
-                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
-                    ),
-                    checkedItems: {},
-                    folderStates,
-                    root: 'explore',
-                    users,
-                    foldersFirst: false,
-                }),
-        ],
         recentTreeItems: [
             (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
             (recentResults, recentResultsLoading, folderStates, checkedItems, users): TreeDataItem[] => {
@@ -995,7 +967,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        treeItemsProject: [
+        projectTreeItems: [
             (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
             (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
@@ -1015,45 +987,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     ]
                 }
                 return projectTree
-            },
-        ],
-        treeItemsCombined: [
-            (s) => [s.treeItemsProject, s.treeItemsProducts, s.treeItemsNew],
-            (project, products, allNew): TreeDataItem[] => {
-                function addNewLabel(item: TreeDataItem): TreeDataItem {
-                    if (item.children) {
-                        return { ...item, children: item.children?.map(addNewLabel) }
-                    }
-                    const pathParts = splitPath(item.record?.path ?? '')
-                    const name = `New ${pathParts.pop()?.toLowerCase()}`
-                    const newPath = joinPath([...pathParts, name])
-                    return {
-                        ...item,
-                        name: name,
-                        record: { ...item.record, path: newPath },
-                    }
-                }
-
-                return [
-                    {
-                        id: 'project',
-                        name: 'Project',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: project,
-                    },
-                    {
-                        id: 'products',
-                        name: 'Products',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: products,
-                    },
-                    {
-                        id: 'new',
-                        name: 'New',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: allNew.map(addNewLabel),
-                    },
-                ]
             },
         ],
         // TODO: use treeData + some other logic to determine the keys

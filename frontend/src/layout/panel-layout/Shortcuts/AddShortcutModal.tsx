@@ -10,9 +10,8 @@ import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export function CombinedTree(): JSX.Element {
-    const { treeItemsCombined } = useValues(projectTreeLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
-    const { selectedItem } = useValues(shortcutsLogic)
+    const { selectedItem, treeItemsCombined } = useValues(shortcutsLogic)
     const { setSelectedItem } = useActions(shortcutsLogic)
     const { loadFolderIfNotLoaded } = useActions(projectTreeLogic)
 

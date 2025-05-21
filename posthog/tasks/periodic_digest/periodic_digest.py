@@ -2,14 +2,14 @@ import dataclasses
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
+from collections import defaultdict
 
 import structlog
 from celery import shared_task
 from dateutil import parser
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
-
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
@@ -18,10 +18,13 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.session_recordings.models.session_recording_playlist import (
-    SessionRecordingPlaylist,
-)
+
 from posthog.tasks.email import NotificationSetting, NotificationSettingType
+from posthog.tasks.periodic_digest.playlist_digests import (
+    CountedPlaylist,
+    get_teams_with_new_playlists,
+    get_teams_with_interesting_playlists,
+)
 from posthog.tasks.report_utils import (
     OrgDigestReport,
     TeamDigestReport,
@@ -47,8 +50,6 @@ class periodicDigestReport:
 
 
 def get_teams_for_digest() -> list[Team]:
-    from django.db.models import Q
-
     return list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
@@ -66,24 +67,6 @@ def get_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
 
 def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
     return EventDefinition.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
-
-
-def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
-    return (
-        SessionRecordingPlaylist.objects.filter(
-            created_at__gt=begin,
-            created_at__lte=end,
-        )
-        .exclude(
-            name__isnull=True,
-            derived_name__isnull=True,
-        )
-        .exclude(
-            name="",
-            derived_name=None,
-        )
-        .values("team_id", "name", "short_id", "derived_name")
-    )
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
@@ -131,8 +114,18 @@ def get_teams_with_new_feature_flags(end: datetime, begin: datetime) -> QuerySet
     )
 
 
-def convert_team_digest_items_to_dict(items: QuerySet) -> dict[int, QuerySet]:
-    return {team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()}
+def convert_team_digest_items_to_dict(items: list[CountedPlaylist] | QuerySet) -> dict[int, Any]:
+    if hasattr(items, "filter") and hasattr(items, "values_list"):
+        # it's a queryset
+        return {
+            team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()
+        }
+    else:
+        # it's a list of CountedPlaylist objects
+        grouped = defaultdict(list)
+        for item in items:
+            grouped[item.team_id].append(item)
+        return dict(grouped)
 
 
 def count_non_zero_digest_items(report: periodicDigestReport) -> int:
@@ -152,6 +145,7 @@ def _get_all_digest_data(period_start: datetime, period_end: datetime) -> dict[s
         "teams_with_new_dashboards": get_teams_with_new_dashboards(period_end, period_start),
         "teams_with_new_event_definitions": get_teams_with_new_event_definitions(period_end, period_start),
         "teams_with_new_playlists": get_teams_with_new_playlists(period_end, period_start),
+        "teams_with_interesting_playlists": get_teams_with_interesting_playlists(period_end),
         "teams_with_new_experiments_launched": get_teams_with_new_experiments_launched(period_end, period_start),
         "teams_with_new_experiments_completed": get_teams_with_new_experiments_completed(period_end, period_start),
         "teams_with_new_external_data_sources": get_teams_with_new_external_data_sources(period_end, period_start),
@@ -171,7 +165,12 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             for event_definition in all_digest_data["teams_with_new_event_definitions"].get(team.id, [])
         ],
         new_playlists=[
-            {"name": playlist.get("name") or playlist.get("derived_name", "Untitled"), "id": playlist.get("short_id")}
+            {
+                "name": playlist.name or playlist.derived_name or "Untitled",
+                "id": playlist.short_id,
+                "count": playlist.count,
+                "has_more_available": playlist.has_more_available,
+            }
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
         ],
         new_experiments_launched=[

@@ -2386,7 +2386,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
@@ -2422,7 +2422,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp?token={self.team.api_token}",
+            f"/report?token={self.team.api_token}",
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
@@ -2431,7 +2431,7 @@ class TestCapture(BaseTest):
 
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data="this is not valid json",
             content_type="application/csp-report",
         )
@@ -2444,7 +2444,7 @@ class TestCapture(BaseTest):
         invalid_csp_report = {"not-a-csp-report": "invalid format"}
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(invalid_csp_report),
             content_type="application/csp-report",
         )
@@ -2455,7 +2455,7 @@ class TestCapture(BaseTest):
 
     def test_integration_csp_report_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data="this is not valid json}",
             content_type="application/csp-report",
         )
@@ -2472,7 +2472,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(invalid_format),
             content_type="application/csp-report",
         )
@@ -2491,7 +2491,7 @@ class TestCapture(BaseTest):
         }
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(valid_csp_report),
             content_type="application/json",  # Not application/csp-report
         )
@@ -2520,7 +2520,7 @@ class TestCapture(BaseTest):
         ]
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
@@ -2572,7 +2572,7 @@ class TestCapture(BaseTest):
         ]
 
         response = self.client.post(
-            f"/csp/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}",
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )

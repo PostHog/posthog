@@ -1529,8 +1529,7 @@ email@example.org,
             response.json(),
         )
 
-    @patch("posthog.api.cohort.report_user_action")
-    def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
+    def test_duplicating_dynamic_cohort_as_static(self):
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -1619,6 +1618,139 @@ email@example.org,
         self.assertEqual(new_cohort.is_calculating, False)
         self.assertEqual(new_cohort.errors_calculating, 0)
         self.assertEqual(new_cohort.count, 2)
+
+    def test_duplicating_dynamic_cohort_as_dynamic(self):
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=12),
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "$initial_geoip_subdivision_1_name",
+                                        "type": "person",
+                                        "value": "have_property",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "value_property": ["New South Wales"],
+                                    },
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "have_property",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "value_property": ["@byda.com.au"],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        payload = {
+            "id": cohort_id,
+            "name": "cohort A (dynamic copy)",
+            "description": "",
+            "groups": [],
+            "query": None,
+            "is_calculating": False,
+            "is_static": False,
+            "errors_calculating": 0,
+            "experiment_set": [],
+            "count": 2,
+            "deleted": False,
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$initial_geoip_subdivision_1_name",
+                                    "type": "person",
+                                    "value": "have_property",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "value_property": ["New South Wales"],
+                                },
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "have_property",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "value_property": ["@byda.com.au"],
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data=payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        cohort_data = response.json()
+        self.assertIsNotNone(cohort_data.get("id"))
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+        self.assertEqual(new_cohort.is_static, False)
+        self.assertEqual(new_cohort.name, "cohort A (dynamic copy)")
 
     def test_deletion_of_cohort_cancels_async_deletion(self):
         cohort = Cohort.objects.create(
