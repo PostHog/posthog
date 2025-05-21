@@ -198,7 +198,8 @@ export const productUrls = {
     ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
-    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
+    experimentsSharedMetric: (id: string | number, action?: string): string =>
+        action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,

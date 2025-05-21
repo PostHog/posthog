@@ -18,7 +18,8 @@ export const manifest: ProductManifest = {
         ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
         experiments: (): string => '/experiments',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
-        experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
+        experimentsSharedMetric: (id: string | number, action?: string): string =>
+            action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     },
     fileSystemTypes: {
         experiment: {
