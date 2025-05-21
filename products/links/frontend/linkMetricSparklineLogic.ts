@@ -31,19 +31,13 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBar,
                         },
+
+                        // TODO: Update to $linkclick event once ready
                         series: [
                             {
                                 kind: NodeKind.EventsNode,
                                 event: '$pageview',
                                 name: '$pageview',
-                                // properties: [
-                                //     {
-                                //         key: '$current_url',
-                                //         value: ['http://localhost:8000/project/1/feature_flags/136'],
-                                //         operator: PropertyOperator.Exact,
-                                //         type: PropertyFilterType.Event,
-                                //     },
-                                // ],
                             },
                         ],
                     }
