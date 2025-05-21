@@ -1,6 +1,7 @@
 // This is separate from utils.ts because here we don't include `funnelLogic`, `retentionLogic`, etc
 
 import {
+    CalendarHeatmapFilterType,
     ChartDisplayType,
     FilterType,
     FunnelsFilterType,
@@ -47,6 +48,9 @@ export function filterTrendsClientSideParams(
 
 export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
     return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
+}
+export function isCalendarHeatmapFilter(filters?: Partial<FilterType>): filters is Partial<CalendarHeatmapFilterType> {
+    return filters?.insight === InsightType.CALENDAR_HEATMAP
 }
 export function isFunnelsFilter(filters?: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
     return filters?.insight === InsightType.FUNNELS
