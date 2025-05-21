@@ -1,1 +1,1 @@
-0735_alter_insightvariable_unique_together
+0736_alter_insightvariable_unique_together

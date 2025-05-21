@@ -3,7 +3,6 @@ from unittest.mock import ANY, MagicMock, patch
 from uuid import uuid4
 import json
 from parameterized import parameterized
-
 from django.utils.timezone import now
 from freezegun import freeze_time
 import random
@@ -18,6 +17,8 @@ from posthog.models import (
 )
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
+from posthog.models.signals import mute_selected_signals
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
@@ -58,10 +59,11 @@ class TestPeriodicDigestReport(APIBaseTest):
                 name="Test Event",
             )
 
-            # Create playlists - one with name, one without name, one with empty string name
-            playlist = SessionRecordingPlaylist.objects.create(
+            # Create playlists
+            explicit_collection = SessionRecordingPlaylist.objects.create(
                 team=self.team,
-                name="Test Playlist",
+                name="Test Explicit Collection",
+                type="collection",
             )
             # This should be excluded from the digest because it has no name and no derived name
             SessionRecordingPlaylist.objects.create(
@@ -74,6 +76,29 @@ class TestPeriodicDigestReport(APIBaseTest):
                 team=self.team,
                 name="",
                 derived_name="Derived Playlist",
+                type="collection",
+            )
+            explicit_saved_filter = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Test Saved Filter",
+                type="filters",
+            )
+            # a playlist with no type is a collection if it has any pinned items
+            implicit_collection = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Test Implicit Collection",
+            )
+
+            with mute_selected_signals():
+                SessionRecordingPlaylistItem.objects.create(
+                    playlist=implicit_collection,
+                    recording=SessionRecording.objects.create(team=self.team, session_id="123", distinct_id="123"),
+                )
+
+            # a playlist with no type is a saved filter if it has no pinned items
+            implicit_saved_filter = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Test Implicit Saved Filter",
             )
 
             # Create experiments
@@ -165,16 +190,88 @@ class TestPeriodicDigestReport(APIBaseTest):
                         ],
                         "new_playlists": [
                             {
-                                "name": "Test Playlist",
-                                "id": playlist.short_id,
+                                "name": "Test Implicit Collection",
+                                "id": implicit_collection.short_id,
+                                "count": 1,
+                                "has_more_available": False,
+                                "type": "collection",
+                                "url_path": f"/replay/playlists/{implicit_collection.short_id}",
+                            },
+                            {
+                                "name": "Test Explicit Collection",
+                                "id": explicit_collection.short_id,
                                 "count": None,
                                 "has_more_available": False,
+                                "type": "collection",
+                                "url_path": f"/replay/playlists/{explicit_collection.short_id}",
                             },
                             {
                                 "name": "Derived Playlist",
                                 "id": derived_playlist.short_id,
                                 "count": None,
                                 "has_more_available": False,
+                                "type": "collection",
+                                "url_path": f"/replay/playlists/{derived_playlist.short_id}",
+                            },
+                            {
+                                "name": "Test Saved Filter",
+                                "id": explicit_saved_filter.short_id,
+                                "count": None,
+                                "has_more_available": False,
+                                "type": "filters",
+                                "url_path": f"/replay/home/?filterId={explicit_saved_filter.short_id}",
+                            },
+                            {
+                                "name": "Test Implicit Saved Filter",
+                                "id": implicit_saved_filter.short_id,
+                                "count": None,
+                                "has_more_available": False,
+                                "type": "filters",
+                                "url_path": f"/replay/home/?filterId={implicit_saved_filter.short_id}",
+                            },
+                        ],
+                        "interesting_collections": [
+                            {
+                                "name": "Test Implicit Collection",
+                                "id": implicit_collection.short_id,
+                                "count": 1,
+                                "has_more_available": False,
+                                "type": "collection",
+                                "url_path": f"/replay/playlists/{implicit_collection.short_id}",
+                            },
+                            {
+                                "name": "Test Explicit Collection",
+                                "id": explicit_collection.short_id,
+                                "count": None,
+                                "has_more_available": False,
+                                "type": "collection",
+                                "url_path": f"/replay/playlists/{explicit_collection.short_id}",
+                            },
+                            {
+                                "name": "Derived Playlist",
+                                "id": derived_playlist.short_id,
+                                "count": None,
+                                "has_more_available": False,
+                                "type": "collection",
+                                "url_path": f"/replay/playlists/{derived_playlist.short_id}",
+                            },
+                        ],
+                        "interesting_saved_filters": [
+                            {
+                                "name": "Test Saved Filter",
+                                "id": explicit_saved_filter.short_id,
+                                "count": None,
+                                "has_more_available": False,
+                                "type": "filters",
+                                "url_path": f"/replay/home/?filterId={explicit_saved_filter.short_id}",
+                            },
+                            {
+                                "name": "Test Implicit Saved Filter",
+                                "id": implicit_saved_filter.short_id,
+                                "count": None,
+                                "has_more_available": False,
+                                "type": "filters",
+                                "url_path": f"/replay/home/?filterId={implicit_saved_filter.short_id}",
                             },
                         ],
                         "new_experiments_launched": [
@@ -214,7 +311,7 @@ class TestPeriodicDigestReport(APIBaseTest):
                             }
                         ],
                     },
-                    "digest_items_with_data": 8,
+                    "digest_items_with_data": 10,
                 }
             ],
             "template_name": "periodic_digest_report",
@@ -236,7 +333,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "deployment_infrastructure": "unknown",
             "helm": {},
             "instance_tag": "none",
-            "total_digest_items_with_data": 8,
+            "total_digest_items_with_data": 10,
         }
 
         mock_capture.assert_called_once_with(
@@ -311,6 +408,8 @@ class TestPeriodicDigestReport(APIBaseTest):
                         ],
                         "new_event_definitions": [],
                         "new_playlists": [],
+                        "interesting_collections": [],
+                        "interesting_saved_filters": [],
                         "new_experiments_launched": [],
                         "new_experiments_completed": [],
                         "new_external_data_sources": [],

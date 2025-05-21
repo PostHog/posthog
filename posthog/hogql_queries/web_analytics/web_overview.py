@@ -24,6 +24,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
+    preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
