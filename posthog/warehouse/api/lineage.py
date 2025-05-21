@@ -5,6 +5,8 @@ from django.db.models import Q
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+import uuid
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -27,34 +29,50 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         else:
             query &= Q(table_id=model_id)
 
-        # Get all paths for this model
         paths = DataWarehouseModelPath.objects.filter(query)
 
-        # Build lineage graph
-        lineage = {"nodes": [], "edges": []}
+        # Build DAG structure
+        dag = {"nodes": [], "edges": []}
+
+        # Track unique nodes
+        seen_nodes = set()
+
+        # Get all saved query IDs from paths
+        saved_query_ids = set()
+        for path in paths:
+            if isinstance(path.path, list):
+                components = path.path
+            else:
+                components = path.path.split(".")
+            saved_query_ids.update([c for c in components if c not in ["postgres", "supabase", "sharks_person"]])
+
+        # Fetch all saved queries in one query
+        saved_queries = {str(q.id): q.name for q in DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids)}
 
         for path in paths:
-            # Split path into components
-            components = path.path.split(".")
+            if isinstance(path.path, list):
+                components = path.path
+            else:
+                components = path.path.split(".")
 
             # Add nodes
             for i, component in enumerate(components):
-                node_id = f"{component}_{i}"
-                if not any(n["id"] == node_id for n in lineage["nodes"]):
-                    lineage["nodes"].append(
-                        {
-                            "id": node_id,
-                            "name": component,
-                            "type": "root" if i == 0 else "intermediate" if i < len(components) - 1 else "leaf",
-                        }
-                    )
+                node_id = component
+                if node_id not in seen_nodes:
+                    seen_nodes.add(node_id)
+                    node_type = "external" if component in ["postgres", "supabase"] else "saved_query"
+                    node_name = saved_queries.get(component, component) if node_type == "saved_query" else component
+                    dag["nodes"].append({"id": node_id, "type": node_type, "name": node_name})
 
                 # Add edges
                 if i > 0:
-                    prev_node_id = f"{components[i-1]}_{i-1}"
-                    lineage["edges"].append({"source": prev_node_id, "target": node_id})
+                    source = components[i - 1]
+                    target = component
+                    edge = {"source": source, "target": target}
+                    if edge not in dag["edges"]:
+                        dag["edges"].append(edge)
 
-        return Response(lineage)
+        return Response(dag)
 
     @action(detail=False, methods=["GET"])
     def get_upstream(self, request, parent_lookup_team_id=None):
@@ -73,11 +91,46 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         paths = DataWarehouseModelPath.objects.filter(query)
 
-        upstream = set()
-        for path in paths:
-            if isinstance(path.path, str):
-                components = path.path.split(".")
-                if len(components) > 1:
-                    upstream.add(components[0])  # First component is always upstream
+        # print("\n=== PATHS ===")
+        # for path in paths:
+        #     print(f"Path: {path.path}")
+        #     print(f"Team: {path.team}")
+        #     print(f"Saved Query ID: {path.saved_query_id}")
+        #     print(f"Table ID: {path.table_id}")
+        #     print("---")
+        # print("=== END PATHS ===\n")
 
-        return Response(list(upstream))
+        # Build DAG structure
+        dag = {"nodes": [], "edges": []}
+
+        # Track unique nodes
+        seen_nodes = set()
+
+        for path in paths:
+            if isinstance(path.path, list):
+                components = path.path
+            else:
+                components = path.path.split(".")
+
+            # Add nodes
+            for i, component in enumerate(components):
+                node_id = component
+                if node_id not in seen_nodes:
+                    seen_nodes.add(node_id)
+                    node_type = "external" if component in ["postgres", "supabase"] else "saved_query"
+                    try:
+                        uuid_obj = uuid.UUID(component)
+                        name = DataWarehouseSavedQuery.objects.get(id=uuid_obj).name
+                    except (ValueError, DataWarehouseSavedQuery.DoesNotExist):
+                        name = component
+                    dag["nodes"].append({"id": node_id, "type": node_type, "name": name})
+
+                # Add edges
+                if i > 0:
+                    source = components[i - 1]
+                    target = component
+                    edge = {"source": source, "target": target}
+                    if edge not in dag["edges"]:
+                        dag["edges"].append(edge)
+
+        return Response(dag)
