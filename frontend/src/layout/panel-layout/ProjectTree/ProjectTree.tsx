@@ -27,7 +27,7 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useRef } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -47,8 +47,10 @@ export interface ProjectTreeProps {
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
+let counter = 0
 
 export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTreeProps): JSX.Element {
+    const [uniqueKey] = useState(() => `folder-select-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
     const { setLastNewFolder } = useActions(projectTreeDataLogic)
     const {
@@ -69,7 +71,7 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
-    } = useValues(projectTreeLogic({ key: logicKey ?? PROJECT_TREE_KEY, root }))
+    } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const {
         createFolder,
         rename,
@@ -92,7 +94,7 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
         setSelectMode,
         setSearchTerm,
         clearSearch,
-    } = useActions(projectTreeLogic({ key: logicKey ?? PROJECT_TREE_KEY, root }))
+    } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const { openMoveToModal } = useActions(moveToLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
 
@@ -355,7 +357,7 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? PROJECT_TREE_KEY)
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -365,7 +367,7 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? PROJECT_TREE_KEY)
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
@@ -462,7 +464,7 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
                 } else {
                     const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
                     if (isValidMove) {
-                        moveItem(oldItem, newPath, false, logicKey ?? PROJECT_TREE_KEY)
+                        moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
                     }
                 }
             }}

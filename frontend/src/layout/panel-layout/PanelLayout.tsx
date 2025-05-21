@@ -153,15 +153,11 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         <ProjectTree root="project://" sortMethod="folder" logicKey={PROJECT_TREE_KEY} />
                     )}
                     {activePanelIdentifier === 'Recent' && (
-                        <ProjectTree root="project://" sortMethod="recent" logicKey="recent-tree" />
+                        <ProjectTree root="project://" sortMethod="recent" logicKey={PROJECT_TREE_KEY} />
                     )}
-                    {activePanelIdentifier === 'Products' && (
-                        <ProjectTree root="products://" logicKey="products-tree" />
-                    )}
-                    {activePanelIdentifier === 'Shortcuts' && (
-                        <ProjectTree root="shortcuts://" logicKey="shortcuts-tree" />
-                    )}
-                    {activePanelIdentifier === 'Games' && <ProjectTree root="games://" logicKey="games-tree" />}
+                    {activePanelIdentifier === 'Products' && <ProjectTree root="products://" />}
+                    {activePanelIdentifier === 'Shortcuts' && <ProjectTree root="shortcuts://" />}
+                    {activePanelIdentifier === 'Games' && <ProjectTree root="games://" />}
                 </PanelLayoutNavBar>
             </div>
 
