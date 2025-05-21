@@ -91,7 +91,12 @@ class AnthropicProvider:
         return prepared_messages
 
     def stream_response(
-        self, system: str, messages: list[MessageParam], thinking: bool = False
+        self,
+        system: str,
+        messages: list[MessageParam],
+        thinking: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -102,6 +107,10 @@ class AnthropicProvider:
             reasoning_on = True
         else:
             reasoning_on = False
+
+        # Resolve runtime overrides or fall back to config defaults
+        effective_temperature = temperature if temperature is not None else AnthropicConfig.TEMPERATURE
+        effective_max_tokens = max_tokens if max_tokens is not None else AnthropicConfig.MAX_TOKENS
 
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
@@ -115,11 +124,11 @@ class AnthropicProvider:
             if reasoning_on:
                 stream = self.client.messages.create(
                     messages=formatted_messages,
-                    max_tokens=AnthropicConfig.MAX_TOKENS,
+                    max_tokens=effective_max_tokens,
                     model=self.model_id,
                     system=system_prompt,
                     stream=True,
-                    temperature=AnthropicConfig.TEMPERATURE,
+                    temperature=effective_temperature,
                     thinking=ThinkingConfigEnabledParam(
                         type="enabled", budget_tokens=AnthropicConfig.MAX_THINKING_TOKENS
                     ),
@@ -127,11 +136,11 @@ class AnthropicProvider:
             else:
                 stream = self.client.messages.create(
                     messages=formatted_messages,
-                    max_tokens=AnthropicConfig.MAX_TOKENS,
+                    max_tokens=effective_max_tokens,
                     model=self.model_id,
                     system=system_prompt,
                     stream=True,
-                    temperature=AnthropicConfig.TEMPERATURE,
+                    temperature=effective_temperature,
                 )
         except anthropic.APIError as e:
             logger.exception(f"Anthropic API error: {e}")

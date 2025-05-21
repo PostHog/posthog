@@ -1928,7 +1928,7 @@ test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 
     await createPerson(hub, team, ['distinct_id1'])
-    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {}, 1)
+    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
 
     await processEvent(
         'distinct_id1',

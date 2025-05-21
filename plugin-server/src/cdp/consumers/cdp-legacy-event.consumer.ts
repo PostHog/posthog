@@ -20,6 +20,10 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
     constructor(hub: Hub) {
         super(hub, KAFKA_EVENTS_JSON, 'clickhouse-plugin-server-async-onevent')
+
+        logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
+            pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
+        })
     }
 
     public async processEvent(invocation: HogFunctionInvocationGlobals) {
@@ -79,6 +83,11 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                                 const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
 
                                 if (!team) {
+                                    return
+                                }
+
+                                const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
+                                if (pluginConfigs.length === 0) {
                                     return
                                 }
                                 events.push(

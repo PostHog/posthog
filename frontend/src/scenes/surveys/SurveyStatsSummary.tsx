@@ -1,5 +1,6 @@
 import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
@@ -157,24 +158,47 @@ function SurveyStatsStackedBar({
 }
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
-    const { filterSurveyStatsByDistinctId } = useValues(surveyLogic)
+    const { filterSurveyStatsByDistinctId, processedSurveyStats, survey } = useValues(surveyLogic)
     const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
 
     return (
-        <div>
+        <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 justify-between">
-                <h3>Survey performance</h3>
-                <div className="flex items-center gap-2">
-                    <LemonLabel>
-                        Count each person once
-                        <LemonSwitch
-                            checked={filterSurveyStatsByDistinctId}
-                            onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
-                            tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
-                        />
-                    </LemonLabel>
-                </div>
+                <h3 className="mb-0">Survey performance</h3>
+                {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
+                    <div className="flex items-center gap-2">
+                        <LemonLabel>
+                            Count each person once
+                            <LemonSwitch
+                                checked={filterSurveyStatsByDistinctId}
+                                onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
+                                tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
+                            />
+                        </LemonLabel>
+                    </div>
+                )}
             </div>
+            {survey.start_date && (
+                <div className="flex items-center text-sm text-secondary">
+                    <div className="flex gap-2 items-center">
+                        <span className="inline-flex items-center gap-1">
+                            Started: <TZLabel time={survey.start_date} />
+                        </span>
+                        <span className="text-border-dark">•</span>
+                        {survey.end_date ? (
+                            <span className="inline-flex items-center gap-1">
+                                <span className="h-2 w-2 rounded-full bg-danger/50" />
+                                Ended: <TZLabel time={survey.end_date} />
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1 text-success">
+                                <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
+                                Active
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
             {children}
         </div>
     )
@@ -225,7 +249,7 @@ function _SurveyStatsSummary(): JSX.Element {
     if (!processedSurveyStats) {
         return (
             <SurveyStatsContainer>
-                <div className="text-center text-text-secondary">No data available for this survey yet.</div>
+                <div className="text-text-secondary text-left">No data available for this survey yet.</div>
             </SurveyStatsContainer>
         )
     }
