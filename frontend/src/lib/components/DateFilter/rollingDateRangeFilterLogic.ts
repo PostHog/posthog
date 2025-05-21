@@ -13,6 +13,7 @@ const dateOptionsMap = {
     w: 'weeks',
     d: 'days',
     h: 'hours',
+    M: 'minutes',
 } as const
 
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
@@ -105,6 +106,8 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                         return `-${counter}d`
                     case 'hours':
                         return `-${counter}h`
+                    case 'minutes':
+                        return `-${counter}M`
                     default:
                         return `-${counter}d`
                 }
