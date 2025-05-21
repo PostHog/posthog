@@ -370,3 +370,32 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
+    otel-collector:
+        image: otel/opentelemetry-collector-contrib:latest
+        container_name: otel-collector-local
+        command: [--config=/etc/otel-collector-config.yaml]
+        volumes:
+            - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+        ports:
+            - '4317:4317' # OTLP gRPC receiver (mapped to host)
+            - '4318:4318' # OTLP HTTP receiver (mapped to host)
+            - '13133:13133' # health_check extension
+            - '55679:55679' # zpages extension
+        depends_on:
+            - jaeger
+        networks:
+            - otel_network
+
+    jaeger:
+        image: jaegertracing/all-in-one:latest
+        container_name: jaeger-local
+        ports:
+            - '16686:16686' # Jaeger UI
+            - '14268:14268' # Accepts jaeger.thrift directly from clients (optional for this flow)
+            - '14250:14250' # Accepts model.proto (optional for this flow)
+        networks:
+            - otel_network
+
+networks:
+    otel_network:
+        driver: bridge
