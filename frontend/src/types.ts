@@ -4213,6 +4213,8 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+    | 'warehouse_saved_query'
+    | 'warehouse_table'
 
 export enum AccessControlLevel {
     None = 'none',
@@ -4433,6 +4435,7 @@ export interface DataWarehouseSavedQuery {
     status?: string
     latest_error: string | null
     latest_history_id?: string
+    managed?: boolean
 }
 
 export interface DataWarehouseViewLink {

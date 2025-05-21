@@ -45,7 +45,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -56,7 +57,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -92,7 +94,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -103,12 +106,14 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -124,7 +129,8 @@
   SELECT 1
   WHERE 0
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -182,7 +188,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -193,7 +200,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -230,7 +238,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -241,7 +250,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -278,7 +288,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -289,12 +300,14 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -352,7 +365,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -363,7 +377,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -400,7 +415,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -411,7 +427,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -448,7 +465,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -459,12 +477,14 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -521,7 +541,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -532,7 +553,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -568,7 +590,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -579,7 +602,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC
      UNION ALL SELECT tuple(events.uuid, events.event, events.distinct_id, events.properties) AS `tuple(events.uuid, events.event, events.distinct_id, events.properties)`,
@@ -615,7 +639,8 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN
        (SELECT person.id AS id,
                toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -626,12 +651,14 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE equals(events.team_id, 99999)
      ORDER BY timestamp DESC)
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -677,7 +704,8 @@
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                 allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -688,11 +716,13 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                    allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -739,7 +769,8 @@
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                 allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -750,11 +781,13 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
+                                                                                                                                                                                                                                                                    allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)
   ORDER BY timestamp DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
