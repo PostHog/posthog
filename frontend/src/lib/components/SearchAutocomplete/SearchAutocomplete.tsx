@@ -297,7 +297,12 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                         ) : null}
                                         <ListBox.Item asChild key={item.value}>
                                             <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
-                                                {item.icon} {item.label}{' '}
+                                                {item.icon ? (
+                                                    <div className="flex items-center justify-center size-4 text-tertiary">
+                                                        {item.icon}
+                                                    </div>
+                                                ) : null}
+                                                {item.label}
                                                 {item.hint ? (
                                                     <span className="text-xxs text-tertiary italic pt-1">
                                                         {item.hint}
