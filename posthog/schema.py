@@ -1404,10 +1404,12 @@ class LifecycleToggle(StrEnum):
 
 
 class LogSeverityLevel(StrEnum):
+    TRACE = "trace"
     DEBUG = "debug"
     INFO = "info"
     WARN = "warn"
     ERROR = "error"
+    FATAL = "fatal"
 
 
 class OrderBy1(StrEnum):

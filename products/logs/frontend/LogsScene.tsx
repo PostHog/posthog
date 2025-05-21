@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,7 +34,7 @@ export function LogsScene(): JSX.Element {
     const timeseries = Object.entries(
         sparkline.reduce((accumulator, currentItem) => {
             if (currentItem.time !== lastTime) {
-                labels.push(currentItem.time)
+                labels.push(humanFriendlyDetailedTime(currentItem.time))
                 lastTime = currentItem.time
                 i++
             }
@@ -44,28 +45,30 @@ export function LogsScene(): JSX.Element {
             accumulator[key][i] = currentItem.count
             return accumulator
         }, {})
-    ).map(([level, data]) => ({
-        name: level,
-        values: data as number[],
-        color: {
-            error: 'danger',
-            warn: 'warning',
-            info: 'brand-blue',
-            debug: 'muted',
-        }[level],
-    }))
+    )
+        .map(([level, data]) => ({
+            name: level,
+            values: data as number[],
+            color: {
+                fatal: 'danger-dark',
+                error: 'danger',
+                warn: 'warning',
+                info: 'brand-blue',
+                debug: 'muted',
+                trace: 'muted-alt',
+            }[level],
+        }))
+        .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
             <>
-                {sparkline.length > 0 && (
-                    <Sparkline
-                        labels={labels}
-                        data={timeseries}
-                        className={sparklineLoading ? 'opacity-50 w-full' : 'w-full'}
-                    />
-                )}
+                <Sparkline
+                    labels={labels}
+                    data={timeseries}
+                    className={sparklineLoading ? 'opacity-50 w-full' : 'w-full'}
+                />
                 <DisplayOptions />
                 <div className="flex-1">
                     <LemonTable
