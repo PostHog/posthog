@@ -41,9 +41,9 @@ def pre_aggregate_web_analytics_data(
     team_ids = config.get("team_ids", [1, 2])
     clickhouse_settings = config["clickhouse_settings"]
 
-    # We'll be handling this year data for our tests.
+    # We'll be handling a fixed date range for our internal tests that gets the full history
     insert_query = sql_generator(
-        date_start="2025-01-01",
+        date_start="2020-01-01",
         date_end=datetime.now(UTC).strftime("%Y-%m-%d"),
         team_ids=team_ids,
         settings=clickhouse_settings,
@@ -70,6 +70,11 @@ def web_analytics_preaggregated_tables(
         client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
         client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
 
+    def drop_tables(client: Client):
+        client.execute("DROP TABLE IF EXISTS web_overview_daily SYNC")
+        client.execute("DROP TABLE IF EXISTS web_stats_daily SYNC")
+
+    cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
     return True
 

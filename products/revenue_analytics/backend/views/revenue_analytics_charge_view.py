@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
 )
 
 SOURCE_VIEW_SUFFIX = "charge_revenue_view"
-EVENTS_VIEW_SUFFIX = "events_revenue_view"
+EVENTS_VIEW_SUFFIX = "charge_events_revenue_view"
 STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
