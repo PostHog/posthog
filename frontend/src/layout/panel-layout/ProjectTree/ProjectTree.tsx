@@ -313,7 +313,7 @@ export function ProjectTree({
                             asChild
                             onClick={(e) => {
                                 e.stopPropagation()
-                                item.record && deleteShortcut(item.record?.id as FileSystemEntry)
+                                item.record && deleteShortcut(item.record?.id)
                             }}
                         >
                             <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>

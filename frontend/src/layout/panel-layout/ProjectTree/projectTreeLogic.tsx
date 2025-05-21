@@ -572,7 +572,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return projectTree
             },
         ],
-
         fullFileSystem: [
             (s) => [
                 s.searchTerm,
@@ -605,34 +604,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     },
                 ]
                 const root: TreeDataItem[] = [
-                    ...(searchTerm
-                        ? [
-                              {
-                                  id: 'search://',
-                                  name: 'search://',
-                                  displayName: <>search://</>,
-                                  record: { type: 'folder', path: '' },
-                                  children:
-                                      searchResultsLoading && searchTreeItems.length === 0
-                                          ? folderLoading
-                                          : searchTreeItems,
-                              },
-                          ]
-                        : []),
                     {
                         id: 'project://',
                         name: 'project://',
                         displayName: <>Project</>,
                         record: { type: 'folder', path: '' },
-                        children:
-                            sortMethod === 'recent'
-                                ? recentResultsLoading && recentTreeItems.length === 0
-                                    ? folderLoading
-                                    : recentTreeItems
-                                : loadingPaths[''] && projectTree.length === 0
+                        children: searchTerm
+                            ? searchResultsLoading && searchTreeItems.length === 0
                                 ? folderLoading
-                                : projectTree,
-                    },
+                                : searchTreeItems
+                            : sortMethod === 'recent'
+                            ? recentResultsLoading && recentTreeItems.length === 0
+                                ? folderLoading
+                                : recentTreeItems
+                            : loadingPaths[''] && projectTree.length === 0
+                            ? folderLoading
+                            : projectTree,
+                    } as TreeDataItem,
                     ...staticTreeItems,
                 ]
                 return root
