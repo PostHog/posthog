@@ -170,7 +170,7 @@ export const logsLogic = kea<logsLogicType>([
     listeners(({ values, actions }) => {
         const maybeRefreshLogs = (): void => {
             if (values.hasRunQuery) {
-                actions.runQuery(500)
+                actions.runQuery(300)
             }
         }
 
