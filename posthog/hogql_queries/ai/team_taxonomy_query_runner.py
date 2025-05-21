@@ -45,7 +45,7 @@ class CachedTfidfVectorizer:
 _vectorizer = CachedTfidfVectorizer()
 
 
-def get_event_descriptions_batch(event_names: set[str]) -> dict[str, Optional[str]]:
+def get_event_descriptions_batch(event_names: list[str]) -> dict[str, Optional[str]]:
     """Get event descriptions in batch from either core definitions or enterprise definitions"""
     result: dict[str, Optional[str]] = {}
 
@@ -175,7 +175,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         ]
 
         # Get all event names for batch processing
-        event_names: set[str] = {event for event, _ in filtered_results}
+        event_names: list[str] = list({event for event, _ in filtered_results})
 
         # Get descriptions in batch
         descriptions = get_event_descriptions_batch(event_names)

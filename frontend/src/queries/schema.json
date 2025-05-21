@@ -18029,6 +18029,12 @@
                 },
                 "event": {
                     "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "similarity": {
+                    "type": "number"
                 }
             },
             "required": ["event", "count"],
@@ -18039,6 +18045,10 @@
             "properties": {
                 "kind": {
                     "const": "TeamTaxonomyQuery",
+                    "type": "string"
+                },
+                "plan": {
+                    "description": "The query plan to use for similarity search",
                     "type": "string"
                 },
                 "modifiers": {

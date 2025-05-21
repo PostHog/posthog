@@ -8484,10 +8484,10 @@ class TeamTaxonomyQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
+    plan: Optional[str] = Field(default=None, description="The query plan to use for similarity search")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    plan: Optional[str] = Field(default=None, description="The query plan to use for similarity search")
     response: Optional[TeamTaxonomyQueryResponse] = None
 
 
