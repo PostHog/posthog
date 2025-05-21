@@ -875,11 +875,12 @@ async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
         await logger.ainfo(
             "No job record found to fail", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
         )
-        DataModelingJob.objects.create(
+        await database_sync_to_async(DataModelingJob.objects.create)(
             workflow_id=inputs.workflow_id,
             workflow_run_id=inputs.workflow_run_id,
             status=DataModelingJob.Status.FAILED,
             error="Materialization could not start",
+            team_id=inputs.team_id,
         )
 
 
