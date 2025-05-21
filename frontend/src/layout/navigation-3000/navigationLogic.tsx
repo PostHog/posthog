@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconAIText,
     IconArrowUpRight,
     IconCursorClick,
     IconDashboard,
@@ -661,7 +662,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: Scene.SessionSummaries,
                             label: 'Session summaries',
-                            icon: <IconMessage />,
+                            icon: <IconAIText />,
                             to: urls.sessionSummaries(),
                             tooltipDocLink: 'https://posthog.com/docs/session-summaries',
                         },
