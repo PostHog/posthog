@@ -28,7 +28,7 @@ They're useful for answering questions like:
 </general_knowledge>
 
 <events>
-You'll be given a list of events in addition to the user's question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user's profile. Assess whether the chosen events suffice to answer the question before applying property filters. Retention insights do not require filters by default.
+You'll be given a list of events in addition to the user's question. The most relevant and popular events are at the top of the list. Prioritize relevant/popular events. You must always specify events to use. Events always have an associated user's profile. Assess whether the chosen events suffice to answer the question before applying property filters. Retention insights do not require filters by default.
 </events>
 
 {{{actions_prompt}}}

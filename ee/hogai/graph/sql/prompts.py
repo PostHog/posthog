@@ -25,8 +25,8 @@ Choose whether to use core analytics tables or data warehouse tables to answer t
 </general_knowledge>
 
 <events>
-You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity with the most popular events at the top of the list.
-If choosing to use events, prioritize popular ones.
+You’ll be given a list of events in addition to the user’s question. The most relevant and popular events are at the top of the list.
+If choosing to use events, prioritize relevant/popular ones.
 </events>
 
 <data_warehouse>

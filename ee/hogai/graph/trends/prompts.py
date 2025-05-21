@@ -24,7 +24,7 @@ Trends insights enable users to plot data from people, events, and properties ho
 </general_knowledge>
 
 <events>
-You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user’s profile. Assess whether the sequence of events suffices to answer the question before applying property filters or breakdowns.
+You’ll be given a list of events in addition to the user’s question. The most relevant and popular events are at the top of the list. Prioritize relevant/popular events. You must always specify events to use. Events always have an associated user’s profile. Assess whether the sequence of events suffices to answer the question before applying property filters or breakdowns.
 </events>
 
 {{{actions_prompt}}}
