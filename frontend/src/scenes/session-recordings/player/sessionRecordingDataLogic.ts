@@ -220,7 +220,9 @@ async function processEncodedResponse(
     return { transformed, untransformed }
 }
 
-const getSourceKey = (source: SessionRecordingSnapshotSource): string => {
+export type SourceKey = `${SnapshotSourceType}-${string}`
+
+const getSourceKey = (source: SessionRecordingSnapshotSource): SourceKey => {
     // realtime sources vary so blob_key is not always present and is either null or undefined...
     // we only care about key when not realtime
     // and we'll always have a key when not realtime
@@ -287,7 +289,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
         snapshotsBySource: [
-            null as Record<string, SessionRecordingSnapshotSourceResponse> | null,
+            null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
             {
                 loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
                     const sourceKey = getSourceKey(snapshotsForSource.source)
@@ -603,7 +605,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadSnapshotSources: () => {
             // We only load events once we actually start loading the recording
-            actions.loadEvents()
+            if (!values.sessionEventsData) {
+                actions.loadEvents()
+            }
         },
         loadRecordingMetaSuccess: () => {
             cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)

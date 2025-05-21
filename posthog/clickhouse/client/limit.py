@@ -92,7 +92,7 @@ class RateLimit:
         current_time = self.get_time()
 
         max_concurrency = self.max_concurrency
-        in_beta = team_id in settings.API_QUERIES_PER_TEAM
+        in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
         if in_beta:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
@@ -138,6 +138,7 @@ class RateLimit:
 
 
 __API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+__APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
 
 
 def get_api_personal_rate_limiter():
@@ -148,13 +149,29 @@ def get_api_personal_rate_limiter():
             applicable=lambda *args, **kwargs: not TEST and kwargs.get("org_id") and kwargs.get("is_api"),
             limit_name="api_per_org",
             get_task_name=lambda *args, **kwargs: f"api:query:per-org:{kwargs.get('org_id')}",
-            get_task_id=lambda *args, **kwargs: current_task.request.id
-            if current_task
-            else (kwargs.get("task_id") or generate_short_id()),
+            get_task_id=lambda *args, **kwargs: (
+                current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
+            ),
             ttl=600,
             bypass_all=(not settings.API_QUERIES_ENABLED),
         )
     return __API_CONCURRENT_QUERY_PER_TEAM
+
+
+def get_app_org_rate_limiter():
+    """
+    Limits the number of concurrent queries (running outside celery) per organization.
+    """
+    global __APP_CONCURRENT_QUERY_PER_ORG
+    if __APP_CONCURRENT_QUERY_PER_ORG is None:
+        __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
+            max_concurrency=10,
+            limit_name="app_per_org",
+            get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
+            get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
+            ttl=600,
+        )
+    return __APP_CONCURRENT_QUERY_PER_ORG
 
 
 class ConcurrencyLimitExceeded(Exception):

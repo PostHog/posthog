@@ -59,6 +59,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "metrics_secondary",
             "stats_config",
             "_create_in_folder",
+            "conclusion",
+            "conclusion_comment",
         ]
         read_only_fields = [
             "id",
@@ -318,6 +320,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "conclusion",
+            "conclusion_comment",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys

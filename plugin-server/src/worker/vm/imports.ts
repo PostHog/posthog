@@ -8,7 +8,7 @@ import { PassThrough } from 'stream'
 import * as url from 'url'
 
 import { isTestEnv } from '../../utils/env-utils'
-import { recordedFetch } from '../../utils/recorded-fetch'
+import { trackedFetch } from '../../utils/fetch'
 import { writeToFile } from './extensions/test-utils'
 
 export const AVAILABLE_IMPORTS = {
@@ -22,7 +22,7 @@ export const AVAILABLE_IMPORTS = {
     '@posthog/plugin-scaffold': scaffold,
     'aws-sdk': AWS,
     'generic-pool': genericPool,
-    'node-fetch': recordedFetch,
+    'node-fetch': trackedFetch,
     crypto: crypto,
     stream: { PassThrough },
     url: url,

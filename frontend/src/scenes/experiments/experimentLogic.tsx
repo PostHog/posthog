@@ -270,6 +270,10 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExposureCriteriaModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
+        openStopExperimentModal: true,
+        closeStopExperimentModal: true,
+        openEditConclusionModal: true,
+        closeEditConclusionModal: true,
         openDistributionModal: true,
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
@@ -612,6 +616,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
+        isStopExperimentModalOpen: [
+            false,
+            {
+                openStopExperimentModal: () => true,
+                closeStopExperimentModal: () => false,
+            },
+        ],
+        isEditConclusionModalOpen: [
+            false,
+            {
+                openEditConclusionModal: () => true,
+                closeEditConclusionModal: () => false,
+            },
+        ],
         isDistributionModalOpen: [
             false,
             {
@@ -939,7 +957,11 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         endExperiment: async () => {
             const endDate = dayjs()
-            actions.updateExperiment({ end_date: endDate.toISOString() })
+            actions.updateExperiment({
+                end_date: endDate.toISOString(),
+                conclusion: values.experiment.conclusion,
+                conclusion_comment: values.experiment.conclusion_comment,
+            })
             const duration = endDate.diff(values.experiment?.start_date, 'second')
             values.experiment &&
                 actions.reportExperimentCompleted(
@@ -948,6 +970,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     duration,
                     values.isPrimaryMetricSignificant(0)
                 )
+            actions.closeStopExperimentModal()
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
@@ -985,7 +1008,13 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true)
         },
         resetRunningExperiment: async () => {
-            actions.updateExperiment({ start_date: null, end_date: null, archived: false })
+            actions.updateExperiment({
+                start_date: null,
+                end_date: null,
+                archived: false,
+                conclusion: null,
+                conclusion_comment: null,
+            })
             values.experiment && actions.reportExperimentReset(values.experiment)
             actions.setMetricResults([])
             actions.setSecondaryMetricResults([])

@@ -18,10 +18,7 @@ from posthog.tasks.demo_create_data import HedgeboxMatrix
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import django_db_setup  # noqa: F401
 
-BRAINTRUST_PROJECT_NAME = "Max AI"
-
 handler = BraintrustCallbackHandler()
-init_logger(BRAINTRUST_PROJECT_NAME)
 set_global_handler(handler)
 
 
@@ -31,22 +28,16 @@ def MaxEval(
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
 ):
-    base_experiment_name = f"{experiment_name}-master"  # Always compare against latest master
-    if os.getenv("GITHUB_REF_NAME") == "master":
-        experiment_name += "-master"
-        overwrite_existing_experiment = True
-    else:
-        experiment_name += "-wip"
-        overwrite_existing_experiment = False
+    # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
+    # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
+    project_name = f"max-ai-{experiment_name}"
+    init_logger(project_name)
     result = Eval(
-        BRAINTRUST_PROJECT_NAME,
-        experiment_name=experiment_name,
+        project_name,
         data=data,
         task=task,
         scores=scores,
-        base_experiment_name=base_experiment_name,
         trial_count=3 if os.getenv("CI") else 1,
-        update=overwrite_existing_experiment,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:

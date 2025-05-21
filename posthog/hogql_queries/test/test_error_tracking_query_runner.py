@@ -17,7 +17,7 @@ from posthog.schema import (
     ErrorTrackingIssueFilter,
     PropertyOperator,
 )
-from posthog.models.user_group import UserGroup
+from ee.models.rbac.role import Role
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -411,6 +411,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
+    def test_role_assignee(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id,
+            fingerprint="assigned_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+        )
+        flush_persons_and_events()
+        role = Role.objects.create(name="Test Team", organization=self.organization)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role)
+
+        results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
     def test_issue_filters(self):
         results = self._calculate(
             filterGroup=PropertyGroupFilter(
@@ -428,22 +444,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )["results"]
         self.assertEqual(len(results), 1)
-
-    @freeze_time("2022-01-10T12:11:00")
-    @snapshot_clickhouse_queries
-    def test_user_group_assignee(self):
-        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
-        self.create_events_and_issue(
-            issue_id=issue_id,
-            fingerprint="assigned_issue_fingerprint",
-            distinct_ids=[self.distinct_id_one],
-        )
-        flush_persons_and_events()
-        user_group = UserGroup.objects.create(team=self.team, name="Test Team")
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user_group=user_group)
-
-        results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
-        self.assertEqual([x["id"] for x in results], [issue_id])
 
     @freeze_time("2020-01-12")
     @snapshot_clickhouse_queries

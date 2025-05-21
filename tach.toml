@@ -30,6 +30,7 @@ depends_on = [
     "products.early_access_features",
     "products.editor",
     "products.revenue_analytics",
+    "products.user_interviews",
 ]
 
 [[modules]]

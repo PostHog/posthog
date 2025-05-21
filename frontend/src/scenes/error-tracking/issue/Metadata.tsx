@@ -9,7 +9,7 @@ import { match } from 'ts-pattern'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { Collapsible } from '../components/Collapsible'
+import { EventsTable } from '../components/EventsTable/EventsTable'
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { TimeBoundary } from '../components/TimeBoundary'
 import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
@@ -29,7 +29,6 @@ type SelectedDataType =
     | null
 
 export const Metadata = (): JSX.Element => {
-    const [isChartExpanded, setIsChartExpanded] = useState(true)
     const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
@@ -53,16 +52,18 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <LemonCard className="p-1" hoverEffect={false} onClick={() => setIsChartExpanded(!isChartExpanded)}>
-            <div className="flex justify-between items-center h-[30px] px-2">
-                {match(hoveredDatum)
-                    .when(
-                        (data) => shouldRenderIssueMetrics(data),
-                        () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
-                    )
-                    .with({ type: 'datum' }, (data) => renderDataPoint(data.data))
-                    .with({ type: 'event' }, (data) => renderEventPoint(data.data))
-                    .otherwise(() => null)}
+        <LemonCard className="p-0" hoverEffect={false}>
+            <div className="flex justify-between items-center h-[40px] px-2">
+                <div className="flex justify-end items-center h-full">
+                    {match(hoveredDatum)
+                        .when(
+                            (data) => shouldRenderIssueMetrics(data),
+                            () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
+                        )
+                        .with({ type: 'datum' }, (data) => renderDataPoint(data.data))
+                        .with({ type: 'event' }, (data) => renderEventPoint(data.data))
+                        .otherwise(() => null)}
+                </div>
                 <div className="flex justify-end items-center h-full">
                     {match(hoveredDatum)
                         .when(
@@ -96,16 +97,15 @@ export const Metadata = (): JSX.Element => {
                         .otherwise(() => null)}
                 </div>
             </div>
-            <Collapsible isExpanded={isChartExpanded} minHeight={0} className="p-0 overflow-hidden cursor-default">
-                <div onClick={cancelEvent}>
-                    <SparklineChart
-                        data={sparklineData}
-                        events={sparklineEvents}
-                        options={sparklineOptions}
-                        className="h-full pt-1"
-                    />
-                </div>
-            </Collapsible>
+            <div onClick={cancelEvent}>
+                <SparklineChart
+                    data={sparklineData}
+                    events={sparklineEvents}
+                    options={sparklineOptions}
+                    className="h-full pt-0"
+                />
+            </div>
+            <EventsTable />
         </LemonCard>
     )
 }
@@ -129,7 +129,7 @@ function IssueMetrics({
 }): JSX.Element {
     const hasSessionCount = aggregations && aggregations.sessions !== 0
     return (
-        <div className="flex items-center h-full gap-3 p-1">
+        <div className="flex items-center h-full gap-3">
             {renderMetric('Occurrences', aggregations?.occurrences, summaryLoading)}
             {renderMetric(
                 'Sessions',
@@ -167,12 +167,7 @@ function renderDate(date: Date): JSX.Element {
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {
-    return (
-        <div className="flex justify-start items-center h-full gap-1">
-            <div className="text-lg font-bold">{humanFriendlyLargeNumber(d.value)}</div>
-            <div className="text-xs text-muted">Occurrences</div>
-        </div>
-    )
+    return renderMetric('Occurrences', d.value, false)
 }
 
 function renderEventPoint(d: SparklineEvent<string>): JSX.Element {

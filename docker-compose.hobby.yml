@@ -286,11 +286,11 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${POSTHOG_SECRET}
+            - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
         ports:
             - '8666:8080'
         volumes:
-            - ./posthog/docker/livestream/configs-dev.yml:/configs/configs.yml
+            - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
 volumes:
     zookeeper-data:

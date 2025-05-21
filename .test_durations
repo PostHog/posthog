@@ -5818,7 +5818,7 @@
   "posthog/api/test/test_team.py::TestTeamAPI::test_list_projects": 0.022115660999929787,
   "posthog/api/test/test_team.py::TestTeamAPI::test_org_member_can_create_demo_project": 0.03532151900003555,
   "posthog/api/test/test_team.py::TestTeamAPI::test_reset_token": 0.13555253799995626,
-  "posthog/api/test/test_team.py::TestTeamAPI::test_reset_token_insufficient_priviledges": 0.024222862999977224,
+  "posthog/api/test/test_team.py::TestTeamAPI::test_reset_token_insufficient_privileges": 0.024222862999977224,
   "posthog/api/test/test_team.py::TestTeamAPI::test_retrieve_project": 0.025675258999854123,
   "posthog/api/test/test_team.py::TestTeamAPI::test_team_creation_is_in_activity_log": 0.35612409499992737,
   "posthog/api/test/test_team.py::TestTeamAPI::test_team_float_config_can_be_serialized_to_activity_log": 0.09035590399992088,

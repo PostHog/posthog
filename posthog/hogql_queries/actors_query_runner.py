@@ -1,6 +1,7 @@
 import itertools
 from typing import Any, Optional
 from collections.abc import Sequence, Iterator
+import re
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
@@ -259,7 +260,13 @@ class ActorsQueryRunner(QueryRunner):
             for idx, expr in enumerate(self.input_columns()):
                 if expr.split("--")[0].strip() == "person_display_name":
                     property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                    props = [f"toString(properties.{key})" for key in property_keys]
+                    # Only use backticks for property names with spaces or special chars
+                    props = []
+                    for key in property_keys:
+                        if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                            props.append(f"toString(properties.{key})")
+                        else:
+                            props.append(f"toString(properties.`{key}`)")
                     column = parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
                     person_display_name_indices.append(idx)
                 else:

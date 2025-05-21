@@ -1,0 +1,173 @@
+# serializer version: 1
+# name: TestStateTransforms.test_combine_two_different_state_queries_into_one_merge_query
+  '''
+  
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), less(toTimeZone(events.timestamp, %(hogql_val_0)s), minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+  LIMIT 50000 UNION ALL 
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_2)s), minus(now64(6, %(hogql_val_3)s), toIntervalDay(1))))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_filtered_aggregation
+  '''
+  
+  SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events 
+  FROM (
+  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_0)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_merge_wraps_works_with_more_complex_queries
+  '''
+  
+  SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events, host AS host 
+  FROM (
+  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s)) 
+  GROUP BY host ORDER BY total_events DESC 
+  LIMIT 10) 
+  GROUP BY host ORDER BY total_events DESC 
+  LIMIT 10
+  '''
+# ---
+# name: TestStateTransforms.test_nested_aggregations_in_subquery
+  '''
+  
+  SELECT sumMerge(total_filtered_count) AS total_filtered_count 
+  FROM (
+  SELECT sumState(filtered_count) AS total_filtered_count 
+  FROM (
+  SELECT countIf(equals(events.event, %(hogql_val_0)s)) AS filtered_count 
+  FROM events 
+  WHERE equals(events.team_id, 420) 
+  GROUP BY events.distinct_id)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_nested_functions_aggregations_and_conversions
+  '''
+  
+  SELECT host AS host, uniqMerge(unique_users) AS unique_users, sumMerge(click_count) AS click_count, avgMerge(avg_duration) AS avg_duration 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host, uniqState(events.distinct_id) AS unique_users, sumStateIf(1, equals(events.event, %(hogql_val_1)s)) AS click_count, avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)) AS avg_duration 
+  FROM events 
+  WHERE equals(events.team_id, 420) 
+  GROUP BY host) 
+  GROUP BY host 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_preserve_group_by
+  '''
+  
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS pathname, uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s)) 
+  GROUP BY pathname 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_preserve_query_without_aggregations
+  '''
+  
+  SELECT events.distinct_id AS distinct_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS pathname 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_query_similar_to_web_overview_query_transformation_sql
+  '''
+  
+  SELECT sumMerge(total_pageviews) AS total_pageviews, uniqMerge(unique_users) AS unique_users 
+  FROM (
+  SELECT sumState(pageview_count) AS total_pageviews, uniqState(user_id) AS unique_users 
+  FROM (
+  SELECT events.distinct_id AS user_id, countIf(equals(events.event, %(hogql_val_0)s)) AS pageview_count 
+  FROM events 
+  WHERE equals(events.team_id, 420) 
+  GROUP BY events.distinct_id)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_query_with_as_constants
+  '''
+  
+  SELECT uniqMerge(unique_users) AS unique_users, NULL AS previous_unique_users, countMerge(total_events) AS total_events, 123 AS constant_value 
+  FROM (
+  SELECT uniqState(events.distinct_id) AS unique_users, NULL AS previous_unique_users, countState() AS total_events, 123 AS constant_value 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_transform_nested_expressions
+  '''
+  
+  SELECT uniqState(events.distinct_id) AS unique_users, countState(if(equals(events.event, %(hogql_val_0)s), 1, 0)) AS pageview_count 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_transform_simple_query_to_state_aggregations
+  '''
+  
+  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_union_all_state_queries_into_one_merge_query
+  '''
+  
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), less(toTimeZone(events.timestamp, %(hogql_val_0)s), minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+  LIMIT 50000 UNION ALL 
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_2)s), minus(now64(6, %(hogql_val_3)s), toIntervalDay(1))))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_wrap_state_query_in_merge_query
+  '''
+  
+  SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events 
+  FROM (
+  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_wrapper_query_aggregation_with_groupby
+  '''
+  
+  SELECT host AS host, countMerge(total_count) AS total_count, countMerge(click_count) AS click_count 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host, countState() AS total_count, countStateIf(equals(events.event, %(hogql_val_1)s)) AS click_count 
+  FROM events 
+  WHERE equals(events.team_id, 420) 
+  GROUP BY host) 
+  GROUP BY host 
+  LIMIT 50000
+  '''
+# ---

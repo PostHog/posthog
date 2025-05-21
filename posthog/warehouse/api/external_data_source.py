@@ -242,9 +242,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                     "auth_type": {
                         "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
                         "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
-                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
-                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
-                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                        "password": None,
+                        "passphrase": None,
+                        "private_key": None,
                     },
                 }
                 job_inputs["ssh-tunnel"] = ssh_tunnel

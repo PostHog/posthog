@@ -20,10 +20,12 @@ export type SettingSectionId =
     | 'environment-autocapture'
     | 'environment-product-analytics'
     | 'environment-web-analytics'
+    | 'environment-revenue-analytics'
     | 'environment-replay'
     | 'environment-surveys'
     | 'environment-feature-flags'
     | 'environment-error-tracking'
+    | 'environment-csp-reporting'
     | 'environment-integrations'
     | 'environment-access-control'
     | 'environment-role-based-access-control'
@@ -51,6 +53,7 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-customization'
+    | 'user-danger-zone'
 
 export type SettingId =
     | 'replay-triggers'
@@ -120,16 +123,20 @@ export type SettingId =
     | 'session-join-mode'
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
+    | 'revenue-analytics-events'
+    | 'revenue-analytics-external-data-sources'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
     | 'channel-type'
     | 'cookieless-server-hash-mode'
     | 'user-groups'
+    | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'csp-reporting'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

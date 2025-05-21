@@ -336,6 +336,28 @@ export function createInvocation(
     }
 }
 
+/**
+ * Clones an invocation, removing all queue related values
+ */
+export function cloneInvocation(
+    invocation: HogFunctionInvocation,
+    params: Pick<
+        Partial<HogFunctionInvocation>,
+        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
+    > &
+        Pick<HogFunctionInvocation, 'queue'>
+): HogFunctionInvocation {
+    return {
+        ...invocation,
+        queueMetadata: params.queueMetadata ?? undefined,
+        queueScheduledAt: params.queueScheduledAt ?? undefined,
+        queuePriority: params.queuePriority ?? 0,
+        queue: params.queue,
+        queueParameters: params.queueParameters ?? undefined,
+        queueSource: undefined, // This is always set by the consumer
+    }
+}
+
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }

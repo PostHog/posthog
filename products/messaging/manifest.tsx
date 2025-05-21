@@ -55,7 +55,9 @@ export const manifest: ProductManifest = {
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
+        messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+        messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
         messagingLibraryTemplateFromMessage: (id?: string): string =>
             `/messaging/library/templates/new?messageId=${id}`,
     },
@@ -73,14 +75,30 @@ export const manifest: ProductManifest = {
         {
             path: `Broadcast`,
             type: 'hog_function/broadcast',
-            href: () => urls.messagingBroadcastNew(),
+            href: urls.messagingBroadcastNew(),
             flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: `Campaign`,
             type: 'hog_function/campaign',
-            href: () => urls.messagingCampaignNew(),
+            href: urls.messagingCampaignNew(),
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Broadcasts',
+            href: urls.messagingBroadcasts(),
+            type: 'hog_function/broadcast',
+        },
+        {
+            path: 'Campaigns',
+            href: urls.messagingCampaigns(),
+            type: 'hog_function/campaign',
+        },
+    ],
+    fileSystemFilterTypes: {
+        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
+        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
+    },
 }

@@ -448,6 +448,18 @@ WithTooltip.args = {
     ),
 }
 
+export const WithTooltipPlacementAndArrowOffset: Story = BasicTemplate.bind({})
+WithTooltipPlacementAndArrowOffset.args = {
+    ...Default.args,
+    tooltip: (
+        <>
+            This is example with a link: <Link to="https://posthog.com">Go home</Link>
+        </>
+    ),
+    tooltipPlacement: 'top-start',
+    tooltipArrowOffset: 30,
+}
+
 export const More_ = (): JSX.Element => {
     return (
         <More

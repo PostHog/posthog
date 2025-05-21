@@ -1,4 +1,4 @@
-import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../../types'
+import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
     status: 'alpha',
@@ -68,13 +68,6 @@ if (res.status != 200 or res.body.success == false) {
             secret: false,
             required: true,
             hidden: true,
-        },
-    ],
-    sub_templates: [
-        {
-            ...SUB_TEMPLATE_COMMON['error-tracking-issue-created'],
-            name: 'Linear issue on issue created',
-            description: 'Create an issue in Linear when an issue is created.',
         },
     ],
 }

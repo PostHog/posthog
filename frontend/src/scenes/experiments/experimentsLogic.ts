@@ -11,6 +11,7 @@ import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
@@ -100,6 +101,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 deleteExperiment: async (id: number) => {
                     await api.delete(`api/projects/${values.currentProjectId}/experiments/${id}`)
                     lemonToast.info('Experiment removed')
+                    deleteFromTree('experiment', String(id))
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
                 archiveExperiment: async (id: number) => {

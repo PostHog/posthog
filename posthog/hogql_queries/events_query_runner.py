@@ -1,6 +1,7 @@
 from datetime import timedelta
 from functools import cached_property
 from typing import Optional, cast
+import re
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -71,7 +72,13 @@ class EventsQueryRunner(QueryRunner):
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                props = [f"toString(person.properties.{key})" for key in property_keys]
+                # Only use backticks for property names with spaces or special chars
+                props = []
+                for key in property_keys:
+                    if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                        props.append(f"toString(person.properties.{key})")
+                    else:
+                        props.append(f"toString(person.properties.`{key}`)")
                 expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
                 select_input.append(expr)
             else:

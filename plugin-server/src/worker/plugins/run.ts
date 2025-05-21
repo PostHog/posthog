@@ -36,7 +36,7 @@ async function runSingleTeamPluginOnEvent(
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await hub.legacyOneventCompareService.runOnEvent(pluginConfig, onEvent, event, onEventPayload)
+            await onEvent(onEventPayload)
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')

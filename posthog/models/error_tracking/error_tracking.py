@@ -131,6 +131,47 @@ class ErrorTrackingAssignmentRule(UUIDModel):
         # ]
 
 
+# A custom grouping rule works as follows:
+# - Events are run against the filter code
+# - If an event matches, the fingerprint of the event is set as "custom-rule:<rule_id>"
+# - The rest of the issue processing happens as per usual, except that if the rule had an
+#   associated assignment, that assignment is used, and the assignment rules are skipped.
+#
+# This means "custom issues" can still be merged and otherwise handled as you'd expect, just that
+# the set of events that end up in them will be different from the default grouping rules.
+class ErrorTrackingGroupingRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # If not null, the rule is disabled, for the reason listed
+    # Structure is {"message": str, properties: {}}. Everything except message is mostly for debugging purposes.
+    disabled_data = models.JSONField(null=True, blank=True)
+    # Grouping rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    # We allow grouping rules to also auto-assign, and if they do, assignment rules are ignored
+    # in favour of the assignment of the grouping rule. Notably this differs from assignment rules
+    # in so far as we permit all of these to be null
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
+    role = models.ForeignKey(Role, null=True, on_delete=models.CASCADE)
+
+    # Users will probably find it convenient to be able to add a short description to grouping rules
+    description = models.TextField(null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
