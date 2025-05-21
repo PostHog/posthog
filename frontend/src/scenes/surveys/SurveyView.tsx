@@ -35,6 +35,7 @@ import {
 } from '~/types'
 
 import {
+    LOADING_SURVEY_RESULTS_TOAST_ID,
     NPS_DETRACTOR_LABEL,
     NPS_DETRACTOR_VALUES,
     NPS_PASSIVE_LABEL,
@@ -427,8 +428,6 @@ export function SurveyResponsesByQuestion(): JSX.Element {
     )
 }
 
-const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
-
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
     const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
         useValues(surveyLogic)
@@ -467,7 +466,14 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     >
                         Explore results
                     </LemonButton>
-                    {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
+                    {!disableEventsTable &&
+                        (surveyLoading ? (
+                            <LemonSkeleton />
+                        ) : (
+                            <div className="survey-table-results">
+                                <Query query={dataTableQuery} />
+                            </div>
+                        ))}
                 </>
             ) : (
                 <LemonBanner type="info">
