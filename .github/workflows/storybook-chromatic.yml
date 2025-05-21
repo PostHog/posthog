@@ -425,11 +425,16 @@ jobs:
                       let flapsDisplay = ''
                       if (flaps.length > 0) {
                         flapsDisplay = [
-                          '\n\n### ‼️ UI snapshot flapping detected ‼️\n',
-                          ...flaps.map(([shardNumber, path]) => `- ${path}`),
-                          '\nIt doesn\'t matter who started it – **the flippy flopppies are a deadly disease that must be cured**. '
-                          + 'Run `pnpm storybook` locally and fix the flapping now. '
-                          + '(Often, the cause is `ResizeObserver` being used instead of the better CSS container queries.)'
+                          '\n> [!CAUTION]',
+                          '> ### Detected flapping snapshots',
+                          '>',
+                          '> These snapshots have auto-updated more than once since the last developer commit:',
+                          '>',
+                          ...flaps.map(([shardNumber, path]) => `> - \`${path.replace('frontend/__snapshots__/', '')}\` (shard ${shardNumber})`),
+                          '>',
+                          '> **The flippy flapppies are deadly and must be fixed ASAP.** They\'re productivity kilers.',
+                          '> Run `pnpm storybook` locally and make the fix now.',
+                          '> (Often, the cause is `ResizeObserver` being used instead of the better CSS container queries.)\n'
                         ].join('\n')
                       }
 
@@ -441,7 +446,7 @@ jobs:
 
                       **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
 
-                      ${diffByBrowserDisplay}${flapsDisplay}
+                      ${flapsDisplay}${diffByBrowserDisplay}
 
                       _Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }})._
 
