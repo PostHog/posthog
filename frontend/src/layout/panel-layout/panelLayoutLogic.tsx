@@ -4,7 +4,7 @@ import { LemonTreeRef, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' | 'Games'
+export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' | 'Games' | 'Shortcuts' | 'Data management'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320

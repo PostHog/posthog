@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -12,19 +12,23 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { LinkType, ProductKey } from '~/types'
 
-import { LinkType } from './linkConfigurationLogic'
 import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'
 
+export const scene: SceneExport = {
+    component: LinksScene,
+    logic: linksLogic,
+}
+
 export function LinksScene(): JSX.Element {
-    const { links, linksLoading } = useValues(linksLogic())
+    const { links, linksLoading } = useValues(linksLogic)
+    const shouldShowEmptyState = links.length == 0 && !linksLoading
 
     const columns = [
         {
             title: 'Key',
-            dataIndex: 'key',
             sticky: true,
             width: '40%',
             render: function Render(_: any, record: LinkType) {
@@ -47,18 +51,11 @@ export function LinksScene(): JSX.Element {
         createdAtColumn<LinkType>() as LemonTableColumn<LinkType, keyof LinkType | undefined>,
         {
             title: 'Last 7 days',
-            render: function RenderSuccessRate(_: any, link: LinkType) {
+            render: function RenderLinkMetricSparkline(_: any, link: LinkType) {
                 return (
-                    <Link
-                        to={
-                            '/insights'
-                            //     urls.pipelineNode(
-                            //     hogFunctionTypeToPipelineStage(destination.stage),
-                            //     destination.id,
-                            //     PipelineNodeTab.Metrics
-                            // )
-                        }
-                    >
+                    // TODO: Update URL to link to page with all `$linkclick` events
+                    // for this specific link
+                    <Link to="/insights">
                         <LinkMetricSparkline id={link.id} />
                     </Link>
                 )
@@ -73,11 +70,11 @@ export function LinksScene(): JSX.Element {
                             <LemonMenuOverlay
                                 items={[
                                     {
-                                        label: `Edit link`,
+                                        label: 'Edit link',
                                         onClick: () => router.actions.push(urls.link(link.id)),
                                     },
                                     {
-                                        label: `Delete link`,
+                                        label: 'Delete link',
                                         status: 'danger' as const,
                                         disabledReason: 'Coming soon',
                                         onClick: () => {},
@@ -92,7 +89,7 @@ export function LinksScene(): JSX.Element {
     ]
 
     return (
-        <div>
+        <>
             <PageHeader
                 buttons={
                     <LemonButton
@@ -103,13 +100,13 @@ export function LinksScene(): JSX.Element {
                             dropdown: {
                                 overlay: (
                                     <>
-                                        <LemonButton disabledReason="Coming soon" fullWidth onClick={() => {}}>
+                                        <LemonButton disabledReason="Coming soon" fullWidth>
                                             Import from Bit.ly
                                         </LemonButton>
-                                        <LemonButton disabledReason="Coming soon" fullWidth onClick={() => {}}>
+                                        <LemonButton disabledReason="Coming soon" fullWidth>
                                             Import from Dub.co
                                         </LemonButton>
-                                        <LemonButton disabledReason="Coming soon" fullWidth onClick={() => {}}>
+                                        <LemonButton disabledReason="Coming soon" fullWidth>
                                             Import from CSV
                                         </LemonButton>
                                     </>
@@ -121,36 +118,20 @@ export function LinksScene(): JSX.Element {
                         Create link
                     </LemonButton>
                 }
+                delimited
             />
 
-            {links.length === 0 && !linksLoading ? (
-                <ProductIntroduction
-                    productName="Links"
-                    thingName="link"
-                    description="Start creating links for your marketing campaigns, referral programs, and more."
-                    action={() => router.actions.push(urls.link('new'))}
-                    isEmpty={links.length === 0}
-                    productKey={ProductKey.LINKS}
-                />
-            ) : (
-                <LemonTable
-                    dataSource={links}
-                    columns={columns as LemonTableColumns<LinkType>}
-                    loading={linksLoading}
-                    rowKey="id"
-                    pagination={{ pageSize: 100 }}
-                    defaultSorting={{
-                        columnKey: 'created_at',
-                        order: -1,
-                    }}
-                    nouns={['link', 'links']}
-                />
-            )}
-        </div>
-    )
-}
+            <ProductIntroduction
+                isEmpty={shouldShowEmptyState}
+                productName="Links"
+                productKey={ProductKey.LINKS}
+                thingName="link"
+                description="Start creating links for your marketing campaigns, referral programs, and more."
+                action={() => router.actions.push(urls.link('new'))}
+                docsURL="https://posthog.com/docs/links"
+            />
 
-export const scene: SceneExport = {
-    component: LinksScene,
-    logic: linksLogic,
+            {!shouldShowEmptyState && <LemonTable loading={linksLoading} columns={columns} dataSource={links} />}
+        </>
+    )
 }
