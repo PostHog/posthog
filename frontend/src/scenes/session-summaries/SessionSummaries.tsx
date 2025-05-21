@@ -24,7 +24,7 @@ export const scene: SceneExport = {
     component: SessionSummaries,
 }
 
-type Tab = 'person' | 'funnel' | 'recording' | 'group' | 'settings'
+type Tab = 'person' | 'funnel' | 'recording' | 'group' | 'performance'
 
 interface CriticalIssue {
     description: string
@@ -817,6 +817,42 @@ function PersonSummaries(): JSX.Element {
     )
 }
 
+function PerformanceMetrics(): JSX.Element {
+    const segments = [
+        { label: 'Core Services', value: '40%', color: 'bg-success', width: 'w-[40%]' },
+        { label: 'Cache Layer', value: '25%', color: 'bg-warning', width: 'w-[25%]' },
+        { label: 'API Gateway', value: '20%', color: 'bg-danger', width: 'w-[20%]' },
+        { label: 'Database', value: '10%', color: 'bg-danger-dark', width: 'w-[10%]' },
+        { label: 'External', value: '5%', color: 'bg-danger-darker', width: 'w-[5%]' },
+    ]
+
+    return (
+        <div className="p-4">
+            <div className="flex items-center gap-2 mb-4">
+                <h3 className="text-lg font-semibold m-0">System Performance</h3>
+                <LemonTag type="completion" size="medium">
+                    ALPHA
+                </LemonTag>
+            </div>
+            
+            <div className="flex h-24 rounded-lg overflow-hidden border">
+                {segments.map((segment, index) => (
+                    <div
+                        key={index}
+                        className={`${segment.color} ${segment.width} flex flex-col items-center justify-center text-white relative group`}
+                    >
+                        <div className="text-sm font-medium mb-1">{segment.label}</div>
+                        <div className="text-xs opacity-80">{segment.value}</div>
+                        {index < segments.length - 1 && (
+                            <div className="absolute right-0 top-0 bottom-0 w-px bg-white/20" />
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 export function SessionSummaries(): JSX.Element {
     const [tab, setTab] = useState<Tab>('person')
 
@@ -830,7 +866,7 @@ export function SessionSummaries(): JSX.Element {
                     { key: 'funnel', label: 'Funnel summaries' },
                     { key: 'recording', label: 'Recording summaries' },
                     { key: 'group', label: 'Group summaries' },
-                    { key: 'settings', label: 'Settings' },
+                    { key: 'performance', label: 'Performance' },
                 ]}
             />
             <div>
@@ -838,7 +874,7 @@ export function SessionSummaries(): JSX.Element {
                 {tab === 'funnel' && <div>Funnel summaries content</div>}
                 {tab === 'recording' && <div>Recording summaries content</div>}
                 {tab === 'group' && <div>Group summaries content</div>}
-                {tab === 'settings' && <div>Settings content</div>}
+                {tab === 'performance' && <PerformanceMetrics />}
             </div>
         </div>
     )
