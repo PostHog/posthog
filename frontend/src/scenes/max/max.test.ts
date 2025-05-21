@@ -18,7 +18,7 @@ describe('Max Logics Integration Tests', () => {
         initKeaTests()
     })
 
-    afterAll(() => {
+    afterEach(() => {
         logic?.unmount()
         threadLogic?.unmount()
     })
