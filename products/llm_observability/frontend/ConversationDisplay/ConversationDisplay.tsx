@@ -1,12 +1,26 @@
+import { IconChat } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+
 import { EventType } from '~/types'
 
+import { llmObservabilityPlaygroundLogic } from '../llmObservabilityPlaygroundLogic'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
 export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
+    const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+
+    const handleTryInPlayground = (): void => {
+        setupPlaygroundFromEvent({
+            model: eventProperties.$ai_model,
+            input: eventProperties.$ai_input,
+        })
+    }
+
     return (
         <>
-            <header className="mb-2">
+            <header className="mb-2 flex justify-between items-center">
                 <MetadataHeader
                     inputTokens={eventProperties.$ai_input_tokens}
                     outputTokens={eventProperties.$ai_output_tokens}
@@ -14,6 +28,18 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
                 />
+
+                {eventProperties.$ai_model && eventProperties.$ai_input && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconChat />}
+                        onClick={handleTryInPlayground}
+                        tooltip="Try this prompt in the playground"
+                    >
+                        Try in Playground
+                    </LemonButton>
+                )}
             </header>
             <ConversationMessagesDisplay
                 input={eventProperties.$ai_input}

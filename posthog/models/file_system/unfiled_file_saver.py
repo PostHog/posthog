@@ -15,6 +15,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.experiment import Experiment
 from posthog.models.insight import Insight
 from posthog.models.dashboard import Dashboard
+from posthog.models.link import Link
 from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -26,6 +27,7 @@ MIXIN_MODELS = {
     "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
+    "link": Link,
     "notebook": Notebook,
     "early_access_feature": EarlyAccessFeature,
     "session_recording_playlist": SessionRecordingPlaylist,
