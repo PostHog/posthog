@@ -4,10 +4,10 @@ import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
-import { MOCK_IN_PROGRESS_CONVERSATION, mockStream } from './__tests__/utils'
-import { maxMocks, MOCK_CONVERSATION_ID } from './__tests__/utils'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MOCK_IN_PROGRESS_CONVERSATION, mockStream } from './testUtils'
+import { maxMocks, MOCK_CONVERSATION_ID } from './testUtils'
 
 describe('Max Logics Integration Tests', () => {
     let logic: ReturnType<typeof maxLogic.build>

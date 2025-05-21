@@ -6,14 +6,14 @@ import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
+import { maxThreadLogic } from './maxThreadLogic'
 import {
     maxMocks,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
     mockStream,
-} from './__tests__/utils'
-import { maxThreadLogic } from './maxThreadLogic'
+} from './testUtils'
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>

@@ -356,8 +356,11 @@ export const maxLogic = kea<maxLogicType>([
                 actions.scrollThreadToBottom('instant')
             }
 
-            if (!conversation || conversation.status === ConversationStatus.InProgress) {
-                // If the conversation is not found, poll the conversation status and reset if 404.
+            if (!conversation) {
+                // If the conversation is not found, retrieve once the conversation status and reset if 404.
+                actions.pollConversation(values.conversationId, 0, 0)
+            } else if (conversation.status === ConversationStatus.InProgress) {
+                // If the conversation is in progress, poll the conversation status.
                 actions.pollConversation(values.conversationId)
             }
         },

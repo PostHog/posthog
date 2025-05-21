@@ -5,8 +5,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { maxMocks, MOCK_CONVERSATION_ID, mockStream } from './__tests__/utils'
 import { maxLogic } from './maxLogic'
+import { maxMocks, mockStream } from './testUtils'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
@@ -62,17 +62,14 @@ describe('maxLogic', () => {
     })
 
     it('resets the thread when a conversation has not been found', async () => {
-        router.actions.push('', { chat: MOCK_CONVERSATION_ID }, { panel: 'max' })
+        router.actions.push('', { chat: 'err' }, { panel: 'max' })
         sidePanelStateLogic.mount()
 
         useMocks({
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                [`/api/environments/:team_id/conversations/${MOCK_CONVERSATION_ID}`]: () => [
-                    404,
-                    { detail: 'Not found' },
-                ],
+                '/api/environments/:team_id/conversations/err': () => [404, { detail: 'Not found' }],
             },
         })
 
@@ -81,6 +78,7 @@ describe('maxLogic', () => {
         // mount logic
         logic = maxLogic()
         logic.mount()
+
         await expectLogic(logic).delay(200)
         await expectLogic(logic).toMatchValues({
             conversationId: null,
