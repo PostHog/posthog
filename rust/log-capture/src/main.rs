@@ -1,8 +1,9 @@
 use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsServiceServer;
-use std::net::SocketAddr;
-use tonic::transport::Server;
+use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
+use tonic_web::GrpcWebLayer;
+use tower::Layer as TowerLayer;
 
-use axum::{routing::get, Router};
+use axum::routing::get;
 use common_metrics::{serve, setup_metrics_routes};
 use log_capture::config::Config;
 use log_capture::service::Service;
@@ -40,23 +41,10 @@ async fn main() {
 
     let config = Config::init_with_defaults().unwrap();
     let health_registry = HealthRegistry::new("liveness");
-
-    let router = Router::new()
-        .route("/", get(index))
-        .route("/_readiness", get(index))
-        .route(
-            "/_liveness",
-            get(move || ready(health_registry.get_status())),
-        );
-    let router = setup_metrics_routes(router);
     let bind = format!("{}:{}", config.host, config.port);
-    info!("Healthcheck listening on {}", bind);
-    let server = serve(router, &bind);
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], 4317)); // Standard OTLP gRPC port
 
     // Initialize ClickHouse writer and logs service
-    let logs_service = match Service::new(config).await {
+    let logs_service = match Service::new(config.clone()).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
@@ -64,11 +52,19 @@ async fn main() {
         }
     };
 
-    Server::builder()
-        .add_service(LogsServiceServer::new(logs_service))
-        .serve(addr)
-        .await
-        .unwrap();
+    let router = tonic::service::Routes::new(GrpcWebLayer::new().layer(tonic_web::enable(
+        LogsServiceServer::new(logs_service.clone()),
+    )))
+    .add_service(tonic_web::enable(TraceServiceServer::new(logs_service)))
+    .prepare()
+    .into_axum_router()
+    .route("/", get(index))
+    .route("/_readiness", get(index))
+    .route(
+        "/_liveness",
+        get(move || ready(health_registry.get_status())),
+    );
+    let router = setup_metrics_routes(router);
 
-    server.await.unwrap();
+    serve(router, &bind).await.unwrap();
 }
