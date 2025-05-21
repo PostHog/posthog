@@ -158,6 +158,9 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Products' && (
                         <ProjectTree root="products://" logicKey="products-tree" />
                     )}
+                    {activePanelIdentifier === 'Shortcuts' && (
+                        <ProjectTree root="shortcuts://" logicKey="shortcuts-tree" />
+                    )}
                     {activePanelIdentifier === 'Games' && <ProjectTree root="games://" logicKey="games-tree" />}
                 </PanelLayoutNavBar>
             </div>

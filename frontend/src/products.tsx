@@ -368,7 +368,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Broadcasts', href: urls.messagingBroadcasts(), type: 'hog_function/broadcast' },
     { path: 'Campaigns', href: urls.messagingCampaigns(), type: 'hog_function/campaign' },
-    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
     { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
     { path: `Experiments`, type: 'experiment', href: urls.experiments() },

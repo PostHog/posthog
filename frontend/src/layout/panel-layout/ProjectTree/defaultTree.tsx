@@ -98,6 +98,11 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
         href: urls.annotations(),
     },
     {
+        path: 'Cohorts',
+        type: 'cohort',
+        href: urls.cohorts(),
+    },
+    {
         path: 'Ingestion warnings',
         iconType: 'warning',
         href: urls.ingestionWarnings(),
@@ -129,11 +134,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             path: 'Data warehouse',
             iconType: 'database',
             href: urls.sqlEditor(),
-        },
-        {
-            path: 'Activity',
-            iconType: 'live',
-            href: urls.activity(ActivityTab.ExploreEvents),
         },
         {
             path: 'Live events',

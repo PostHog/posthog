@@ -4,6 +4,7 @@ import {
     IconClock,
     IconDashboard,
     IconDatabase,
+    IconFolder,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -202,6 +203,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                           isLayoutPanelVisible && activePanelIdentifier === 'Products'
                               ? 'Close products'
                               : 'Open products',
+                  },
+                  {
+                      identifier: 'Shortcuts',
+                      id: 'Shortcuts',
+                      icon: <IconFolder />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Shortcuts')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts'
+                              ? 'Close shortcuts'
+                              : 'Open shortcuts',
                   },
               ]
             : []),
