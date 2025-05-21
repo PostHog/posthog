@@ -70,6 +70,7 @@ class MigrateInsightsBatchActivityInputs:
 def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> None:
     """Migrate a batch of insights to the latest version."""
     logger = get_internal_logger()
+    failed: list[int] = []
 
     insights = Insight.objects.filter(id__in=inputs.insight_ids)
 
@@ -79,6 +80,7 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> None:
             insight.save()
         except Exception as e:
             logger.exception(f"Error migrating insight {insight.id}: {str(e)}")
+            failed.append(insight.id)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,6 +99,7 @@ class WorkflowState:
     after_id: Optional[int]
     migrated: int
     pages_done: int
+    failed_ids: list[int] = []
 
 
 @temporalio.workflow.defn(name="upgrade-queries")
@@ -109,7 +112,12 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: UpgradeQueriesWorkflowInputs) -> None:
-        state = WorkflowState(after_id=None, migrated=0, pages_done=0)
+        state: WorkflowState
+        if self._is_replay:
+            # When continuing-as-new we pass the state back in
+            state = self._state
+        else:
+            state = WorkflowState(after_id=None, migrated=0, pages_done=0)
 
         while True:
             page = await temporalio.workflow.execute_activity(
@@ -126,7 +134,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
             if not page.insight_ids:
                 return  # finished
 
-            await temporalio.workflow.execute_activity(
+            failed = await temporalio.workflow.execute_activity(
                 migrate_insights_batch,
                 MigrateInsightsBatchActivityInputs(insight_ids=page.insight_ids),
                 start_to_close_timeout=dt.timedelta(minutes=10),
@@ -137,6 +145,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
                 ),
             )
 
+            state.failed_ids.extend(failed)
             state.after_id = page.last_id
             state.migrated += len(page.insight_ids)
             state.pages_done += 1

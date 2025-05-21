@@ -213,6 +213,7 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
                 activities=[get_insights_to_migrate, migrate_insights_batch],
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
+                debug_mode=True,  # turn off deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     UpgradeQueriesWorkflow.run,
