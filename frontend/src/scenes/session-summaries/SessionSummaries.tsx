@@ -29,7 +29,7 @@ export const scene: SceneExport = {
     component: SessionSummaries,
 }
 
-type Tab = 'person' | 'funnel' | 'recording' | 'group' | 'performance'
+type Tab = 'person' | 'funnel' | 'recording' | 'group' | 'performance' | 'max-ai'
 
 interface CriticalIssue {
     description: string
@@ -888,8 +888,12 @@ function PerformanceMetrics(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-center mb-4">
-                <h3 className="text-lg font-semibold m-0">Session Summaries Performance</h3>
+            <div className="flex items-center mb-1">
+                <h3 className="text-lg font-semibold m-0">Current Session Summaries Performance:</h3>
+                <div className="ml-1 text-lg font-semibold text-success">55%</div>
+            </div>
+            <div className="text-sm text-muted mb-4">
+                Enable more features to provide better context for session summaries. Each feature adds unique data points that help create more accurate and detailed summaries.
             </div>
             
             <div className="flex h-48 rounded-lg overflow-hidden border mb-6">
@@ -973,6 +977,7 @@ export function SessionSummaries(): JSX.Element {
                     { key: 'funnel', label: 'Funnel summaries' },
                     { key: 'recording', label: 'Recording summaries' },
                     { key: 'group', label: 'Group summaries' },
+                    { key: 'max-ai', label: 'Max AI Integration' },
                     { key: 'performance', label: 'Performance' },
                 ]}
             />
@@ -981,6 +986,7 @@ export function SessionSummaries(): JSX.Element {
                 {tab === 'funnel' && <div>Funnel summaries content</div>}
                 {tab === 'recording' && <div>Recording summaries content</div>}
                 {tab === 'group' && <div>Group summaries content</div>}
+                {tab === 'max-ai' && <div>Group summaries content</div>}
                 {tab === 'performance' && <PerformanceMetrics />}
             </div>
         </div>
