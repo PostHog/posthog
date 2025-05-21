@@ -30,8 +30,8 @@ import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -57,7 +57,7 @@ export function ProjectTree({
     onlyTree,
     searchPlaceholder,
 }: ProjectTreeProps): JSX.Element {
-    const [uniqueKey] = useState(() => `folder-select-${counter++}`)
+    const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
     const { setLastNewFolder, deleteShortcut } = useActions(projectTreeDataLogic)
     const {
@@ -103,7 +103,7 @@ export function ProjectTree({
         clearSearch,
     } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const { openMoveToModal } = useActions(moveToLogic)
-    const { addShortcutItem } = useActions(shortcutsLogic)
+    const { addShortcutItem } = useActions(pinnedFolderLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
         useActions(panelLayoutLogic)
@@ -458,7 +458,7 @@ export function ProjectTree({
             enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
             onDragEnd={(dragEvent) => {
                 const itemToId = (item: FileSystemEntry): string =>
-                    item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
+                    item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
                 const oldId = dragEvent.active.id as string
                 const newId = dragEvent.over?.id
                 if (oldId === newId) {
@@ -474,7 +474,7 @@ export function ProjectTree({
 
                 const folder = newItem
                     ? newItem.path || ''
-                    : newId && String(newId).startsWith('project-folder/')
+                    : newId && String(newId).startsWith('project://')
                     ? String(newId).substring(15)
                     : ''
 
@@ -488,13 +488,13 @@ export function ProjectTree({
                 }
             }}
             isItemDraggable={(item) => {
-                return (item.id.startsWith('project/') || item.id.startsWith('project-folder/')) && item.record?.path
+                return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
 
                 // disable dropping for these IDS
-                if (!item.id.startsWith('project-folder/')) {
+                if (!item.id.startsWith('project://')) {
                     return false
                 }
 
