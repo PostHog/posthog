@@ -15,6 +15,7 @@ import {
     selectors,
 } from 'kea'
 import api, { ApiError } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -56,7 +57,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 
 export interface MaxThreadLogicProps {
     conversationId: string
-    conversation: ConversationDetail | null
+    conversation?: ConversationDetail | null
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
@@ -67,13 +68,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     props({} as MaxThreadLogicProps),
 
     propsChanged(({ actions, values, props }) => {
-        // Conversation is active or just mounted, ignore everything
-        if (values.threadLoading || !props.conversation) {
+        // Streaming is active, do not update the thread
+        if (!props.conversation) {
             return
         }
 
         // New messages have been added since we last updated the thread
-        if (props.conversation.messages.length > values.threadMessageCount) {
+        if (!values.streamingActive && props.conversation.messages.length > values.threadMessageCount) {
             actions.setThread(
                 props.conversation.messages.map((message) => ({
                     ...message,
@@ -84,7 +85,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Check if the meta fields like the `status` field have changed
         const newConversation = removeConversationMessages(props.conversation)
-        if (JSON.stringify(values.conversation) !== JSON.stringify(newConversation)) {
+        if (!values.conversation || JSON.stringify(values.conversation) !== JSON.stringify(newConversation)) {
             actions.setConversation(newConversation)
         }
     }),
@@ -127,7 +128,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     reducers(({ props }) => ({
         conversation: [
-            props.conversation ? removeConversationMessages(props.conversation) : null,
+            props.conversation ? removeConversationMessages(props.conversation) ?? null : null,
             {
                 setConversation: (_, { conversation }) => conversation,
             },
@@ -155,7 +156,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
-        threadLoading: [
+        // Specific case when the conversation is in progress on the backend, but the device doesn't have an open stream
+        conversationLoading: [
+            false,
+            {
+                setConversation: (_, { conversation }) =>
+                    conversation && conversation.status === ConversationStatus.InProgress,
+            },
+        ],
+
+        streamingActive: [
             false,
             {
                 askMax: () => true,
@@ -173,9 +183,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.setQuestion('')
             // Set active streaming threads, so we now how many are running
             actions.setActiveStreamingThreads(1)
+
             // For a new conversations, set the temporary conversation ID, which will be replaced with the actual conversation ID once the first message is generated
             if (!values.conversation) {
                 actions.setConversationId(values.conversationId)
+            } else {
+                const updatedConversation = {
+                    ...values.conversation,
+                    status: ConversationStatus.InProgress,
+                    updated_at: dayjs().toISOString(),
+                }
+                // Update the current status
+                actions.setConversation(updatedConversation)
+                // Update the global conversation cache
+                actions.updateGlobalConversationCache(updatedConversation)
             }
 
             if (generationAttempt === 0) {
@@ -214,6 +235,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 const parser = createParser({
                     onEvent: ({ data, event }) => {
+                        // A Conversation object is only received when the conversation is new
                         if (event === AssistantEventType.Conversation) {
                             const parsedResponse = parseResponse<Conversation>(data)
                             if (!parsedResponse) {
@@ -382,6 +404,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (conversation, propsConversationId) => conversation?.id || propsConversationId,
         ],
 
+        threadLoading: [
+            (s) => [s.conversationLoading, s.streamingActive],
+            (conversationLoading, streamingActive) => conversationLoading || streamingActive,
+        ],
+
         threadGrouped: [
             (s) => [s.threadRaw, s.threadLoading],
             (thread, threadLoading): ThreadMessage[][] => {
@@ -508,7 +535,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
 
     beforeUnmount(({ cache, values }) => {
-        if (!values.threadLoading) {
+        if (!values.streamingActive) {
             cache.unmount()
         }
     }),

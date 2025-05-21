@@ -33,7 +33,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     View all
                 </LemonButton>
             </div>
-            {conversationHistoryLoading ? (
+            {conversationHistoryLoading && !conversationHistory.length ? (
                 <>
                     <LemonSkeleton className="h-5 w-full" />
                     <LemonSkeleton className="h-5 w-full" />

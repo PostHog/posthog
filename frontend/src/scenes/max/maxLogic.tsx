@@ -339,26 +339,26 @@ export const maxLogic = kea<maxLogicType>([
             })
         },
 
-        loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            // If the current chat is not a chat with ID, don't update the thread
-            if (!values.conversationId || isTempId(values.conversationId)) {
+        loadConversationHistorySuccess: ({ payload }) => {
+            // Don't update the thread if:
+            // the current chat is not a chat with ID
+            // the current chat is a temp chat
+            // we have explicitly marked
+            if (!values.conversationId || isTempId(values.conversationId) || payload?.doNotUpdateCurrentThread) {
                 return
             }
 
-            const conversation = conversationHistory.find((c) => c.id === values.conversationId)
-
-            // Don't update the thread if we have explicitly marked
-            if (payload?.doNotUpdateCurrentThread) {
-                return
-            }
+            const conversation = values.conversation
 
             // If the user has opened a conversation from a direct link, we verify that the conversation exists
             // after the history has been loaded.
             if (conversation) {
                 actions.scrollThreadToBottom('instant')
-            } else {
+            }
+
+            if (!conversation || conversation.status === ConversationStatus.InProgress) {
                 // If the conversation is not found, poll the conversation status and reset if 404.
-                actions.pollConversation(values.conversationId, 0, 0)
+                actions.pollConversation(values.conversationId)
             }
         },
 

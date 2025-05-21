@@ -3,11 +3,13 @@ import { useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
+import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 import {
     chatResponseChunk,
+    CONVERSATION_ID,
     failureChunk,
     formChunk,
     generationFailureChunk,
@@ -16,6 +18,7 @@ import {
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -43,9 +46,9 @@ const meta: Meta = {
 }
 export default meta
 
-const Template = (props: MaxInstanceProps): JSX.Element => {
+const Template = ({ className, ...props }: MaxInstanceProps & { className?: string }): JSX.Element => {
     return (
-        <div className="relative flex flex-col h-fit">
+        <div className={twMerge('relative flex flex-col h-fit', className)}>
             <MaxInstance {...props} />
         </div>
     )
@@ -116,9 +119,11 @@ WelcomeLoadingSuggestions.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const { askMax } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -132,9 +137,11 @@ export const EmptyThreadLoading: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -153,10 +160,15 @@ export const GenerationFailureThread: StoryFn = () => {
         },
     })
 
-    const { askMax, setMessageStatus } = useActions(maxLogic)
-    const { threadRaw, threadLoading } = useValues(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+
+    const { askMax, setMessageStatus } = useActions(threadLogic)
+    const { threadRaw, threadLoading } = useValues(threadLogic)
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -176,9 +188,11 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -193,9 +207,11 @@ export const ThreadWithRateLimit: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax('Is Bielefeld real?')
     }, [])
 
@@ -209,9 +225,11 @@ export const ThreadWithForm: StoryFn = () => {
         },
     })
 
-    const { askMax } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
 
     useEffect(() => {
+        setConversationId(CONVERSATION_ID)
         askMax(humanMessage.content)
     }, [])
 
@@ -228,7 +246,7 @@ export const ThreadWithConversationLoading: StoryFn = () => {
     const { setConversationId } = useActions(maxLogic)
 
     useEffect(() => {
-        setConversationId('test')
+        setConversationId(CONVERSATION_ID)
     }, [])
 
     return <Template />
