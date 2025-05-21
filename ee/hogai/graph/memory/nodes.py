@@ -3,7 +3,7 @@ from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
-from langchain_community.chat_models import ChatPerplexity
+from langchain_perplexity import ChatPerplexity
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     AIMessageChunk,
