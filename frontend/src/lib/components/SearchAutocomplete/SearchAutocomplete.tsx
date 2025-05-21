@@ -1,7 +1,7 @@
 import { IconInfo, IconSearch, IconX } from '@posthog/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
+import { ListBox } from 'lib/ui/ListBox/ListBox'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
@@ -32,7 +32,6 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         const [suggestions, setSuggestions] = useState<Suggestion[]>([])
         const [currentHint, setCurrentHint] = useState<string | undefined>(undefined)
         const inputRef = useRef<HTMLInputElement>(null)
-        const listBoxRef = useRef<ListBoxHandle>(null)
 
         // Base category suggestions (e.g. "user", "type", "name")
         const baseCategories = searchData.map(([cat]) => ({ value: cat, label: cat }))
@@ -215,9 +214,9 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         }
 
         return (
-            <ListBox ref={listBoxRef} className="w-full" virtualFocus ignoreFocusIndex={0}>
+            <ListBox className="w-full" virtualFocus>
                 <PopoverPrimitive open={open} onOpenChange={setOpen}>
-                    <ListBox.Item asChild>
+                    <ListBox.Item asChild virtualFocusIgnore>
                         <PopoverPrimitiveTrigger asChild>
                             <LemonInput
                                 type="text"
@@ -276,6 +275,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                             className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"
                         >
                             <ul className="flex flex-col gap-px p-1">
+                                <ButtonPrimitive menuItem disabled>
+                                    <IconSearch className="size-4" />
+                                    {value ? value : 'Type to search...'}
+                                </ButtonPrimitive>
+
                                 {suggestions.map((item) => (
                                     <>
                                         <ListBox.Item asChild key={item.value}>

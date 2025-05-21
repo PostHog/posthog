@@ -53,7 +53,11 @@ export const ListBox = ({
     function recalculateFocusableElements(): void {
         focusableElements.current = Array.from(
             containerRef.current?.querySelectorAll<HTMLElement>('[data-listbox-item]') || []
-        ).filter((el) => !(el.hidden || window.getComputedStyle(el).display === 'none'))
+        ).filter(
+            (el) =>
+                !(el.hidden || window.getComputedStyle(el).display === 'none') &&
+                el.getAttribute('data-virtual-focus-ignore') !== 'true'
+        )
     }
 
     /** Handle Arrow navigation */
@@ -138,10 +142,12 @@ ListBox.displayName = 'ListBox'
 interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
     children: ReactNode
     asChild?: boolean
+    keepFocus?: boolean
+    virtualFocusIgnore?: boolean
 }
 
 ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    ({ children, asChild, onClick, ...props }, ref): JSX.Element => {
+    ({ children, asChild, onClick, virtualFocusIgnore, keepFocus, ...props }, ref): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -184,6 +190,7 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
             onFocus: handleFocus,
             onBlur: handleBlur,
             ref,
+            ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
             ...props,
         }
 
