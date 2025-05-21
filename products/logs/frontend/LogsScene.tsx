@@ -1,3 +1,5 @@
+import './sparkline-loading.scss'
+
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -67,7 +69,7 @@ export function LogsScene(): JSX.Element {
                 <Sparkline
                     labels={labels}
                     data={timeseries}
-                    className={sparklineLoading ? 'opacity-50 w-full' : 'w-full'}
+                    className={sparklineLoading ? 'w-full sparkline-loading' : 'w-full'}
                 />
                 <DisplayOptions />
                 <div className="flex-1">
