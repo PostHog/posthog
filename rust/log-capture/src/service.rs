@@ -3,10 +3,15 @@ use crate::{auth::authenticate_request, clickhouse::ClickHouseWriter, config::Co
 use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
+use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+use opentelemetry_proto::tonic::collector::trace::v1::{
+    ExportTraceServiceRequest, ExportTraceServiceResponse,
+};
 
 use tonic::{Request, Response, Status};
 use tracing::error;
 
+#[derive(Clone)]
 pub struct Service {
     config: Config,
     clickhouse_writer: ClickHouseWriter,
@@ -89,6 +94,19 @@ impl LogsService for Service {
 
         // A successful OTLP export expects an ExportLogsServiceResponse.
         let response = ExportLogsServiceResponse {
+            partial_success: None,
+        };
+        Ok(Response::new(response))
+    }
+}
+
+#[tonic::async_trait]
+impl TraceService for Service {
+    async fn export(
+        &self,
+        _request: Request<ExportTraceServiceRequest>,
+    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
+        let response = ExportTraceServiceResponse {
             partial_success: None,
         };
         Ok(Response::new(response))

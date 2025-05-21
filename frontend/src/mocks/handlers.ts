@@ -193,6 +193,8 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/file_system/unfiled/': { count: 0 },
+        '/api/projects/:team_id/file_system': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/file_system_shortcut/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
     },
     post: {

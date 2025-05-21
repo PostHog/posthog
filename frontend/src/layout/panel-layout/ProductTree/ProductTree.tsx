@@ -14,7 +14,8 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { productTreeLogic } from './productTreeLogic'
 
 export function ProductTree(): JSX.Element {
-    const { productTreeItems } = useValues(productTreeLogic)
+    const { productTreeItems, searchTerm } = useValues(productTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(productTreeLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
     const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -58,7 +59,12 @@ export function ProductTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel searchPlaceholder="Search products">
+        <PanelLayoutPanel
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            clearSearch={clearSearch}
+            searchPlaceholder="Search products"
+        >
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
