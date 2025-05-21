@@ -12,6 +12,8 @@ export function Shortcuts(): JSX.Element {
 
     const [shortcutsPath, setShortcutsPath] = useState('products://')
 
+    // TODO: repurpose add to shortcut modal as a popover instead of the prompt
+
     return (
         <>
             {!isLayoutNavCollapsed && (

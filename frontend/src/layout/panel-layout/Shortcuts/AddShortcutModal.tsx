@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { FileSelect } from 'lib/components/FileSelect/FileSelect'
+import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -27,7 +27,7 @@ export function AddShortcutModal(): JSX.Element {
             }
         >
             <div className="w-192 max-w-full">
-                <FileSelect value={selectedItem?.id} onChange={setSelectedItem} />
+                <FolderSelect value={selectedItem?.id} onChange={setSelectedItem} />
             </div>
         </LemonModal>
     )
