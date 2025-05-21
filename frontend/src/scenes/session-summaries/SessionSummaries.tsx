@@ -827,7 +827,7 @@ function PerformanceMetrics(): JSX.Element {
         { 
             label: 'Session Replay', 
             value: '40%', 
-            color: 'bg-success', 
+            color: 'bg-success/20', 
             width: 'w-[40%]',
             status: 'enabled',
             description: 'Active',
@@ -837,7 +837,7 @@ function PerformanceMetrics(): JSX.Element {
         { 
             label: 'Product Analytics', 
             value: '15%', 
-            color: 'bg-success', 
+            color: 'bg-success/20', 
             width: 'w-[15%]',
             status: 'enabled',
             description: 'Active',
@@ -847,7 +847,7 @@ function PerformanceMetrics(): JSX.Element {
         { 
             label: 'Web Analytics', 
             value: '15%', 
-            color: 'bg-warning', 
+            color: 'bg-warning/20', 
             width: 'w-[15%]',
             status: 'disabled',
             description: 'Disabled',
@@ -857,7 +857,7 @@ function PerformanceMetrics(): JSX.Element {
         { 
             label: 'Feature Flags', 
             value: '10%', 
-            color: 'bg-warning', 
+            color: 'bg-warning/20', 
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
@@ -867,7 +867,7 @@ function PerformanceMetrics(): JSX.Element {
         { 
             label: 'Identified Events', 
             value: '10%', 
-            color: 'bg-warning', 
+            color: 'bg-warning/20', 
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
@@ -877,7 +877,7 @@ function PerformanceMetrics(): JSX.Element {
         { 
             label: 'Error Tracking', 
             value: '10%', 
-            color: 'bg-warning', 
+            color: 'bg-warning/20', 
             width: 'w-[10%]',
             status: 'disabled',
             description: 'Disabled',
@@ -903,23 +903,23 @@ function PerformanceMetrics(): JSX.Element {
                         className={`${segment.color} ${segment.width} flex flex-col items-center justify-center relative group`}
                     >
                         <div className={`text-sm font-medium mb-1 text-center px-1 break-words flex items-center gap-1 ${
-                            segment.color === 'bg-warning' ? 'text-gray-900' : 'text-white'
+                            segment.color.includes('warning') ? 'text-gray-900' : 'text-gray-900'
                         }`}>
                             {segment.icon}
                             {segment.label}
                         </div>
                         <div className={`text-xs mb-1 ${
-                            segment.color === 'bg-warning' ? 'text-gray-900' : 'text-white opacity-90'
+                            segment.color.includes('warning') ? 'text-gray-900' : 'text-gray-900'
                         }`}>
                             {segment.value} improvement
                         </div>
                         <div className={`text-xs ${
-                            segment.color === 'bg-warning' ? 'text-gray-700' : 'text-white opacity-70'
+                            segment.color.includes('warning') ? 'text-gray-700' : 'text-gray-700'
                         }`}>
                             {segment.description}
                         </div>
                         {index < segments.length - 1 && (
-                            <div className="absolute right-0 top-0 bottom-0 w-px bg-black/10" />
+                            <div className="absolute right-0 top-0 bottom-0 w-px bg-black/5" />
                         )}
                     </div>
                 ))}
