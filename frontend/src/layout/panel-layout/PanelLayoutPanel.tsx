@@ -233,11 +233,12 @@ export function PanelLayoutPanel({
                 <div className="flex gap-1 p-1 items-center justify-between">
                     <SearchAutocomplete
                         inputPlaceholder={searchPlaceholder}
+                        includeNegation
                         searchData={[
                             [
                                 {
                                     label: 'user',
-                                    hint: 'Search by user',
+                                    hint: 'Search by user name',
                                 },
                                 [{ value: 'me', label: 'Me', hint: 'My stuff' }],
                                 'enter a user, quotes are supported',
@@ -253,7 +254,7 @@ export function PanelLayoutPanel({
                             [
                                 {
                                     label: 'name',
-                                    hint: 'Search by name',
+                                    hint: 'Search by item name',
                                 },
                                 undefined,
                                 'enter a name, quotes are supported',
