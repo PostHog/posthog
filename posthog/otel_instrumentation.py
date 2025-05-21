@@ -8,6 +8,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 
 import structlog
 
@@ -64,6 +65,11 @@ def initialize_otel():
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
+        logger.info(
+            "otel_core_components_initialized_successfully",
+            service_name=service_name,
+            source_module="otel_instrumentation",
+        )
 
         try:
             DjangoInstrumentor().instrument(
@@ -83,6 +89,21 @@ def initialize_otel():
         except Exception as e:
             logger.exception(
                 "otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e
+            )
+
+        try:
+            PsycopgInstrumentor().instrument(
+                tracer_provider=provider, enable_commenter=True, commenter_options={"opentelemetry_values": True}
+            )
+            logger.info(
+                "otel_instrumentation_attempt",
+                instrumentor="PsycopgInstrumentor",
+                status="success",
+                note="SQLCommenter enabled for diagnostics",
+            )
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e
             )
 
         logger.info(

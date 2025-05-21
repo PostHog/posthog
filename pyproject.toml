@@ -143,6 +143,7 @@ dependencies = [
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-asgi>=0.54b1",
     "opentelemetry-instrumentation-redis>=0.54b1",
+    "opentelemetry-instrumentation-psycopg>=0.54b1",
 ]
 
 [dependency-groups]
