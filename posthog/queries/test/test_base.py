@@ -258,10 +258,21 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": 1836277747.867530}))
         self.assertFalse(match_property(property_a, {"key": 1747794128}))
 
+        property_b = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_before")
+        self.assertFalse(match_property(property_b, {"key": 1836277747}))
+        self.assertFalse(match_property(property_b, {"key": 1836277747.867530}))
+        self.assertTrue(match_property(property_b, {"key": 1747794128}))
+
+        property_e = Property(key="key", value="2028-03-10T05:09:07Z", operator="is_date_exact")
+        self.assertTrue(match_property(property_e, {"key": 1836277747}))
+
     def test_match_property_date_operators_with_string_timestamps(self):
         property_a = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_after")
         self.assertTrue(match_property(property_a, {"key": "1836277747"}))
         self.assertFalse(match_property(property_a, {"key": "1747794128"}))
+
+        property_e = Property(key="key", value="2028-03-10T05:09:07Z", operator="is_date_exact")
+        self.assertTrue(match_property(property_e, {"key": "1836277747"}))
 
     def test_determine_parsed_incoming_date_with_int_timestamp(self):
         self.assertEqual(

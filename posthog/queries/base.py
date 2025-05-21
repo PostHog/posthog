@@ -175,7 +175,7 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         else:
             return compare(str(override_value), str(value), operator)
 
-    if operator in ["is_date_before", "is_date_after"]:
+    if operator in ["is_date_before", "is_date_after", "is_date_exact"]:
         parsed_date = determine_parsed_date_for_property_matching(value)
 
         if not parsed_date:
@@ -188,8 +188,10 @@ def match_property(property: Property, override_property_values: dict[str, Any])
 
         if operator == "is_date_before":
             return parsed_override_date < parsed_date
-        else:
+        elif operator == "is_date_after":
             return parsed_override_date > parsed_date
+        elif operator == "is_date_exact":
+            return parsed_override_date == parsed_date
 
     return False
 
