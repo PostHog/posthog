@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestRevenueAnalyticsInsights.test_dw_revenue_currency_property
   '''
-  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(number, 1))), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -29,7 +29,7 @@
 # ---
 # name: TestRevenueAnalyticsInsights.test_dw_revenue_currency_static
   '''
-  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(number, 1))), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -57,7 +57,7 @@
 # ---
 # name: TestRevenueAnalyticsInsights.test_events_revenue_currency_property
   '''
-  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(number, 1))), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -85,7 +85,7 @@
 # ---
 # name: TestRevenueAnalyticsInsights.test_events_revenue_currency_static
   '''
-  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(number, 1))), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-02 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
