@@ -3,7 +3,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman, isObject } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -74,7 +74,11 @@ function ContextTable({ entries }: { entries: [string, unknown][] }): JSX.Elemen
                 {entries
                     .filter(([, value]) => value !== undefined)
                     .map(([key, value]) => (
-                        <ContextRow key={key} label={key} value={String(value)} />
+                        <ContextRow
+                            key={key}
+                            label={key}
+                            value={isObject(value) ? JSON.stringify(value) : String(value)}
+                        />
                     ))}
                 {entries.length == 0 && <tr className="w-full text-center">No data available</tr>}
             </tbody>
@@ -85,11 +89,12 @@ function ContextTable({ entries }: { entries: [string, unknown][] }): JSX.Elemen
 function ContextRow({ label, value }: ContextRowProps): JSX.Element {
     const valueRef = useRef<HTMLTableCellElement>(null)
     const isHovering = useIsHovering(valueRef)
+
     return (
         <tr className="even:bg-fill-tertiary w-full group">
             <th className="border-r-1 font-semibold text-xs p-1 w-1/3 text-left">{label}</th>
             <td ref={valueRef} className="w-full truncate p-1 text-xs max-w-0 relative" title={value}>
-                {String(value)}
+                {value}
                 <div
                     className={cn(
                         'absolute right-0 top-[50%] translate-y-[-50%] group-even:bg-fill-tertiary group-odd:bg-fill-primary drop-shadow-sm',
