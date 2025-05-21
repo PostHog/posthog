@@ -235,12 +235,20 @@ class QueryDateRange:
         )
 
     def number_interval_periods(self) -> ast.Expr:
-        return ast.Call(
-            name=f"toInterval{self.interval_name.capitalize()}",
-            args=[
-                ast.Call(name="multiply", args=[ast.Field(chain=["number"]), ast.Constant(value=self.interval_count)])
-            ],
-        )
+        if self.interval_count == 1:
+            return ast.Call(
+                name=f"toInterval{self.interval_name.capitalize()}",
+                args=[ast.Field(chain=["number"])],
+            )
+        else:
+            return ast.Call(
+                name=f"toInterval{self.interval_name.capitalize()}",
+                args=[
+                    ast.Call(
+                        name="multiply", args=[ast.Field(chain=["number"]), ast.Constant(value=self.interval_count)]
+                    )
+                ],
+            )
 
     def interval_period_string_as_hogql_constant(self) -> ast.Expr:
         return ast.Constant(value=self.interval_name)
