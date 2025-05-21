@@ -14,6 +14,7 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
@@ -198,32 +199,35 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     const { humanizedActivity, activityLoading, pagination } = useValues(logic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billingLoading } = useValues(billingLogic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
         <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
-            <PayGateMini
-                feature={AvailableFeature.AUDIT_LOGS}
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
-            >
-                {activityLoading && humanizedActivity.length === 0 ? (
-                    <Loading />
-                ) : humanizedActivity.length === 0 ? (
-                    <Empty scope={scope} />
-                ) : (
-                    <>
-                        <div className="deprecated-space-y-2">
-                            {humanizedActivity.map((logItem, index) => (
-                                <ActivityLogRow key={index} logItem={logItem} />
-                            ))}
-                        </div>
-                        <LemonDivider />
-                        <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                    </>
-                )}
-            </PayGateMini>
+            {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
+                <Loading />
+            ) : (
+                <PayGateMini
+                    feature={AvailableFeature.AUDIT_LOGS}
+                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                >
+                    {humanizedActivity.length === 0 ? (
+                        <Empty scope={scope} />
+                    ) : (
+                        <>
+                            <div className="deprecated-space-y-2">
+                                {humanizedActivity.map((logItem, index) => (
+                                    <ActivityLogRow key={index} logItem={logItem} />
+                                ))}
+                            </div>
+                            <LemonDivider />
+                            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                        </>
+                    )}
+                </PayGateMini>
+            )}
         </div>
     )
 }

@@ -29,7 +29,17 @@ export const manifest: ProductManifest = {
         {
             path: `Dashboard`,
             type: 'dashboard',
-            href: () => urls.dashboards() + '#newDashboard=modal',
+            href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Dashboards',
+            type: 'dashboard',
+            href: urls.dashboards(),
+        },
+    ],
+    fileSystemFilterTypes: {
+        dashboard: { name: 'Dashboards' },
+    },
 }

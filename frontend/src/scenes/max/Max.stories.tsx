@@ -1,5 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
@@ -14,7 +14,8 @@ import {
     generationFailureChunk,
     humanMessage,
 } from './__mocks__/chatResponse.mocks'
-import { MaxInstance } from './Max'
+import conversationList from './__mocks__/conversationList.json'
+import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxLogic } from './maxLogic'
 
 const meta: Meta = {
@@ -39,16 +40,15 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        featureFlags: ['artificial-hog'],
     },
 }
 export default meta
 
-const Template = ({ conversationId: CONVERSATION_ID }: { conversationId: string }): JSX.Element => {
+const Template = (props: MaxInstanceProps): JSX.Element => {
     return (
         <div className="relative flex flex-col h-fit">
-            <BindLogic logic={maxLogic} props={{ conversationId: CONVERSATION_ID }}>
-                <MaxInstance />
-            </BindLogic>
+            <MaxInstance {...props} />
         </div>
     )
 }
@@ -67,7 +67,7 @@ export const Welcome: StoryFn = () => {
         },
     })
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 
 export const WelcomeSuggestionsAvailable: StoryFn = () => {
@@ -93,7 +93,7 @@ export const WelcomeSuggestionsAvailable: StoryFn = () => {
         loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 
 export const WelcomeLoadingSuggestions: StoryFn = () => {
@@ -109,12 +109,19 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
         loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 WelcomeLoadingSuggestions.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
+}
+
+export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
+    return <Template />
+}
+WelcomeFeaturePreviewAutoEnrolled.parameters = {
+    featureFlags: [],
 }
 
 export const Thread: StoryFn = () => {
@@ -124,7 +131,7 @@ export const Thread: StoryFn = () => {
         askMax(humanMessage.content)
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 
 export const EmptyThreadLoading: StoryFn = () => {
@@ -140,7 +147,7 @@ export const EmptyThreadLoading: StoryFn = () => {
         askMax(humanMessage.content)
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 EmptyThreadLoading.parameters = {
     testOptions: {
@@ -168,7 +175,7 @@ export const GenerationFailureThread: StoryFn = () => {
         }
     }, [threadRaw.length, threadLoading])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 
 export const ThreadWithFailedGeneration: StoryFn = () => {
@@ -184,7 +191,7 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         askMax(humanMessage.content)
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 
 export const ThreadWithRateLimit: StoryFn = () => {
@@ -201,7 +208,7 @@ export const ThreadWithRateLimit: StoryFn = () => {
         askMax('Is Bielefeld real?')
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
 }
 
 export const ThreadWithForm: StoryFn = () => {
@@ -217,5 +224,137 @@ export const ThreadWithForm: StoryFn = () => {
         askMax(humanMessage.content)
     }, [])
 
-    return <Template conversationId={CONVERSATION_ID} />
+    return <Template />
+}
+
+export const ThreadWithConversationLoading: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        setConversationId('test')
+    }, [])
+
+    return <Template />
+}
+ThreadWithConversationLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithEmptyConversation: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        setConversationId('empty')
+    }, [])
+
+    return <Template />
+}
+
+export const ThreadWithInProgressConversation: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+            '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        setConversationId('in_progress')
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithInProgressConversation.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const WelcomeWithLatestConversations: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+    })
+
+    return <Template sidePanel />
+}
+
+export const ChatHistory: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+    })
+
+    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        toggleConversationHistory(true)
+    }, [])
+
+    return <Template sidePanel />
+}
+ChatHistory.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ChatHistoryEmpty: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [400],
+        },
+    })
+
+    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        toggleConversationHistory(true)
+    }, [])
+
+    return <Template sidePanel />
+}
+ChatHistoryEmpty.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ChatHistoryLoading: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const { toggleConversationHistory } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        toggleConversationHistory(true)
+    }, [])
+
+    return <Template sidePanel />
+}
+ChatHistoryLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }

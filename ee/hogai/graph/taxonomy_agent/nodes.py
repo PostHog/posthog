@@ -133,7 +133,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(
