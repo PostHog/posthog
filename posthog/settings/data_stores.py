@@ -218,9 +218,7 @@ except Exception:
 
 # Per-team settings used for query execution. Keys should be strings, not numbers.
 try:
-    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict[str, str] = json.loads(
-        os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}")
-    )
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
