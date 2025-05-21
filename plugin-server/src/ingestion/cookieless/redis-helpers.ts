@@ -178,7 +178,7 @@ export class RedisHelpers {
         })
     }
 
-    public redisSAddMulti(keyVals: Record<string, string[]>, tag: string): Promise<void> {
+    public redisSAddMulti(keyVals: Record<string, string[]>, tag: string, ttlSeconds?: number): Promise<void> {
         return this.instrumentRedisQuery(
             'query.redisSAddMulti',
             tag,
@@ -188,6 +188,9 @@ export class RedisHelpers {
                 // queue SADD for every key
                 for (const [key, value] of Object.entries(keyVals)) {
                     pipeline.sadd(key, ...value)
+                    if (ttlSeconds) {
+                        pipeline.expire(key, ttlSeconds)
+                    }
                 }
                 await pipeline.exec()
             }
@@ -211,16 +214,19 @@ export class RedisHelpers {
         })
     }
 
-    public redisSetBufferMulti(keyVals: Record<string, Buffer>, tag: string): Promise<void> {
+    public redisSetBufferMulti(keyVals: Record<string, Buffer>, tag: string, ttlSeconds?: number): Promise<void> {
         return this.instrumentRedisQuery(
             'query.redisSetBufferMulti',
             tag,
             { keys: Array.from(Object.keys(keyVals)) },
             async (client) => {
                 const pipeline = client.pipeline()
-                // queue getBuffer for every key
+                // queue setBuffer for every key
                 for (const [key, value] of Object.entries(keyVals)) {
                     pipeline.setBuffer(key, value)
+                    if (ttlSeconds) {
+                        pipeline.expire(key, ttlSeconds)
+                    }
                 }
                 await pipeline.exec()
             }

@@ -799,8 +799,8 @@ export class CookielessStateForBatch {
                         return [key, Array.from(value.identifyEventIds)]
                     })
             ),
-            'CookielessStateForBatch.identifiesCacheWrite'
-            // TODO TTL
+            'CookielessStateForBatch.identifiesCacheWrite',
+            this.hub.cookielessManager.config.identifiesTtlSeconds
         )
 
         // write the session state to redis
@@ -812,8 +812,8 @@ export class CookielessStateForBatch {
                         return [key, sessionStateToBuffer(value.session)]
                     })
             ),
-            'CookielessStateForBatch.sessionCacheWrite'
-            // TODO TTL
+            'CookielessStateForBatch.sessionCacheWrite',
+            this.hub.cookielessManager.config.sessionTtlSeconds
         )
 
         return eventsWithStatus
