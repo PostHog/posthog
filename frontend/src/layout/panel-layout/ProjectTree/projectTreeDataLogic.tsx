@@ -17,6 +17,7 @@ import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTre
 import {
     appendResultsToFolders,
     convertFileSystemEntryToTreeDataItem,
+    escapePath,
     joinPath,
     sortFilesAndFolders,
     splitPath,
@@ -75,6 +76,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         deleteTypeAndRef: (type: string, ref: string) => ({ type, ref }),
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
+
+        addShortcutItem: (item: FileSystemEntry) => ({ item }),
+        deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
+        loadShortcuts: true,
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -217,6 +222,28 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
             },
         ],
+        shortcutData: [
+            [] as FileSystemEntry[],
+            {
+                loadShortcuts: async () => {
+                    const response = await api.fileSystemShortcuts.list()
+                    return response.results
+                },
+                addShortcutItem: async ({ item }) => {
+                    const response = await api.fileSystemShortcuts.create({
+                        path: splitPath(item.path).pop() ?? 'Unnamed',
+                        type: item.type,
+                        ref: item.ref,
+                        href: item.href,
+                    })
+                    return [...values.shortcutData, response]
+                },
+                deleteShortcut: async ({ id }) => {
+                    await api.fileSystemShortcuts.delete(id)
+                    return values.shortcutData.filter((s) => s.id !== id)
+                },
+            },
+        ],
     })),
     reducers({
         folders: [
@@ -340,6 +367,24 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             {
                 setLastNewFolder: (_, { folder }) => {
                     return folder ?? null
+                },
+            },
+        ],
+        shortcutData: [
+            [] as FileSystemEntry[],
+            {
+                deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
+                addLoadedResults: (state, { results }) => {
+                    const filesByTypeAndRef = Object.fromEntries(
+                        results.results.map((file) => [`${file.type}//${file.ref}`, file])
+                    )
+                    return state.map((item) => {
+                        const file = filesByTypeAndRef[`${item.type}//${item.ref}`]
+                        if (file) {
+                            return { ...item, path: escapePath(splitPath(file.path).pop() ?? 'Unnamed') }
+                        }
+                        return item
+                    })
                 },
             },
         ],
@@ -476,8 +521,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         staticTreeItems: [
-            (s) => [s.featureFlags],
-            (featureFlags): TreeDataItem[] => {
+            (s) => [s.featureFlags, s.shortcutData],
+            (featureFlags, shortcutData): TreeDataItem[] => {
                 const convert = (imports: FileSystemImport[], root: string): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
                         root,
@@ -515,6 +560,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         displayName: <>New</>,
                         record: { type: 'folder', path: '' },
                         children: convert(getDefaultTreeNew(), 'new://'),
+                    },
+                    {
+                        id: 'shortcuts://',
+                        name: 'shortcuts://',
+                        displayName: <>Shortcuts</>,
+                        record: { type: 'folder', path: '' },
+                        children: convert(shortcutData, 'shortcuts://'),
                     },
                 ]
                 return staticItems
