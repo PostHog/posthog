@@ -3725,6 +3725,7 @@ class WebStatsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebVitalsItemAction(BaseModel):
@@ -5208,6 +5209,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
@@ -5368,6 +5370,34 @@ class Response4(BaseModel):
 
 
 class Response5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class Response6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6257,6 +6287,34 @@ class QueryResponseAlternative19(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative20(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
 
 
 class QueryResponseAlternative22(BaseModel):
@@ -6482,6 +6540,34 @@ class QueryResponseAlternative31(BaseModel):
 
 
 class QueryResponseAlternative32(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9687,6 +9773,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative17,
             QueryResponseAlternative18,
             QueryResponseAlternative19,
+            QueryResponseAlternative20,
             QueryResponseAlternative22,
             QueryResponseAlternative23,
             QueryResponseAlternative24,
@@ -9698,6 +9785,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative30,
             QueryResponseAlternative31,
             QueryResponseAlternative32,
+            QueryResponseAlternative33,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
@@ -9744,6 +9832,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative17,
         QueryResponseAlternative18,
         QueryResponseAlternative19,
+        QueryResponseAlternative20,
         QueryResponseAlternative22,
         QueryResponseAlternative23,
         QueryResponseAlternative24,
@@ -9755,6 +9844,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative30,
         QueryResponseAlternative31,
         QueryResponseAlternative32,
+        QueryResponseAlternative33,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
@@ -10353,6 +10443,7 @@ class DataTableNode(BaseModel):
             Response3,
             Response4,
             Response5,
+            Response6,
             Response8,
             Response9,
             Response10,

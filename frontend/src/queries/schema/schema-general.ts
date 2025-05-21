@@ -1725,6 +1725,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    usedPreAggregatedTables?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 

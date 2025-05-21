@@ -14,7 +14,8 @@ import { gameTreeLogic } from '../GameTree/gameTreeLogic'
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 
 export function GameTree(): JSX.Element {
-    const { gameTreeItems } = useValues(gameTreeLogic)
+    const { gameTreeItems, searchTerm } = useValues(gameTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(gameTreeLogic)
     const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
@@ -59,7 +60,7 @@ export function GameTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel>
+        <PanelLayoutPanel searchTerm={searchTerm} setSearchTerm={setSearchTerm} clearSearch={clearSearch}>
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
