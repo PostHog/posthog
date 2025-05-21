@@ -658,6 +658,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: editorSceneLogic,
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
+                        {
+                            identifier: Scene.SessionSummaries,
+                            label: 'Session summaries',
+                            icon: <IconMessage />,
+                            to: urls.sessionSummaries(),
+                            tooltipDocLink: 'https://posthog.com/docs/session-summaries',
+                        },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,

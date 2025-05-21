@@ -291,6 +291,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
     },
+    [Scene.SessionSummaries]: {
+        projectBased: true,
+        name: 'Session summaries',
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -472,6 +476,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Hog function',
     },
+
     ...productConfiguration,
 }
 

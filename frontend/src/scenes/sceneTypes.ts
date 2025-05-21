@@ -53,6 +53,7 @@ export enum Scene {
     SurveyTemplates = 'SurveyTemplates',
     SQLEditor = 'SQLEditor',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
+    SessionSummaries = 'SessionSummaries',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
     Max = 'Max',
