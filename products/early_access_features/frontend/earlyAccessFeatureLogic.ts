@@ -43,7 +43,6 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     key(({ id }) => id),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
-        actions: [earlyAccessFeaturesLogic, ['loadEarlyAccessFeatures', 'loadEarlyAccessFeaturesSuccess']],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
@@ -148,6 +147,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             false,
             {
                 editFeature: (_, { editing }) => editing,
+                saveEarlyAccessFeatureSuccess: () => false,
             },
         ],
         implementOptInInstructionsModal: [
@@ -163,19 +163,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     }),
-    selectors({
-        mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
+    selectors(({ actions }) => ({
         breadcrumbs: [
-            (s) => [s.earlyAccessFeature],
-            (earlyAccessFeature: EarlyAccessFeatureType): Breadcrumb[] => [
+            (s) => [s.earlyAccessFeature, s.isEditingFeature],
+            (earlyAccessFeature: EarlyAccessFeatureType, isEditingFeature: boolean): Breadcrumb[] => [
                 {
                     key: 'EarlyAccessFeatures',
-                    name: 'Early Access Management',
                     path: urls.earlyAccessFeatures(),
+                    name: 'Early access features',
                 },
                 {
                     key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
+                    forceEditMode: isEditingFeature,
+                    onRename: isEditingFeature
+                        ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
+                        : undefined,
                 },
             ],
         ],
@@ -197,25 +200,16 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 return '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, props }) => ({
-        updateStage: async ({ stage }) => {
-            'id' in values.earlyAccessFeature &&
-                (await api.earlyAccessFeatures.update(props.id, {
-                    ...values.earlyAccessFeature,
-                    stage: stage,
-                }))
-            if (props.id) {
-                refreshTreeItem('early_access_feature', props.id)
-            }
-            actions.loadEarlyAccessFeature()
-            actions.loadEarlyAccessFeatures()
-        },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
-            lemonToast.success('Early Access Feature saved')
-            actions.loadEarlyAccessFeatures()
+            lemonToast.success('Early access feature saved')
+            earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
+            refreshTreeItem('early_access_feature', props.id)
             _earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
-            actions.editFeature(false)
+        },
+        updateStage: async ({ stage }) => {
+            actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {
@@ -223,9 +217,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 lemonToast.info(
                     'Early access feature deleted. Remember to delete corresponding feature flag if necessary'
                 )
-                actions.loadEarlyAccessFeaturesSuccess(
-                    values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
-                )
+                earlyAccessFeaturesLogic
+                    .findMounted()
+                    ?.actions.loadEarlyAccessFeaturesSuccess(
+                        values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
+                    )
                 deleteFromTree('early_access_feature', earlyAccessFeatureId)
                 router.actions.push(urls.earlyAccessFeatures())
             } catch (e) {
