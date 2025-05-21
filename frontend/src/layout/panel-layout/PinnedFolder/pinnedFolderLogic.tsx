@@ -1,14 +1,14 @@
-import { actions, afterMount, kea, reducers } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 export const pinnedFolderLogic = kea([
+    path(['layout', 'panel-layout', 'PinnedFolder', 'pinnedFolderLogic']),
     actions({
         showModal: true,
         hideModal: true,
         setPinnedFolder: (id: string) => ({ id }),
         setSelectedFolder: (id: string) => ({ id }),
     }),
-
     reducers(() => ({
         pinnedFolder: [
             'products://',
@@ -32,7 +32,6 @@ export const pinnedFolderLogic = kea([
             },
         ],
     })),
-
     afterMount(({ actions, values }) => {
         if (values.selectedFolder !== values.pinnedFolder) {
             actions.setSelectedFolder(values.pinnedFolder)
