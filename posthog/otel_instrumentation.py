@@ -10,6 +10,8 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+from opentelemetry.instrumentation.kafka import KafkaInstrumentor
+from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
 
 import structlog
 
@@ -117,6 +119,22 @@ def initialize_otel():
         except Exception as e:
             logger.exception(
                 "otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e
+            )
+
+        try:
+            KafkaInstrumentor().instrument(tracer_provider=provider)
+            logger.info("otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="success")
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="KafkaInstrumentor", status="error", exc_info=e
+            )
+
+        try:
+            AIOKafkaInstrumentor().instrument(tracer_provider=provider)
+            logger.info("otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="success")
+        except Exception as e:
+            logger.exception(
+                "otel_instrumentation_attempt", instrumentor="AIOKafkaInstrumentor", status="error", exc_info=e
             )
 
         logger.info(
