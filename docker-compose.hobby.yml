@@ -112,6 +112,7 @@ services:
             OTEL_SDK_DISABLED: 'false'
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
+            OTEL_SDK_DISABLED: 'true'
         depends_on:
             - db
             - redis
