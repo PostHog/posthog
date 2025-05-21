@@ -1195,7 +1195,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
 
                 // Use survey start date as lower bound if needed
-                const surveyStartDayjs = survey.start_date ? dayjs(survey.start_date) : null
+                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
                 if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
                     fromDateDayjs = surveyStartDayjs
                 }
