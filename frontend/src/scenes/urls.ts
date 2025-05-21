@@ -164,4 +164,5 @@ export const urls = {
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
+    wallet: (): string => '/wallet',
 }

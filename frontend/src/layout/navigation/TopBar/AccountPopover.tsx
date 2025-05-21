@@ -8,6 +8,7 @@ import {
     IconGear,
     IconLeave,
     IconLive,
+    IconPiggyBank,
     IconPlusSmall,
     IconReceipt,
     IconServer,
@@ -311,6 +312,14 @@ export function AccountPopoverOverlay(): JSX.Element {
                     What's new?
                 </LemonButton>
                 <FeaturePreviewsButton />
+                <LemonButton
+                    to={urls.wallet()}
+                    icon={<IconPiggyBank />}
+                    fullWidth
+                    data-attr="wallet-button"
+                >
+                    Wallet
+                </LemonButton>
             </AccountPopoverSection>
             {user?.is_staff && (
                 <AccountPopoverSection>

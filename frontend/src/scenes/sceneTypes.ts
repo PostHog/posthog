@@ -101,6 +101,7 @@ export enum Scene {
     UserInterviews = 'UserInterviews',
     UserInterview = 'UserInterview',
     Game368 = 'Game368',
+    Wallet = 'Wallet',
 }
 
 export type SceneProps = Record<string, any>

@@ -79,6 +79,7 @@ from . import (
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
+from .wallet import WalletViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -700,3 +701,5 @@ environments_router.register(
     "environment_csp_reporting",
     ["team_id"],
 )
+
+router.register(r"wallet", wallet.WalletViewSet, "wallet")

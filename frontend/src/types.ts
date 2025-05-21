@@ -213,6 +213,7 @@ export enum ProductKey {
     REVENUE_ANALYTICS = 'revenue_analytics',
     MAX = 'max',
     LINKS = 'links',
+    WALLET = 'wallet'
 }
 
 type ProductKeyUnion = `${ProductKey}`

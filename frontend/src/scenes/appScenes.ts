@@ -92,4 +92,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.Links]: () => import('./links/LinksScene'),
     [Scene.Link]: () => import('./links/LinkScene'),
+    [Scene.Wallet]: () => import('./wallet/WalletScene'),
 }

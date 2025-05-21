@@ -483,6 +483,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: '368 Hedgehogs',
         projectBased: true,
     },
+    [Scene.Wallet]: {
+        name: 'Wallet',
+        projectBased: true,
+    },
     ...productConfiguration,
 }
 
@@ -688,5 +692,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],
     [urls.errorTrackingAlertNew(':templateId')]: [Scene.HogFunction, 'errorTrackingAlertNew'],
+    [urls.wallet()]: [Scene.Wallet, 'wallet'],
     ...productRoutes,
 }

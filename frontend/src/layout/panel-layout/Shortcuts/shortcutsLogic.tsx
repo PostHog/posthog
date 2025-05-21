@@ -4,22 +4,15 @@ import api from 'lib/api'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import {
-    convertFileSystemEntryToTreeDataItem,
-    escapePath,
-    joinPath,
-    splitPath,
-} from '~/layout/panel-layout/ProjectTree/utils'
+import { convertFileSystemEntryToTreeDataItem, escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { productTreeLogic } from '../ProductTree/productTreeLogic'
 import type { shortcutsLogicType } from './shortcutsLogicType'
 
 export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['layout', 'panel-layout', 'Shortcuts', 'shortcutsLogic']),
     connect(() => ({
         actions: [projectTreeLogic, ['updateSyncedFiles', 'deleteTypeAndRef']],
-        values: [projectTreeLogic, ['projectTreeItems', 'treeItemsNew'], productTreeLogic, ['productTreeItems']],
     })),
     actions({
         showModal: true,
@@ -102,45 +95,6 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
                 }).sort((a, b) => a.name.localeCompare(b.name)),
         ],
         shortcutsLoading: [(s) => [s.shortcutDataLoading], (loading) => loading],
-        treeItemsCombined: [
-            (s) => [s.projectTreeItems, s.productTreeItems, s.treeItemsNew],
-            (project, products, allNew): TreeDataItem[] => {
-                function addNewLabel(item: TreeDataItem): TreeDataItem {
-                    if (item.children) {
-                        return { ...item, children: item.children?.map(addNewLabel) }
-                    }
-                    const pathParts = splitPath(item.record?.path ?? '')
-                    const name = `New ${pathParts.pop()?.toLowerCase()}`
-                    const newPath = joinPath([...pathParts, name])
-                    return {
-                        ...item,
-                        name: name,
-                        record: { ...item.record, path: newPath },
-                    }
-                }
-
-                return [
-                    {
-                        id: 'project',
-                        name: 'Project',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: project,
-                    },
-                    {
-                        id: 'products',
-                        name: 'Products',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: products,
-                    },
-                    {
-                        id: 'new',
-                        name: 'New',
-                        record: { type: 'folder', id: null, path: '/' },
-                        children: allNew.map(addNewLabel),
-                    },
-                ]
-            },
-        ],
     }),
     afterMount(({ actions }) => {
         actions.loadShortcuts()
