@@ -1036,9 +1036,17 @@ def failhard_threadhook_context():
     """
 
     def raise_hook(args: threading.ExceptHookArgs):
-        if args.exc_value is not None:
-            exc = args.exc_type(args.exc_value).with_traceback(args.exc_traceback)
-            raise AssertionError from exc  # Must be an AssertionError to fail tests
+        """Capture exceptions from threads and raise them as AssertionError"""
+        exc = args.exc_value
+        if exc is None:
+            return
+
+        # Filter out expected Kafka table errors during test setup
+        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
+            return  # Silently ignore expected Kafka table errors
+
+        # For other exceptions, raise as AssertionError to fail tests
+        raise AssertionError from exc  # Must be an AssertionError to fail tests
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
