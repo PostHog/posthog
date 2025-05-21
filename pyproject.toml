@@ -136,6 +136,7 @@ dependencies = [
     "tenacity>=8.4.2",
     "chdb>=3.1.2",
     "elevenlabs>=1.58.1",
+    "nltk>=3.9.1",
 ]
 
 [dependency-groups]

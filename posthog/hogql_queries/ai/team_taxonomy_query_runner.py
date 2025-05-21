@@ -10,11 +10,118 @@ from posthog.schema import (
     TeamTaxonomyQuery,
     TeamTaxonomyQueryResponse,
 )
+from difflib import SequenceMatcher
+from typing import Optional, cast
+from ee.models.event_definition import EnterpriseEventDefinition
+from nltk import ngrams
+from collections import Counter
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from functools import lru_cache
 
 try:
     from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 except ImportError:
     CORE_FILTER_DEFINITIONS_BY_GROUP = {}
+
+
+def get_event_descriptions_batch(event_names: set[str]) -> dict[str, Optional[str]]:
+    """Get event descriptions in batch from either core definitions or enterprise definitions"""
+    result = {}
+
+    # Get from core definitions
+    for event_name in event_names:
+        if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(event_name):
+            label = event_core_definition.get("label_llm") or event_core_definition.get("label")
+            if label:
+                description = f"{label}. {event_core_definition.get('description', '')}"
+            else:
+                description = event_core_definition.get("description", "")
+            result[event_name] = description
+
+    # Get remaining from EnterpriseEventDefinition
+    remaining_events = {e for e in event_names if e not in result}
+    if remaining_events:
+        try:
+            enterprise_defs = EnterpriseEventDefinition.objects.filter(name__in=remaining_events)
+            for def_ in enterprise_defs:
+                if def_.description:
+                    result[def_.name] = def_.description
+        except Exception:
+            pass
+
+    # Set None for events without descriptions
+    for event_name in event_names:
+        if event_name not in result:
+            result[event_name] = None
+
+    return result
+
+
+@lru_cache(maxsize=1000)
+def calculate_sequence_similarity(text1: str, text2: str) -> float:
+    """Calculate similarity using SequenceMatcher with caching"""
+    return SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
+
+
+@lru_cache(maxsize=1000)
+def calculate_ngram_similarity(text1: str, text2: str, n: int = 2) -> float:
+    """Calculate similarity using n-grams and Jaccard similarity with caching"""
+    text1 = text1.lower()
+    text2 = text2.lower()
+
+    # Generate n-grams
+    ngrams1 = Counter(ngrams(text1.split(), n))
+    ngrams2 = Counter(ngrams(text2.split(), n))
+
+    # Calculate Jaccard similarity
+    intersection = sum((ngrams1 & ngrams2).values())
+    union = sum((ngrams1 | ngrams2).values())
+
+    return intersection / union if union > 0 else 0.0
+
+
+def calculate_tfidf_similarity_batch(query: str, texts: list[str]) -> list[float]:
+    """Calculate TF-IDF similarity for multiple texts at once"""
+    if not texts:
+        return []
+
+    vectorizer = TfidfVectorizer()
+    all_texts = [query.lower()] + [t.lower() for t in texts]
+    tfidf_matrix = vectorizer.fit_transform(all_texts)
+
+    # Convert sparse matrix to dense array for similarity calculation
+    query_matrix = tfidf_matrix[0:1]
+    text_matrix = tfidf_matrix[1:]
+    similarities = cosine_similarity(query_matrix, text_matrix)
+
+    # Convert to list of floats
+    return cast(list[float], similarities[0].tolist())
+
+
+def calculate_similarity_batch(
+    query: str, event_names: list[str], descriptions: dict[str, Optional[str]]
+) -> list[float]:
+    """Calculate similarity scores for multiple events at once"""
+    sequence_similarities = [calculate_sequence_similarity(query, name) for name in event_names]
+    ngram_similarities = [calculate_ngram_similarity(query, name) for name in event_names]
+    tfidf_similarities = calculate_tfidf_similarity_batch(query, event_names)
+
+    # Adjust similarities based on descriptions
+    for i, event_name in enumerate(event_names):
+        if desc := descriptions[event_name]:
+            desc_sequence = calculate_sequence_similarity(query, desc)
+            desc_ngram = calculate_ngram_similarity(query, desc)
+            sequence_similarities[i] = max(sequence_similarities[i], desc_sequence)
+            ngram_similarities[i] = max(ngram_similarities[i], desc_ngram)
+
+    # Weight and combine similarities
+    weights = {"sequence": 0.3, "ngram": 0.4, "tfidf": 0.3}
+
+    return [
+        weights["sequence"] * seq + weights["ngram"] * ngram + weights["tfidf"] * tfidf
+        for seq, ngram, tfidf in zip(sequence_similarities, ngram_similarities, tfidf_similarities)
+    ]
 
 
 class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
@@ -40,12 +147,40 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             limit_context=self.limit_context,
         )
 
+        # Filter out system/ignored events
+        filtered_results = [
+            (event, count)
+            for event, count in response.results
+            if not (event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(event))
+            or not (event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"))
+        ]
+
+        # Get all event names for batch processing
+        event_names = {event for event, _ in filtered_results}
+
+        # Get descriptions in batch
+        descriptions = get_event_descriptions_batch(event_names)
+
+        # Calculate similarities in batch if query plan exists
+        similarities = None
+        if self.query.plan:
+            event_names = [event for event, _ in filtered_results]
+            similarities = calculate_similarity_batch(self.query.plan, event_names, descriptions)
+
+        # Create results
         results: list[TeamTaxonomyItem] = []
-        for event, count in response.results:
-            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(event):
-                if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                    continue  # Skip irrelevant events
-            results.append(TeamTaxonomyItem(event=event, count=count))
+        for i, (event, count) in enumerate(filtered_results):
+            results.append(
+                TeamTaxonomyItem(
+                    event=event,
+                    count=count,
+                    description=descriptions[event],
+                    similarity=similarities[i] if similarities is not None else None,
+                )
+            )
+
+        # Sort by similarity and count
+        results.sort(key=lambda x: (-x.similarity if x.similarity is not None else 0, -x.count))
 
         return TeamTaxonomyQueryResponse(
             results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers

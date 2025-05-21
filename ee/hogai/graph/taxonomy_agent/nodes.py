@@ -49,6 +49,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
+    TeamTaxonomyItem,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -94,7 +95,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
-                        "events": self._events_prompt,
+                        "events": self._events_prompt(state.root_tool_insight_plan or ""),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
@@ -153,40 +154,38 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    @cached_property
-    def _events_prompt(self) -> str:
-        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+    def _events_prompt(self, plan: str) -> str:
+        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(plan=plan), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
         if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        events: list[str] = [
+        events: list[TeamTaxonomyItem] = [
             # Add "All events" to the mapping
-            "All events",
+            TeamTaxonomyItem(
+                event="All events",
+                count=0,
+                description=CORE_FILTER_DEFINITIONS_BY_GROUP["events"]["All events"].get("description"),
+                similarity=0,
+            ),
         ]
         for item in response.results:
             if len(response.results) > 25 and item.count <= 3:
                 continue
-            events.append(item.event)
+            events.append(item)
 
         root = ET.Element("defined_events")
-        for event_name in events:
+        for event in events:
             event_tag = ET.SubElement(root, "event")
             name_tag = ET.SubElement(event_tag, "name")
-            name_tag.text = event_name
+            name_tag.text = event.event
 
-            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
-                if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                    continue  # Skip irrelevant events
-                if description := event_core_definition.get("description"):
-                    desc_tag = ET.SubElement(event_tag, "description")
-                    if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
-                        desc_tag.text = f"{label}. {description}"
-                    else:
-                        desc_tag.text = description
-                    desc_tag.text = remove_line_breaks(desc_tag.text)
+            if description := event.description:
+                desc_tag = ET.SubElement(event_tag, "description")
+                desc_tag.text = description
+                desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
     @cached_property

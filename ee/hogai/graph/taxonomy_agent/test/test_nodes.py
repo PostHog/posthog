@@ -139,16 +139,16 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             _create_event(event="distinctevent", distinct_id="test", team=self.team)
         node = self._get_node()
         self.assertEqual(
-            node._events_prompt,
-            "<defined_events><event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
+            node._events_prompt(""),
+            "<defined_events><event><name>All events</name><description>This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
         )
 
     def test_agent_preserves_low_count_events_for_smaller_teams(self):
         _create_person(distinct_ids=["test"], team=self.team)
         _create_event(event="distinctevent", distinct_id="test", team=self.team)
         node = self._get_node()
-        self.assertIn("distinctevent", node._events_prompt)
-        self.assertIn("all events", node._events_prompt)
+        self.assertIn("distinctevent", node._events_prompt(""))
+        self.assertIn("all events", node._events_prompt(""))
 
     def test_agent_scratchpad(self):
         node = self._get_node()
@@ -191,10 +191,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
-        self.assertIn("All events", node._events_prompt)
+        self.assertIn("All events", node._events_prompt(""))
         self.assertIn(
-            "<event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event>",
-            node._events_prompt,
+            "<event><name>All events</name><description>This is a wildcard that matches all events.</description></event>",
+            node._events_prompt(""),
         )
 
     def test_format_prompt(self):

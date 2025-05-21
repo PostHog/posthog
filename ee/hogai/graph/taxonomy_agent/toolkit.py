@@ -298,7 +298,7 @@ class TaxonomyAgentToolkit(ABC):
 
     def retrieve_entity_properties(self, entity: str) -> str:
         """
-        Retrieve properties for an entitiy like person, session, or one of the groups.
+        Retrieve properties for an entity like person, session, or one of the groups.
         """
         if entity not in ("person", "session", *[group.group_type for group in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."

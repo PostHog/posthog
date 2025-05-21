@@ -3392,6 +3392,8 @@ class TeamTaxonomyItem(BaseModel):
     )
     count: int
     event: str
+    description: Optional[str] = None
+    similarity: Optional[float] = None
 
 
 class TestBasicQueryResponse(BaseModel):
@@ -8485,6 +8487,7 @@ class TeamTaxonomyQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    plan: Optional[str] = Field(default=None, description="The query plan to use for similarity search")
     response: Optional[TeamTaxonomyQueryResponse] = None
 
 
