@@ -104,9 +104,9 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
         return <RevenueAnalyticsSceneOnboarding />
     }
 
-    const isAnyRevenueSourceRunningForTheFirstTime =
-        revenueEnabledDataWarehouseSources?.some((source) => source.status === 'Running' && !source.last_run_at) ??
-        false
+    const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
+        (source) => source.status === 'Running' && !source.last_run_at
+    )
 
     return (
         <div>
@@ -120,16 +120,16 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
                 directly to us!
             </LemonBanner>
 
-            {isAnyRevenueSourceRunningForTheFirstTime && (
+            {sourceRunningForTheFirstTime && (
                 <LemonBanner
                     type="success"
                     className="mb-2"
+                    dismissKey={`revenue-analytics-sync-in-progress-banner-${sourceRunningForTheFirstTime.id}`}
                     action={{ children: 'Refresh', onClick: () => window.location.reload() }}
                 >
-                    Some of your revenue data warehouse sources are currently still running for the first time. This
-                    means you might not see all of your revenue data yet.
-                    <br />
-                    We do, however, attempt to display partial data for these sources (e.g. the last 30 days of data).
+                    One of your revenue data warehouse sources is running for the first time. <br />
+                    This means you might not see all of your revenue data yet. <br />
+                    We display partial data - most recent months first - while the initial sync is running. <br />
                     Refresh the page to see the latest data.
                 </LemonBanner>
             )}
