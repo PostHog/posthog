@@ -275,7 +275,7 @@ wheels = [
 
 [[package]]
 name = "autoevals"
-version = "0.0.127"
+version = "0.0.129"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "braintrust-core" },
@@ -284,9 +284,9 @@ dependencies = [
     { name = "polyleven" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/96/db5af3c9c3b2d34e49e9e75963fe93531b2d3b4c243597a9dccc037c45b2/autoevals-0.0.127.tar.gz", hash = "sha256:233c58f3709b835abf3b45aa37c35303b206c90d2b8da467f0915a828e3a4032", size = 49708 }
+sdist = { url = "https://files.pythonhosted.org/packages/31/26/9a8d3b0e1ecbc22f8d7c1a44aa748660e846d6acb321eba4da620e08bf3c/autoevals-0.0.129.tar.gz", hash = "sha256:b7a6e45f8d4dd2bec0666602c78515b2f2c9f1a5c2a6b6275ad6cc3cac63e348", size = 49987 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/45/6306e1bff0008d34213803270b03f98a5e825bda47ca154927e7bcf87650/autoevals-0.0.127-py3-none-any.whl", hash = "sha256:f50f3d868893a2e7e58d2802d8acceeaeaee647a1b1fe904e25f7b76dacd1477", size = 53249 },
+    { url = "https://files.pythonhosted.org/packages/7b/62/1a85254ab1e733270a61dcec18e01f102c11016520316e89122478e7d527/autoevals-0.0.129-py3-none-any.whl", hash = "sha256:7240e4e4bf1843bb5bc688b71fe2c6159596d3b5891bf34576941f17e04fe3ba", size = 53464 },
 ]
 
 [[package]]
@@ -440,10 +440,9 @@ wheels = [
 
 [[package]]
 name = "braintrust"
-version = "0.0.200"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "braintrust-core" },
     { name = "chevron" },
     { name = "exceptiongroup" },
     { name = "gitpython" },
@@ -454,18 +453,18 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/0b/2c7878f59a8608ddb4cf40b3716a02506afb05b72b88bdf9bc58c366adc5/braintrust-0.0.200.tar.gz", hash = "sha256:3bf36cb42ca4333761399d208d73c6e3e8a2807ac174aae37609073a0dd438c8", size = 114320 }
+sdist = { url = "https://files.pythonhosted.org/packages/29/75/eb3e1c3d1ca3d85329b351044246da3813868551d3da0662050000243291/braintrust-0.1.1.tar.gz", hash = "sha256:20025da0a3e7c9c3a33c26f8fef19ffe73b6b7885bfb0d80d64153d769c7ee88", size = 121612 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/7e/a4a50bf8ed87c10ab105c5b01640d67e86f832281974a0f65d1e9ee55bb2/braintrust-0.0.200-py3-none-any.whl", hash = "sha256:3f31d82fff230a411b36235f0be0772a8c76ea8b40603d6784a02189ee1751ce", size = 132913 },
+    { url = "https://files.pythonhosted.org/packages/9c/62/9d35508f0a9b3ae80770596ea983c6c01a317270ef7c0539ded76ebab2c2/braintrust-0.1.1-py3-none-any.whl", hash = "sha256:816e81f419c1db68b673f562aa3124857e3354e8d5201f7df396743da2a1be8a", size = 143690 },
 ]
 
 [[package]]
 name = "braintrust-core"
-version = "0.0.58"
+version = "0.0.59"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/16/13/ab46b7033b585ecafb636eda505e049bcae31f7b0335e7b83bb8250147ca/braintrust_core-0.0.58.tar.gz", hash = "sha256:213ef6515ea1b5802213035b12b66971b10f4ee55a6bc426e29370d2da063f6c", size = 3610 }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/20/ff34419eab73749a04f102fda13b3c571f94d66a91105fbf24f93d8c6b3a/braintrust_core-0.0.59.tar.gz", hash = "sha256:5e8f34e354a536ea8777ce2f80dfc5e93fd0c4d6d50c545e77a6792e8c5e9d49", size = 3612 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/58/a255894436f3eca4a20611785a30a43b85bc75adf1b77f227e1e6d0cce0a/braintrust_core-0.0.58-py3-none-any.whl", hash = "sha256:fa272b70376d2c6692acf00ebd9fb9bae057b0c53b2b6a59a64850bf79757311", size = 4438 },
+    { url = "https://files.pythonhosted.org/packages/9e/f6/776782c20b71b4da290ed0b25ccec0cbfca924d20f2ec26078876bce6d29/braintrust_core-0.0.59-py3-none-any.whl", hash = "sha256:b9be128e1c1b4c376f082e81d314c1938aa9b8c0398ab11df4ad29fad8e655c1", size = 4441 },
 ]
 
 [[package]]
@@ -4038,11 +4037,11 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aioresponses", specifier = "==0.7.6" },
-    { name = "autoevals", specifier = ">=0.0.127" },
+    { name = "autoevals", specifier = "==0.0.129" },
     { name = "black", specifier = "~=23.9.1" },
     { name = "boto3-stubs", extras = ["s3"], specifier = ">=1.34.84" },
-    { name = "braintrust", specifier = ">=0.0.200" },
-    { name = "braintrust-langchain", specifier = ">=0.0.2" },
+    { name = "braintrust", specifier = "==0.1.1" },
+    { name = "braintrust-langchain", specifier = "==0.0.2" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
     { name = "deepeval", specifier = "==2.6.*" },
     { name = "django-linear-migrations", specifier = "==2.16.*" },
