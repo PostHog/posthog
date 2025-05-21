@@ -11,23 +11,36 @@ import { logsLogic } from '../logsLogic'
 const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
-        key: 'Last 5 minutes',
-        values: ['-5M'],
+        key: 'Last 30 minutes',
+        values: ['-30M'],
         getFormattedDate: (date: dayjs.Dayjs): string => {
-            return date.subtract(5, 'minute').format(DATE_TIME_FORMAT)
+            return date.subtract(30, 'minute').format(DATE_TIME_FORMAT)
         },
         defaultInterval: 'minute',
+    },
+    {
+        key: 'Last 1 hours',
+        values: ['-1h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 4 hours',
+        values: ['-4h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(4, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
     },
     {
         key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
+        inactive: true,
         defaultInterval: 'hour',
     },
     {
-        key: 'Last 48 hours',
-        values: ['-48h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(48, 'h'), date.endOf('d')),
+        key: 'Last 72 hours',
+        values: ['-72h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
         inactive: true,
         defaultInterval: 'hour',
     },
@@ -38,29 +51,9 @@ const dateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
-        key: 'Last 14 days',
-        values: ['-14d'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(14, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
-    {
         key: 'Last 30 days',
         values: ['-30d'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
-    {
-        key: 'This month',
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
-        defaultInterval: 'day',
-    },
-    {
-        key: 'Previous month',
-        values: ['-1mStart', '-1mEnd'],
-        getFormattedDate: (date: dayjs.Dayjs): string =>
-            formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
-        inactive: true,
         defaultInterval: 'day',
     },
 ]
