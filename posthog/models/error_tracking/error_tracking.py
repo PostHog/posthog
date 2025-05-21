@@ -83,7 +83,7 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
 class ErrorTrackingRelease(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
-    # or similar, which we guarentee to be unique. If a user doesn't provide a hash_id, we use the
+    # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
     # id of the model
     hash_id = models.TextField(null=False, blank=False)
     created_at = models.DateTimeField(auto_now_add=True)
