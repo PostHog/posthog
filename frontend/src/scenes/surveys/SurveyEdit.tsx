@@ -1076,7 +1076,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs gap-2">
+            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}

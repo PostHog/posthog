@@ -15,11 +15,21 @@ interface Props {
     positionStyles?: React.CSSProperties
 }
 
+const DEFAULT_POSITION_STYLES: React.CSSProperties = {
+    position: 'relative',
+    left: 'unset',
+    right: 'unset',
+    top: 'unset',
+    bottom: 'unset',
+    transform: 'unset',
+    maxWidth: '100%',
+}
+
 export function SurveyAppearancePreview({
     survey,
     previewPageIndex,
     onPreviewSubmit = () => {},
-    positionStyles,
+    positionStyles = DEFAULT_POSITION_STYLES,
 }: Props): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
@@ -31,7 +41,7 @@ export function SurveyAppearancePreview({
             renderSurveysPreview({
                 survey: {
                     ...survey,
-                    appearance: sanitizeSurveyAppearance(survey.appearance),
+                    appearance: { ...sanitizeSurveyAppearance(survey.appearance), zIndex: 1000 },
                 },
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
