@@ -76,6 +76,40 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
+export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
+    {
+        path: 'Actions',
+        iconType: 'rocket',
+        href: urls.actions(),
+    },
+    {
+        path: 'Event definitions',
+        iconType: 'database',
+        href: urls.eventDefinitions(),
+    },
+    {
+        path: 'Property definitions',
+        iconType: 'database',
+        href: urls.propertyDefinitions(),
+    },
+    {
+        path: 'Annotations',
+        iconType: 'notification',
+        href: urls.annotations(),
+    },
+    {
+        path: 'Cohorts',
+        type: 'cohort',
+        href: urls.cohorts(),
+    },
+    {
+        path: 'Ingestion warnings',
+        iconType: 'warning',
+        href: urls.ingestionWarnings(),
+        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
+    },
+]
+
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
@@ -84,27 +118,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'aichat',
             href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-        },
-        {
-            path: 'Event definitions',
-            iconType: 'database',
-            href: urls.eventDefinitions(),
-        },
-        {
-            path: 'Property definitions',
-            iconType: 'database',
-            href: urls.propertyDefinitions(),
-        },
-        {
-            path: 'Annotations',
-            iconType: 'notification',
-            href: urls.annotations(),
-        },
-        {
-            path: 'Ingestion warnings',
-            iconType: 'warning',
-            href: urls.ingestionWarnings(),
-            flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
         {
             path: `Data pipelines`,
@@ -121,11 +134,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             path: 'Data warehouse',
             iconType: 'database',
             href: urls.sqlEditor(),
-        },
-        {
-            path: 'Activity',
-            iconType: 'live',
-            href: urls.activity(ActivityTab.ExploreEvents),
         },
         {
             path: 'Live events',

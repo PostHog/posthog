@@ -1,14 +1,14 @@
 import { IconCheckCircle } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface FolderSelectProps {
@@ -18,49 +18,34 @@ export interface FolderSelectProps {
     onChange?: (folder: string) => void
     /** Class name for the component */
     className?: string
-}
-
-function getAllFolderIds(path?: string): string[] {
-    if (!path) {
-        return []
-    }
-    const splits = splitPath(path)
-    return splits.map((_, i) => 'project-folder/' + joinPath(splits.slice(0, i + 1)))
+    /** Root for folder */
+    root?: string
 }
 
 /** Input component for selecting a folder */
-export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
-    const { projectTreeOnlyFolders, treeTableKeys } = useValues(projectTreeLogic)
-    const { createFolder, loadFolderIfNotLoaded, rename } = useActions(projectTreeLogic)
+let counter = 0
 
+export function FolderSelect({ value, onChange, root, className }: FolderSelectProps): JSX.Element {
+    const [key] = useState(() => `folder-select-${counter++}`)
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root }
+
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
+        useValues(projectTreeLogic(props))
+    const {
+        setSearchTerm,
+        setExpandedSearchFolders,
+        setExpandedFolders,
+        createFolder,
+        expandProjectFolder,
+        setEditingItemId,
+        rename,
+        toggleFolderOpen,
+    } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
     const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
-    const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
-    const [touchedFolders, setTouchedFolders] = useState<string[]>([])
-    const [localEditingId, setLocalEditingId] = useState<string | null>(null)
-
-    function expandFolders(folder: string): void {
-        if (!folder) {
-            return
-        }
-        const allFolders = getAllFolderIds(folder)
-        const newExpandedFolders = allFolders.filter((folder) => !expandedFolders.includes(folder))
-        if (newExpandedFolders.length > 0) {
-            setExpandedFolders([...expandedFolders, ...newExpandedFolders])
-            for (const folder of newExpandedFolders) {
-                if (!touchedFolders.includes(folder)) {
-                    loadFolderIfNotLoaded(folder)
-                }
-            }
-            const newTouchedFolders = allFolders.filter((folder) => !touchedFolders.includes(folder))
-            if (newTouchedFolders.length > 0) {
-                setTouchedFolders([...touchedFolders, ...newTouchedFolders])
-            }
-        }
-    }
 
     useEffect(() => {
-        value && expandFolders(value)
+        expandProjectFolder(value || '')
     }, [value])
 
     function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
@@ -78,9 +63,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                             asChild
                             onClick={(e) => {
                                 e.stopPropagation()
-                                createFolder(item.record?.path || '', false, (folder) => {
-                                    // expandFolders(item.record?.path || '')
-                                    setLocalEditingId(`project-folder/${folder}`)
+                                createFolder(item.record?.path || '', true, (folder) => {
                                     onChange?.(folder)
                                 })
                             }}
@@ -92,7 +75,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    setLocalEditingId(item.id)
+                                    setEditingItemId(item.id)
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
@@ -106,84 +89,79 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     }
 
     return (
-        <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
-            <LemonTree
-                ref={treeRef}
-                selectMode="folder-only"
-                className="px-0 py-1"
-                data={projectTreeOnlyFolders}
-                mode="tree"
-                tableViewKeys={treeTableKeys}
-                defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
-                isItemActive={(item) => item.record?.path === value}
-                isItemEditing={(item) => item.id === localEditingId}
-                onItemNameChange={(item, name) => {
-                    if (item.name !== name) {
-                        rename(name, item.record as unknown as FileSystemEntry)
-                    }
-                    // Clear the editing item id when the name changes
-                    setLocalEditingId('')
-                }}
-                // handleStartEditing={(itemId) => setLocalEditingId(itemId) }
-                showFolderActiveState={true}
-                checkedItemCount={0}
-                onFolderClick={(folder) => {
-                    if (folder?.id) {
-                        setSelectedFolder(folder?.record?.path)
-                        if (!touchedFolders.includes(folder?.id)) {
-                            loadFolderIfNotLoaded(folder?.id)
-                            setTouchedFolders([...touchedFolders, folder?.id])
-                        }
-                        if (expandedFolders.includes(folder?.id)) {
-                            setExpandedFolders(expandedFolders.filter((id) => id !== folder?.id))
-                        } else {
-                            setExpandedFolders([...expandedFolders, folder?.id])
-                        }
-                        if (onChange) {
-                            const path = folder?.record?.path || ''
-                            if (path) {
-                                onChange(path)
-                            }
-                        }
-                    }
-                }}
-                renderItem={(item) => {
-                    return (
-                        <span>
-                            {item.record?.path === selectedFolder ? (
-                                <span className="flex items-center gap-1">
-                                    {item.displayName}
-                                    <IconCheckCircle className="size-4 text-success" />
-                                </span>
-                            ) : (
-                                item.displayName
-                            )}
-                        </span>
-                    )
-                }}
-                expandedItemIds={expandedFolders}
-                onSetExpandedItemIds={setExpandedFolders}
-                enableDragAndDrop={false}
-                itemContextMenu={getItemContextMenu('context')}
-                itemSideAction={getItemContextMenu('dropdown')}
-                emptySpaceContextMenu={() => {
-                    return (
-                        <ContextMenuGroup>
-                            <ContextMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    createFolder('', false, (folder) => {
-                                        setLocalEditingId(`project-folder/${folder}`)
-                                    })
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                            </ContextMenuItem>
-                        </ContextMenuGroup>
-                    )
-                }}
+        <div className="flex flex-col gap-2">
+            <LemonInput
+                type="search"
+                placeholder="Search"
+                fullWidth
+                onChange={(search) => setSearchTerm(search)}
+                value={searchTerm}
             />
+            <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
+                <LemonTree
+                    ref={treeRef}
+                    selectMode="folder-only"
+                    className="px-0 py-1"
+                    data={fullFileSystemFiltered}
+                    mode="tree"
+                    tableViewKeys={treeTableKeys}
+                    defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
+                    isItemActive={(item) => item.record?.path === value}
+                    isItemEditing={(item) => {
+                        return editingItemId === item.id
+                    }}
+                    onItemNameChange={(item, name) => {
+                        if (item.name !== name) {
+                            rename(name, item.record as unknown as FileSystemEntry)
+                        }
+                        // Clear the editing item id when the name changes
+                        setEditingItemId('')
+                    }}
+                    showFolderActiveState={true}
+                    checkedItemCount={0}
+                    onFolderClick={(folder, isExpanded) => {
+                        if (folder) {
+                            setSelectedFolder(folder.record?.path)
+                            toggleFolderOpen(folder.id || '', isExpanded)
+                            onChange?.(folder.record?.path ?? '')
+                        }
+                    }}
+                    renderItem={(item) => {
+                        return (
+                            <span>
+                                {item.record?.path === selectedFolder ? (
+                                    <span className="flex items-center gap-1">
+                                        {item.displayName}
+                                        <IconCheckCircle className="size-4 text-success" />
+                                    </span>
+                                ) : (
+                                    item.displayName
+                                )}
+                            </span>
+                        )
+                    }}
+                    expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                    onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+                    enableDragAndDrop={false}
+                    itemContextMenu={getItemContextMenu('context')}
+                    itemSideAction={getItemContextMenu('dropdown')}
+                    emptySpaceContextMenu={() => {
+                        return (
+                            <ContextMenuGroup>
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        createFolder('', true)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                                </ContextMenuItem>
+                            </ContextMenuGroup>
+                        )
+                    }}
+                />
+            </div>
         </div>
     )
 }
