@@ -2797,6 +2797,7 @@ class HogQLQueryModifiers(BaseModel):
     )
     bounceRateDurationSeconds: Optional[float] = None
     bounceRatePageViewMode: Optional[BounceRatePageViewMode] = None
+    csvAllowDoubleQuotes: Optional[bool] = None
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
     debug: Optional[bool] = None
@@ -2813,7 +2814,6 @@ class HogQLQueryModifiers(BaseModel):
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
-    csvAllowDoubleQuotes: Optional[bool] = None
 
 
 class HogQuery(BaseModel):
