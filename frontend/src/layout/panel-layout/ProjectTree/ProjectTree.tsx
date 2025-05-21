@@ -52,7 +52,7 @@ let counter = 0
 export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `folder-select-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
-    const { setLastNewFolder } = useActions(projectTreeDataLogic)
+    const { setLastNewFolder, deleteShortcut } = useActions(projectTreeDataLogic)
     const {
         fullFileSystemFiltered,
         treeTableKeys,
@@ -301,15 +301,27 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
                 ) : null}
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            item.record && addShortcutItem(item.record as FileSystemEntry)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
-                    </MenuItem>
+                    root === 'shortcuts://' ? (
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                item.record && deleteShortcut(item.record?.id as FileSystemEntry)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                        </MenuItem>
+                    ) : (
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                item.record && addShortcutItem(item.record as FileSystemEntry)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
+                        </MenuItem>
+                    )
                 ) : null}
 
                 <MenuItem

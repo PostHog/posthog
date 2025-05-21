@@ -4,7 +4,6 @@ import {
     IconClock,
     IconDashboard,
     IconDatabase,
-    IconFolder,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -12,6 +11,7 @@ import {
     IconPeople,
     IconPineapple,
     IconSearch,
+    IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -207,7 +207,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                   {
                       identifier: 'Shortcuts',
                       id: 'Shortcuts',
-                      icon: <IconFolder />,
+                      icon: <IconShortcut />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                               handlePanelTriggerClick('Shortcuts')
@@ -221,24 +221,24 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                   },
               ]
             : []),
-        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+        ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
             ? [
                   {
-                      identifier: 'Games',
-                      id: 'Games',
-                      icon: <IconPineapple />,
+                      identifier: 'Data management',
+                      id: 'Data management',
+                      icon: <IconDatabase />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Games')
+                              handlePanelTriggerClick('Data management')
                           }
                       },
                       showChevron: true,
-                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Data management'
+                              ? 'Close data management'
+                              : 'Open data management',
                   },
               ]
-            : []),
-        ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-            ? []
             : [
                   {
                       identifier: 'Dashboards',
@@ -262,18 +262,34 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                       tooltip: 'Notebooks',
                       tooltipDocLink: 'https://posthog.com/docs/notebooks',
                   },
+                  {
+                      identifier: 'DataManagement',
+                      id: 'Data management',
+                      icon: <IconDatabase />,
+                      to: urls.eventDefinitions(),
+                      onClick: () => {
+                          handleStaticNavbarItemClick(urls.eventDefinitions(), true)
+                      },
+                      tooltip: 'Data management',
+                      tooltipDocLink: 'https://posthog.com/docs/data',
+                  },
               ]),
-        {
-            identifier: 'DataManagement',
-            id: 'Data management',
-            icon: <IconDatabase />,
-            to: urls.eventDefinitions(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.eventDefinitions(), true)
-            },
-            tooltip: 'Data management',
-            tooltipDocLink: 'https://posthog.com/docs/data',
-        },
+        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+            ? [
+                  {
+                      identifier: 'Games',
+                      id: 'Games',
+                      icon: <IconPineapple />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Games')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                  },
+              ]
+            : []),
         {
             identifier: 'PersonsManagement',
             id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
