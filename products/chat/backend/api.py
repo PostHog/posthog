@@ -485,7 +485,32 @@ def chat_endpoints(http_request: HttpResponse):
                 JsonResponse({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR),
             )
     elif http_request.method == "GET":
-        conversations = ChatConversation.objects.filter(team=team).order_by("-updated_at")
+        distinct_id = http_request.GET.get("distinct_id")
+        if not distinct_id:
+            raise serializers.ValidationError("Distinct id UUID is required")
+
+        persons = get_persons_by_distinct_ids(team_id=team.id, distinct_ids=[distinct_id])
+        if not persons.exists():
+            return cors_response(
+                http_request,
+                JsonResponse(
+                    {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        person = persons.first()
+
+        if not person:
+            return cors_response(
+                http_request,
+                JsonResponse(
+                    {"status": "error", "message": f"Person with distinct_id {distinct_id} could not be retrieved"},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+
+        person_uuid = person.uuid
+        conversations = ChatConversation.objects.filter(team=team, person_uuid=person_uuid).order_by("-updated_at")
         conversations_data = []
 
         for conversation in conversations[:20]:
