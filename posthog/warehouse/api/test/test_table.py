@@ -311,3 +311,19 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert table.deleted is False
+
+    def test_create_table_with_existing_name(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "events",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "format": "Parquet",
+                "credential": {
+                    "access_key": "_accesskey",
+                    "access_secret": "_accesssecret",
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "A table with this name already exists."
