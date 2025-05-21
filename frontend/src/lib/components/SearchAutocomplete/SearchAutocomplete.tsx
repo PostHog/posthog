@@ -7,7 +7,7 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { forwardRef, useRef, useState } from 'react'
+import { forwardRef, Fragment, useRef, useState } from 'react'
 
 type Category = { label: string; value: string; hint?: string; icon?: React.ReactNode }
 type Suggestion = { label: string; value: string; hint?: string; icon?: React.ReactNode }
@@ -15,7 +15,6 @@ type Hint = string
 
 export interface SearchAutocompleteProps {
     inputPlaceholder?: string
-    defaultSearchTerm?: string
     onChange?: (value: string) => void
     onClear?: () => void
     onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
@@ -197,15 +196,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 return
             }
 
-            if (e.key === 'ArrowDown') {
-                // e.preventDefault()
-                // listBoxRef.current?.focusFirstElement() // allow keyboard to enter dropdown
-                return
-            } else if (e.key === 'ArrowUp') {
-                // e.preventDefault()
-                // listBoxRef.current?.focusNthElement(suggestions.length - 1)
-                return
-            } else if (e.key === 'Enter') {
+            if (e.key === 'Enter') {
                 setOpen(false)
                 return
             }
@@ -291,11 +282,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 </ListBox.Item>
 
                                 {suggestions.map((item) => (
-                                    <>
+                                    <Fragment key={item.value}>
                                         {item.value === '!__placeholder__' ? (
                                             <div className="-mx-1 my-1 h-px bg-border-primary" />
                                         ) : null}
-                                        <ListBox.Item asChild key={item.value}>
+                                        <ListBox.Item asChild>
                                             <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
                                                 {item.icon ? (
                                                     <div className="flex items-center justify-center size-4 text-tertiary">
@@ -310,7 +301,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                                 ) : null}
                                             </ButtonPrimitive>
                                         </ListBox.Item>
-                                    </>
+                                    </Fragment>
                                 ))}
                                 {currentHint && (
                                     <ButtonPrimitive menuItem className="px-2 py-1 text-sm text-tertiary" disabled>
