@@ -1,7 +1,7 @@
 import dataclasses
 import datetime as dt
 import json
-import typing
+import textwrap
 
 from django.db import connection
 import temporalio.workflow
@@ -10,6 +10,15 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.schema_migrations import LATEST_VERSIONS
+
+
+def _clause(kind: str, version: int) -> str:
+    template = """
+        query @? '$.** ? (
+            @.kind == "{kind}" &&
+            (!exists(@.v) || @.v == null || @.v <= {version})
+        )'"""
+    return textwrap.dedent(template.format(kind=kind, version=version)).strip()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -21,36 +30,12 @@ class GetInsightsToMigrateActivityInputs:
 
 @temporalio.activity.defn
 def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> list[int]:
-    # TODO: Add index
-    # TODO: Cross-join or run separately for each kind?
-    # CREATE INDEX insight_query_gin_path
-    # ON insight USING gin (query jsonb_path_ops);
-    latest_versions = []
-    for kind, version in LATEST_VERSIONS.items():
-        latest_versions.append(f"('{kind}', {version})")
-
+    clauses = [_clause(k, v) for k, v in sorted(LATEST_VERSIONS.items())]
+    where_body = ("\n   OR  ").join(clauses)
     sql = f"""
-        WITH latest(kind, v_latest) AS (VALUES {','.join(latest_versions)})
-        SELECT DISTINCT i.id
-        FROM posthog_dashboarditem AS i
-        CROSS JOIN latest AS l
-        WHERE jsonb_path_exists(
-            i.query,
-            format(
-                $$
-                $.** ? (
-                    @.kind == "%s" &&    /* kind matches */
-                    (
-                        !exists(@.v)     /* no v property */
-                        || @.v == null   /* or v:null */
-                        || @.v <= %s     /* or version ≤ latest */
-                    )
-                )
-                $$,
-                l.kind,
-                l.v_latest
-            )::jsonpath
-        )
+        SELECT DISTINCT id
+        FROM posthog_dashboarditem
+        WHERE {where_body}
         LIMIT {inputs.batch_size};
     """
 

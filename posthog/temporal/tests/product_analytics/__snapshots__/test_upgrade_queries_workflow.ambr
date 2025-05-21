@@ -1,24 +1,21 @@
 # serializer version: 1
 # name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
   '''
-  WITH latest(kind, v_latest) AS (
-                                  VALUES ('InsightVizNode',
-                                          4),('TrendsQuery',
-                                              6),('EventsNode',
-                                                  8))
-  SELECT DISTINCT i.id
-  FROM posthog_dashboarditem AS i
-  CROSS JOIN latest AS l
-  WHERE jsonb_path_exists(i.query, format($$
-                  $.** ? (
-                      @.kind == "%s" &&    /* kind matches */
-                      (
-                          !exists(@.v)     /* no v property */
-                          || @.v == null   /* or v:null */
-                          || @.v <= %s     /* or version ≤ latest */
-                      )
-                  )
-                  $$, l.kind, l.v_latest)::jsonpath)
+  
+  SELECT DISTINCT id
+  FROM posthog_dashboarditem
+  WHERE query @? '$.** ? (
+      @.kind == "EventsNode" &&
+      (!exists(@.v) || @.v == null || @.v <= 8)
+  )'
+    OR query @? '$.** ? (
+      @.kind == "InsightVizNode" &&
+      (!exists(@.v) || @.v == null || @.v <= 4)
+  )'
+    OR query @? '$.** ? (
+      @.kind == "TrendsQuery" &&
+      (!exists(@.v) || @.v == null || @.v <= 6)
+  )'
   LIMIT 100;
   '''
 # ---
