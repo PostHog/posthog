@@ -4,8 +4,6 @@ from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
-from temporalio.client import Client
-from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -23,7 +21,21 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import (
 from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries_context
 
 
-class InsightVizMigration(SchemaMigration):
+class InsightVizMigration1(SchemaMigration):
+    targets = {NodeKind.INSIGHT_VIZ_NODE: 1}
+
+    def transform(self, query):
+        return query
+
+
+class InsightVizMigration2(SchemaMigration):
+    targets = {NodeKind.INSIGHT_VIZ_NODE: 2}
+
+    def transform(self, query):
+        return query
+
+
+class InsightVizMigration3(SchemaMigration):
     targets = {NodeKind.INSIGHT_VIZ_NODE: 3}
 
     def transform(self, query):
@@ -50,7 +62,11 @@ def setup_migrations():
     LATEST_VERSIONS.clear()
     MIGRATIONS.clear()
 
-    MIGRATIONS[NodeKind.INSIGHT_VIZ_NODE] = {3: InsightVizMigration()}
+    MIGRATIONS[NodeKind.INSIGHT_VIZ_NODE] = {
+        1: InsightVizMigration1(),
+        2: InsightVizMigration2(),
+        3: InsightVizMigration3(),
+    }
     MIGRATIONS[NodeKind.TRENDS_QUERY] = {5: TrendsMigration()}
     MIGRATIONS[NodeKind.EVENTS_NODE] = {7: EventsNodeMigration()}
     LATEST_VERSIONS[NodeKind.INSIGHT_VIZ_NODE] = 4
@@ -204,6 +220,6 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                 )
 
-        i3.refresh_from_db()
+        await sync_to_async(i3.refresh_from_db)()
         assert i3.query["source"]["v"] == 6
         assert i3.query["source"]["interval"] == "day"
