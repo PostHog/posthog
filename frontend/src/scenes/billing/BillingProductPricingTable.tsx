@@ -31,6 +31,9 @@ export const BillingProductPricingTable = ({
     const { billing } = useValues(billingLogic)
     const { isSessionReplayWithAddons } = useValues(billingProductLogic({ product }))
 
+    const showProjectedTotalWithLimitTooltip =
+        'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
+
     const tableColumns: LemonTableColumns<BillingTableTierRow> = [
         {
             title: `Priced per ${product.unit}`,
@@ -47,12 +50,14 @@ export const BillingProductPricingTable = ({
             ),
         },
         {
-            title: (
+            title: showProjectedTotalWithLimitTooltip ? (
                 <Tooltip title="The projected total for the product tiers and add-ons does not account for billing limits. To see the projected total that accounts for the billing limits, see the projected amount for the whole product above.">
                     <span>
                         Projected Total <IconInfo className="text-muted text-sm" />
                     </span>
                 </Tooltip>
+            ) : (
+                'Projected Total'
             ),
             dataIndex: 'projectedTotal',
         },
