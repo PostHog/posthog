@@ -16,7 +16,7 @@ export OTEL_TRACES_EXPORTER="otlp"
 export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
 export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
 export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
-export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="0"
+export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 # export OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED="true" # Uncomment to capture Python logs as OTel logs
 
 if [ -f .env ]; then
