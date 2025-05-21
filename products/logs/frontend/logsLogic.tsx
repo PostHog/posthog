@@ -1,11 +1,10 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { logsLogicType } from './logsLogicType'
 
@@ -65,7 +64,10 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
         filterGroup: [
-            DEFAULT_UNIVERSAL_GROUP_FILTER,
+            {
+                type: FilterLogicalOperator.And,
+                values: [],
+            },
             { persist: false },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
