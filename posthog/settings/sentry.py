@@ -169,7 +169,6 @@ def sentry_init() -> None:
             max_value_length=8192,  # Increased from the default of 1024 to capture SQL statements in full
             sample_rate=1.0,  # Sampling rate of errors
             traces_sampler=traces_sampler,
-            traces_sample_rate=0.0,
             before_send=before_send,
             before_send_transaction=before_send_transaction,
             _experiments={
