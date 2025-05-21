@@ -9393,3 +9393,194 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response[0]["data"],
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
         )
+
+    def test_dst_transition(self):
+        self.team.timezone = "Africa/Cairo"
+        self.team.save()
+        self._create_person(team_id=self.team.pk, distinct_ids=["some_user"], properties={})
+
+        # Egypt's DST starts at 00:00 on Friday, 25 April 2025. At that instant
+        # clocks jump from UTC+02 to UTC+03, so the very next readable wall-clock
+        # time is 01:00. The whole interval 00:00:01 – 00:59:59 never exists.
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="some_user",
+            timestamp="2025-04-24T21:00:00Z",  # 24 Apr 23:00 EET
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="some_user",
+            timestamp="2025-04-24T22:00:00Z",  # 25 Apr 01:00 EEST
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="some_user",
+            timestamp="2025-04-25T01:00:00Z",  # 25 Apr 04:00 EEST
+        )
+
+        # local date range
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-04-23",
+                "date_to": "2025-04-26",
+                "interval": "day",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+
+        days = response[0]["days"]
+
+        self.assertEqual(days, ["2025-04-23", "2025-04-24", "2025-04-25", "2025-04-26"])
+        self.assertEqual(response[0]["data"], [0, 1, 2, 0])
+
+        # UTC date range
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-04-22T22:00:00Z",
+                "date_to": "2025-04-25T21:00:00Z",
+                "interval": "day",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+
+        days = response[0]["days"]
+
+        self.assertEqual(days, ["2025-04-23", "2025-04-24", "2025-04-25", "2025-04-26"])
+        self.assertEqual(response[0]["data"], [0, 1, 2, 0])
+
+    def test_dst_transition_hourly(self):
+        self.team.timezone = "Africa/Cairo"
+        self.team.save()
+        self._create_person(team_id=self.team.pk, distinct_ids=["some_user"], properties={})
+
+        # Add 5 events for 20:00 UTC
+        for _ in range(5):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T20:00:00Z",
+            )
+        # Add 4 events for 21:00 UTC
+        for _ in range(4):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T21:00:00Z",
+            )
+        # Add 3 events for 22:00 UTC
+        for _ in range(3):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T22:00:00Z",
+            )
+        # Add 2 events for 23:00 UTC
+        for _ in range(2):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T23:00:00Z",
+            )
+        # Add 1 event for 00:00 UTC
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="some_user",
+            timestamp="2025-04-25T00:00:00Z",
+        )
+
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-04-24T22:00:00",
+                "date_to": "2025-04-25T04:00:00",
+                "interval": "hour",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+        response = self._run(filter, self.team)
+
+        # Should include each hour in Cairo time from 23:00 on 24th to 03:00 on 25th, skipping 01:00 (DST jump)
+        self.assertEqual(
+            response[0]["days"],
+            [
+                "2025-04-24 22:00:00",  # 20:00 UTC
+                "2025-04-24 23:00:00",  # 21:00 UTC
+                "2025-04-25 01:00:00",  # 22:00 UTC
+                "2025-04-25 02:00:00",  # 23:00 UTC
+                "2025-04-25 03:00:00",  # 00:00 UTC
+                "2025-04-25 04:00:00",  # 01:00 UTC
+            ],
+        )
+        self.assertEqual(response[0]["data"], [5, 4, 3, 2, 1, 0])
+
+    def test_us_pacific_dst_transition(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create events before and after DST change (March 9th 2025)
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="user1",
+            timestamp="2025-03-08T16:00:00Z",  # March 8th, 8:00 PST
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="user2",
+            timestamp="2025-03-09T16:00:00Z",  # March 9th, 8:00 PST
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="user3",
+            timestamp="2025-03-10T15:00:00Z",  # March 10th, 8:00 PDT (after DST)
+        )
+
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-03-08",
+                "date_to": "2025-03-10",
+                "interval": "day",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+        days = response[0]["days"]
+
+        self.assertEqual(days, ["2025-03-08", "2025-03-09", "2025-03-10"])
+        self.assertEqual(response[0]["data"], [1, 1, 1])
+
+        # Test with hourly interval to verify hour handling around DST change
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-03-09 00:00:00",
+                "date_to": "2025-03-10 23:59:59",
+                "interval": "hour",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+        self.assertEqual(len(response[0]["days"]), 47)  # 23 hours on DST change day + 24 hours next day
+        data = response[0]["data"]
+        # Verify event counts appear in correct hours
+        self.assertEqual(data[8], 1)  # 8 AM PST on March 9th
+        self.assertEqual(data[31], 1)  # 8 AM PDT on March 10th
