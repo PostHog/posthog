@@ -122,7 +122,6 @@
         "chokidar": "^3.5.3",
         "classnames": "^2.5.1",
         "clsx": "^1.1.1",
-        "cmdk": "^1.1.1",
         "core-js": "^3.32.0",
         "country-flag-emoji-polyfill": "^0.1.8",
         "crypto-browserify": "^3.12.0",
