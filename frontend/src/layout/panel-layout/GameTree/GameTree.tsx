@@ -10,12 +10,14 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { gameTreeLogic } from '../GameTree/gameTreeLogic'
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 
 export function GameTree(): JSX.Element {
-    const { treeItemsGames } = useValues(projectTreeLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { gameTreeItems, searchTerm } = useValues(gameTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(gameTreeLogic)
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
@@ -58,12 +60,12 @@ export function GameTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel>
+        <PanelLayoutPanel searchTerm={searchTerm} setSearchTerm={setSearchTerm} clearSearch={clearSearch}>
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeItemsGames}
+                data={gameTreeItems}
                 itemContextMenu={(item) => {
                     return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
                 }}
@@ -87,6 +89,11 @@ export function GameTree(): JSX.Element {
                                 : node.record.href
                         )
                     }
+                    if (!isLayoutPanelPinned) {
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                    }
+
                     node?.onClick?.(true)
                 }}
                 expandedItemIds={expandedFolders}

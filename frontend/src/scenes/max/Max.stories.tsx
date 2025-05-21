@@ -42,6 +42,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        featureFlags: ['artificial-hog'],
     },
 }
 export default meta
@@ -116,6 +117,13 @@ WelcomeLoadingSuggestions.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
+}
+
+export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
+    return <Template />
+}
+WelcomeFeaturePreviewAutoEnrolled.parameters = {
+    featureFlags: [],
 }
 
 export const Thread: StoryFn = () => {

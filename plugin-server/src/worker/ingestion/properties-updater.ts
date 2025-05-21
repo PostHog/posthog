@@ -4,7 +4,9 @@ import { DateTime } from 'luxon'
 import { Group, GroupTypeIndex, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { MessageSizeTooLarge } from '../../utils/db/error'
+import { groupUpdateVersionMismatchCounter } from '../../utils/db/metrics'
 import { PostgresUse } from '../../utils/db/postgres'
+import { logger } from '../../utils/logger'
 import { RaceConditionError } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
@@ -20,18 +22,19 @@ export async function upsertGroup(
     groupTypeIndex: GroupTypeIndex,
     groupKey: string,
     properties: Properties,
-    timestamp: DateTime
+    timestamp: DateTime,
+    forUpdate: boolean = true
 ): Promise<void> {
     try {
-        const [propertiesUpdate, createdAt, version] = await db.postgres.transaction(
+        const [propertiesUpdate, createdAt, actualVersion] = await db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'upsertGroup',
             async (tx) => {
                 const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, tx, {
-                    forUpdate: true,
+                    forUpdate,
                 })
                 const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
-                const version = (group?.version || 0) + 1
+                const expectedVersion = (group?.version || 0) + 1
 
                 const propertiesUpdate = calculateUpdate(group?.group_properties || {}, properties)
 
@@ -39,9 +42,11 @@ export async function upsertGroup(
                     propertiesUpdate.updated = true
                 }
 
+                let actualVersion = expectedVersion
+
                 if (propertiesUpdate.updated) {
                     if (group) {
-                        await db.updateGroup(
+                        const updatedVersion = await db.updateGroup(
                             teamId,
                             groupTypeIndex,
                             groupKey,
@@ -49,12 +54,33 @@ export async function upsertGroup(
                             createdAt,
                             {},
                             {},
-                            version,
                             tx
                         )
+                        if (updatedVersion !== undefined) {
+                            actualVersion = updatedVersion
+                            // Track the disparity between the version on the database and the version we expected
+                            // Without races, the returned version should be only +1 what we expected
+                            const versionDisparity = updatedVersion - expectedVersion
+                            if (versionDisparity > 0) {
+                                logger.info('👥', 'Group update version mismatch', {
+                                    team_id: teamId,
+                                    group_type_index: groupTypeIndex,
+                                    group_key: groupKey,
+                                    version_disparity: versionDisparity,
+                                })
+                                groupUpdateVersionMismatchCounter.labels({ type: 'version_mismatch' }).inc()
+                            }
+                        } else {
+                            logger.info('👥', 'Group update row missing', {
+                                team_id: teamId,
+                                group_type_index: groupTypeIndex,
+                                group_key: groupKey,
+                            })
+                            groupUpdateVersionMismatchCounter.labels({ type: 'row_missing' }).inc()
+                        }
                     } else {
                         // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
-                        await db.insertGroup(
+                        const insertedVersion = await db.insertGroup(
                             teamId,
                             groupTypeIndex,
                             groupKey,
@@ -62,13 +88,25 @@ export async function upsertGroup(
                             createdAt,
                             {},
                             {},
-                            version,
                             tx
                         )
+                        actualVersion = insertedVersion
+                        // Track the disparity between the version on the database and the version we expected
+                        // Without races, the returned version should be only +1 what we expected
+                        const versionDisparity = insertedVersion - expectedVersion
+                        if (versionDisparity > 0) {
+                            logger.info('👥', 'Group update version mismatch', {
+                                team_id: teamId,
+                                group_type_index: groupTypeIndex,
+                                group_key: groupKey,
+                                version_disparity: versionDisparity,
+                            })
+                            groupUpdateVersionMismatchCounter.labels({ type: 'version_mismatch' }).inc()
+                        }
                     }
                 }
 
-                return [propertiesUpdate, createdAt, version]
+                return [propertiesUpdate, createdAt, actualVersion]
             }
         )
 
@@ -79,7 +117,7 @@ export async function upsertGroup(
                 groupKey,
                 propertiesUpdate.properties,
                 createdAt,
-                version
+                actualVersion
             )
         }
     } catch (error) {

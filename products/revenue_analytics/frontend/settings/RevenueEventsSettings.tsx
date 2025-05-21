@@ -91,7 +91,9 @@ export function RevenueEventsSettings(): JSX.Element {
             <BaseCurrency />
 
             <EventConfiguration buttonRef={eventsButtonRef} />
-            <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
+                <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+            )}
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs

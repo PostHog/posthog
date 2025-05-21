@@ -901,6 +901,44 @@ describe('metricToQuery', () => {
         const query = metricToQuery(metric as ExperimentMetric, false)
         expect(query).toBeUndefined()
     })
+
+    it('returns the correct query for a mean metric with an action source', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ActionsNode,
+                id: 123,
+                name: 'test action',
+                math: ExperimentMetricMathType.Sum,
+                math_property: 'property_value',
+            },
+        }
+
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 123,
+                    name: 'test action',
+                    math: PropertyMathType.Sum,
+                    math_property: 'property_value',
+                },
+            ],
+        })
+    })
 })
 
 describe('isLegacyExperimentQuery', () => {
