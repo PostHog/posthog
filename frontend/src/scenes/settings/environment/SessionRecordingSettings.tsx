@@ -143,8 +143,8 @@ function LogCaptureSettings(): JSX.Element {
                 }}
             />
             <p>
-                This setting controls if browser console logs or app logs will be captured as a part of recordings. The logs
-                will be shown in the recording player to help you debug any issues.
+                This setting controls if browser console logs or app logs will be captured as a part of recordings. The
+                logs will be shown in the recording player to help you debug any issues.
             </p>
             <p>
                 Log capture is also available for{' '}
