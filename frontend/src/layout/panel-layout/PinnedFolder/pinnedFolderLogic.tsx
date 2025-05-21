@@ -1,8 +1,7 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, kea, reducers } from 'kea'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 export const pinnedFolderLogic = kea([
-    path(['layout', 'panel-layout', 'Shortcuts', 'pinnedFolderLogic']),
     actions({
         showModal: true,
         hideModal: true,

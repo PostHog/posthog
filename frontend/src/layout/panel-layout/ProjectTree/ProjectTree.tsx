@@ -473,7 +473,7 @@ export function ProjectTree({
                 const folder = newItem
                     ? newItem.path || ''
                     : newId && String(newId).startsWith('project://')
-                    ? String(newId).substring(15)
+                    ? String(newId).substring(10)
                     : ''
 
                 if (checkedItems[oldId]) {
