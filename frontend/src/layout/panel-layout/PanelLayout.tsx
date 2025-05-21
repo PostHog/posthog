@@ -155,10 +155,18 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'Recent' && (
                         <ProjectTree root="project://" sortMethod="recent" logicKey={PROJECT_TREE_KEY} />
                     )}
-                    {activePanelIdentifier === 'Products' && <ProjectTree root="products://" />}
-                    {activePanelIdentifier === 'Shortcuts' && <ProjectTree root="shortcuts://" />}
-                    {activePanelIdentifier === 'Games' && <ProjectTree root="games://" />}
-                    {activePanelIdentifier === 'Data management' && <ProjectTree root="data-management://" />}
+                    {activePanelIdentifier === 'Products' && (
+                        <ProjectTree root="products://" searchPlaceholder="Search products" />
+                    )}
+                    {activePanelIdentifier === 'Shortcuts' && (
+                        <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
+                    )}
+                    {activePanelIdentifier === 'Games' && (
+                        <ProjectTree root="games://" searchPlaceholder="Search games" />
+                    )}
+                    {activePanelIdentifier === 'Data management' && (
+                        <ProjectTree root="data-management://" searchPlaceholder="Search data management" />
+                    )}
                 </PanelLayoutNavBar>
             </div>
 

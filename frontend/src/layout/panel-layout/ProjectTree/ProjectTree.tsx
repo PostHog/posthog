@@ -44,12 +44,19 @@ export interface ProjectTreeProps {
     sortMethod?: ProjectTreeSortMethod // default: "folder"
     root?: string
     onlyTree?: boolean
+    searchPlaceholder?: string
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
-export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTreeProps): JSX.Element {
+export function ProjectTree({
+    logicKey,
+    sortMethod,
+    root,
+    onlyTree,
+    searchPlaceholder,
+}: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `folder-select-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
     const { setLastNewFolder, deleteShortcut } = useActions(projectTreeDataLogic)
@@ -683,7 +690,9 @@ export function ProjectTree({ logicKey, sortMethod, root, onlyTree }: ProjectTre
             setSearchTerm={setSearchTerm}
             clearSearch={clearSearch}
             showFilterDropdown={true}
-            searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
+            searchPlaceholder={
+                searchPlaceholder ?? (sortMethod === 'recent' ? 'Search recent items' : 'Search your project')
+            }
             panelActions={
                 <>
                     {sortMethod !== 'recent' ? (
