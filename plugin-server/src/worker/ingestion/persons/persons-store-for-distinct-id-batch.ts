@@ -42,9 +42,18 @@ export interface PersonsStoreForDistinctIdBatch {
     ): Promise<[InternalPerson, TopicMessage[]]>
 
     /**
-     * Updates an existing person
+     * Updates an existing person for regular updates
      */
-    updatePersonDeprecated(
+    updatePersonForUpdate(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
+
+    /**
+     * Updates an existing person for merge operations
+     */
+    updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient

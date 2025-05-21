@@ -5,6 +5,12 @@ export const personUpdateVersionMismatchCounter = new Counter({
     help: 'Person update version mismatch',
 })
 
+export const groupUpdateVersionMismatchCounter = new Counter({
+    name: 'group_update_version_mismatch',
+    help: 'Group update version mismatch',
+    labelNames: ['type'],
+})
+
 export const pluginLogEntryCounter = new Counter({
     name: 'plugin_log_entry',
     help: 'Plugin log entry created by plugin',

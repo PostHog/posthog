@@ -1,6 +1,8 @@
 import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
@@ -11,6 +13,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { AddShortcutModal } from '~/layout/panel-layout/Shortcuts/AddShortcutModal'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 export function Shortcuts(): JSX.Element {
     const { shortcuts, shortcutsLoading } = useValues(shortcutsLogic)
@@ -65,17 +68,24 @@ export function Shortcuts(): JSX.Element {
                         <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
                         {shortcutsLoading && shortcuts.length > 0 ? <Spinner /> : null}
                     </div>
-                    <ButtonPrimitive onClick={showModal}>
+                    <ButtonPrimitive onClick={showModal} iconOnly tooltip="Add shortcut" tooltipPlacement="right">
                         <IconPlus className="size-3 text-secondary" />
                     </ButtonPrimitive>
                 </div>
             )}
 
-            {shortcuts.length === 0 ? (
-                <div className="pl-3 text-muted">{shortcutsLoading ? <Spinner /> : 'No shortcuts added'}</div>
+            {isLayoutNavCollapsed && (
+                <ButtonPrimitive onClick={showModal} iconOnly tooltip="Add shortcut" tooltipPlacement="right">
+                    <IconPlus className="size-3 text-secondary" />
+                </ButtonPrimitive>
+            )}
+
+            {!isLayoutNavCollapsed && shortcuts.length === 0 ? (
+                <div className="pl-3 text-secondary">{shortcutsLoading ? <Spinner /> : 'No shortcuts added'}</div>
             ) : null}
 
             <div className="mt-[-0.25rem]">
+                {/* TODO: move this tree into popover if isLayoutNavCollapsed is true */}
                 <LemonTree
                     ref={treeRef}
                     contentRef={mainContentRef as RefObject<HTMLElement>}
@@ -100,6 +110,29 @@ export function Shortcuts(): JSX.Element {
                     }}
                     expandedItemIds={expandedFolders}
                     onSetExpandedItemIds={setExpandedFolders}
+                    size={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                    renderItemTooltip={(item) => {
+                        const user = item.record?.user as UserBasicType | undefined
+
+                        return (
+                            <>
+                                Shortcut: <br />
+                                Name: <span className="font-semibold">{item.displayName}</span> <br />
+                                Created by:{' '}
+                                <ProfilePicture
+                                    user={user || { first_name: 'PostHog' }}
+                                    size="xs"
+                                    showName
+                                    className="font-semibold"
+                                />
+                                <br />
+                                Created at:{' '}
+                                <span className="font-semibold">
+                                    {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                                </span>
+                            </>
+                        )
+                    }}
                 />
             </div>
             <AddShortcutModal />

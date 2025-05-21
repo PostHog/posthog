@@ -47,7 +47,6 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
-    ErrorTrackingIssuePropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -302,7 +301,6 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
-        | ErrorTrackingIssuePropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
@@ -386,7 +384,6 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
-        or property.type == "error_tracking_issue_property"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -460,6 +457,13 @@ def property_to_expr(
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
 
+        is_string_array_property = property.type == "event" and property.key in [
+            "$exception_types",
+            "$exception_values",
+            "$exception_sources",
+            "$exception_functions",
+        ]
+
         if isinstance(value, list):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -478,12 +482,12 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else field
+                    left = ast.Field(chain=["v"]) if is_string_array_property else field
                     expr = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
 
-                    if property.type == "error_tracking_issue_property":
+                    if is_string_array_property:
                         return parse_expr(
                             "arrayExists(v -> {expr}, {key})",
                             {
@@ -518,7 +522,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else expr,
+            expr=ast.Field(chain=["v"]) if is_string_array_property else expr,
             value=value,
             operator=operator,
             team=team,
@@ -526,7 +530,7 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
-        if property.type == "error_tracking_issue_property":
+        if is_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
                 {"expr": expr, "key": field},

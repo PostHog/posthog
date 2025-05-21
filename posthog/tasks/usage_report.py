@@ -794,7 +794,6 @@ def get_teams_with_survey_responses_count_in_period(
     # Construct the subquery for unique event UUIDs
     unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
         base_conditions_sql=[
-            "event = 'survey sent'",
             "timestamp BETWEEN %(begin)s AND %(end)s",
         ],
         group_by_prefix_expressions=[
