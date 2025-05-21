@@ -68,7 +68,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'sortedItems',
                 'loadingPaths',
                 'lastNewFolder',
-                'staticTreeItems',
+                'getStaticTreeItems',
             ],
         ],
         actions: [
@@ -582,7 +582,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 s.recentTreeItems,
                 s.recentResultsLoading,
                 s.sortMethod,
-                s.staticTreeItems,
+                s.getStaticTreeItems,
             ],
             (
                 searchTerm,
@@ -593,7 +593,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 recentTreeItems,
                 recentResultsLoading,
                 sortMethod,
-                staticTreeItems
+                getStaticTreeItems
             ): TreeDataItem[] => {
                 const folderLoading = [
                     {
@@ -621,15 +621,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             ? folderLoading
                             : projectTree,
                     } as TreeDataItem,
-                    ...staticTreeItems,
+                    ...getStaticTreeItems(searchTerm),
                 ]
                 return root
             },
         ],
-
         fullFileSystemFiltered: [
-            (s) => [s.fullFileSystem, (_, props) => props.root],
-            (fullFileSystem, root): TreeDataItem[] => {
+            (s) => [s.fullFileSystem, (_, props) => props.root, s.searchTerm],
+            (fullFileSystem, root, searchTerm): TreeDataItem[] => {
+                let firstFolders = fullFileSystem
+
                 if (root?.includes('://')) {
                     const parts = root.split('://')
                     const type = parts[0]
@@ -638,19 +639,40 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (firstfolder) {
                         if (ref) {
                             const found = findInProjectTree(`project-folder/${ref}`, firstfolder.children ?? [])
-                            return found?.children ?? []
+                            firstFolders = found?.children ?? []
+                        } else {
+                            firstFolders = firstfolder.children ?? []
                         }
-                        return firstfolder.children ?? []
+                    } else {
+                        firstFolders = []
                     }
-                    return []
+                } else if (root) {
+                    firstFolders = fullFileSystem.filter((item) => item.id.startsWith(root))
                 }
-                if (!root) {
-                    return fullFileSystem
+
+                if (!searchTerm) {
+                    return firstFolders
                 }
-                return fullFileSystem.filter((item) => item.id.startsWith(root))
+                const term = searchTerm.toLowerCase()
+
+                const filterTree = (nodes: TreeDataItem[]): TreeDataItem[] =>
+                    nodes.reduce<TreeDataItem[]>((acc, node) => {
+                        const children = node.children ? filterTree(node.children) : undefined
+                        const path =
+                            typeof node.record === 'object' && node.record && 'path' in node.record
+                                ? (node.record as { path?: string }).path ?? ''
+                                : ''
+                        const matches = path.toLowerCase().includes(term)
+
+                        if (matches || (children && children.length)) {
+                            acc.push({ ...node, children })
+                        }
+                        return acc
+                    }, [])
+
+                return filterTree(firstFolders)
             },
         ],
-
         treeTableColumnOffsets: [
             (s) => [s.treeTableColumnSizes],
             (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),

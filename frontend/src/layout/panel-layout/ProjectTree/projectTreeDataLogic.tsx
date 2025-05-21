@@ -520,10 +520,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return treeItem ?? null
             },
         ],
-        staticTreeItems: [
+        getStaticTreeItems: [
             (s) => [s.featureFlags, s.shortcutData],
-            (featureFlags, shortcutData): TreeDataItem[] => {
-                const convert = (imports: FileSystemImport[], root: string): TreeDataItem[] =>
+            (featureFlags, shortcutData): ((searchTerm: string) => TreeDataItem[]) => {
+                const convert = (imports: FileSystemImport[], root: string, searchTerm?: string): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
                         root,
                         imports: imports.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
@@ -531,50 +531,52 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         folderStates: {},
                         users: {},
                         foldersFirst: false,
+                        searchTerm,
                     })
-                const staticItems: TreeDataItem[] = [
-                    {
-                        id: 'products://',
-                        name: 'products://',
-                        displayName: <>Products</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(getDefaultTreeProducts(), 'products://'),
-                    },
-                    {
-                        id: 'data-management://',
-                        name: 'data-management://',
-                        displayName: <>Data management</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(getDefaultTreeDataManagement(), 'data-management://'),
-                    },
-                    {
-                        id: 'games://',
-                        name: 'games://',
-                        displayName: <>Games</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(getDefaultTreeGames(), 'games://'),
-                    },
-                    {
-                        id: 'new://',
-                        name: 'new://',
-                        displayName: <>New</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(getDefaultTreeNew(), 'new://'),
-                    },
-                    {
-                        id: 'shortcuts://',
-                        name: 'shortcuts://',
-                        displayName: <>Shortcuts</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(shortcutData, 'shortcuts://'),
-                    },
-                ]
-                return staticItems
+                return function getStaticItems(searchTerm?: string): TreeDataItem[] {
+                    return [
+                        {
+                            id: 'products://',
+                            name: 'products://',
+                            displayName: <>Products</>,
+                            record: { type: 'folder', path: '' },
+                            children: convert(getDefaultTreeProducts(), 'products://', searchTerm),
+                        },
+                        {
+                            id: 'data-management://',
+                            name: 'data-management://',
+                            displayName: <>Data management</>,
+                            record: { type: 'folder', path: '' },
+                            children: convert(getDefaultTreeDataManagement(), 'data-management://', searchTerm),
+                        },
+                        {
+                            id: 'games://',
+                            name: 'games://',
+                            displayName: <>Games</>,
+                            record: { type: 'folder', path: '' },
+                            children: convert(getDefaultTreeGames(), 'games://', searchTerm),
+                        },
+                        {
+                            id: 'new://',
+                            name: 'new://',
+                            displayName: <>New</>,
+                            record: { type: 'folder', path: '' },
+                            children: convert(getDefaultTreeNew(), 'new://', searchTerm),
+                        },
+                        {
+                            id: 'shortcuts://',
+                            name: 'shortcuts://',
+                            displayName: <>Shortcuts</>,
+                            record: { type: 'folder', path: '' },
+                            children: convert(shortcutData, 'shortcuts://', searchTerm),
+                        },
+                    ]
+                }
             },
         ],
         treeItemsNew: [
-            (s) => [s.staticTreeItems],
-            (staticTreeItems) => staticTreeItems.find((item) => item.id === 'new://')?.children ?? [],
+            (s) => [s.getStaticTreeItems],
+            (getStaticTreeItems) => getStaticTreeItems().find((item) => item.id === 'new://')?.children ?? [],
         ],
     }),
     listeners(({ actions, values }) => ({
