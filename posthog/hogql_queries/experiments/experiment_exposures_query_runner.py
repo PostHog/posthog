@@ -253,8 +253,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         For initial dates with no data, adds entries with zero exposures for each variant.
         """
         date_range = self._get_date_range()
+
+        # for draft experiments, return an empty result
         if not date_range.date_from:
-            raise ValidationError("Start date is required for experiment exposure data")
+            return []
+
         start_date = datetime.fromisoformat(date_range.date_from).date()
         end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
 
