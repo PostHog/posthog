@@ -19,6 +19,7 @@ export function Default(): JSX.Element {
                     [
                         // Item to filter by
                         {
+                            value: 'type',
                             label: 'type',
                             hint: 'Search by type',
                         },
@@ -34,6 +35,7 @@ export function Default(): JSX.Element {
                     [
                         // Item to filter by
                         {
+                            value: 'name',
                             label: 'name',
                             hint: 'Search by name',
                         },
@@ -45,6 +47,7 @@ export function Default(): JSX.Element {
                     [
                         // Item to filter by
                         {
+                            value: 'color',
                             label: 'color',
                             hint: 'Search by color',
                         },

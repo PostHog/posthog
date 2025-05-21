@@ -1,4 +1,4 @@
-import { IconInfo, IconSearch, IconX } from '@posthog/icons'
+import { IconInfo, IconMinusSmall, IconSearch, IconX } from '@posthog/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -9,8 +9,8 @@ import {
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { forwardRef, useRef, useState } from 'react'
 
-type Category = { label: string; hint?: string }
-type Suggestion = { label: string; value: string; hint?: string }
+type Category = { label: string; value: string; hint?: string; icon?: React.ReactNode }
+type Suggestion = { label: string; value: string; hint?: string; icon?: React.ReactNode }
 type Hint = string
 
 export interface SearchAutocompleteProps {
@@ -38,11 +38,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         const inputRef = useRef<HTMLInputElement>(null)
 
         // Base category suggestions (e.g. "user", "type", "name")
-        const baseCategories: Suggestion[] = searchData.map(([cat]) => ({
-            value: cat.label,
-            label: cat.label,
-            hint: cat.hint,
-        }))
+        const baseCategories: Suggestion[] = searchData.map(([cat]) => cat)
 
         // Extracts the last space-separated token for parsing
         const getLastToken = (input: string): string => {
@@ -70,6 +66,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 label: 'exclude…',
                 value: '!__placeholder__',
                 hint: 'Exclude the following',
+                icon: <IconMinusSmall />,
             }
 
             // "user:me " → new token begins, show base categories again
@@ -300,7 +297,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                         ) : null}
                                         <ListBox.Item asChild key={item.value}>
                                             <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
-                                                {item.label}{' '}
+                                                {item.icon} {item.label}{' '}
                                                 {item.hint ? (
                                                     <span className="text-xxs text-tertiary italic pt-1">
                                                         {item.hint}

@@ -1,4 +1,4 @@
-import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconCdCase, IconCheck, IconDocument, IconFilter, IconPin, IconPinFilled, IconUser } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -237,24 +237,30 @@ export function PanelLayoutPanel({
                         searchData={[
                             [
                                 {
+                                    value: 'user',
                                     label: 'user',
                                     hint: 'Search by user name',
+                                    icon: <IconUser />,
                                 },
-                                [{ value: 'me', label: 'Me', hint: 'My stuff' }],
+                                [{ value: 'me', label: 'Me', hint: 'My stuff', icon: <IconUser /> }],
                                 'enter a user, quotes are supported',
                             ],
                             [
                                 {
+                                    value: 'type',
                                     label: 'type',
                                     hint: 'Search by type',
+                                    icon: <IconCdCase />,
                                 },
                                 productTypes.map(([value, label]) => ({ value, label })),
                                 'enter a type',
                             ],
                             [
                                 {
+                                    value: 'name',
                                     label: 'name',
                                     hint: 'Search by item name',
+                                    icon: <IconDocument />,
                                 },
                                 undefined,
                                 'enter a name, quotes are supported',
