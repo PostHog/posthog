@@ -39,6 +39,8 @@ class TestOtelInstrumentation(BaseTest):
 
         super().tearDown()
 
+    @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
+    @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
     @mock.patch("posthog.otel_instrumentation.RedisInstrumentor")
     @mock.patch("posthog.otel_instrumentation.DjangoInstrumentor")
@@ -68,6 +70,8 @@ class TestOtelInstrumentation(BaseTest):
         mock_django_instrumentor_cls,
         mock_redis_instrumentor_cls,
         mock_psycopg_instrumentor_cls,
+        mock_kafka_instrumentor_cls,
+        mock_aio_kafka_instrumentor_cls,
     ):
         # Arrange
         mock_resource_instance = mock.Mock()
@@ -84,6 +88,12 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_psycopg_instrumentor_instance = mock.Mock()
         mock_psycopg_instrumentor_cls.return_value = mock_psycopg_instrumentor_instance
+
+        mock_kafka_instrumentor_instance = mock.Mock()
+        mock_kafka_instrumentor_cls.return_value = mock_kafka_instrumentor_instance
+
+        mock_aio_kafka_instrumentor_instance = mock.Mock()
+        mock_aio_kafka_instrumentor_cls.return_value = mock_aio_kafka_instrumentor_instance
 
         # Act
         initialize_otel()
@@ -125,6 +135,14 @@ class TestOtelInstrumentation(BaseTest):
             commenter_options={"opentelemetry_values": True},
         )
 
+        # Assert KafkaInstrumentor call
+        mock_kafka_instrumentor_cls.assert_called_once_with()
+        mock_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
+
+        # Assert AIOKafkaInstrumentor call
+        mock_aio_kafka_instrumentor_cls.assert_called_once_with()
+        mock_aio_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
+
         # Check structlog logging calls
         found_init_success_log = False
         found_sdk_config_log = False
@@ -152,6 +170,8 @@ class TestOtelInstrumentation(BaseTest):
         self.assertEqual(django_otel_lib_logger.level, logging.DEBUG)  # Always set to DEBUG
         self.assertTrue(django_otel_lib_logger.propagate)
 
+    @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
+    @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
     @mock.patch("posthog.otel_instrumentation.RedisInstrumentor")
     @mock.patch("posthog.otel_instrumentation.DjangoInstrumentor")
@@ -163,6 +183,8 @@ class TestOtelInstrumentation(BaseTest):
         mock_django_instrumentor_cls,
         mock_redis_instrumentor_cls,
         mock_psycopg_instrumentor_cls,
+        mock_kafka_instrumentor_cls,
+        mock_aio_kafka_instrumentor_cls,
     ):
         # Act
         initialize_otel()
@@ -171,6 +193,8 @@ class TestOtelInstrumentation(BaseTest):
         mock_django_instrumentor_cls.return_value.instrument.assert_not_called()
         mock_redis_instrumentor_cls.return_value.instrument.assert_not_called()
         mock_psycopg_instrumentor_cls.return_value.instrument.assert_not_called()
+        mock_kafka_instrumentor_cls.return_value.instrument.assert_not_called()
+        mock_aio_kafka_instrumentor_cls.return_value.instrument.assert_not_called()
 
         found_disabled_log = False
         for call_args_tuple in mock_structlog_logger.info.call_args_list:
@@ -231,6 +255,8 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_span.set_attribute.assert_not_called()
 
+    @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
+    @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
     @mock.patch("posthog.otel_instrumentation.RedisInstrumentor")
     @mock.patch("posthog.otel_instrumentation.DjangoInstrumentor")
@@ -261,12 +287,30 @@ class TestOtelInstrumentation(BaseTest):
         mock_django_instrumentor_cls,
         mock_redis_instrumentor_cls,
         mock_psycopg_instrumentor_cls,
+        mock_kafka_instrumentor_cls,
+        mock_aio_kafka_instrumentor_cls,
     ):
         # Arrange
         mock_resource_instance = mock.Mock()
         mock_resource_cls.create.return_value = mock_resource_instance
         mock_provider_instance = mock.Mock()
         mock_tracer_provider_cls.return_value = mock_provider_instance
+
+        # Added mock instantiations for kafka instrumentors
+        mock_django_instrumentor_instance = mock.Mock()
+        mock_django_instrumentor_cls.return_value = mock_django_instrumentor_instance
+
+        mock_redis_instrumentor_instance = mock.Mock()
+        mock_redis_instrumentor_cls.return_value = mock_redis_instrumentor_instance
+
+        mock_psycopg_instrumentor_instance = mock.Mock()
+        mock_psycopg_instrumentor_cls.return_value = mock_psycopg_instrumentor_instance
+
+        mock_kafka_instrumentor_instance = mock.Mock()
+        mock_kafka_instrumentor_cls.return_value = mock_kafka_instrumentor_instance
+
+        mock_aio_kafka_instrumentor_instance = mock.Mock()
+        mock_aio_kafka_instrumentor_cls.return_value = mock_aio_kafka_instrumentor_instance
 
         # Act
         initialize_otel()
@@ -296,3 +340,11 @@ class TestOtelInstrumentation(BaseTest):
         self.assertTrue(
             found_sampler_config_log, "Expected OTel sampler configuration log with custom ratio not found."
         )
+
+        # Assert KafkaInstrumentor call
+        mock_kafka_instrumentor_cls.assert_called_once_with()
+        mock_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
+
+        # Assert AIOKafkaInstrumentor call
+        mock_aio_kafka_instrumentor_cls.assert_called_once_with()
+        mock_aio_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)

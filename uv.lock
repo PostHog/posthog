@@ -3000,6 +3000,20 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-instrumentation-aiokafka"
+version = "0.54b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/64/e37ecc02d01f5db44750d9460e3e244d5d8a4866e355df9fb85a5a0ae519/opentelemetry_instrumentation_aiokafka-0.54b1.tar.gz", hash = "sha256:977d733bf21f5891f2a0830d02a996d8cf111f00b03a76d419803f8d208b48a4", size = 12521 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/45/f0d22618c546b4fe9050a05981bf60dd2a7170c0f4a6bc921341571e3e9d/opentelemetry_instrumentation_aiokafka-0.54b1-py3-none-any.whl", hash = "sha256:af1f69b5c3399b25ac574b2dceebb9a0c6fdf18f3d61850ccc4c69e8e81f8ee1", size = 12128 },
+]
+
+[[package]]
 name = "opentelemetry-instrumentation-asgi"
 version = "0.54b1"
 source = { registry = "https://pypi.org/simple" }
@@ -3044,6 +3058,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/93/8d194bda118fc4c369b9a3091c39eec384137b46f33421272359883c53d9/opentelemetry_instrumentation_django-0.54b1.tar.gz", hash = "sha256:38414f989f60e9dba82928e13f6a20a26baf5cc700f1d891f27e0703ca577802", size = 24866 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/75/1b0ae1b8b7d6a85d5d54e8092c84b18669bd5da6f5ceb3410047674db3c0/opentelemetry_instrumentation_django-0.54b1-py3-none-any.whl", hash = "sha256:462fbd577991021f56152df21ca1fdcd7c4abdc10dd44254a44d515b8e3d61ca", size = 19541 },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-kafka-python"
+version = "0.54b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b2/1c/232ffeb76dd519d82c6b0f1b28dc33f6583f3a90b35dd3360179d46e0c72/opentelemetry_instrumentation_kafka_python-0.54b1.tar.gz", hash = "sha256:8b3f18be44939a270ca55b8017c5f822b94bdc1372b59a49464b990c715d0ba4", size = 10535 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/88/9998fac3940d818100f0b3b1b67992481df233516d4d0a14fce43d6dcbc8/opentelemetry_instrumentation_kafka_python-0.54b1-py3-none-any.whl", hash = "sha256:ab53ed8af3281a337feb5c1fa01059d5af99ec7aa84f2b360627a20fed385ab7", size = 11502 },
 ]
 
 [[package]]
@@ -3435,8 +3463,10 @@ dependencies = [
     { name = "numpy" },
     { name = "openai" },
     { name = "openpyxl" },
+    { name = "opentelemetry-instrumentation-aiokafka" },
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-django" },
+    { name = "opentelemetry-instrumentation-kafka-python" },
     { name = "opentelemetry-instrumentation-psycopg" },
     { name = "opentelemetry-instrumentation-redis" },
     { name = "opentelemetry-sdk" },
@@ -3638,8 +3668,10 @@ requires-dist = [
     { name = "numpy", specifier = "==1.26.4" },
     { name = "openai", specifier = "==1.77.0" },
     { name = "openpyxl", specifier = "==3.1.2" },
+    { name = "opentelemetry-instrumentation-aiokafka", specifier = ">=0.54b1" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.54b1" },
     { name = "opentelemetry-instrumentation-django", specifier = "==0.54b1" },
+    { name = "opentelemetry-instrumentation-kafka-python", specifier = ">=0.54b1" },
     { name = "opentelemetry-instrumentation-psycopg", specifier = ">=0.54b1" },
     { name = "opentelemetry-instrumentation-redis", specifier = ">=0.54b1" },
     { name = "opentelemetry-sdk", specifier = "==1.33.1" },
