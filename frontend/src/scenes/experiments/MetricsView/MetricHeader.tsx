@@ -48,16 +48,6 @@ export const MetricHeader = ({
                             className="flex-shrink-0"
                             type="secondary"
                             size="xsmall"
-                            icon={<IconCopy fontSize="12" />}
-                            tooltip="Duplicate"
-                            onClick={() => {
-                                duplicateMetric(metric, isPrimaryMetric)
-                            }}
-                        />
-                        <LemonButton
-                            className="flex-shrink-0"
-                            type="secondary"
-                            size="xsmall"
                             icon={<IconPencil fontSize="12" />}
                             tooltip="Edit"
                             onClick={() => {
@@ -70,6 +60,16 @@ export const MetricHeader = ({
                                     : openSecondaryMetricModal
 
                                 openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
+                            }}
+                        />
+                        <LemonButton
+                            className="flex-shrink-0"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCopy fontSize="12" />}
+                            tooltip="Duplicate"
+                            onClick={() => {
+                                duplicateMetric(metric, isPrimaryMetric)
                             }}
                         />
                     </div>
