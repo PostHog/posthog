@@ -8824,7 +8824,7 @@
                     "type": "object"
                 },
                 "holdout": {
-                    "$ref": "#/definitions/ExperimentHoldout"
+                    "$ref": "#/definitions/ExperimentHoldoutType"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -9043,7 +9043,7 @@
             ],
             "type": "object"
         },
-        "ExperimentHoldout": {
+        "ExperimentHoldoutType": {
             "additionalProperties": false,
             "properties": {
                 "created_at": {

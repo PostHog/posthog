@@ -41,7 +41,7 @@ import {
     DashboardType,
     EntityType,
     Experiment,
-    ExperimentHoldout,
+    ExperimentHoldoutType,
     ExperimentIdType,
     FilterLogicalOperator,
     FunnelCorrelation,
@@ -363,13 +363,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsUpdated: (experimentId: ExperimentIdType) => ({ experimentId }),
-        reportExperimentHoldoutCreated: (holdout: ExperimentHoldout) => ({ holdout }),
+        reportExperimentHoldoutCreated: (holdout: ExperimentHoldoutType) => ({ holdout }),
         reportExperimentHoldoutAssigned: ({
             experimentId,
             holdoutId,
         }: {
             experimentId: ExperimentIdType
-            holdoutId: ExperimentHoldout['id']
+            holdoutId: ExperimentHoldoutType['id']
         }) => ({ experimentId, holdoutId }),
         reportExperimentSharedMetricCreated: (sharedMetric: SharedMetric) => ({ sharedMetric }),
         reportExperimentSharedMetricAssigned: (experimentId: ExperimentIdType, sharedMetric: SharedMetric) => ({

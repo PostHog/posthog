@@ -43,7 +43,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         self.variants = [variant.get("key") for variant in multivariate_data.get("variants", [])]
 
         if self.query.holdout:
-            self.variants.append(f"holdout-{self.query.holdout.get('id')}")
+            self.variants.append(f"holdout-{self.query.holdout.id}")
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -69,8 +69,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         if self.team.timezone:
             tz = ZoneInfo(self.team.timezone)
-            start_date = start_date.astimezone(tz) if start_date else None
-            end_date = end_date.astimezone(tz) if end_date else None
+            start_date = start_date.astimezone(tz) if start_date else start_date
+            end_date = end_date.astimezone(tz) if end_date else end_date
 
         return DateRange(
             date_from=start_date.isoformat() if start_date else None,
@@ -82,7 +82,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         filter_test_accounts = False
         if self.exposure_criteria:
             if hasattr(self.exposure_criteria, "filterTestAccounts"):
-                filter_test_accounts = self.exposure_criteria.filterTestAccounts
+                filter_test_accounts = bool(self.exposure_criteria.filterTestAccounts)
 
         if (
             filter_test_accounts

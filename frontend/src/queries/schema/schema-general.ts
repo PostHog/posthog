@@ -15,7 +15,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
-    ExperimentHoldout,
+    ExperimentHoldoutType,
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
@@ -2200,7 +2200,7 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
     feature_flag: Record<string, any>
     start_date: string | null
     end_date: string | null
-    holdout?: ExperimentHoldout
+    holdout?: ExperimentHoldoutType
 }
 
 export interface ExperimentQueryResponse {

@@ -14,7 +14,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { useState } from 'react'
 
-import { ExperimentHoldout } from '~/types'
+import { ExperimentHoldoutType } from '~/types'
 
 import { holdoutsLogic, NEW_HOLDOUT } from './holdoutsLogic'
 
@@ -23,9 +23,9 @@ export function Holdouts(): JSX.Element {
     const { createHoldout, deleteHoldout, setHoldout, updateHoldout } = useActions(holdoutsLogic)
 
     const [isHoldoutModalOpen, setIsHoldoutModalOpen] = useState(false)
-    const [editingHoldout, setEditingHoldout] = useState<ExperimentHoldout | null>(null)
+    const [editingHoldout, setEditingHoldout] = useState<ExperimentHoldoutType | null>(null)
 
-    const openEditModal = (holdout: ExperimentHoldout): void => {
+    const openEditModal = (holdout: ExperimentHoldoutType): void => {
         setEditingHoldout(holdout)
         setHoldout(holdout)
         setIsHoldoutModalOpen(true)
@@ -67,7 +67,7 @@ export function Holdouts(): JSX.Element {
             title: 'Rollout Percentage',
             dataIndex: 'filters',
             key: 'rollout',
-            render: (filters: ExperimentHoldout['filters']) => {
+            render: (filters: ExperimentHoldoutType['filters']) => {
                 const percentage = filters?.[0]?.rollout_percentage || 0
                 return <div>{percentage} %</div>
             },
@@ -75,7 +75,7 @@ export function Holdouts(): JSX.Element {
         {
             title: 'Actions',
             key: 'actions',
-            render: (_: any, record: ExperimentHoldout) => (
+            render: (_: any, record: ExperimentHoldoutType) => (
                 <div className="flex gap-2">
                     <LemonButton
                         type="secondary"
@@ -223,7 +223,7 @@ export function Holdouts(): JSX.Element {
                 }
                 loading={holdoutsLoading}
                 dataSource={holdouts}
-                columns={columns as LemonTableColumns<ExperimentHoldout>}
+                columns={columns as LemonTableColumns<ExperimentHoldoutType>}
             />
             <LemonButton type="primary" onClick={openCreateModal} data-attr="add-holdout">
                 New holdout

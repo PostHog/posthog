@@ -3593,7 +3593,7 @@ export enum ExperimentConclusion {
     Invalid = 'invalid',
 }
 
-export interface ExperimentHoldout {
+export interface ExperimentHoldoutType {
     id: number | null
     name: string
     description: string | null
@@ -3646,7 +3646,7 @@ export interface Experiment {
     created_by: UserBasicType | null
     updated_at: string | null
     holdout_id?: number | null
-    holdout?: ExperimentHoldout
+    holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
     }

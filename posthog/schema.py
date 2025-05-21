@@ -2760,7 +2760,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     total_exposures: dict[str, float]
 
 
-class ExperimentHoldout(BaseModel):
+class ExperimentHoldoutType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8066,7 +8066,7 @@ class ExperimentExposureQuery(BaseModel):
     experiment_name: str
     exposure_criteria: Optional[ExperimentExposureCriteria] = None
     feature_flag: dict[str, Any]
-    holdout: Optional[ExperimentHoldout] = None
+    holdout: Optional[ExperimentHoldoutType] = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
