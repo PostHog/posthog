@@ -304,15 +304,7 @@ fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<
             return Some(parse_float_timestamp(num)?);
         }
         // Then try relative date parsing
-        let return_value = parse_date_string(date_str);
-        if return_value.is_none() {
-            // Maybe the value is a timestamp passed as a string.
-            // First we try a float.
-            if let Some(num) = value.as_f64() {
-                return Some(parse_float_timestamp(num)?);
-            }
-        }
-        return return_value;
+        return parse_date_string(date_str);
     }
 
     if let Some(num) = value.as_number() {
