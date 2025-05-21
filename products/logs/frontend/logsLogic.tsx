@@ -199,7 +199,6 @@ export const logsLogic = kea<logsLogicType>([
             setSearchTerm: maybeRefreshLogs,
             setResource: maybeRefreshLogs,
             setSeverityLevels: maybeRefreshLogs,
-            setWrapBody: maybeRefreshLogs,
             setFilterGroup: maybeRefreshLogs,
         }
     }),
