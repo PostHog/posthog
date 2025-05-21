@@ -4,18 +4,19 @@
   
   SELECT DISTINCT id
   FROM posthog_dashboarditem
-  WHERE query @? '$.** ? (
+  WHERE (query @? '$.** ? (
       @.kind == "EventsNode" &&
       (!exists(@.v) || @.v == null || @.v <= 8)
   )'
-    OR query @? '$.** ? (
+         OR query @? '$.** ? (
       @.kind == "InsightVizNode" &&
       (!exists(@.v) || @.v == null || @.v <= 4)
   )'
-    OR query @? '$.** ? (
+         OR query @? '$.** ? (
       @.kind == "TrendsQuery" &&
       (!exists(@.v) || @.v == null || @.v <= 6)
-  )'
+  )')
+  ORDER BY id
   LIMIT 100;
   '''
 # ---

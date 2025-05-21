@@ -184,7 +184,8 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
             result = activity_environment.run(get_insights_to_migrate, inputs)
 
         expected_ids = [i2.id, i3.id, i4.id, i7.id, i8.id]
-        assert sorted(result), expected_ids
+        assert sorted(result.insight_ids), expected_ids
+        assert result.last_id == i8.id
 
     @pytest.mark.django_db
     def test_migrate_insights_batch_activity(self, activity_environment, team):
