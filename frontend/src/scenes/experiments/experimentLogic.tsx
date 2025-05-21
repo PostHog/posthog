@@ -76,6 +76,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { getDefaultMetricTitle } from './MetricsView/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
@@ -431,7 +432,13 @@ export const experimentLogic = kea<experimentLogicType>([
                     return { ...state, ...experiment }
                 },
                 duplicateMetric: (state, { metric, isPrimary }) => {
-                    const newMetric = { ...metric, id: undefined, name: `${metric.name} (copy)` }
+                    const name = metric.name
+                        ? `${metric.name} (copy)`
+                        : metric.kind === NodeKind.ExperimentMetric
+                        ? `${getDefaultMetricTitle(metric)} (copy)`
+                        : undefined
+
+                    const newMetric = { ...metric, id: undefined, name }
                     const metricsKey = isPrimary ? 'metrics' : 'metrics_secondary'
                     const metrics = [...state[metricsKey]]
                     const originalIndex = metrics.findIndex((m) => m === metric)
