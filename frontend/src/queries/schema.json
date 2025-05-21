@@ -10827,6 +10827,9 @@
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
                 },
+                "csvAllowDoubleQuotes": {
+                    "type": "boolean"
+                },
                 "customChannelTypeRules": {
                     "items": {
                         "$ref": "#/definitions/CustomChannelRule"
