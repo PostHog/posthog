@@ -180,4 +180,4 @@ def sentry_init() -> None:
         )
 
 
-# sentry_init()
+sentry_init()
