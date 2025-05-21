@@ -7,12 +7,12 @@ import type { ExposureEstimateConfig } from '../runningTimeCalculatorLogic'
 export const useExposureEstimateConfig = (
     initialConfig: ExposureEstimateConfig,
     experiment: Experiment,
-    loadExposureEstimate: (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig) => void
+    loadExperimentBaseline: (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig) => void
 ): {
     config: ExposureEstimateConfig
     isDirty: boolean
-    updateConfig: (update: ExposureEstimateConfig) => void
-    setConfig: React.Dispatch<React.SetStateAction<ExposureEstimateConfig>>
+    patchExposureConfig: (update: Partial<ExposureEstimateConfig>) => void
+    setExposureConfig: React.Dispatch<React.SetStateAction<ExposureEstimateConfig>>
     setIsDirty: () => void
 } => {
     /**
@@ -20,7 +20,7 @@ export const useExposureEstimateConfig = (
      * This is the config that the user has selected.
      * It's initializeed with the saved config.
      */
-    const [config, setConfig] = useState<ExposureEstimateConfig>(initialConfig)
+    const [estimateConfig, setExposureConfig] = useState<ExposureEstimateConfig>(initialConfig)
     /**
      * We need to track if the user has changed any of these values:
      * - exposure estimate config
@@ -31,25 +31,29 @@ export const useExposureEstimateConfig = (
     const [isDirty, setIsDirty] = useState(false)
 
     /**
-     * Updates the Exposure Estimate Config, and marks the form as dirty.
-     * It also calls the action to load the exposure estimate.
+     * Updates the Exposure Estimate Config.
+     * Side effects:
+     * - Marks the form as dirty.
+     * - Triggers loadExperimentBaseline with a new config.
+     *
+     * This is not great, but we had to put our side effects somewhere...
      */
-    const updateConfig = (updates: Partial<ExposureEstimateConfig>): void => {
+    const patchExposureConfig = (updates: Partial<ExposureEstimateConfig>): void => {
         // Merge the updates with the current config
-        const newConfig = { ...config, ...updates } satisfies ExposureEstimateConfig
+        const newConfig = { ...estimateConfig, ...updates } satisfies ExposureEstimateConfig
         // Update the config
-        setConfig(newConfig)
+        setExposureConfig(newConfig)
         // Mark the form as dirty
         setIsDirty(true)
         // Load the exposure estimate
-        loadExposureEstimate(experiment, newConfig)
+        loadExperimentBaseline(experiment, newConfig)
     }
 
     return {
-        config,
+        config: estimateConfig,
         isDirty,
-        updateConfig,
-        setConfig,
+        patchExposureConfig,
+        setExposureConfig,
         setIsDirty: () => setIsDirty(true), // Once dirty, it can't go back.
     }
 }

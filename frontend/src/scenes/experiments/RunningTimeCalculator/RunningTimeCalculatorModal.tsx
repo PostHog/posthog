@@ -10,6 +10,7 @@ import type { Experiment } from '~/types'
 import { DEFAULT_MDE } from '../experimentLogic'
 import { EventSelectorStep } from './EventSelectorStep'
 import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
+import { useExposureEstimateConfig } from './hooks/useExposureEstimateConfig'
 import { MetricSelectorStep } from './MetricSelectorStep'
 import {
     ConversionRateInputType,
@@ -42,7 +43,10 @@ const defaultExposureEstimateConfig: ExposureEstimateConfig = {
     metric: null as ExperimentMetric | null,
     conversionRateInputType: ConversionRateInputType.AUTOMATIC,
     manualConversionRate: 2,
+    automaticConversionRate: null,
     uniqueUsers: null,
+    averageEventsPerUser: null,
+    averagePropertyValuePerUser: null,
 }
 
 export function RunningTimeCalculatorModal({
@@ -61,65 +65,60 @@ export function RunningTimeCalculatorModal({
      * and swr for server state.
      * We only need a Kea for fetching the exposure estimate.
      */
-    const { exposureEstimate, exposureEstimateLoading } = useValues(runningTimeCalculatorLogic({ experimentId }))
-    const { loadExposureEstimate } = useActions(runningTimeCalculatorLogic({ experimentId }))
+    const { experimentBaseline, experimentBaselineLoading } = useValues(runningTimeCalculatorLogic({ experimentId }))
+    const { loadExperimentBaseline } = useActions(runningTimeCalculatorLogic({ experimentId }))
 
-    /**
-     * Exposure Estimate Config Local State.
-     * This is the config that the user has selected.
-     * It's initializeed with the saved config.
-     */
-    const [exposureEstimateConfig, setExposureEstimateConfig] = useState<ExposureEstimateConfig | null>(
-        experiment.parameters.exposure_estimate_config ?? defaultExposureEstimateConfig
+    const {
+        config: exposureEstimateConfig,
+        isDirty,
+        patchExposureConfig,
+        setExposureConfig,
+        setIsDirty,
+    } = useExposureEstimateConfig(
+        experiment.parameters.exposure_estimate_config ?? defaultExposureEstimateConfig,
+        experiment,
+        loadExperimentBaseline
     )
 
-    // console.log({ experiment, exposureEstimate, exposureEstimateConfig, metrics })
-
+    /**
+     * We track this outside of the exposure estimate config
+     * because we are saving it on experiment parameters.
+     */
     const [minimumDetectableEffect, setMinimumDetectableEffect] = useState(
         experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
     )
 
-    const hasSavedValues =
-        experiment.parameters.recommended_sample_size != null && experiment.parameters.recommended_running_time != null
-
     const variance = calculateVariance(
         exposureEstimateConfig?.metric as ExperimentMetric,
-        exposureEstimate?.averageEventsPerUser ?? 0,
-        exposureEstimate?.averagePropertyValuePerUser ?? 0
+        experimentBaseline?.averageEventsPerUser ?? 0,
+        experimentBaseline?.averagePropertyValuePerUser ?? 0
     )
 
     // Only calculate new values if we have exposure estimate and no saved values
     const calculatedSampleSize =
-        !hasSavedValues && exposureEstimate && exposureEstimateConfig?.metric
+        !isDirty && experimentBaseline && exposureEstimateConfig?.metric
             ? calculateRecommendedSampleSize(
                   exposureEstimateConfig.metric,
                   minimumDetectableEffect,
                   variance ?? 0,
-                  exposureEstimate.averageEventsPerUser ?? 0,
-                  exposureEstimate.averagePropertyValuePerUser ?? 0,
-                  exposureEstimate.automaticConversionRateDecimal ?? 0,
-                  exposureEstimate.manualConversionRate ?? 0,
+                  experimentBaseline.averageEventsPerUser ?? 0,
+                  experimentBaseline.averagePropertyValuePerUser ?? 0,
+                  experimentBaseline.automaticConversionRateDecimal ?? 0,
+                  experimentBaseline.manualConversionRate ?? 0,
                   exposureEstimateConfig.conversionRateInputType,
                   metrics.length
               )
             : null
 
     const calculatedRunningTime =
-        !hasSavedValues && exposureEstimate?.uniqueUsers && calculatedSampleSize
-            ? calculatedSampleSize / (exposureEstimate.uniqueUsers / TIMEFRAME_HISTORICAL_DATA_DAYS)
+        !isDirty && experimentBaseline?.uniqueUsers && calculatedSampleSize
+            ? calculatedSampleSize / (experimentBaseline.uniqueUsers / TIMEFRAME_HISTORICAL_DATA_DAYS)
             : null
 
-    // Use saved values if they exist, otherwise use calculated values
-    const recommendedSampleSize = hasSavedValues ? experiment.parameters.recommended_sample_size : calculatedSampleSize
+    // Use saved values if they exist and the form is not dirty
+    const recommendedSampleSize = !isDirty ? experiment.parameters.recommended_sample_size : calculatedSampleSize
 
-    const recommendedRunningTime = hasSavedValues
-        ? experiment.parameters.recommended_running_time
-        : calculatedRunningTime
-
-    // console.log('>>>>>>>>> minimumDetectableEffect', minimumDetectableEffect)
-    // console.log('>>>>>>>>> variance', variance)
-    // console.log('>>>>>>>>> calculatedSampleSize', calculatedSampleSize)
-    // console.log('>>>>>>>>> calculatedRunningTime', calculatedRunningTime)
+    const recommendedRunningTime = !isDirty ? experiment.parameters.recommended_running_time : calculatedRunningTime
 
     return (
         <LemonModal
@@ -131,27 +130,27 @@ export function RunningTimeCalculatorModal({
                 <RunningTimeCalculatorModalFooter
                     onClose={onClose}
                     onSave={() =>
+                        /**
+                         * We save the experiment baseline as part of the diaglog config
+                         * so we can allow for edits.
+                         */
                         onSave(
-                            exposureEstimateConfig,
+                            {
+                                ...exposureEstimateConfig,
+                                ...experimentBaseline,
+                            },
                             minimumDetectableEffect,
-                            recommendedSampleSize,
-                            recommendedRunningTime
+                            recommendedSampleSize ?? Infinity,
+                            recommendedRunningTime ?? Infinity
                         )
                     }
                 />
             }
         >
             <EventSelectorStep
-                exposureEstimateConfig={exposureEstimateConfig ?? null}
-                onSetFilter={(filter) =>
-                    setExposureEstimateConfig({
-                        ...(exposureEstimateConfig ?? {
-                            metric: null,
-                            conversionRateInputType: ConversionRateInputType.AUTOMATIC,
-                            manualConversionRate: null,
-                            uniqueUsers: null,
-                        }),
-
+                exposureEstimateConfig={exposureEstimateConfig}
+                onSetFilter={(filter) => {
+                    patchExposureConfig({
                         eventFilter: {
                             event: filter.id,
                             name: filter.name,
@@ -162,39 +161,20 @@ export function RunningTimeCalculatorModal({
                                     : TaxonomicFilterGroupType.Actions,
                         },
                     })
-                }
+                }}
             />
-            {exposureEstimateConfig && (
+            {metrics.length > 0 && exposureEstimateConfig && (
                 <MetricSelectorStep
                     experimentId={experimentId}
                     experimentMetrics={metrics as ExperimentMetric[]}
                     exposureEstimateConfig={exposureEstimateConfig}
-                    onChangeMetric={(metric) => {
-                        /**
-                         * update the state with the new metric for the
-                         * exposure estimate.
-                         */
-                        setExposureEstimateConfig({
-                            ...exposureEstimateConfig,
-                            metric,
-                        })
-
-                        /**
-                         * Load the exposure estimate for the new metric.
-                         */
-                        loadExposureEstimate(experiment, exposureEstimateConfig, metric)
-                    }}
-                    onChangeFunnelConversionRateType={(type) => {
-                        setExposureEstimateConfig({
-                            ...exposureEstimateConfig,
-                            conversionRateInputType: type,
-                        })
-                    }}
+                    onChangeMetric={(metric) => patchExposureConfig({ metric })}
+                    onChangeFunnelConversionRateType={(type) => patchExposureConfig({ conversionRateInputType: type })}
+                    onChangeManualConversionRate={(rate) => patchExposureConfig({ manualConversionRate: rate })}
                 />
             )}
             <div className="deprecated-space-y-6">
-                {(experiment?.parameters?.minimum_detectable_effect ||
-                    (!exposureEstimateLoading && exposureEstimate)) && (
+                {!experimentBaselineLoading && experimentBaseline && (
                     <>
                         <RunningTimeCalculatorModalStep
                             stepNumber={3}
@@ -218,7 +198,7 @@ export function RunningTimeCalculatorModal({
                             </div>
                         </RunningTimeCalculatorModalStep>
                         {/* Step 3: Results */}
-                        {recommendedSampleSize !== null && recommendedRunningTime !== null && (
+                        {recommendedSampleSize && recommendedRunningTime && (
                             <RunningTimeCalculatorModalStep
                                 stepNumber={4}
                                 title="Estimated experiment size & duration"
