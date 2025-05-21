@@ -1,4 +1,4 @@
-import { IconArrowUpRight, IconPlus } from '@posthog/icons'
+import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
@@ -46,7 +46,7 @@ export function wrapWithShortcutIcon(icon: React.ReactNode): JSX.Element {
     return (
         <div className="relative">
             {icon}
-            <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-66 bg-white border border-black" />
+            <IconShortcut className="icon-shortcut absolute bottom-[-0.15rem] left-[-0.25rem] [&_path]:fill-white" />
         </div>
     )
 }

@@ -16,7 +16,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, getTreeItemsNew, getTreeItemsProducts } from '~/products'
+import { fileSystemTypes, getTreeItemsGames, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
@@ -144,3 +144,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeGames = (): FileSystemImport[] =>
+    [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

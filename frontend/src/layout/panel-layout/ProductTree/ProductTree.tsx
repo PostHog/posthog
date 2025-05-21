@@ -11,13 +11,14 @@ import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
+import { productTreeLogic } from './productTreeLogic'
 
 export function ProductTree(): JSX.Element {
-    const { treeItemsProducts } = useValues(projectTreeLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { productTreeItems, searchTerm } = useValues(productTreeLogic)
+    const { setSearchTerm, clearSearch } = useActions(productTreeLogic)
     const { addShortcutItem } = useActions(shortcutsLogic)
-
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
 
@@ -58,12 +59,17 @@ export function ProductTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel>
+        <PanelLayoutPanel
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            clearSearch={clearSearch}
+            searchPlaceholder="Search products"
+        >
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeItemsProducts}
+                data={productTreeItems}
                 itemContextMenu={(item) => {
                     return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
                 }}
@@ -87,6 +93,11 @@ export function ProductTree(): JSX.Element {
                                 : node.record.href
                         )
                     }
+                    if (!isLayoutPanelPinned) {
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                    }
+
                     node?.onClick?.(true)
                 }}
                 expandedItemIds={expandedFolders}

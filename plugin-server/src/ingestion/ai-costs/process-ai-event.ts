@@ -77,6 +77,9 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
+    // This is used to track the model that was used for the cost calculation
+    event.properties['$ai_model_cost_used'] = cost.model
+
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
 

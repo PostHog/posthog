@@ -198,6 +198,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    USER_INTERVIEWS = 'user_interviews',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
@@ -211,6 +212,7 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MAX = 'max',
+    LINKS = 'links',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -856,7 +858,6 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
-    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -897,11 +898,6 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
-    operator: PropertyOperator
-}
-
-export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -968,7 +964,6 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
-    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -2338,6 +2333,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
+    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2551,6 +2547,11 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
+export interface CalendarHeatmapFilterType extends FilterType {
+    // Reserved for future filter properties
+    dummy?: string
+}
+
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 
 export interface RetentionEntity {
@@ -2605,6 +2606,7 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
+    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2617,6 +2619,7 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
+    | Partial<CalendarHeatmapFilterType>
 
 export interface EventsListQueryParams {
     event?: string
@@ -3080,6 +3083,12 @@ export interface SurveyAppearance {
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
     disabledButtonOpacity?: string
+    maxWidth?: string
+    textSubtleColor?: string
+    inputBackground?: string
+    boxPadding?: string
+    boxShadow?: string
+    borderRadius?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3111,6 +3120,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3123,6 +3133,7 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3566,6 +3577,15 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface UserInterviewType {
+    id: string
+    created_by: UserBasicType
+    created_at: string
+    transcript: string
+    summary: string
+    interviewee_emails: string[]
+}
+
 export enum ExperimentConclusion {
     Won = 'won',
     Lost = 'lost',
@@ -3893,6 +3913,11 @@ export enum BaseMathType {
     UniqueSessions = 'unique_session',
     FirstTimeForUser = 'first_time_for_user',
     FirstMatchingEventForUser = 'first_matching_event_for_user',
+}
+
+export enum CalendarHeatmapMathType {
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
 }
 
 export enum PropertyMathType {
@@ -4309,6 +4334,7 @@ export enum ActivityScope {
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    USER_INTERVIEW = 'UserInterview',
 }
 
 export type CommentType = {
@@ -5370,6 +5396,7 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    treeItemsGames?: FileSystemImport[]
     fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 

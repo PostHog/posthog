@@ -36,7 +36,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 if (firstId && otherIds.length > 0) {
                     await runMutation(async () => {
                         posthog.capture('error_tracking_issue_merged', { primary: firstId })
-                        await api.errorTracking.mergeInto(firstId, ids)
+                        await api.errorTracking.mergeInto(firstId, otherIds)
                     })
                 }
             },

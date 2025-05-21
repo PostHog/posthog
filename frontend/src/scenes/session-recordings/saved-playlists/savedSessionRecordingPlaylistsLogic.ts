@@ -242,6 +242,33 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
             },
         ],
+        paginationSavedFilters: [
+            (s) => [s.filters, s.savedFilters],
+            (filters, savedFilters): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: PLAYLISTS_PER_PAGE,
+                    currentPage: filters.page,
+                    entryCount: savedFilters.count,
+                    onBackward: savedFilters.previous
+                        ? () => {
+                              actions.setSavedPlaylistsFilters({
+                                  page: filters.page - 1,
+                              })
+                              actions.loadSavedFilters()
+                          }
+                        : undefined,
+                    onForward: savedFilters.next
+                        ? () => {
+                              actions.setSavedPlaylistsFilters({
+                                  page: filters.page + 1,
+                              })
+                              actions.loadSavedFilters()
+                          }
+                        : undefined,
+                }
+            },
+        ],
     })),
     listeners(() => ({
         loadPlaylistsSuccess: ({ playlists }) => {
