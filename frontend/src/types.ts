@@ -5410,7 +5410,10 @@ export interface ProjectTreeRef {
 export interface LineageNode {
     id: string
     name: string
-    type: 'root' | 'intermediate' | 'leaf'
+    type: 'saved_query' | 'external'
+    sync_frequency?: DataWarehouseSyncInterval
+    last_run_at?: string
+    status?: string
 }
 
 export interface LineageEdge {

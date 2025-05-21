@@ -1,4 +1,4 @@
-import { IconRevert, IconX } from '@posthog/icons'
+import { IconBolt, IconLightBulb, IconRevert, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -9,7 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataModelingJob, DataWarehouseSyncInterval, OrNever } from '~/types'
+import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -59,7 +59,7 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView } = useValues(multitabEditorLogic)
+    const { editingView, upstream } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
     const {
@@ -335,10 +335,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 />
                 <div>
                     <h3>Dependencies</h3>
-                    <p>
-                        Dependencies are tables that this query uses. See when a source or materialized table was last
-                        run.
-                    </p>
+                    <p>Dependencies are tables that this query uses.</p>
                 </div>
                 <LemonTable
                     columns={[
@@ -383,6 +380,91 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     ]}
                     dataSource={sourceTableItems}
                 />
+                {upstream && (
+                    <>
+                        <div>
+                            <h3>Upstream Dependencies</h3>
+                            <p>Tables and views that this query depends on.</p>
+                        </div>
+                        <LemonTable
+                            columns={[
+                                {
+                                    key: 'name',
+                                    title: 'Name',
+                                    render: (_, { name, last_run_at }) => (
+                                        <div className="flex items-center gap-1">
+                                            {name === editingView?.name && (
+                                                <Tooltip title="This is the currently viewed query">
+                                                    <IconLightBulb className="text-warning" />
+                                                </Tooltip>
+                                            )}
+                                            {last_run_at && <IconBolt className="text-warning" />}
+                                            {name}
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    key: 'type',
+                                    title: 'Type',
+                                    render: (_, { type, last_run_at }) => {
+                                        if (type === 'saved_query') {
+                                            return last_run_at ? 'Materialized View' : 'View'
+                                        }
+                                        return 'External Table'
+                                    },
+                                },
+                                {
+                                    key: 'upstream',
+                                    title: 'Direct Upstream',
+                                    render: (_, node) => {
+                                        const upstreamNodes = upstream.edges
+                                            .filter((edge) => edge.target === node.id)
+                                            .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
+                                            .filter((n): n is LineageNode => n !== undefined)
+
+                                        if (upstreamNodes.length === 0) {
+                                            return <span className="text-secondary">None</span>
+                                        }
+
+                                        return (
+                                            <div className="flex flex-wrap gap-1">
+                                                {upstreamNodes.map((upstreamNode) => (
+                                                    <LemonTag key={upstreamNode.id} type="primary">
+                                                        {upstreamNode.name}
+                                                    </LemonTag>
+                                                ))}
+                                            </div>
+                                        )
+                                    },
+                                },
+                                {
+                                    key: 'last_run_at',
+                                    title: 'Last Run At',
+                                    render: (_, { last_run_at, sync_frequency }) => {
+                                        if (!last_run_at) {
+                                            return 'On demand'
+                                        }
+                                        const numericSyncFrequency = Number(sync_frequency)
+                                        const frequencyMap: Record<string, string> = {
+                                            300: '5 mins',
+                                            1800: '30 mins',
+                                            3600: '1 hour',
+                                            21600: '6 hours',
+                                            43200: '12 hours',
+                                            86400: '24 hours',
+                                            604800: '1 week',
+                                        }
+
+                                        return `${humanFriendlyDetailedTime(last_run_at)} every ${
+                                            frequencyMap[numericSyncFrequency]
+                                        }`
+                                    },
+                                },
+                            ]}
+                            dataSource={upstream.nodes}
+                        />
+                    </>
+                )}
             </div>
         </div>
     )
