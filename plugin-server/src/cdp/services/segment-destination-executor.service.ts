@@ -71,6 +71,9 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
         arrayBuffer: () => {
             throw new Error('Not implemented')
         },
+        bytes: () => {
+            throw new Error('Not implemented')
+        },
         blob: () => {
             throw new Error('Not implemented')
         },
