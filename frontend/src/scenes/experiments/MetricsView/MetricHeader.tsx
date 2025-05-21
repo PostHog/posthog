@@ -1,5 +1,5 @@
-import { IconPencil } from '@posthog/icons'
-import { useActions } from 'kea'
+import { IconCopy, IconPencil } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
@@ -32,7 +32,10 @@ export const MetricHeader = ({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
+        updateExperiment,
     } = useActions(experimentLogic)
+
+    const { experiment } = useValues(experimentLogic)
 
     return (
         <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
@@ -42,23 +45,48 @@ export const MetricHeader = ({
                         <span className="mr-1">{metricIndex + 1}.</span>
                         <MetricTitle metric={metric} metricType={metricType} />
                     </div>
-                    <LemonButton
-                        className="flex-shrink-0"
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconPencil fontSize="12" />}
-                        onClick={() => {
-                            const openModal = isPrimaryMetric
-                                ? metric.isSharedMetric
-                                    ? openPrimarySharedMetricModal
-                                    : openPrimaryMetricModal
-                                : metric.isSharedMetric
-                                ? openSecondarySharedMetricModal
-                                : openSecondaryMetricModal
+                    <div className="flex gap-1">
+                        <LemonButton
+                            className="flex-shrink-0"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCopy fontSize="12" />}
+                            tooltip="Duplicate"
+                            onClick={() => {
+                                // Create a copy of the metric with a new name
+                                const newMetric = { ...metric, id: undefined, name: `${metric.name} (copy)` }
 
-                            openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
-                        }}
-                    />
+                                // Update the experiment with the new metric
+                                if (isPrimaryMetric) {
+                                    updateExperiment({
+                                        metrics: [...experiment.metrics, newMetric],
+                                    })
+                                } else {
+                                    updateExperiment({
+                                        metrics_secondary: [...experiment.metrics_secondary, newMetric],
+                                    })
+                                }
+                            }}
+                        />
+                        <LemonButton
+                            className="flex-shrink-0"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconPencil fontSize="12" />}
+                            tooltip="Edit"
+                            onClick={() => {
+                                const openModal = isPrimaryMetric
+                                    ? metric.isSharedMetric
+                                        ? openPrimarySharedMetricModal
+                                        : openPrimaryMetricModal
+                                    : metric.isSharedMetric
+                                    ? openSecondarySharedMetricModal
+                                    : openSecondaryMetricModal
+
+                                openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
+                            }}
+                        />
+                    </div>
                 </div>
                 <div className="deprecated-space-x-1">
                     <LemonTag type="muted" size="small">
