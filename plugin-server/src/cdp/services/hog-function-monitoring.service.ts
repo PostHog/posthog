@@ -5,6 +5,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
     HogFunctionAppMetric,
@@ -15,7 +16,7 @@ import {
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
-export const counterHogFunctionMetric = new Counter({
+const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
     help: 'A function invocation was evaluated with an outcome',
     labelNames: ['metric_kind', 'metric_name'],
@@ -30,21 +31,29 @@ export class HogFunctionMonitoringService {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
 
-        await this.hub
-            .kafkaProducer!.queueMessages(
-                messages.map((x) => ({
-                    topic: x.topic,
-                    messages: [
-                        {
-                            value: safeClickhouseString(JSON.stringify(x.value)),
+        await Promise.all(
+            messages.map((x) => {
+                const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
+                return this.hub.kafkaProducer
+                    .produce({
+                        topic: x.topic,
+                        key: x.key ? Buffer.from(x.key) : null,
+                        value,
+                    })
+                    .catch((error) => {
+                        // NOTE: We don't hard fail here - this is because we don't want to disrupt the
+                        // entire processing just for metrics.
+                        logger.error('⚠️', `failed to produce message: ${error}`, {
+                            error: String(error),
+                            messageLength: value?.length,
+                            topic: x.topic,
                             key: x.key,
-                        },
-                    ],
-                }))
-            )
-            .catch((reason) => {
-                logger.error('⚠️', `failed to produce message: ${reason}`)
+                        })
+
+                        captureException(error)
+                    })
             })
+        )
     }
 
     produceAppMetric(metric: HogFunctionAppMetric) {
@@ -122,7 +131,7 @@ export class HogFunctionMonitoringService {
                         delete result.capturedPostHogEvents
 
                         for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            const team = await this.hub.teamManager.getTeam(event.team_id)
                             if (!team) {
                                 continue
                             }

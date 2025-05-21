@@ -22,13 +22,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts
@@ -64,13 +65,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts.1
@@ -96,13 +98,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_returns_correct_timeseries
@@ -128,13 +131,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_using_group_aggregation
@@ -153,13 +157,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_0__pageview
@@ -185,13 +190,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_1__feature_flag_called
@@ -217,13 +223,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_multiple_variant_exposures
@@ -249,13 +256,14 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_without_feature_flag_property
@@ -281,12 +289,13 @@
            subq.variant
   ORDER BY subq.day ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

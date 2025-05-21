@@ -92,9 +92,9 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
-    connect({
+    connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-    }),
+    })),
 
     actions({
         loadStatusPage: true,

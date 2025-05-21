@@ -363,17 +363,11 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
                 Some(PropertyValueType::String)
             }
         }
-        Value::Number(n) => {
-            // this is a more rigorous threshold to ensure we don't misclassify
-            // larger numerical values easily. It mimics (roughly) the old TS service
-            // classification but still may be too aggressive. TBD
-            if is_likely_unix_timestamp(n) {
-                Some(PropertyValueType::DateTime)
-            } else {
-                Some(PropertyValueType::Numeric)
-            }
-        }
+
+        Value::Number(_) => Some(PropertyValueType::Numeric),
+
         Value::Bool(_) => Some(PropertyValueType::Boolean),
+
         _ => None,
     }
 }

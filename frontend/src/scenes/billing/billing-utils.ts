@@ -1,5 +1,7 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
+import { OrganizationType } from '~/types'
 import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
@@ -242,4 +244,54 @@ export const getProration = ({
 
 export const getProrationMessage = (prorationAmount: string, unitAmountUsd: string | null): string => {
     return `Pay ~$${prorationAmount} today (prorated) and $${parseInt(unitAmountUsd || '0')} every month thereafter.`
+}
+
+/**
+ * Formats the plan status for display, trial or not
+ */
+export const formatPlanStatus = (billing: BillingType | null): string => {
+    if (!billing) {
+        return ''
+    }
+
+    // Check for old-style active trial
+    if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
+        return '(trial plan)'
+    }
+
+    // Check for new-style active trial
+    if (billing.trial?.status === 'active') {
+        return '(trial plan)'
+    }
+
+    // Check for expired trial
+    if (billing.trial?.status === 'expired' && billing.trial.expires_at) {
+        return `(trial expired)`
+    }
+
+    // Regular paid plan
+    if (billing.subscription_level !== 'free') {
+        return '(your plan)'
+    }
+
+    return ''
+}
+
+/**
+ * Formats a number as a currency string
+ */
+export const currencyFormatter = (value: number): string => {
+    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
+
+/**
+ * Determines if the user has sufficient permissions to read billing information based on their organization membership level.
+ */
+export function canAccessBilling(
+    currentOrganization: Pick<OrganizationType, 'membership_level'> | null | undefined
+): boolean {
+    if (!currentOrganization || !currentOrganization.membership_level) {
+        return false
+    }
+    return currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
 }

@@ -44,7 +44,7 @@ export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FE
 
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
-    connect({
+    connect(() => ({
         values: [
             onboardingLogic,
             ['productKey'],
@@ -56,7 +56,7 @@ export const sdksLogic = kea<sdksLogicType>([
             ['user', 'isUserNonTechnical'],
         ],
         actions: [eventUsageLogic, ['reportSDKSelected']],
-    }),
+    })),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
         filterSDKs: true,

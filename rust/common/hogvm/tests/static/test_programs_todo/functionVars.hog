@@ -1,0 +1,39 @@
+fun execFunction() {
+  print('execFunction')
+}
+
+fun execFunctionNested() {
+  fun execFunction() {
+    print('execFunctionNew')
+  }
+  print('execFunctionNested')
+  execFunction()
+}
+
+execFunction()
+execFunctionNested()
+execFunction()
+
+print('--------')
+
+fun secondExecFunction() {
+  print('secondExecFunction')
+}
+
+fun secondExecFunctionNested() {
+  print('secondExecFunctionNested')
+  secondExecFunction()
+}
+
+secondExecFunction()
+secondExecFunctionNested()
+secondExecFunction()
+
+print('--------')
+
+let decode := () -> base64Decode
+let sixtyFour := base64Encode
+
+print(sixtyFour('http://www.google.com'))
+print((decode())(sixtyFour('http://www.google.com')))
+print(decode()(sixtyFour('http://www.google.com')))

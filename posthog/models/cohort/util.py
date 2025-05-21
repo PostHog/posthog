@@ -21,7 +21,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
@@ -31,7 +30,6 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORT_SIZE_SQL,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
-    STALE_COHORTPEOPLE,
 )
 from posthog.models.person.sql import (
     INSERT_PERSON_STATIC_COHORT,
@@ -432,35 +430,6 @@ def _recalculate_cohortpeople_for_team_hogql(
         },
         workload=Workload.OFFLINE,
     )
-
-
-def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
-    if cohort.version and cohort.version > 0:
-        relevant_team_ids = list(Team.objects.filter(project_id=cohort.team.project_id).values_list("pk", flat=True))
-        stale_count_result = sync_execute(
-            STALE_COHORTPEOPLE,
-            {
-                "cohort_id": cohort.pk,
-                "team_ids": relevant_team_ids,
-                "version": before_version,
-            },
-        )
-
-        team_ids_with_stale_cohortpeople = [row[0] for row in stale_count_result]
-        if team_ids_with_stale_cohortpeople:
-            AsyncDeletion.objects.bulk_create(
-                [
-                    AsyncDeletion(
-                        deletion_type=DeletionType.Cohort_stale,
-                        team_id=team_id,
-                        # Only appending `team_id` if it's not the same as the cohort's `team_id``, so that
-                        # the migration to environments does not accidentally cause duplicate `AsyncDeletion`s
-                        key=f"{cohort.pk}_{before_version}{('_' + str(team_id)) if team_id != cohort.team_id else ''}",
-                    )
-                    for team_id in team_ids_with_stale_cohortpeople
-                ],
-                ignore_conflicts=True,
-            )
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:

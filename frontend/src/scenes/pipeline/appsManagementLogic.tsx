@@ -30,9 +30,9 @@ export interface PluginUpdateStatusType {
 
 export const appsManagementLogic = kea<appsManagementLogicType>([
     path(['scenes', 'pipeline', 'appsManagementLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], pipelineAccessLogic, ['canGloballyManagePlugins']],
-    }),
+    })),
     actions({
         setPluginUrl: (pluginUrl: string) => ({ pluginUrl }),
         setLocalPluginPath: (localPluginPath: string) => ({ localPluginPath }),

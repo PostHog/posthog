@@ -1,8 +1,8 @@
 import json
 from typing import Any
 
+
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.connection import Workload
 import uuid
 
 from django.test import TestCase, SimpleTestCase
@@ -10,6 +10,7 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -337,7 +338,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         Note I'm not really testing much complexity, I trust that those will
         come out as failures in other tests.
         """
-        from posthog.clickhouse.query_tagging import tag_queries
 
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
@@ -357,13 +357,3 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
-
-    @patch("posthog.clickhouse.client.execute.get_client_from_pool")
-    def test_offline_workload_if_personal_api_key(self, mock_get_client):
-        from posthog.clickhouse.query_tagging import tag_queries
-
-        with self.capture_select_queries():
-            tag_queries(kind="request", id="1", access_method="personal_api_key")
-            sync_execute("select 1")
-
-            self.assertEqual(mock_get_client.call_args[0][0], Workload.OFFLINE)

@@ -1,10 +1,12 @@
-import dataclasses
+from __future__ import annotations
+
 import math
-from typing import Any, Optional
 from collections.abc import Iterator
-import psycopg.rows
-import pyarrow as pa
+from typing import Any, LiteralString, Optional, cast
+
 import psycopg
+import pyarrow as pa
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from psycopg import sql
 from psycopg.adapt import Loader
 
@@ -19,13 +21,32 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models import IncrementalFieldType
-
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.warehouse.types import PartitionSettings
 
 
 class JsonAsStringLoader(Loader):
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8")
+
+
+class RangeAsStringLoader(Loader):
+    """Load PostgreSQL range types as their string representation.
+
+    We currently do not support range types. So, for now, the best we can do is
+    convert them to `str`. For example, instead of loading a
+    `psycopg.types.range.Range(4, 5, '[)')`, we will load `str` "[4,5)".
+
+    Keep in mind that a single range can have multiple possible string
+    representations. For example, `psycopg.types.range.Range(4, 5, '[]')` could
+    be represented as "[4,5]" or "[4,6)". We let `psycopg` figure which string
+    representation to use (from testing, it seems that the latter is preferred).
+    """
+
     def load(self, data):
         if data is None:
             return None
@@ -39,10 +60,15 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    add_limit: Optional[bool] = False,
 ) -> sql.Composed:
     query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
     if not is_incremental:
+        if add_limit:
+            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+            return sql.SQL(query_with_limit).format()
+
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -59,6 +85,10 @@ def _build_query(
         incremental_field=sql.Identifier(incremental_field),
         last_value=sql.Literal(db_incremental_field_last_value),
     )
+
+    if add_limit:
+        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+        return sql.SQL(query_with_limit).format()
 
     return query
 
@@ -86,14 +116,13 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
     return None
 
 
-def _get_table_chunk_size(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> int:
+def _get_table_chunk_size(
+    cursor: psycopg.Cursor, inner_query: sql.Composed, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM (
-                SELECT * FROM {}
-                LIMIT 100
-            ) as t
-        """).format(sql.Identifier(schema, table_name))
+            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
+        """).format(inner_query)
 
         cursor.execute(query)
         row = cursor.fetchone()
@@ -119,16 +148,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, schema: str, table_name: str, 
         return DEFAULT_CHUNK_SIZE
 
 
-@dataclasses.dataclass
-class TableStructureRow:
-    column_name: str
-    data_type: str
-    is_nullable: bool
-    numeric_precision: Optional[int]
-    numeric_scale: Optional[int]
-
-
-def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> tuple[int, int] | None:
+def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
     query = sql.SQL("""
         SELECT
             CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
@@ -157,46 +177,45 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
     partition_count = math.floor(total_rows / partition_size)
 
     if partition_count == 0:
-        return 1, partition_size
+        return PartitionSettings(partition_count=1, partition_size=partition_size)
 
-    return partition_count, partition_size
-
-
-def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
-    query = sql.SQL("""
-        SELECT
-            column_name,
-            data_type,
-            is_nullable,
-            numeric_precision,
-            numeric_scale
-        FROM
-            information_schema.columns
-        WHERE
-            table_schema = {schema}
-            AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
-
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    return [
-        TableStructureRow(
-            column_name=row[0], data_type=row[1], is_nullable=row[2], numeric_precision=row[3], numeric_scale=row[4]
-        )
-        for row in rows
-    ]
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
-def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -> pa.Schema:
-    fields = []
+class PostgreSQLColumn(Column):
+    """Implementation of the `Column` protocol for a PostgreSQL source.
 
-    for col in table_structure:
-        name = col.column_name
-        pg_type = col.data_type
+    Attributes:
+        name: The column's name.
+        data_type: The name of the column's data type as described in
+            https://www.postgresql.org/docs/current/datatype.html.
+        nullable: Whether the column is nullable or not.
+        numeric_precision: The number of significant digits. Only used with
+            numeric `data_type`s, otherwise `None`.
+        numeric_scale: The number of significant digits to the right of
+            decimal point. Only used with numeric `data_type`s, otherwise
+            `None`.
+    """
 
+    def __init__(
+        self,
+        name: str,
+        data_type: str,
+        nullable: bool,
+        numeric_precision: int | None = None,
+        numeric_scale: int | None = None,
+    ) -> None:
+        self.name = name
+        self.data_type = data_type
+        self.nullable = nullable
+        self.numeric_precision = numeric_precision
+        self.numeric_scale = numeric_scale
+
+    def to_arrow_field(self) -> pa.Field[pa.DataType]:
+        """Return a `pyarrow.Field` that closely matches this column."""
         arrow_type: pa.DataType
 
-        # Map PostgreSQL type names to PyArrow types
-        match pg_type:
+        match self.data_type.lower():
             case "bigint":
                 arrow_type = pa.int64()
             case "integer":
@@ -204,10 +223,10 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
+                if not self.numeric_precision or not self.numeric_scale:
+                    raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
 
-                arrow_type = build_pyarrow_decimal_type(precision, scale)
+                arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "real":
                 arrow_type = pa.float32()
             case "double precision":
@@ -232,14 +251,55 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
                 arrow_type = pa.string()
             case "json" | "jsonb":
                 arrow_type = pa.string()
-            case _ if pg_type.endswith("[]"):  # Array types
+            case _ if self.data_type.endswith("[]"):  # Array types
                 arrow_type = pa.string()
             case _:
                 arrow_type = pa.string()
 
-        fields.append(pa.field(name, arrow_type, nullable=col.is_nullable))
+        return pa.field(self.name, arrow_type, nullable=self.nullable)
 
-    return pa.schema(fields)
+
+def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
+    query = sql.SQL("""
+        SELECT
+            column_name,
+            data_type,
+            is_nullable,
+            numeric_precision,
+            numeric_scale
+        FROM
+            information_schema.columns
+        WHERE
+            table_schema = {schema}
+            AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+
+    cursor.execute(query)
+
+    numeric_data_types = {"numeric", "decimal"}
+    columns = []
+    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+        if data_type in numeric_data_types:
+            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        else:
+            numeric_precision = None
+            numeric_scale = None
+
+        columns.append(
+            PostgreSQLColumn(
+                name=name,
+                data_type=data_type,
+                nullable=nullable,
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
+        )
+
+    return Table(
+        name=table_name,
+        parents=(schema,),
+        columns=columns,
+    )
 
 
 def postgres_source(
@@ -275,18 +335,27 @@ def postgres_source(
         sslkey="/tmp/no.txt",
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                add_limit=True,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table_structure = _get_table_structure(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, schema, table_name, logger)
+            table = _get_table(cursor, schema, table_name)
+            chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
-            # Falback on checking for an `id` field on the table
-            if primary_keys is None:
-                if any(ts.column_name == "id" for ts in table_structure):
-                    primary_keys = ["id"]
+            # Fallback on checking for an `id` field on the table
+            if primary_keys is None and "id" in table:
+                primary_keys = ["id"]
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
-        arrow_schema = _get_arrow_schema_from_type_name(table_structure)
+        arrow_schema = table.to_arrow_schema()
 
         with psycopg.connect(
             host=host,
@@ -303,6 +372,12 @@ def postgres_source(
         ) as connection:
             connection.adapters.register_loader("json", JsonAsStringLoader)
             connection.adapters.register_loader("jsonb", JsonAsStringLoader)
+            connection.adapters.register_loader("int4range", RangeAsStringLoader)
+            connection.adapters.register_loader("int8range", RangeAsStringLoader)
+            connection.adapters.register_loader("numrange", RangeAsStringLoader)
+            connection.adapters.register_loader("tsrange", RangeAsStringLoader)
+            connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
+            connection.adapters.register_loader("daterange", RangeAsStringLoader)
 
             with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                 query = _build_query(
@@ -332,6 +407,6 @@ def postgres_source(
         name=name,
         items=get_rows(chunk_size),
         primary_keys=primary_keys,
-        partition_count=partition_settings[0] if partition_settings else None,
-        partition_size=partition_settings[1] if partition_settings else None,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
     )

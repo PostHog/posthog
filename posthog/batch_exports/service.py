@@ -657,7 +657,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(batch_export.team.id, context.modifiers)
+    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -695,7 +695,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=batch_export.jitter,
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,

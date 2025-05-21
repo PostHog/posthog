@@ -13,11 +13,12 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmail, isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -79,7 +80,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
             teamLogic,
             ['currentTeamId'],
-            featureFlagsLogic,
+            featureFlagLogic,
             ['featureFlags'],
         ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
@@ -131,6 +132,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
+                        ...(props.showNumericalPropsOnly ? { is_numerical: 'true' } : {}),
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
                         // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
@@ -224,10 +226,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         index: [
-            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
+            (props.selectFirstItem === false || props.autoSelectItem === false ? NO_ITEM_SELECTED : 0) as number,
             {
                 setIndex: (_, { index }) => index,
-                loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
+                loadRemoteItemsSuccess: (state, { remoteItems }) =>
+                    remoteItems.queryChanged ? (props.autoSelectItem === false ? NO_ITEM_SELECTED : 0) : state,
             },
         ],
         showPopover: [props.popoverEnabled !== false, {}],
@@ -340,29 +343,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s, p) => [s.remoteItems, s.localItems, p.showNumericalPropsOnly ?? (() => false)],
-            (remoteItems, localItems, showNumericalPropsOnly) => {
-                const results = [...localItems.results, ...remoteItems.results].filter((result) => {
-                    if (!showNumericalPropsOnly) {
-                        return true
-                    }
+            (s, p) => [s.remoteItems, s.localItems, s.featureFlags, p.showNumericalPropsOnly ?? (() => false)],
+            (remoteItems, localItems, featureFlags, showNumericalPropsOnly) => {
+                // NOTE: We're filtering on the backend to improve loading performance which implies we dont need to filter here
+                // That said, there might be some edge cases where the backend is NOT filtering on the same way
+                // as we are here in the frontend, so let's add a short-circuit FF here in case we need to go back to the previous implementation
+                const results = featureFlags[FEATURE_FLAGS.SIMPLE_INFINITE_LIST_NUMERICAL_FILTER]
+                    ? [...localItems.results, ...remoteItems.results]
+                    : [...localItems.results, ...remoteItems.results].filter((result) => {
+                          if (!showNumericalPropsOnly) {
+                              return true
+                          }
 
-                    // It's still loading, just display it while we figure it out
-                    if (!result) {
-                        return true
-                    }
+                          // It's still loading, just display it while we figure it out
+                          if (!result) {
+                              return true
+                          }
 
-                    if ('is_numerical' in result) {
-                        return !!result.is_numerical
-                    }
+                          if ('is_numerical' in result) {
+                              return !!result.is_numerical
+                          }
 
-                    if ('property_type' in result) {
-                        const property_type = result.property_type as string // Data warehouse props dont conform to PropertyType for some reason
-                        return property_type === 'Integer' || property_type === 'Float'
-                    }
+                          if ('property_type' in result) {
+                              const property_type = result.property_type as string // Data warehouse props dont conform to PropertyType for some reason
+                              return property_type === 'Integer' || property_type === 'Float'
+                          }
 
-                    return true
-                })
+                          return true
+                      })
 
                 return {
                     results,
@@ -418,7 +426,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         setSearchQuery: async () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else {
+            } else if (props.autoSelectItem) {
                 actions.setIndex(0)
             }
         },
@@ -434,7 +442,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
-                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem, values.searchQuery)
+                actions.selectItem(
+                    values.group,
+                    values.selectedItemValue,
+                    values.selectedItem,
+                    values.swappedInQuery ? values.searchQuery : undefined
+                )
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {

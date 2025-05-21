@@ -34,7 +34,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
-    onError?: (error: string | null, isValidView: boolean) => void
+    onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
 }
@@ -273,11 +273,16 @@ export function CodeEditor({
         return (
             <MonacoDiffEditor
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
                 modified={value}
-                options={editorOptions}
+                options={{
+                    ...editorOptions,
+                    renderSideBySide: false,
+                    acceptSuggestionOnEnter: 'on',
+                    renderGutterMenu: false,
+                }}
                 {...editorProps}
             />
         )

@@ -6,10 +6,6 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from stripe import StripeClient
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    _get_column_hints,
-    _get_primary_keys,
-)
 from posthog.temporal.data_imports.pipelines.rest_source import (
     RESTAPIConfig,
     rest_api_resources,
@@ -18,14 +14,24 @@ from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointR
 from posthog.warehouse.models.external_table_definitions import (
     get_dlt_mapping_for_external_table,
 )
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    ACCOUNT_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
 
 DEFAULT_LIMIT = 100
 
 
 def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
-        "Account": {
-            "name": "Account",
+        ACCOUNT_RESOURCE_NAME: {
+            "name": ACCOUNT_RESOURCE_NAME,
             "table_name": "account",
             "primary_key": "id",
             "write_disposition": {
@@ -59,8 +65,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "BalanceTransaction": {
-            "name": "BalanceTransaction",
+        BALANCE_TRANSACTION_RESOURCE_NAME: {
+            "name": BALANCE_TRANSACTION_RESOURCE_NAME,
             "table_name": "balance_transaction",
             "primary_key": "id",
             "write_disposition": {
@@ -94,8 +100,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Charge": {
-            "name": "Charge",
+        CHARGE_RESOURCE_NAME: {
+            "name": CHARGE_RESOURCE_NAME,
             "table_name": "charge",
             "primary_key": "id",
             "write_disposition": {
@@ -128,8 +134,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Customer": {
-            "name": "Customer",
+        CUSTOMER_RESOURCE_NAME: {
+            "name": CUSTOMER_RESOURCE_NAME,
             "table_name": "customer",
             "primary_key": "id",
             "write_disposition": {
@@ -161,8 +167,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Invoice": {
-            "name": "Invoice",
+        INVOICE_RESOURCE_NAME: {
+            "name": INVOICE_RESOURCE_NAME,
             "table_name": "invoice",
             "primary_key": "id",
             "write_disposition": {
@@ -197,8 +203,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Price": {
-            "name": "Price",
+        PRICE_RESOURCE_NAME: {
+            "name": PRICE_RESOURCE_NAME,
             "table_name": "price",
             "primary_key": "id",
             "write_disposition": {
@@ -234,8 +240,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Product": {
-            "name": "Product",
+        PRODUCT_RESOURCE_NAME: {
+            "name": PRODUCT_RESOURCE_NAME,
             "table_name": "product",
             "primary_key": "id",
             "write_disposition": {
@@ -269,8 +275,8 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
-        "Subscription": {
-            "name": "Subscription",
+        SUBSCRIPTION_RESOURCE_NAME: {
+            "name": SUBSCRIPTION_RESOURCE_NAME,
             "table_name": "subscription",
             "primary_key": "id",
             "write_disposition": {
@@ -387,6 +393,11 @@ def stripe_source(
     db_incremental_field_last_value: Optional[Any],
     is_incremental: bool = False,
 ):
+    from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+        _get_column_hints,
+        _get_primary_keys,
+    )
+
     dlt_source = stripe_dlt_source(
         api_key, account_id, endpoint, team_id, job_id, db_incremental_field_last_value, is_incremental
     )
@@ -404,10 +415,48 @@ def stripe_source(
     )
 
 
+class StripePermissionError(Exception):
+    """Exception raised when Stripe API key lacks permissions for specific resources."""
+
+    def __init__(self, missing_permissions: dict[str, str]):
+        self.missing_permissions = missing_permissions
+        message = f"Stripe API key lacks permissions for: {', '.join(missing_permissions.keys())}"
+        super().__init__(message)
+
+
 def validate_credentials(api_key: str) -> bool:
-    try:
-        client = StripeClient(api_key)
-        client.customers.list(params={"limit": 1})
-        return True
-    except:
-        return False
+    """
+    Validates Stripe API credentials and checks permissions for all required resources.
+    This function will:
+    - Return True if the API key is valid and has all required permissions
+    - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
+    - Raise Exception if the API key is invalid or there's any other error
+    """
+    client = StripeClient(api_key)
+
+    # Test access to all resources we're pulling
+    resources_to_check = [
+        {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
+        {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
+        {"name": CHARGE_RESOURCE_NAME, "method": client.charges.list, "params": {"limit": 1}},
+        {"name": CUSTOMER_RESOURCE_NAME, "method": client.customers.list, "params": {"limit": 1}},
+        {"name": INVOICE_RESOURCE_NAME, "method": client.invoices.list, "params": {"limit": 1}},
+        {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
+        {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
+        {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
+    ]
+
+    missing_permissions = {}
+
+    for resource in resources_to_check:
+        try:
+            # This will raise an exception if we don't have access
+            resource["method"](params=resource["params"])  # type: ignore
+        except Exception as e:
+            # Store the resource name and error message
+            missing_permissions[resource["name"]] = str(e)
+
+    if missing_permissions:
+        raise StripePermissionError(missing_permissions)  # type: ignore
+
+    return True

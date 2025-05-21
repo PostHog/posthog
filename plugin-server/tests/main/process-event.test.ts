@@ -11,8 +11,8 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/src/utils/posthog'
+import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
     Database,
@@ -47,7 +47,7 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    return server.db.createPerson(
+    const [person, kafkaMessages] = await server.db.createPerson(
         DateTime.utc(),
         properties,
         {},
@@ -58,6 +58,8 @@ export async function createPerson(
         new UUIDT().toString(),
         distinctIds.map((distinctId) => ({ distinctId }))
     )
+    await server.db.kafkaProducer.queueMessages(kafkaMessages)
+    return person
 }
 
 type EventsByPerson = [string[], string[]]
@@ -87,7 +89,6 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Info,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
 let processEventCounter = 0
@@ -118,7 +119,8 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const runner = new EventPipelineRunner(hub, pluginEvent)
+    const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
+    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
     await runner.runEventPipeline(pluginEvent)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
@@ -178,7 +180,12 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const runner = new EventPipelineRunner(hub, event)
+    const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
+        hub.db,
+        String(team.id),
+        event.distinct_id
+    )
+    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId)
     await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -1659,7 +1666,12 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
+            hub.db,
+            String(team.id),
+            pluginEvent.distinct_id
+        )
+        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeTruthy()
@@ -1678,7 +1690,12 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
+            hub.db,
+            String(team.id),
+            pluginEvent.distinct_id
+        )
+        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeTruthy()
@@ -1911,7 +1928,7 @@ test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 
     await createPerson(hub, team, ['distinct_id1'])
-    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {}, 1)
+    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
 
     await processEvent(
         'distinct_id1',

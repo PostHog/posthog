@@ -12,9 +12,9 @@ import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './util
 
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'pipeline', 'frontendAppsLogic']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], userLogic, ['user']],
-    }),
+    })),
     actions({
         loadPluginConfigs: true,
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),

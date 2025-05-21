@@ -56,6 +56,16 @@ describe('LazyLoader', () => {
             expect(result2).toBeNull()
             expect(loader).toHaveBeenCalledTimes(1)
         })
+
+        it('can add additional keys to the cache', async () => {
+            loader.mockResolvedValue({ key1: 'value1', key2: 'value2' })
+            const result = await lazyLoader.get('key1')
+            expect(result).toBe('value1')
+            expect(lazyLoader.cache).toEqual({ key1: 'value1', key2: 'value2' })
+            const result2 = await lazyLoader.get('key2')
+            expect(result2).toBe('value2')
+            expect(loader).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('getMany', () => {
@@ -190,10 +200,9 @@ describe('LazyLoader', () => {
             })
 
             const result1 = lazyLoader.get('key1')
-            await delay(70)
             // Should join first request
             const result2 = lazyLoader.get('key2')
-            await delay(60)
+            await delay(50)
             // Should load key2 and join second request
             const result3 = lazyLoader.get('key3')
             const result4 = lazyLoader.getMany(['key1', 'key2', 'key3'])

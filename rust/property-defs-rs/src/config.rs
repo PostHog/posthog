@@ -5,6 +5,8 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    // this maps to the original, shared CLOUD PG DB instance in production for
+    // both the property-defs-rs and new property-defs-rs-v2 deployments
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
@@ -17,13 +19,9 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
-    // TODO(eli): after observing retry change, consider reducing potential tx contention by 20% (to "8")
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
-    // We issue writes (UPSERTS) to postgres in batches of this size.
-    // Total concurrent DB ops is max_concurrent_transactions * update_batch_size
-    // TODO(eli): after observing retry change, consider reducing "unchunked" batch size by 20% (to "800")
     #[envconfig(default = "1000")]
     pub update_batch_size: usize,
 
@@ -110,14 +108,26 @@ pub struct Config {
     #[envconfig(default = "opt_in")]
     pub filter_mode: TeamFilterMode,
 
-    // flag for "v2" deployment that will initially point to an
-    // isolated Postgres instance per deploy env, and will include
-    // bundled ingest pipeline refactors
+    // this enables codepaths used by the new mirror deployment
+    // property-defs-rs-v2 in ArgoCD. The main thing we're gating
+    // at first is use of the DB client for the new isolated Postgres
+    // on all write paths."
+    #[envconfig(default = "false")]
+    pub enable_mirror: bool,
+
+    // TEMP: used to gate the new process_batch_v2 write path code in
+    // the current property-defs-rs deployments *and* new mirror
     #[envconfig(default = "false")]
     pub enable_v2: bool,
 
     #[envconfig(default = "100")]
     pub v2_ingest_batch_size: usize,
+
+    // *ONLY* for use in the new property-defs-rs-v2 mirror deploy, and (for now)
+    // behind `enable_mirror` flag during the refactor/transition. Maps to the new
+    // PROPDEFS isolated PG DB instances in production.
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
+    pub database_propdefs_url: String,
 }
 
 #[derive(Clone)]

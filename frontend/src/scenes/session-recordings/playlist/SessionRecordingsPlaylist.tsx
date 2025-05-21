@@ -36,7 +36,7 @@ export function SessionRecordingsPlaylist({
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
-    const logic = sessionRecordingsPlaylistLogic(logicProps)
+    const playlistLogic = sessionRecordingsPlaylistLogic(logicProps)
     const {
         filters,
         pinnedRecordings,
@@ -48,8 +48,8 @@ export function SessionRecordingsPlaylist({
         allowFlagsFilters,
         allowHogQLFilters,
         totalFiltersCount,
-    } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
+    } = useValues(playlistLogic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
 
     const notebookNode = useNotebookNode()
 
@@ -114,13 +114,12 @@ export function SessionRecordingsPlaylist({
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     filterActions={
-                        notebookNode || (!canMixFiltersAndPinned && !!pinnedRecordings.length) ? null : (
+                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
                             <RecordingsUniversalFilters
                                 resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
-                                className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}
                             />
@@ -143,7 +142,7 @@ export function SessionRecordingsPlaylist({
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeItem.id}
                                 matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={logic}
+                                playlistLogic={playlistLogic}
                                 noBorder
                                 pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
                                 setPinned={

@@ -29,7 +29,7 @@ const fuse = new Fuse<DashboardType>([], {
 
 export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'dashboardsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [
             dashboardsModel,
             ['pinSortedDashboards', 'dashboardsLoading'],
@@ -46,7 +46,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             newDashboardLogic,
             ['showNewDashboardModal'],
         ],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantDashboards, s.dashboardsLoading],

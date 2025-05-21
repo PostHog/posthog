@@ -1,8 +1,24 @@
-def capture_exception(error=None, sentry_scope=None, **sentry_scope_kwargs):
-    from sentry_sdk import capture_exception as sentry_capture_exception
-    from posthoganalytics import api_key, capture_exception as posthog_capture_exception
+from posthog.clickhouse.query_tagging import get_query_tags
 
-    sentry_capture_exception(error, scope=sentry_scope, **sentry_scope_kwargs)
+
+def capture_exception(error=None, additional_properties=None):
+    from posthoganalytics import api_key, capture_exception as posthog_capture_exception
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+
+    properties = get_query_tags()
+
+    if additional_properties:
+        properties.update(additional_properties)
 
     if api_key:
-        posthog_capture_exception(error)
+        _, msg = posthog_capture_exception(error, properties=properties)
+
+        log_kwargs = {}
+        if isinstance(msg, dict):
+            log_kwargs["event_id"] = msg.get("uuid")
+
+        logger.exception(error, **log_kwargs)
+    else:
+        logger.exception(error)

@@ -1,5 +1,6 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
@@ -22,7 +23,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useState } from 'react'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -245,7 +246,18 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </LemonField>
                     )}
 
-                    <div className="flex flex-wrap items-start gap-4">
+                    {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                        <LemonBanner type="info">
+                            The{' '}
+                            <LemonTag type="default" className="uppercase">
+                                Concept
+                            </LemonTag>{' '}
+                            stage assigns the feature flag to the user. Gate your code behind a different feature flag
+                            if you'd like to keep it hidden, and then switch your code to this feature flag when you're
+                            ready to release to your early access users.
+                        </LemonBanner>
+                    )}
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {'feature_flag' in earlyAccessFeature ? (
                                 <LemonField.Pure label="Connected Feature flag">
@@ -334,7 +346,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         ) : null}
                     </div>
-                    <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="description" label="Description" showOptional>
@@ -392,14 +404,14 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             logicKey="early-access-feature"
                             type="destination"
                             filters={destinationFilters}
-                            subTemplateId="early-access-feature-enrollment"
+                            subTemplateIds={['early-access-feature-enrollment']}
                         />
                     </>
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="flex gap-4 justify-between items-start">
                             <div>
                                 <h3>Users</h3>
                                 <p>
@@ -439,7 +451,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function featureFlagEnrolmentFilter(
+function featureFlagRecordingEnrollmentFilter(
     earlyAccessFeature: EarlyAccessFeatureType,
     optedIn: boolean
 ): Partial<RecordingUniversalFilters> {
@@ -478,10 +490,8 @@ function featureFlagEnrolmentFilter(
 }
 
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
-    const { activeTab } = useValues(earlyAccessFeatureLogic)
+    const { activeTab, optedInCount, optedOutCount, featureEnrollmentKey } = useValues(earlyAccessFeatureLogic)
     const { setActiveTab } = useActions(earlyAccessFeatureLogic)
-
-    const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
 
     return (
         <>
@@ -491,14 +501,14 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                 tabs={[
                     {
                         key: EarlyAccessFeatureTabs.OptedIn,
-                        label: 'Opted-In Users',
+                        label: optedInCount !== null ? `Opted-In Users (${optedInCount})` : 'Opted-In Users',
                         content: (
                             <>
                                 <PersonsTableByFilter
-                                    recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, true)}
+                                    recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, true)}
                                     properties={[
                                         {
-                                            key: key,
+                                            key: featureEnrollmentKey,
                                             type: PropertyFilterType.Person,
                                             operator: PropertyOperator.Exact,
                                             value: ['true'],
@@ -510,13 +520,13 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                     },
                     {
                         key: EarlyAccessFeatureTabs.OptedOut,
-                        label: 'Opted-Out Users',
+                        label: optedOutCount !== null ? `Opted-Out Users (${optedOutCount})` : 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
-                                recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, false)}
+                                recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
-                                        key: key,
+                                        key: featureEnrollmentKey,
                                         type: PropertyFilterType.Person,
                                         operator: PropertyOperator.Exact,
                                         value: ['false'],

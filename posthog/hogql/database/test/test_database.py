@@ -8,7 +8,13 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
+from posthog.hogql.database.models import (
+    FieldTraverser,
+    LazyJoin,
+    StringDatabaseField,
+    ExpressionField,
+    Table,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -35,11 +41,19 @@ from posthog.warehouse.models.join import DataWarehouseJoin
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
 
+    def test_create_hogql_database_team_id_and_team_must_be_the_same(self):
+        with self.assertRaises(ValueError, msg="team_id and team must be the same"):
+            create_hogql_database(team_id=self.team.pk + 1, team=self.team)
+
+    def test_create_hogql_database_must_have_either_team_id_or_team(self):
+        with self.assertRaises(ValueError, msg="Either team_id or team must be provided"):
+            create_hogql_database()
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team=self.team))
             )
             assert (
                 json.dumps(
@@ -52,7 +66,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_serialize_database_with_person_on_events_enabled(self):
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
             serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team=self.team))
             )
             assert (
                 json.dumps(
@@ -65,7 +79,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=poe_enabled):
             serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team=self.team))
             )
             for table_name, table in serialized_database.items():
                 columns = [
@@ -81,7 +95,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 )
 
     def test_serialize_database_posthog_table(self):
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
@@ -101,7 +115,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             deleted=True,
             deleted_name=saved_query_name,
         )
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
@@ -109,6 +123,31 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert saved_query_name not in database._view_table_names
         assert "DELETED" not in serialized_database
         assert "DELETED" not in database._view_table_names
+
+    def test_serialize_database_warehouse_table_s3_with_unknown_field(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "UnknownDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            row_count=100,
+        )
+
+        database = create_hogql_database(team=self.team)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+        assert table.row_count == 100
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.type == "unknown"
+        assert field.schema_valid is True
 
     def test_serialize_database_warehouse_table_s3(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -121,7 +160,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
@@ -148,7 +187,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             deleted=True,
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=db))
 
@@ -169,14 +208,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={
                 "id-hype": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
             },
+            row_count=100,
         )
 
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
+        assert table.row_count == 100
 
         field = table.fields.get("id-hype")
         assert field is not None
@@ -193,7 +234,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
-            name="table_1",
+            name="stripe_table_1",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -212,11 +253,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             # No status but should be completed because a data warehouse table already exists
         )
 
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
-        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("stripe.table_1"))
         assert table is not None
         assert len(table.fields.keys()) == 1
 
@@ -268,7 +309,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             last_synced_at="2024-01-01",
         )
 
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         with self.assertNumQueries(3):
             serialize_database(HogQLContext(team_id=self.team.pk, database=database))
@@ -302,7 +343,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 last_synced_at="2024-01-01",
             )
 
-        database = create_hogql_database(team_id=self.team.pk)
+        database = create_hogql_database(team=self.team)
 
         with self.assertNumQueries(3):
             serialize_database(HogQLContext(team_id=self.team.pk, database=database))
@@ -320,7 +361,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             credential=credential,
             url_pattern="",
         )
-        create_hogql_database(team_id=self.team.pk)
+        create_hogql_database(team=self.team)
 
         response = execute_hogql_query(
             "select * from whatever",
@@ -330,14 +371,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295",
         )
 
     def test_database_group_type_mappings(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
 
@@ -345,12 +386,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
         )
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         assert db.events.fields["event"] == StringDatabaseField(name="event", nullable=False)
 
     def test_database_expression_fields(self):
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         db.numbers.fields["expression"] = ExpressionField(name="expression", expr=parse_expr("1 + 1"))
         db.numbers.fields["double"] = ExpressionField(name="double", expr=parse_expr("number * 2"))
         context = HogQLContext(
@@ -392,7 +433,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -413,7 +454,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             deleted=True,
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -437,7 +478,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -458,7 +499,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        create_hogql_database(team_id=self.team.pk)
+        create_hogql_database(team=self.team)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_no_poe(self):
@@ -471,7 +512,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -497,7 +538,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -522,7 +563,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -553,7 +594,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -570,7 +611,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_selecting_from_persons_ignores_future_persons(self):
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -585,7 +626,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ), query
 
     def test_selecting_persons_from_events_ignores_future_persons(self):
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -620,11 +661,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
             with self.assertNumQueries(FuzzyInt(5, 7)):
-                create_hogql_database(team_id=self.team.pk)
+                create_hogql_database(team=self.team)
 
+    # We keep adding sources, credentials and tables, number of queries should be stable
     def test_external_data_source_is_not_n_plus_1(self) -> None:
+        num_queries = FuzzyInt(5, 10)
+
         for i in range(10):
-            # we keep adding sources, credentials and tables, number of queries should be stable
             source = ExternalDataSource.objects.create(
                 team=self.team,
                 source_id=f"source_id_{i}",
@@ -654,11 +697,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 table=warehouse_table,
                 should_sync=True,
                 last_synced_at="2024-01-01",
-                # No status but should be completed because a data warehouse table already exists
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 7)):
-                create_hogql_database(team_id=self.team.pk)
+            with self.assertNumQueries(num_queries):
+                create_hogql_database(team=self.team)
 
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(
@@ -670,7 +712,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         context = HogQLContext(
             team_id=self.team.pk,
@@ -713,7 +755,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 )
             ]
         )
-        db = create_hogql_database(team_id=self.team.pk, modifiers=modifiers)
+        db = create_hogql_database(team=self.team, modifiers=modifiers)
 
         context = HogQLContext(
             team_id=self.team.pk,
@@ -728,6 +770,52 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert person_id_field.chain == ["events_data", "person_id"]
 
         print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
+
+    def test_data_warehouse_events_modifiers_with_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        DataWarehouseTable.objects.create(
+            name="stripe_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "customer_id": "String", "created": "DateTime64(3, 'UTC')"},
+        )
+
+        # Table should be accessible via dot notation (stripe.table)
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="stripe.table",
+                    id_field="id",
+                    timestamp_field="created",
+                    distinct_id_field="customer_id",
+                )
+            ]
+        )
+
+        db = create_hogql_database(team=self.team, modifiers=modifiers)
+
+        stripe_table = db.get_table("stripe.table")
+        assert isinstance(stripe_table, Table)
+
+        # Ensure the correct table was retrieved by checking the original table name in dot notation mapping
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        # Doesn't throw
+        print_ast(parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse")
 
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -777,7 +865,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="events",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         context = HogQLContext(
             team_id=self.team.pk,
@@ -835,7 +923,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="events",
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         context = HogQLContext(
             team_id=self.team.pk,
@@ -894,7 +982,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"},
         )
 
-        db = create_hogql_database(team_id=self.team.pk)
+        db = create_hogql_database(team=self.team)
 
         context = HogQLContext(
             team_id=self.team.pk,

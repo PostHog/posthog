@@ -8,7 +8,7 @@ class TestRateLimit(BaseTest):
         super().setUp()
         self.redis_client = get_client()
         self.limit = RateLimit(
-            max_concurrent_tasks=1,
+            max_concurrency=1,
             applicable=lambda *args, **kwargs: (kwargs.get("is_api") if "is_api" in kwargs else args[0]),
             limit_name="api_per_team",
             get_task_name=lambda *args, **kwargs: f"rate-limit-test-task:{kwargs.get('team_id') or args[1]}",
@@ -95,6 +95,12 @@ class TestRateLimit(BaseTest):
             result += 4
 
         assert result == 7
+
+    def test_custom_rate_limit_fail(self):
+        self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
+        self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=18, limit=2))
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            self.cancels.append(self.limit.use(True, 8, 19, limit=2))
 
     def test_exception(self):
         result = 0

@@ -40,9 +40,9 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),

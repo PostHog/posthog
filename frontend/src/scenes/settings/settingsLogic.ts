@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -15,7 +16,7 @@ export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -26,7 +27,7 @@ export const settingsLogic = kea<settingsLogicType>([
             teamLogic,
             ['currentTeam'],
         ],
-    }),
+    })),
 
     actions({
         selectLevel: (level: SettingLevelId) => ({ level }),
@@ -213,4 +214,26 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
+    actionToUrl(() => ({
+        selectSetting: ({ setting }) => {
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                { ...router.values.hashParams, selectedSetting: setting },
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        ['*/replay/settings']: (_, __, hashParams) => {
+            const { selectedSetting } = hashParams
+            const selectedSettingId = selectedSetting as SettingId
+            if (!selectedSettingId) {
+                return
+            }
+
+            if (values.selectedSettingId !== selectedSettingId) {
+                actions.selectSetting(selectedSettingId)
+            }
+        },
+    })),
 ])

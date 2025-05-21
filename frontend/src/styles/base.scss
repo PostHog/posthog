@@ -335,15 +335,30 @@
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
     );
     --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
@@ -425,6 +440,11 @@
     --bg-fill-switch: var(--primitive-neutral-cool-250);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
+
+    // Borders (Useful for single pixel backgrounds to mimic borders)
+    // //////////////////////////////////////////////////////////
+    --bg-border-primary: var(--primitive-3000-200);
+    --bg-border-secondary: var(--primitive-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -573,9 +593,12 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-resizer: 754;
-    --z-project-panel-layout: 755;
-    --z-project-panel-overlay: 754;
+    --z-resizer: 761;
+    --z-layout-panel: 760;
+    --z-layout-panel-under: 759;
+    --z-layout-navbar-over: 757;
+    --z-layout-navbar: 756;
+    --z-layout-navbar-under: 755;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -585,10 +608,15 @@
     --z-raised: 5;
 
     // Elements
+    --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+    --resizer-thickness: 8px;
+
+    // The space the panel is from the left edge of the screen on mobile
+    --panel-layout-mobile-offset: 40px;
 
     // Toasts
     // Update and override from react-toastify
@@ -772,15 +800,30 @@
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
     );
 
     // Used for highlighting search results, and other subtle accent sitations
@@ -850,6 +893,8 @@
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-border-primary: var(--primitive-neutral-cool-800);
+    --bg-border-secondary: var(--primitive-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
@@ -879,7 +924,7 @@
     /* On-fill text for success */
 
     // Borders (dark mode)
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
     --border-secondary: var(--primitive-neutral-cool-600);
@@ -1025,12 +1070,9 @@
             }
         }
 
-        .styled-scrollbars {
-            --scrollbar-background: transparent transparent;
-
+        .show-scrollbar-on-hover {
             scrollbar-color: transparent transparent;
             scrollbar-width: thin;
-            scrollbar-gutter: stable;
 
             &::-webkit-scrollbar {
                 width: 0.5rem;
@@ -1519,6 +1561,30 @@
 
     .animate-float {
         animation: float 3s infinite ease-in-out;
+    }
+
+    // Primitive classes
+
+    // Used for ui/dropdown-menu and ui/context-menu
+    .primitive-menu-content {
+        z-index: var(--z-popover);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 8rem;
+        max-width: 200px;
+        max-height: calc(90vh - 100px);
+        overflow: hidden;
+        color: var(--text-primary);
+        background-color: var(--bg-surface-primary);
+        border: 1px solid var(--border-secondary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-elevation-3000);
+    }
+
+    .primitive-menu-content-inner {
+        max-height: calc(90vh - 100px);
+        padding: var(--spacing);
     }
 
     // Highlight background blink

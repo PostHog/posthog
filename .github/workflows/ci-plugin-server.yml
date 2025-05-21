@@ -183,6 +183,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
@@ -190,6 +191,7 @@ jobs:
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
@@ -208,6 +210,7 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             RELOAD_PLUGIN_JITTER_MAX_MS: 0
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 
@@ -261,6 +264,11 @@ jobs:
                   node-version: 18.12.1
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
+
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.plugin-server == 'true'
+              run: |
+                  ./bin/download-mmdb
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'

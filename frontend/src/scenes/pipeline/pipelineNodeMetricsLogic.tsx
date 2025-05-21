@@ -51,9 +51,9 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
     props({} as PipelineNodeMetricsProps),
     key(({ id }: PipelineNodeMetricsProps) => id),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
     actions({
         setDateRange: (from: string | null, to: string | null) => ({ from, to }),
         openErrorDetailsModal: (errorType: string) => ({

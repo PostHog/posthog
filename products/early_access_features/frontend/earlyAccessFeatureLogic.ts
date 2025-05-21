@@ -4,20 +4,26 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { performQuery } from '~/queries/query'
+import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    ProjectTreeRef,
+    PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
-
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
@@ -47,7 +53,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
-    loaders(({ props, actions }) => ({
+    loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
             loadEarlyAccessFeature: async () => {
                 if (props.id && props.id !== 'new') {
@@ -79,15 +85,55 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 return result
             },
         },
+
+        personsCount: [
+            null as [number, number] | null,
+            {
+                loadEarlyAccessFeatureSuccess: async (_, breakpoint) => {
+                    // Should exist because it was a success, but Typescript doesn't know that
+                    if (!values.earlyAccessFeature || !('feature_flag' in values.earlyAccessFeature)) {
+                        return null
+                    }
+
+                    // :KRUDGE: Should try and get this to work with a single query in the future
+                    const results = await Promise.all(
+                        ['true', 'false'].map((value) =>
+                            performQuery<ActorsQuery>({
+                                kind: NodeKind.ActorsQuery,
+                                properties: [
+                                    {
+                                        key: values.featureEnrollmentKey,
+                                        type: PropertyFilterType.Person,
+                                        operator: PropertyOperator.Exact,
+                                        value: [value],
+                                    },
+                                ],
+                                select: ['count()'],
+                            })
+                        )
+                    )
+                    breakpoint()
+
+                    return results.map((result) => result?.results?.[0]?.[0] ?? null) as [number, number]
+                },
+            },
+        ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, props }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
             errors: (payload) => ({
                 name: !payload.name ? 'Feature name must be set' : undefined,
             }),
             submit: async (payload) => {
-                actions.saveEarlyAccessFeature(payload)
+                if (props.id && props.id !== 'new') {
+                    actions.saveEarlyAccessFeature(payload)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Early Access Features',
+                        callback: (folder) => actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: folder }),
+                    })
+                }
             },
         },
     })),
@@ -133,6 +179,24 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: EarlyAccessFeatureLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: id === 'new' ? null : String(id) }),
+        ],
+        optedInCount: [
+            (s) => [s.personsCount],
+            (personsCount: [number, number] | null): number | null => personsCount?.[0] ?? null,
+        ],
+        optedOutCount: [
+            (s) => [s.personsCount],
+            (personsCount: [number, number] | null): number | null => personsCount?.[1] ?? null,
+        ],
+        featureEnrollmentKey: [
+            (s) => [s.earlyAccessFeature],
+            (earlyAccessFeature: EarlyAccessFeatureType): string => {
+                return '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
+            },
+        ],
     }),
     listeners(({ actions, values, props }) => ({
         updateStage: async ({ stage }) => {
@@ -141,6 +205,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     ...values.earlyAccessFeature,
                     stage: stage,
                 }))
+            if (props.id) {
+                refreshTreeItem('early_access_feature', props.id)
+            }
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },
@@ -159,6 +226,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 actions.loadEarlyAccessFeaturesSuccess(
                     values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
                 )
+                deleteFromTree('early_access_feature', earlyAccessFeatureId)
                 router.actions.push(urls.earlyAccessFeatures())
             } catch (e) {
                 lemonToast.error(`Error deleting Early Access Feature: ${e}`)

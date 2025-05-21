@@ -8,9 +8,9 @@ import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportCommandBarStatusChanged']],
-    }),
+    })),
     actions({
         setCommandBar: (status: BarStatus, initialQuery?: string) => ({ status, initialQuery }),
         hideCommandBar: true,

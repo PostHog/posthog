@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
+import { runInstrumentedFunction } from '../main/utils'
 import { logger } from './logger'
 
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
@@ -79,11 +80,103 @@ export class LazyLoader<T> {
         this.pendingLoads = {}
     }
 
+    public async get(key: string): Promise<T | null> {
+        const loaded = await this.loadViaCache([key])
+        return loaded[key] ?? null
+    }
+
+    public async getMany(keys: string[]): Promise<Record<string, T | null>> {
+        return await this.loadViaCache(keys)
+    }
+
+    public markForRefresh(key: string | string[]): void {
+        for (const k of Array.isArray(key) ? key : [key]) {
+            delete this.cacheUntil[k]
+        }
+    }
+
+    private setValues(map: LazyLoaderMap<T>): void {
+        const {
+            refreshAge = REFRESH_AGE,
+            refreshNullAge = REFRESH_AGE,
+            refreshJitterMs = REFRESH_JITTER_MS,
+        } = this.options
+        for (const [key, value] of Object.entries(map)) {
+            this.cache[key] = value ?? null
+            // Always update the lastUsed time
+            this.lastUsed[key] = Date.now()
+            const valueOrNull = value ?? null
+            this.cacheUntil[key] =
+                Date.now() +
+                (valueOrNull === null ? refreshNullAge : refreshAge) +
+                Math.floor(Math.random() * refreshJitterMs)
+        }
+    }
+
+    /**
+     * Ensure that a range of values are preloaded and cached.
+     *
+     * If already cached, the lastUsed value is updated to now
+     * If not cached, the value is loaded as part of the batch and added to the cache.
+     * If the value is older than the refreshAge, it is loaded from the database.
+     */
+    private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
+        return await runInstrumentedFunction({
+            statsKey: `lazyLoader.loadViaCache`,
+            func: async () => {
+                const results: Record<string, T | null> = {}
+                const keysToLoad = new Set<string>()
+
+                // First, check if all keys are already cached and update the lastUsed time
+                for (const key of keys) {
+                    const cached = this.cache[key]
+
+                    if (cached !== undefined) {
+                        results[key] = cached
+                        // Always update the lastUsed time
+                        this.lastUsed[key] = Date.now()
+
+                        const cacheUntil = this.cacheUntil[key] ?? 0
+
+                        if (Date.now() > cacheUntil) {
+                            keysToLoad.add(key)
+                            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                            continue
+                        }
+                    } else {
+                        keysToLoad.add(key)
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                        continue
+                    }
+
+                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                }
+
+                if (keysToLoad.size === 0) {
+                    lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                    return results
+                }
+
+                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+                // We have something to load so we schedule it and then await all of them
+                await this.load(Array.from(keysToLoad))
+
+                for (const key of keys) {
+                    // Grab the new cached result for all keys
+                    results[key] = this.cache[key] ?? null
+                }
+
+                return results
+            },
+        })
+    }
+
     /**
      * Schedules the keys to be loaded with a buffer to allow batching multiple keys
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      */
-    private async scheduleLoad(keys: string[]): Promise<LazyLoaderMap<T>> {
+    private async load(keys: string[]): Promise<LazyLoaderMap<T>> {
         const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
         const keyPromises: Promise<T | null>[] = []
 
@@ -108,11 +201,16 @@ export class LazyLoader<T> {
                             this.buffer = undefined
                             resolve(keys)
                         }, bufferMs)
-                    }).then((keys) => {
-                        // Pull out the keys to load and clear the buffer
-                        logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
-                        return this.options.loader(keys)
-                    }),
+                    })
+                        .then((keys) => {
+                            // Pull out the keys to load and clear the buffer
+                            logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
+                            return this.options.loader(keys)
+                        })
+                        .then((map) => {
+                            this.setValues(map)
+                            return map
+                        }),
                 }
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'miss' }).inc()
             } else {
@@ -132,91 +230,13 @@ export class LazyLoader<T> {
         }
 
         const results = await Promise.all(keyPromises)
-
-        return keys.reduce((acc, key, index) => {
+        const mappedResults = keys.reduce((acc, key, index) => {
             acc[key] = results[index] ?? null
             return acc
         }, {} as LazyLoaderMap<T>)
-    }
 
-    /**
-     * Ensure that a range of values are preloaded and cached.
-     *
-     * If already cached, the lastUsed value is updated to now
-     * If not cached, the value is loaded as part of the batch and added to the cache.
-     * If the value is older than the refreshAge, it is loaded from the database.
-     */
-    public async load(keys: string[]): Promise<Record<string, T | null>> {
-        const results: Record<string, T | null> = {}
+        this.setValues(mappedResults)
 
-        const {
-            refreshAge = REFRESH_AGE,
-            refreshNullAge = REFRESH_AGE,
-            refreshJitterMs = REFRESH_JITTER_MS,
-        } = this.options
-        const keysToLoad = new Set<string>()
-
-        // First, check if all keys are already cached and update the lastUsed time
-        for (const key of keys) {
-            const cached = this.cache[key]
-
-            if (cached !== undefined) {
-                results[key] = cached
-                // Always update the lastUsed time
-                this.lastUsed[key] = Date.now()
-
-                const cacheUntil = this.cacheUntil[key] ?? 0
-
-                if (Date.now() > cacheUntil) {
-                    keysToLoad.add(key)
-                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                    continue
-                }
-            } else {
-                keysToLoad.add(key)
-                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                continue
-            }
-
-            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-        }
-
-        if (keysToLoad.size === 0) {
-            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-            return results
-        }
-
-        lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-
-        // We have something to load so we schedule it and then await all of them
-
-        const loaded = await this.scheduleLoad(Array.from(keysToLoad))
-
-        for (const key of keysToLoad) {
-            results[key] = this.cache[key] = loaded[key] ?? null
-            this.cacheUntil[key] =
-                Date.now() +
-                (loaded[key] === null ? refreshNullAge : refreshAge) +
-                Math.floor(Math.random() * refreshJitterMs)
-            this.lastUsed[key] = Date.now()
-        }
-
-        return results
-    }
-
-    public async get(key: string): Promise<T | null> {
-        const loaded = await this.load([key])
-
-        return loaded[key] ?? null
-    }
-
-    public async getMany(keys: string[]): Promise<Record<string, T | null>> {
-        return await this.load(keys)
-    }
-
-    public markForRefresh(key: string | string[]): void {
-        for (const k of Array.isArray(key) ? key : [key]) {
-            delete this.cacheUntil[k]
-        }
+        return mappedResults
     }
 }

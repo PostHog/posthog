@@ -1,10 +1,32 @@
+import equal from 'fast-deep-equal'
+import { LogicWrapper } from 'kea'
+import { routerType } from 'kea-router/lib/routerType'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
+import { MouseEvent } from 'react'
+import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+export const ERROR_TRACKING_LISTING_RESOLUTION = 20
+export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
+
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
+
+export const SEARCHABLE_EXCEPTION_PROPERTIES = [
+    '$exception_types',
+    '$exception_values',
+    '$exception_sources',
+    '$exception_functions',
+]
+export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
+    '$exception_list',
+    '$exception_fingerprint_record',
+    '$exception_proposed_fingerprint',
+    ...SEARCHABLE_EXCEPTION_PROPERTIES,
+]
 
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
@@ -51,88 +73,15 @@ export const mergeIssues = (
     }
 }
 
-export function getExceptionAttributes(
-    properties: Record<string, any>
-): { ingestionErrors?: string[]; exceptionList: ErrorTrackingException[] } & Record<
-    'type' | 'value' | 'synthetic' | 'library' | 'browser' | 'os' | 'sentryUrl' | 'level' | 'unhandled',
-    any
-> {
-    const {
-        $lib,
-        $lib_version,
-        $browser: browser,
-        $browser_version: browserVersion,
-        $os: os,
-        $os_version: osVersion,
-        $sentry_url: sentryUrl,
-        $sentry_exception,
-        $level: level,
-        $cymbal_errors: ingestionErrors,
-    } = properties
-
-    let type = properties.$exception_type
-    let value = properties.$exception_message
-    let synthetic: boolean | undefined = properties.$exception_synthetic
-    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
-
-    // exception autocapture sets $exception_list for all exceptions.
-    // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
-    if (!exceptionList?.length && $sentry_exception) {
-        if (Array.isArray($sentry_exception.values)) {
-            exceptionList = $sentry_exception.values
-        }
-    }
-
-    if (!type) {
-        type = exceptionList?.[0]?.type
-    }
-    if (!value) {
-        value = exceptionList?.[0]?.value
-    }
-    if (synthetic == undefined) {
-        synthetic = exceptionList?.[0]?.mechanism?.synthetic
-    }
-
-    const handled = exceptionList?.[0]?.mechanism?.handled ?? false
-
-    return {
-        type,
-        value,
-        synthetic,
-        library: `${$lib} ${$lib_version}`,
-        browser: browser ? `${browser} ${browserVersion}` : undefined,
-        os: os ? `${os} ${osVersion}` : undefined,
-        sentryUrl,
-        exceptionList: exceptionList || [],
-        unhandled: !handled,
-        level,
-        ingestionErrors,
-    }
-}
-
-export function getSessionId(properties: Record<string, any>): string | undefined {
-    return properties['$session_id']
-}
-
-export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
-}
-
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
     return value === THIRD_PARTY_SCRIPT_ERROR
 }
 
-export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktrace?.frames?.some(({ in_app }) => in_app))
-}
-
-export function generateSparklineLabels(range: DateRange, resolution: number): string[] {
-    const resolvedDateRange = resolveDateRange(range)
-    const from = dayjs(resolvedDateRange.date_from)
-    const to = dayjs(resolvedDateRange.date_to)
+export function generateSparklineLabels(range: DateRange, resolution: number): Dayjs[] {
+    const { date_from, date_to } = ResolvedDateRange.fromDateRange(range)
+    const bin_size = Math.floor(date_to.diff(date_from, 'milliseconds') / resolution)
     const labels = Array.from({ length: resolution }, (_, i) => {
-        const bin_size = Math.floor(to.diff(from, 'seconds') / resolution)
-        return from.add(i * bin_size, 'seconds').toISOString()
+        return date_from.add(i * bin_size, 'milliseconds')
     })
     return labels
 }
@@ -208,4 +157,29 @@ export function datetimeStringToDayJs(date: string | null): Dayjs | null {
         return dayjs()
     }
     return componentsToDayJs(dateComponents)
+}
+
+export function syncSearchParams(
+    router: LogicWrapper<routerType>,
+    updateParams: (searchParams: Params) => Params
+): [string, Params, Record<string, any>, { replace: boolean }] {
+    let searchParams = { ...router.values.searchParams }
+    searchParams = updateParams(searchParams)
+    if (!equal(searchParams, router.values.searchParams)) {
+        return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+    }
+    return [router.values.location.pathname, router.values.searchParams, router.values.hashParams, { replace: false }]
+}
+
+export function updateSearchParams<T>(searchParams: Params, key: string, value: T, defaultValue: T): void {
+    if (!equal(value, defaultValue)) {
+        searchParams[key] = value
+    } else {
+        delete searchParams[key]
+    }
+}
+
+export function cancelEvent(event: MouseEvent): void {
+    event.preventDefault()
+    event.stopPropagation()
 }

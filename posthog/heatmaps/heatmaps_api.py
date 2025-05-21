@@ -252,7 +252,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         response_serializer = HeatmapsResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
-        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+        resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
+        resp["Cache-Control"] = "max-age=30"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
+        return resp
 
     @staticmethod
     def _return_scroll_depth_response(query_response: HogQLQueryResponse) -> response.Response:
@@ -267,7 +271,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         response_serializer = HeatmapsScrollDepthResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
-        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+        resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
+        resp["Cache-Control"] = "max-age=30"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
+        return resp
 
 
 class LegacyHeatmapViewSet(HeatmapViewSet):

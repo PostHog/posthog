@@ -3,12 +3,12 @@ from django.db import models
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.signals import mutable_receiver
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 
 # NOTE: This model is meant to be loosely related to the `activity_log` as they are similar in function and approach
 
 
-class Comment(UUIDModel):
+class Comment(UUIDModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     content = models.TextField(blank=True, null=True)
     version = models.IntegerField(default=0)

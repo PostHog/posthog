@@ -52,3 +52,6 @@ The ON CLUSTER clause is used to specify the cluster to run the DDL statement on
 
 Ideally, **do not use the ON CLUSTER clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the ON CLUSTER clause make the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
 
+### Testing
+
+To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.

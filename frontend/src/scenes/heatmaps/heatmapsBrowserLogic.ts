@@ -16,7 +16,6 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
-import { isValidRegexPattern } from 'lib/utils/regexp'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -50,7 +49,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             authorizedUrlListLogic({
                 ...defaultAuthorizedUrlProperties,
@@ -60,8 +59,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             heatmapDataLogic,
             ['heatmapEmpty'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
-    }),
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setHrefMatchType']],
+    })),
 
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
@@ -230,6 +229,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
+        widthOverride: [
+            null as number | null,
+            {
+                setIframeWidth: (_, { width }) => width,
+            },
+        ],
     }),
 
     selectors({
@@ -249,7 +254,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 return checkUrlIsAuthorized(browserUrl)
             },
         ],
-
         isBrowserUrlValid: [
             (s) => [s.browserUrl],
             (browserUrl) => {
@@ -290,7 +294,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (replayIframeData && replayIframeData.url) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(replayIframeData.url, isValidRegexPattern(replayIframeData.url) ? 'regex' : 'exact')
+                actions.setHref(replayIframeData.url)
+                // TODO we need to be able to handle regex values
+                actions.setHrefMatchType('exact')
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -422,7 +428,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url?.trim().length) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
-                actions.setHref(url, isValidRegexPattern(url) ? 'regex' : 'exact')
+                actions.setHref(url)
+                // TODO we need to be able to handle regex values
+                actions.setHrefMatchType('exact')
             }
         },
 

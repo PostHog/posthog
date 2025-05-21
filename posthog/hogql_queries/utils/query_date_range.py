@@ -43,6 +43,7 @@ class QueryDateRange:
     _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
+    _earliest_timestamp_fallback: Optional[datetime]
 
     def __init__(
         self,
@@ -50,11 +51,13 @@ class QueryDateRange:
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
+        earliest_timestamp_fallback: Optional[datetime] = None,
     ) -> None:
         self._team = team
         self._date_range = date_range
         self._interval = interval or IntervalType.DAY
         self._now_without_timezone = now
+        self._earliest_timestamp_fallback = earliest_timestamp_fallback
 
         if not isinstance(self._interval, IntervalType):
             raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
@@ -85,6 +88,9 @@ class QueryDateRange:
         return date_to
 
     def get_earliest_timestamp(self) -> datetime:
+        if self._earliest_timestamp_fallback:
+            return self._earliest_timestamp_fallback
+
         return get_earliest_timestamp(self._team.pk)
 
     def date_from(self) -> datetime:

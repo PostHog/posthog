@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
@@ -45,6 +46,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -90,8 +93,34 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
-    user_access_level: 'admin',
+    user_access_level: AccessControlLevel.Admin,
     access_control: true,
+    group_types: [
+        {
+            group_type: 'organization',
+            group_type_index: 0,
+            name_singular: null,
+            name_plural: 'organizations',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'instance',
+            group_type_index: 1,
+            name_singular: null,
+            name_plural: 'instances',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'project',
+            group_type_index: 2,
+            name_singular: null,
+            name_plural: 'projects',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+    ],
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
@@ -99,22 +128,20 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: {
-        baseCurrency: CurrencyCode.USD,
+    revenue_analytics_config: {
+        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                currencyAwareDecimal: false,
             },
-        ],
-        dataWarehouseTables: [
             {
-                tableName: 'mock_table',
-                distinctIdColumn: 'distinct_id',
-                timestampColumn: 'timestamp',
-                revenueColumn: 'revenue',
-                revenueCurrencyColumn: { static: CurrencyCode.SCR },
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                currencyAwareDecimal: true,
             },
         ],
     },

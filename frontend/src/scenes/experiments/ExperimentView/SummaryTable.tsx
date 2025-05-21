@@ -17,6 +17,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
+    FunnelExperimentVariant,
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
@@ -50,6 +51,7 @@ export function SummaryTable({
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
         featureFlags,
+        hasEnoughDataForResults,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
@@ -191,7 +193,7 @@ export function SummaryTable({
                 }
 
                 const credibleInterval = credibleIntervalForVariant(result || null, variant.key, insightType)
-                if (!credibleInterval) {
+                if (!credibleInterval || !hasEnoughDataForResults) {
                     return <>—</>
                 }
                 const [lowerBound, upperBound] = credibleInterval
@@ -206,6 +208,36 @@ export function SummaryTable({
     }
 
     if (insightType === InsightType.FUNNELS) {
+        // NOTE: For funnel metrics on the new engine, we show exposures and converted counts in the table,
+        // as we don't yet have the detailed view as we do for the legacy funnel metrics.
+        if (metric.kind === NodeKind.ExperimentMetric) {
+            columns.push({
+                key: 'exposures',
+                title: 'Exposures',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const exposures = variant.success_count + variant.failure_count
+                    if (!exposures) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(exposures)}</div>
+                },
+            })
+            columns.push({
+                key: 'converted',
+                title: 'Converted',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const converted = variant.success_count
+                    if (!converted) {
+                        return <>0</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(converted)}</div>
+                },
+            })
+        }
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -265,7 +297,7 @@ export function SummaryTable({
                     }
 
                     const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
-                    if (!credibleInterval) {
+                    if (!credibleInterval || !hasEnoughDataForResults) {
                         return <>—</>
                     }
                     const [lowerBound, upperBound] = credibleInterval
@@ -325,7 +357,9 @@ export function SummaryTable({
 
             return (
                 <>
-                    {percentage && (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
+                    {percentage &&
+                    (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) &&
+                    hasEnoughDataForResults ? (
                         <span className="inline-flex items-center w-52 deprecated-space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>

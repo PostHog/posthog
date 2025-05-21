@@ -36,7 +36,7 @@ export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
-    connect({ values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] }),
+    connect(() => ({ values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({

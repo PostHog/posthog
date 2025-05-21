@@ -38,7 +38,7 @@ const EventPropertiesSchema = z
         $session_id: z.string().optional(),
         $window_id: z.string().optional(),
         $snapshot_source: z.string().optional(),
-        $snapshot_library: z.string().optional(),
+        $lib: z.string().optional(),
     })
     .partial()
     .passthrough()

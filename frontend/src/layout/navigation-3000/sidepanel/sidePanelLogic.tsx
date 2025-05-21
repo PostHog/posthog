@@ -25,7 +25,7 @@ const ALWAYS_EXTRA_TABS = [
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -48,15 +48,23 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['currentTeam'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
-    }),
+    })),
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext, s.currentTeam],
-            (isCloudOrDev, featureflags, sceneSidePanelContext, currentTeam) => {
+            (s) => [
+                s.selectedTab,
+                s.sidePanelOpen,
+                s.isCloudOrDev,
+                s.featureFlags,
+                s.sceneSidePanelContext,
+                s.currentTeam,
+            ],
+            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureflags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (selectedTab === SidePanelTab.Max && sidePanelOpen)) {
+                    // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
                 tabs.push(SidePanelTab.Notebooks)
@@ -69,25 +77,24 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
 
-                    // TODO: Remove cutoff date condition after 2025-03-15
-                    if (dayjs().diff(teamCreatedAt, 'day') < 30 && teamCreatedAt.isAfter(dayjs('2025-02-13'))) {
+                    if (dayjs().diff(teamCreatedAt, 'day') < 30) {
                         tabs.push(SidePanelTab.Activation)
                     }
                 }
 
-                if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
+                tabs.push(SidePanelTab.FeaturePreviews)
+                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
 
                 if (
-                    featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
+                    featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
                     sceneSidePanelContext.access_control_resource &&
                     sceneSidePanelContext.access_control_resource_id
                 ) {
                     tabs.push(SidePanelTab.AccessControl)
                 }
                 tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {

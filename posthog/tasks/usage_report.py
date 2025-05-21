@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
+from collections.abc import Callable
 
 import requests
 import structlog
@@ -49,6 +50,7 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 
 
 logger = structlog.get_logger(__name__)
@@ -157,6 +159,7 @@ class UsageReportCounters:
     python_events_count_in_period: int
     php_events_count_in_period: int
     dotnet_events_count_in_period: int
+    elixir_events_count_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -354,6 +357,90 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         raise
 
 
+def _execute_split_query(
+    begin: datetime,
+    end: datetime,
+    query_template: str,
+    params: dict,
+    num_splits: int = 2,
+    combine_results_func: Optional[Callable[[list], Any]] = None,
+) -> Any:
+    """
+    Helper function to execute a query split into multiple parts to reduce load.
+    Splits the time period into num_splits parts and runs separate queries, then combines the results.
+
+    Args:
+        begin: Start of the time period
+        end: End of the time period
+        query_template: SQL query template with %(begin)s and %(end)s placeholders
+        params: Additional parameters for the query
+        num_splits: Number of time splits to make (default: 2)
+        combine_results_func: Optional function to combine results from multiple queries
+                             If None, uses the default team_id count combiner
+
+    Returns:
+        Combined query results
+    """
+    # Calculate the time interval for each split
+    time_delta = (end - begin) / num_splits
+
+    all_results = []
+
+    # Execute query for each time split
+    for i in range(num_splits):
+        split_begin = begin + (time_delta * i)
+        split_end = begin + (time_delta * (i + 1))
+
+        # For the last split, use the exact end time to avoid rounding issues
+        if i == num_splits - 1:
+            split_end = end
+
+        # Create a copy of params and update with the split time range
+        split_params = params.copy()
+        split_params["begin"] = split_begin
+        split_params["end"] = split_end
+
+        # Execute the query for this time split
+        split_result = sync_execute(
+            query_template,
+            split_params,
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+        all_results.append(split_result)
+
+    # If no custom combine function is provided, use the default team_id count combiner
+    if combine_results_func is None:
+        return _combine_team_count_results(all_results)
+    else:
+        return combine_results_func(all_results)
+
+
+def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
+    """
+    Default function to combine results from multiple queries that return (team_id, count) tuples.
+
+    Args:
+        results_list: List of query results, each containing (team_id, count) tuples
+
+    Returns:
+        Combined list of (team_id, count) tuples
+    """
+    team_counts: dict[int, int] = {}
+
+    # Combine all results
+    for results in results_list:
+        for team_id, count in results:
+            if team_id in team_counts:
+                team_counts[team_id] += count
+            else:
+                team_counts[team_id] = count
+
+    # Convert back to the expected format
+    return list(team_counts.items())
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
@@ -371,18 +458,14 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
-    result = sync_execute(
-        f"""
+    query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
+    """
+
+    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
 
 
 @timed_log()
@@ -401,18 +484,14 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    result = sync_execute(
-        f"""
+    query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
+    """
+
+    return _execute_split_query(begin, end, query_template, {}, num_splits=2)
 
 
 @timed_log()
@@ -425,7 +504,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         WHERE timestamp between %(begin)s AND %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         GROUP BY team_id
-    """,
+        """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
@@ -439,8 +518,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
-    results = sync_execute(
-        f"""
+    query_template = f"""
         SELECT
             team_id,
             multiIf(
@@ -461,6 +539,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-python', 'python_events',
                 {lib_expression} = 'posthog-php', 'php_events',
                 {lib_expression} = 'posthog-dotnet', 'dotnet_events',
+                {lib_expression} = 'posthog-elixir', 'elixir_events',
                 'other'
             ) AS metric,
             count(1) as count
@@ -468,36 +547,56 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         WHERE timestamp BETWEEN %(begin)s AND %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
+    """
+
+    # Define a custom function to combine results from multiple queries
+    def combine_event_metrics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
+        metrics: dict[str, dict[int, int]] = {
+            "helicone_events": {},
+            "langfuse_events": {},
+            "keywords_ai_events": {},
+            "traceloop_events": {},
+            "web_events": {},
+            "web_lite_events": {},
+            "node_events": {},
+            "android_events": {},
+            "flutter_events": {},
+            "ios_events": {},
+            "go_events": {},
+            "java_events": {},
+            "react_native_events": {},
+            "ruby_events": {},
+            "python_events": {},
+            "php_events": {},
+            "dotnet_events": {},
+            "elixir_events": {},
+        }
+
+        # Process each result set
+        for results in results_list:
+            for team_id, metric, count in results:
+                if metric in metrics:  # Make sure the metric exists in our dictionary
+                    if team_id in metrics[metric]:
+                        metrics[metric][team_id] += count
+                    else:
+                        metrics[metric][team_id] = count
+
+        # Convert to the expected format
+        result = {}
+        for metric, team_counts in metrics.items():
+            result[metric] = list(team_counts.items())
+
+        return result
+
+    # Execute the split query with 4 splits
+    return _execute_split_query(
+        begin=begin,
+        end=end,
+        query_template=query_template,
+        params={},
+        num_splits=2,
+        combine_results_func=combine_event_metrics_results,
     )
-
-    metrics: dict[str, list[tuple[int, int]]] = {
-        "helicone_events": [],
-        "langfuse_events": [],
-        "keywords_ai_events": [],
-        "traceloop_events": [],
-        "web_events": [],
-        "web_lite_events": [],
-        "node_events": [],
-        "android_events": [],
-        "flutter_events": [],
-        "ios_events": [],
-        "go_events": [],
-        "java_events": [],
-        "react_native_events": [],
-        "ruby_events": [],
-        "python_events": [],
-        "php_events": [],
-        "dotnet_events": [],
-    }
-
-    for team_id, metric, count in results:
-        metrics[metric].append((team_id, count))
-
-    return metrics
 
 
 @timed_log()
@@ -552,7 +651,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
-            AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native'))
+            AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -586,7 +685,7 @@ def get_teams_with_api_queries_metrics(
     query = f"""
         SELECT JSONExtractInt(log_comment, 'team_id') team_id, count(1) cnt, sum(read_bytes) read_bytes
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
-        WHERE type != 'QueryStart'
+        WHERE type = 'QueryFinish'
         AND is_initial_query
         AND event_time between %(begin)s AND %(end)s
         AND team_id > 0
@@ -692,13 +791,31 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    results = sync_execute(
-        """
-        SELECT team_id, COUNT() as count
+    # Construct the subquery for unique event UUIDs
+    unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+        base_conditions_sql=[
+            "timestamp BETWEEN %(begin)s AND %(end)s",
+        ],
+        group_by_prefix_expressions=[
+            "team_id",
+            "JSONExtractString(properties, '$survey_id')",  # Deduplicate per team_id, per survey_id
+        ],
+    )
+
+    query = f"""
+        SELECT
+            team_id,
+            COUNT() as count
         FROM events
-        WHERE event = 'survey sent' AND timestamp between %(begin)s AND %(end)s
+        WHERE
+            event = 'survey sent'
+            AND timestamp BETWEEN %(begin)s AND %(end)s
+            AND uuid IN {unique_uuids_subquery}
         GROUP BY team_id
-    """,
+    """
+
+    results = sync_execute(
+        query,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
@@ -749,7 +866,6 @@ def get_teams_with_exceptions_captured_in_period(
         SELECT team_id, COUNT() as count
         FROM events
         WHERE event = '$exception' AND timestamp between %(begin)s AND %(end)s
-        AND not(JSONHas(properties, '$sentry_event_id'))
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -934,6 +1050,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_python_events_count_in_period": all_metrics["python_events"],
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
+        "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -1185,6 +1302,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
+        elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
     )

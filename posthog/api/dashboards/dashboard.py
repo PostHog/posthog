@@ -81,8 +81,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        insight_representation = representation["insight"] or {}  # May be missing for text tiles
+        representation["order"] = self.context.get("order", None)
 
+        insight_representation = representation["insight"] or {}  # May be missing for text tiles
         representation["last_refresh"] = insight_representation.get("last_refresh", None)
         representation["is_cached"] = insight_representation.get("is_cached", False)
 
@@ -151,6 +152,9 @@ class DashboardSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    breakdown_colors = serializers.JSONField(required=False)
+    data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Dashboard
@@ -169,6 +173,8 @@ class DashboardSerializer(DashboardBasicSerializer):
             "delete_insights",
             "filters",
             "variables",
+            "breakdown_colors",
+            "data_color_theme_id",
             "tags",
             "tiles",
             "restriction_level",
@@ -176,6 +182,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "effective_privilege_level",
             "user_access_level",
             "access_control_version",
+            "_create_in_folder",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -358,6 +365,7 @@ class DashboardSerializer(DashboardBasicSerializer):
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> None:
         tile_data.pop("is_cached", None)  # read only field
+        tile_data.pop("order", None)  # read only field
 
         if tile_data.get("text", None):
             text_json: dict = tile_data.get("text", {})
@@ -430,15 +438,6 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
-        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get("xs", {}).get("y", 0),
-                tile.layouts.get("xs", {}).get("x", 0),
-            ),
-        )
-
         team = self.context["get_team"]()
         chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
             "chained_dashboard_tile_refresh",
@@ -447,13 +446,24 @@ class DashboardSerializer(DashboardBasicSerializer):
             group_properties={"organization": {"id": str(team.organization_id)}},
         )
 
-        # In case of a large number of tiles on a dashboard,
-        # ensure all tiles are computed one at a time to avoid overwhelming the database
-        large_dashboard = len(sorted_tiles) > 5
+        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+        # sm more common than xs, so we sort by sm
+        sorted_tiles = sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get("sm", {}).get("y", 100),
+                tile.layouts.get("sm", {}).get("x", 100),
+            ),
+        )
 
-        with task_chain_context() if chained_tile_refresh_enabled and large_dashboard else nullcontext():
-            for tile in sorted_tiles:
-                self.context.update({"dashboard_tile": tile})
+        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+            for order, tile in enumerate(sorted_tiles):
+                self.context.update(
+                    {
+                        "dashboard_tile": tile,
+                        "order": order,
+                    }
+                )
 
                 if isinstance(tile.layouts, str):
                     tile.layouts = json.loads(tile.layouts)
@@ -599,6 +609,7 @@ class DashboardsViewSet(
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
+            _create_in_folder=request.data.get("_create_in_folder"),  # type: ignore
         )
 
         try:

@@ -12,9 +12,9 @@ import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './util
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], userLogic, ['user']],
-    }),
+    })),
     actions({
         loadPluginConfigs: true,
         openReorderModal: true,

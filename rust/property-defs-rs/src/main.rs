@@ -16,7 +16,7 @@ use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
 };
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -56,6 +56,10 @@ fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
     })
 }
 
+// TODO(eli): idea for v2 batch writes: add an isolated tokio runtime to
+// the AppContext just for batch writes that are *always* IO bound, leaving
+// the update loop workers without interference. We could tune the v2 write
+// runtime's worker_count independently then
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
@@ -107,6 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // if any handle returns, abort the other ones, and then return an error
     let (result, _, others) = futures::future::select_all(handles).await;
+    warn!(
+        "update loop process is shutting down with result: {:?}",
+        result
+    );
 
     for handle in others {
         handle.abort();

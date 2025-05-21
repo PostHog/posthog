@@ -300,6 +300,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
+            actions.disableInspect()
+            actions.disableHeatmap()
+            actions.hideButtonActions()
+
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
                 values.hedgehogActor?.setOnFire(1)
@@ -314,11 +318,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
-            } else {
-                actions.disableInspect()
-                actions.disableHeatmap()
-                actions.hideButtonActions()
-                actions.selectAction(null)
             }
         },
 

@@ -1,7 +1,8 @@
 from functools import cached_property
 import json
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Model, Q, QuerySet
+from django.db.models import Q, OuterRef, Case, When, Value, Model, QuerySet, Exists, CharField
+from django.db.models.functions import Cast
 from rest_framework import serializers
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
@@ -17,6 +18,7 @@ from posthog.models.scopes import APIScopeObject, API_SCOPE_OBJECTS
 
 if TYPE_CHECKING:
     from ee.models import AccessControl
+    from posthog.models.file_system.file_system import FileSystem
 
     _AccessControl = AccessControl
 else:
@@ -36,6 +38,13 @@ AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResourc
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
+
+ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "feature_flag",
+    "dashboard",
+    "insight",
+    "notebook",
+)
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
@@ -394,6 +403,15 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
+    def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
+        if not self._team:
+            # If there is no team, then there can't be any access controls on this resource
+            return False
+
+        filters = self._access_controls_filters_for_resource(resource)
+        access_controls = self._get_access_controls(filters)
+        return bool(access_controls)
+
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
 
@@ -444,6 +462,74 @@ class UserAccessControl:
 
         return queryset
 
+    def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
+        """
+        Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
+        and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
+        """
+        user = self._user
+        org_membership = self._organization_membership
+
+        # 1) If the user is staff or org-admin, they can see everything
+        if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+            return queryset
+
+        # Subquery to check if user has "admin" on the FileSystem's team/project
+        is_admin_for_project_subquery = (
+            AccessControl.objects.filter(
+                team_id=OuterRef("team_id"),
+                resource="project",
+                resource_id=Cast(OuterRef("team_id"), CharField()),
+            )
+            .filter(
+                Q(organization_member__user=user)
+                | Q(role__in=self._user_role_ids)
+                | Q(organization_member=None, role=None)
+            )
+            .filter(access_level="admin")
+            .values("pk")[:1]
+        )
+
+        # Subquery to check whether the user has "none" for this specific FileSystem
+        is_none_subquery = (
+            AccessControl.objects.filter(
+                team_id=OuterRef("team_id"),
+                resource=OuterRef("type"),
+                resource_id=OuterRef("ref"),
+            )
+            .filter(
+                Q(organization_member__user=user)
+                | Q(role__in=self._user_role_ids)
+                | Q(organization_member=None, role=None)
+            )
+            .filter(access_level="none")
+            .values("pk")[:1]
+        )
+
+        # 2) Annotate the project-admin check + the is_none check
+        queryset = queryset.annotate(
+            is_project_admin=Exists(is_admin_for_project_subquery),
+            is_none_access=Exists(is_none_subquery),
+        )
+
+        # 3) Compute effective_access_level:
+        #
+        #    - If is_none_access is True => "none"
+        #    - Else => "some" ("editor" or "viewer")
+        queryset = queryset.annotate(
+            effective_access_level=Case(
+                When(is_none_access=True, then=Value("none")),
+                default=Value("some"),
+                output_field=CharField(),
+            )
+        )
+
+        # 4) Exclude items that are "none" if the user is not the creator,
+        #    not a project admin, and not an org-admin/staff (already handled in step #1).
+        queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False) & ~Q(created_by=user))
+
+        return queryset
+
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
     """
@@ -491,4 +577,13 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True
 
-        return self.user_access_control.access_level_for_object(obj)
+        resource = model_to_resource(obj)
+        access_level_for_resource = None
+        if resource and self.user_access_control.has_access_levels_for_resource(resource):
+            access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
+
+        if access_level_for_resource:
+            return access_level_for_resource
+
+        access_level_for_object = self.user_access_control.access_level_for_object(obj)
+        return access_level_for_object

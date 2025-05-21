@@ -7,7 +7,6 @@ import {
     IconThumbsUpFilled,
 } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,7 +14,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,6 +22,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 import { getResponseFieldWithId, NPSBreakdown } from 'scenes/surveys/utils'
 
@@ -37,7 +36,6 @@ import {
     SurveyRatingResults,
     SurveyRecurringNPSResults,
     SurveySingleChoiceResults,
-    SurveyUserStats,
 } from './surveyLogic'
 
 const insightProps: InsightLogicProps = {
@@ -48,155 +46,14 @@ const recurringNPSInsightProps: InsightLogicProps = {
     dashboardItemId: `new-survey-recurring-nps`,
 }
 
-const formatCount = (count: number, total: number): string => {
-    if ((count / total) * 100 < 3) {
-        return ''
-    }
-    return `${humanFriendlyNumber(count)}`
-}
-
-// Define a type for the color classes to ensure type safety
-type ColorClass = 'bg-brand-blue' | 'bg-warning' | 'bg-success' | 'bg-danger'
-
-type StackedBarSegment = {
-    count: number
-    label: string
-    colorClass: ColorClass
-}
-
-function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Element {
-    const total = segments.reduce((sum, segment) => sum + segment.count, 0)
-    let accumulatedPercentage = 0
-
-    return (
-        <>
-            {total > 0 && (
-                <div>
-                    <div className="relative w-full mx-auto h-10 mb-4">
-                        {segments.map(({ count, label, colorClass }, index) => {
-                            const percentage = (count / total) * 100
-                            const left = accumulatedPercentage
-                            accumulatedPercentage += percentage
-
-                            const isFirst = index === 0
-                            const isLast = index === segments.length - 1
-                            const isOnly = segments.length === 1
-
-                            return (
-                                <Tooltip
-                                    key={`stacked-bar-${label}`}
-                                    title={`${label}: ${count} (${percentage.toFixed(1)}%)`}
-                                    delayMs={0}
-                                    placement="top"
-                                >
-                                    <div
-                                        className={clsx(
-                                            'h-10 text-white text-center absolute cursor-pointer',
-                                            colorClass,
-                                            isFirst || isOnly ? 'rounded-l' : '',
-                                            isLast || isOnly ? 'rounded-r' : ''
-                                        )}
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            width: `${percentage}%`,
-                                            left: `${left}%`,
-                                        }}
-                                    >
-                                        <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
-                                            {formatCount(count, total)}
-                                        </span>
-                                    </div>
-                                </Tooltip>
-                            )
-                        })}
-                    </div>
-                    <div className="w-full flex justify-center">
-                        <div className="flex items-center">
-                            {segments.map(
-                                ({ count, label, colorClass }) =>
-                                    count > 0 && (
-                                        <div key={`stacked-bar-legend-${label}`} className="flex items-center mr-6">
-                                            <div className={clsx('w-3 h-3 rounded-full mr-2', colorClass)} />
-                                            <span className="font-semibold text-secondary">{`${label} (${(
-                                                (count / total) *
-                                                100
-                                            ).toFixed(1)}%)`}</span>
-                                        </div>
-                                    )
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </>
-    )
-}
-
-export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
-    const total = seen + dismissed + sent
-
-    return (
-        <div className="inline-flex mb-4">
-            <div>
-                <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
-                <div className="font-semibold text-secondary">Unique user(s) shown</div>
-            </div>
-            {sent > 0 && (
-                <div className="ml-10">
-                    <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
-                    <div className="font-semibold text-secondary">Response(s) sent</div>
-                </div>
-            )}
-        </div>
-    )
-}
-
-export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
-
-    const segments: StackedBarSegment[] = [
-        { count: seen, label: 'Unanswered', colorClass: 'bg-brand-blue' },
-        { count: dismissed, label: 'Dismissed', colorClass: 'bg-warning' },
-        { count: sent, label: 'Submitted', colorClass: 'bg-success' },
-    ]
-
-    return <StackedBar segments={segments} />
-}
-
 export function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
     const segments: StackedBarSegment[] = [
-        { count: npsBreakdown.detractors, label: NPS_DETRACTOR_LABEL, colorClass: 'bg-danger' },
-        { count: npsBreakdown.passives, label: NPS_PASSIVE_LABEL, colorClass: 'bg-warning' },
         { count: npsBreakdown.promoters, label: NPS_PROMOTER_LABEL, colorClass: 'bg-success' },
+        { count: npsBreakdown.passives, label: NPS_PASSIVE_LABEL, colorClass: 'bg-warning' },
+        { count: npsBreakdown.detractors, label: NPS_DETRACTOR_LABEL, colorClass: 'bg-danger' },
     ]
 
     return <StackedBar segments={segments} />
-}
-
-export function Summary({
-    surveyUserStats,
-    surveyUserStatsLoading,
-}: {
-    surveyUserStats: SurveyUserStats
-    surveyUserStatsLoading: boolean
-}): JSX.Element {
-    return (
-        <div>
-            {surveyUserStatsLoading ? (
-                <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : (
-                <>
-                    {!surveyUserStats ? null : (
-                        <>
-                            <UsersCount surveyUserStats={surveyUserStats} />
-                            <UsersStackedBar surveyUserStats={surveyUserStats} />
-                        </>
-                    )}
-                </>
-            )}
-        </div>
-    )
 }
 
 export function RatingQuestionBarChart({
@@ -237,7 +94,9 @@ export function RatingQuestionBarChart({
                             ? '1 - 5'
                             : '1 - 3'
                     } rating`}</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        Question {questionIndex + 1}: {question.question}
+                    </div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
@@ -319,9 +178,7 @@ export function NPSSurveyResultsBarChart({
         <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
-                <></>
-            ) : (
+            ) : !surveyRecurringNPSResults[questionIndex]?.total ? null : (
                 <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
@@ -422,7 +279,9 @@ export function SingleChoiceQuestionPieChart({
                 <div className="flex flex-col gap-2">
                     <div>
                         <div className="font-semibold text-secondary">Single choice</div>
-                        <div className="text-xl font-bold">{question.question}</div>
+                        <div className="text-xl font-bold mb-2">
+                            Question {questionIndex + 1}: {question.question}
+                        </div>
                     </div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
@@ -532,9 +391,11 @@ export function MultipleChoiceQuestionBarChart({
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">Multiple choice</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        Question {questionIndex + 1}: {question.question}
+                    </div>
 
                     <div
                         className="border rounded pt-8 pr-10 overflow-y-scroll"
@@ -601,72 +462,96 @@ export function OpenTextViz({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
+    const atLeastOneResponse = !!surveyOpenTextResults?.[questionIndex]?.events?.length
+
     return (
         <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
-                <>no results for open text analysis</>
             ) : (
-                <>
-                    <div className="flex flex-row justify-between items-center">
-                        <Tooltip title="See all Open Text responses in the Events table at the bottom.">
-                            <div className="inline-flex gap-1">
-                                <div className="font-semibold text-secondary">Open text</div>
-                                <LemonDivider vertical className="my-1 mx-1" />
-                                <div className="font-semibold text-secondary">random selection</div>
-                                <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
-                            </div>
-                        </Tooltip>
-                        <ResponseSummariesButton questionIndex={questionIndex} />
-                    </div>
-                    <div className="text-xl font-bold mb-4">{question.question}</div>
-                    <ResponseSummariesDisplay />
-                    <div className="mt-4 mb-8 masonry-container">
-                        {surveyOpenTextResults[questionIndex].events.map((event, i) => {
-                            const personProp = {
-                                distinct_id: event.distinct_id,
-                                properties: event.personProperties,
-                            }
-
-                            const { idBasedKey, indexBasedKey } = getResponseFieldWithId(questionIndex, question?.id)
-                            const surveyResponse = idBasedKey
-                                ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
-                                : event.properties[indexBasedKey]
-
-                            return (
-                                <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                    <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof surveyResponse !== 'string'
-                                            ? JSON.stringify(surveyResponse)
-                                            : surveyResponse}
-                                    </div>
-                                    <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
-                                        <PersonDisplay
-                                            person={personProp}
-                                            withIcon={true}
-                                            noEllipsis={false}
-                                            isCentered
-                                        />
-                                    </div>
+                <div className="flex flex-col gap-2">
+                    <div>
+                        <div className="flex flex-row justify-between items-center">
+                            <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                                <div className="inline-flex gap-1">
+                                    <div className="font-semibold text-secondary">Open text</div>
+                                    <LemonDivider vertical className="my-1 mx-1" />
+                                    <div className="font-semibold text-secondary">random selection</div>
+                                    <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
                                 </div>
-                            )
-                        })}
+                            </Tooltip>
+                            {atLeastOneResponse && (
+                                <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
+                            )}
+                        </div>
+                        <div className="text-xl font-bold">
+                            Question {questionIndex + 1}: {question.question}
+                        </div>
                     </div>
-                </>
+                    {atLeastOneResponse ? (
+                        <>
+                            <ResponseSummariesDisplay />
+                            <div className="masonry-container">
+                                {surveyOpenTextResults[questionIndex].events.map((event, i) => {
+                                    const personProp = {
+                                        distinct_id: event.distinct_id,
+                                        properties: event.personProperties,
+                                    }
+
+                                    const { idBasedKey, indexBasedKey } = getResponseFieldWithId(
+                                        questionIndex,
+                                        question?.id
+                                    )
+                                    const surveyResponse = idBasedKey
+                                        ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
+                                        : event.properties[indexBasedKey]
+
+                                    return (
+                                        <div
+                                            key={`open-text-${questionIndex}-${i}`}
+                                            className="masonry-item border rounded"
+                                        >
+                                            <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
+                                                {typeof surveyResponse !== 'string'
+                                                    ? JSON.stringify(surveyResponse)
+                                                    : surveyResponse}
+                                            </div>
+                                            <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                                <PersonDisplay
+                                                    person={personProp}
+                                                    withIcon={true}
+                                                    noEllipsis={false}
+                                                    isCentered
+                                                />
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    ) : (
+                        <div>There are no responses for this question.</div>
+                    )}
+                </div>
             )}
         </div>
     )
 }
 
-function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
+function ResponseSummariesButton({
+    questionIndex,
+    questionId,
+}: {
+    questionIndex: number | undefined
+    questionId: string | undefined
+}): JSX.Element {
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const [showConsentPopover, setShowConsentPopover] = useState(false)
 
     const summarizeQuestion = (): void => {
-        summarize({ questionIndex })
+        summarize({ questionIndex, questionId })
     }
 
     const handleSummarizeClick = (): void => {

@@ -22,7 +22,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
@@ -62,6 +62,10 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
+    if (bytecode === null || bytecode === undefined) {
+        return bytecode // Preserve null and undefined values
+    }
+
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
         const res = execHog(bytecode, { globals })
         if (res.error) {
@@ -76,7 +80,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
 
     if (Array.isArray(bytecode)) {
         return bytecode.map((item) => formatInput(item, globals, key))
-    } else if (typeof bytecode === 'object') {
+    } else if (typeof bytecode === 'object' && bytecode !== null) {
         return Object.fromEntries(
             Object.entries(bytecode).map(([key2, value]) => [
                 key2,
@@ -379,16 +383,7 @@ export class HogExecutorService {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
-            const invocationInput =
-                invocation.vmState ??
-                (invocation.functionToExecute
-                    ? buildExportedFunctionInvoker(
-                          invocation.hogFunction.bytecode,
-                          globals,
-                          invocation.functionToExecute[0], // name
-                          invocation.functionToExecute[1] // args
-                      )
-                    : invocation.hogFunction.bytecode)
+            const invocationInput = invocation.vmState ?? invocation.hogFunction.bytecode
 
             const eventId = invocation?.globals?.event?.uuid || 'Unknown event'
 
@@ -396,7 +391,7 @@ export class HogExecutorService {
                 let hogLogs = 0
 
                 execRes = execHog(invocationInput, {
-                    globals: invocation.functionToExecute ? undefined : globals,
+                    globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
@@ -660,5 +655,7 @@ export class HogExecutorService {
 }
 
 function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
-    return `Fetch failure of kind ${failure.kind} with status ${failure.status} and message ${failure.message}`
+    return `Fetch failure of kind ${failure.kind} with status ${failure.status ?? '(none)'} and message ${
+        failure.message
+    }`
 }

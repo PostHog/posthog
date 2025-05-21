@@ -153,7 +153,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         now = timezone.now()
         key_last_used_at = personal_api_key_object.last_used_at
         # Only updating last_used_at if the hour's changed
-        # This is to avooid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
         if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
             personal_api_key_object.last_used_at = now
             personal_api_key_object.save(update_fields=["last_used_at"])
@@ -173,6 +173,90 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
+    user and should only be used for local_evaluation and flags remote_config (not to be confused with the
+    other remote_config endpoint) requests. When authenticated, this returns a "synthetic"
+    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning
+    system for local_evaluation and flags remote_config requests.
+
+    Only the first key candidate found in the request is tried, and the order is:
+    1. Request Authorization header of type Bearer.
+    2. Request body.
+    3. Request query string.
+    """
+
+    keyword = "Bearer"
+
+    @classmethod
+    def find_secret_api_token(
+        cls,
+        request: Union[HttpRequest, Request],
+    ) -> Optional[str]:
+        """Try to find project secret API key in request and return it"""
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                return authorization_match.group(1).strip()
+
+        # Wrap HttpRequest in DRF Request if needed
+        if not isinstance(request, Request):
+            request = Request(request)
+
+        data = request.data
+
+        if data and "secret_api_key" in data:
+            return data["secret_api_key"]
+
+        if "secret_api_key" in request.GET:
+            return request.GET["secret_api_key"]
+
+        return None
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        secret_api_token = self.find_secret_api_token(request)
+
+        if not secret_api_token:
+            return None
+
+        # get the team from the secret api key
+        try:
+            Team = apps.get_model(app_label="posthog", model_name="Team")
+            team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
+
+            if team is None:
+                return None
+
+            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
+            # and attach the team. The team is the important part here.
+            return (ProjectSecretAPIKeyUser(team), None)
+        except Team.DoesNotExist:
+            return None
+
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
+
+
+class ProjectSecretAPIKeyUser:
+    """
+    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    """
+
+    def __init__(self, team):
+        self.team = team
+        self.current_team_id = team.id
+        self.is_authenticated = True
+        self.pk = -1
+
+    def has_perm(self, perm, obj=None):
+        return False
+
+    def has_module_perms(self, app_label):
+        return False
 
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):

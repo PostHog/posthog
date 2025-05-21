@@ -1,5 +1,4 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -81,7 +80,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                 const { period } = retentionFilter || {}
 
                 return filteredResults.map((currentResult: ProcessedRetentionPayload) => {
-                    const currentDate = dayjs.utc(currentResult.date)
+                    const currentDate = currentResult.date
 
                     let label // Prepare for some date gymnastics
 

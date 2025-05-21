@@ -17,7 +17,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -57,15 +57,24 @@ const StatusTagSetting: Record<string, LemonTagType> = {
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
-    const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema, deleteTable, setIsProjectTime } = useActions(
+        dataWarehouseSourceSettingsLogic
+    )
+    const { isProjectTime, source } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
+    const [initialLoad, setInitialLoad] = useState(true)
+
+    useEffect(() => {
+        if (initialLoad && !isLoading) {
+            setInitialLoad(false)
+        }
+    }, [isLoading])
 
     return (
         <>
             <LemonTable
                 dataSource={schemas}
-                loading={isLoading}
+                loading={initialLoad}
                 disableTableWhileLoading={false}
                 columns={[
                     {
@@ -83,14 +92,18 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                     <span>UTC</span>
                                     {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
                                         <>
-                                            <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
+                                            <LemonSwitch
+                                                size="xsmall"
+                                                checked={isProjectTime}
+                                                onChange={setIsProjectTime}
+                                            />
                                             <span>{currentTeam?.timezone || 'UTC'}</span>
                                         </>
                                     )}
                                 </div>
                             </div>
                         ),
-                        tooltip: `Time of day in which the first sync will run. The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
+                        tooltip: `The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
                         key: 'sync_time_of_day',
                         render: function RenderSyncTimeOfDayLocal(_, schema) {
                             const utcTime = schema.sync_time_of_day || '00:00:00'
@@ -105,6 +118,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             return (
                                 <LemonInput
                                     type="time"
+                                    size="xsmall"
                                     disabled={
                                         !schema.should_sync ||
                                         schema.sync_frequency === '5min' ||
@@ -136,10 +150,12 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Sync Frequency',
                         key: 'frequency',
+                        className: 'px-1',
                         render: function RenderFrequency(_, schema) {
                             return (
                                 <LemonSelect
                                     className="my-1"
+                                    size="xsmall"
                                     disabled={!schema.should_sync}
                                     value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
@@ -162,6 +178,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Sync method',
                         key: 'incremental',
+                        className: 'px-1',
                         render: function RenderIncremental(_, schema) {
                             const { openSyncMethodModal } = useActions(
                                 dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
@@ -173,6 +190,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         <LemonButton
                                             className="my-1"
                                             type="primary"
+                                            size="xsmall"
                                             onClick={() => openSyncMethodModal(schema)}
                                         >
                                             Set up
@@ -186,7 +204,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 <>
                                     <LemonButton
                                         className="my-1"
-                                        size="small"
+                                        size="xsmall"
                                         type="secondary"
                                         onClick={() => openSyncMethodModal(schema)}
                                     >
@@ -301,26 +319,68 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         <More
                                             overlay={
                                                 <>
-                                                    <LemonButton
-                                                        type="tertiary"
-                                                        key={`reload-data-warehouse-schema-${schema.id}`}
-                                                        onClick={() => {
-                                                            reloadSchema(schema)
-                                                        }}
+                                                    <Tooltip
+                                                        title={
+                                                            schema.incremental
+                                                                ? 'Sync incremental data since the last run.'
+                                                                : 'Sync all data.'
+                                                        }
                                                     >
-                                                        Reload
-                                                    </LemonButton>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            size="xsmall"
+                                                            fullWidth
+                                                            key={`reload-data-warehouse-schema-${schema.id}`}
+                                                            id="data-warehouse-schema-reload"
+                                                            onClick={() => {
+                                                                reloadSchema(schema)
+                                                            }}
+                                                        >
+                                                            Sync now
+                                                        </LemonButton>
+                                                    </Tooltip>
                                                     {schema.incremental && (
-                                                        <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
+                                                        <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
                                                             <LemonButton
                                                                 type="tertiary"
+                                                                size="xsmall"
+                                                                fullWidth
                                                                 key={`resync-data-warehouse-schema-${schema.id}`}
+                                                                id="data-warehouse-schema-resync"
                                                                 onClick={() => {
                                                                     resyncSchema(schema)
                                                                 }}
                                                                 status="danger"
                                                             >
-                                                                Resync
+                                                                Delete table and resync
+                                                            </LemonButton>
+                                                        </Tooltip>
+                                                    )}
+                                                    {schema.table && (
+                                                        <Tooltip
+                                                            title={`Delete this table from PostHog. ${
+                                                                source?.source_type
+                                                                    ? `This will not delete the data in ${source.source_type}`
+                                                                    : ''
+                                                            }`}
+                                                        >
+                                                            <LemonButton
+                                                                status="danger"
+                                                                id="data-warehouse-schema-delete"
+                                                                type="tertiary"
+                                                                fullWidth
+                                                                size="xsmall"
+                                                                onClick={() => {
+                                                                    if (
+                                                                        window.confirm(
+                                                                            `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                        )
+                                                                    ) {
+                                                                        deleteTable(schema)
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Delete table from PostHog
                                                             </LemonButton>
                                                         </Tooltip>
                                                     )}

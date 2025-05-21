@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { proxyLogicType } from './proxyLogicType'
@@ -18,11 +19,24 @@ export type ProxyRecord = {
 
 export type FormState = 'collapsed' | 'active' | 'complete'
 
+export function domainFor(proxyRecord: ProxyRecord | undefined): string {
+    if (!proxyRecord) {
+        return apiHostOrigin()
+    }
+
+    let domain = proxyRecord.domain
+    if (!domain.startsWith('https://')) {
+        domain = `https://${domain}`
+    }
+
+    return domain
+}
+
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
-    connect({
+    connect(() => ({
         values: [organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions(() => ({
         collapseForm: true,
         showForm: true,

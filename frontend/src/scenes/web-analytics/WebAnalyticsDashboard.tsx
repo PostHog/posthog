@@ -40,15 +40,22 @@ import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 
-export const Tiles = (props: { tiles?: WebAnalyticsTile[] }): JSX.Element => {
-    const { tiles: tilesFromProps } = props
+export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
+    const { tiles: tilesFromProps, compact = false } = props
     const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
 
     const tiles = tilesFromProps ?? tilesFromLogic
 
     return (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
+        <div
+            className={clsx(
+                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+            )}
+        >
             {tiles.map((tile, i) => {
                 if (tile.kind === 'query') {
                     return <QueryTileItem key={i} tile={tile} />
@@ -70,7 +77,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[] }): JSX.Element => {
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
-    const { openModal } = useActions(webAnalyticsLogic)
+    const { openModal } = useActions(webAnalyticsModalLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
@@ -116,7 +123,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <div className="flex flex-row items-center">
+                <div className="flex flex-row items-center mb-3">
                     <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
                 </div>
@@ -140,7 +147,6 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
 
-    const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     return (
@@ -174,17 +180,16 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 docs: tab.docs,
             }))}
             tileId={tile.tileId}
-            openModal={openModal}
             getNewInsightUrl={getNewInsightUrl}
         />
     )
 }
 
-export const SectionTileItem = ({ tile }: { tile: SectionTile }): JSX.Element => {
+export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
     return (
         <div className="col-span-full">
-            {tile.title && <h2 className="text-lg font-semibold mb-2">{tile.title}</h2>}
-            <div className={tile.layout.className ? `grid ${tile.layout.className}` : ''}>
+            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
+            <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
                 {tile.tiles.map((subTile, i) => {
                     if (subTile.kind === 'query') {
                         return (
@@ -196,7 +201,7 @@ export const SectionTileItem = ({ tile }: { tile: SectionTile }): JSX.Element =>
                     return null
                 })}
             </div>
-            <LemonDivider className="my-3" />
+            {separator && <LemonDivider className="my-3" />}
         </div>
     )
 }
@@ -206,7 +211,6 @@ export const WebTabs = ({
     activeTabId,
     tabs,
     setActiveTabId,
-    openModal,
     getNewInsightUrl,
     tileId,
 }: {
@@ -223,22 +227,18 @@ export const WebTabs = ({
         docs: LearnMorePopoverProps | undefined
     }[]
     setActiveTabId: (id: string) => void
-    openModal: (tileId: TileId, tabId: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
+    const { openModal } = useActions(webAnalyticsModalLogic)
     const { setTileVisualization } = useActions(webAnalyticsLogic)
     const { tileVisualizations } = useValues(webAnalyticsLogic)
     const visualization = tileVisualizations[tileId]
 
-    const isVisualizationToggleEnabled =
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] &&
-        [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
+    const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
     const buttonsRow = [
         activeTab?.canOpenInsight && newInsightUrl ? (
@@ -337,7 +337,7 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <div className="p-4">
+                <div className="p-4 max-w-160 max-h-160 overflow-auto">
                     <div className="flex flex-row w-full">
                         <h2 className="flex-1">{title}</h2>
                         <LemonButton
@@ -398,8 +398,8 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
             label: (
                 <div className="flex items-center gap-1">
                     Page reports
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
                     </LemonTag>
                 </div>
             ),
@@ -441,6 +441,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <Filters />
                     </div>
 
+                    <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
                 </div>

@@ -14,6 +14,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.signals import mutable_receiver
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.utils import RootTeamMixin
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
+class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(
@@ -86,10 +87,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Feature Flags",
-            type="feature_flag",
+            base_folder=self._create_in_folder or "Unfiled/Feature Flags",
+            type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
-            name=self.name or "Untitled",
+            name=self.key or "Untitled",
             href=f"/feature_flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),

@@ -11,9 +11,10 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
 
-# django-axes settings to lockout after too many attempts
+####
+# django-axes
 
-
+# lockout after too many attempts
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
@@ -21,45 +22,17 @@ AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
-# Decide rate limit setting
-
-DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
-DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
-DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
-
-# Prevent decide abuse
-
-# This is a list of team-ids that are prevented from using the /decide endpoint
-# until they fix an issue with their feature flags causing instability in posthog.
-DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
-# Decide db settings
-
-DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
-
-# Decide billing analytics
-
-DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
-DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
-
-# Decide regular request analytics
-# Takes 3 possible formats, all separated by commas:
-# A number: "2"
-# A range: "2:5" -- represents team IDs 2, 3, 4, 5
-# The string "all" -- represents all team IDs
-DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
-
-# Decide skip hash key overrides
-DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
-    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
-)
-
-# if `true` we disable session replay if over quota
-DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
-
-# if `true` we disable feature flags if over quota
-DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
-
+####
 # Application definition
+
+# TODO: Automatically generate these like we do for the frontend
+# NOTE: Add these definitions here and on `tach.toml`
+PRODUCTS_APPS = [
+    "products.early_access_features",
+    "products.editor",
+    "products.revenue_analytics",
+    "products.user_interviews",
+]
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
@@ -78,17 +51,17 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
+    *PRODUCTS_APPS,
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
     # 'django_otp.plugins.otp_email',  # <- if you want email capability.
+    # See above for automatically generated apps for all of our products
     "two_factor",
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
-    "products.early_access_features",  # TODO: add this automatically
 ]
-
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
@@ -96,6 +69,7 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
+    "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -123,6 +97,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
+    "posthog.middleware.Fix204Middleware",
 ]
 
 if DEBUG:
@@ -145,6 +120,7 @@ except ImportError:
 else:
     INSTALLED_APPS.append("django_extensions")
 
+# Django builtin setting
 # Max size of a POST body (for event ingestion)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20971520  # 20 MB
 
@@ -170,11 +146,8 @@ TEMPLATES = [
 WSGI_APPLICATION = "posthog.wsgi.application"
 
 
-# Social Auth
-
-SOCIAL_AUTH_JSONFIELD_ENABLED = True
-SOCIAL_AUTH_USER_MODEL = "posthog.User"
-SOCIAL_AUTH_REDIRECT_IS_HTTPS: bool = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
+####
+# Authentication
 
 AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesBackend",
@@ -182,6 +155,20 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
 ]
+
+AUTH_USER_MODEL = "posthog.User"
+
+LOGIN_URL = "/login"
+LOGOUT_URL = "/logout"
+LOGIN_REDIRECT_URL = "/"
+APPEND_SLASH = False
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
+X_FRAME_OPTIONS = "SAMEORIGIN"
+
+SOCIAL_AUTH_JSONFIELD_ENABLED = True
+SOCIAL_AUTH_USER_MODEL = "posthog.User"
+SOCIAL_AUTH_REDIRECT_IS_HTTPS: bool = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
@@ -212,9 +199,34 @@ SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
+# Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
+SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
+
+# For sensitive actions we have an additional permission (default 1 hour)
+SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 6, type_cast=int)
+
+CSRF_COOKIE_NAME = "posthog_csrftoken"
+CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
+
+# The total time allowed for an impersonated session
+IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 60 * 60 * 2, type_cast=int)
+# The time allowed for an impersonated session to be idle before it expires
+IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 30 * 60, type_cast=int)
+# Impersonation cookie last activity key
+IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
+    "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
+)
+
+SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
+
+PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
+
+####
 # 2FA
+
 TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 
+####
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
@@ -225,20 +237,17 @@ AUTH_PASSWORD_VALIDATORS = [
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
+####
 # Internationalization
 # https://docs.djangoproject.com/en/2.2/topics/i18n/
 
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_L10N = True
-
 USE_TZ = True
 
-
+####
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.2/howto/static-files/
 
@@ -256,15 +265,8 @@ def static_varies_origin(headers, path, url):
 
 WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 
-AUTH_USER_MODEL = "posthog.User"
-
-LOGIN_URL = "/login"
-LOGOUT_URL = "/logout"
-LOGIN_REDIRECT_URL = "/"
-APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
-CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
-X_FRAME_OPTIONS = "SAMEORIGIN"
+####
+# REST framework
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["posthog.auth.SessionAuthentication"],
@@ -284,9 +286,12 @@ REST_FRAMEWORK = {
     # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
 }
+
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
 
+####
+# DRF Spectacular
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
@@ -304,15 +309,8 @@ SPECTACULAR_SETTINGS = {
 
 EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
 
-# Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
-SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
-
-# For sensitive actions we have an additional permission (default 1 hour)
-SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 6, type_cast=int)
-
-CSRF_COOKIE_NAME = "posthog_csrftoken"
-CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
-
+####
+# Compression
 
 # see posthog.gzip_middleware.ScopedGZipMiddleware
 # for how adding paths here can add vulnerability to the "breach" attack
@@ -365,45 +363,69 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
     )
 )
 
-KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)
 
+####
 # Prometheus Django metrics settings, see
 # https://github.com/korfuri/django-prometheus for more details
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
-# temporary flag to control new UUID version setting in posthog-js
-# is set to v7 to test new generation but can be set to "og" to revert
-POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+####
+# Proxy and IP egress config
 
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
-
-# The total time allowed for an impersonated session
-IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 60 * 60 * 2, type_cast=int)
-# The time allowed for an impersonated session to be idle before it expires
-IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SECONDS", 30 * 60, type_cast=int)
-# Impersonation cookie last activity key
-IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
-    "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
-)
-
-SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
-
-PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
 
 PROXY_PROVISIONER_URL = get_from_env("PROXY_PROVISIONER_URL", "")  # legacy, from before gRPC
 PROXY_PROVISIONER_ADDR = get_from_env("PROXY_PROVISIONER_ADDR", "")
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
+####
+# CDP
+
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
-# disables frontend side navigation hooks to make hot-reload work seamlessly
-DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+####
+# /decide
 
+# Decide rate limit setting
+DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
+DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
 
+# This is a list of team-ids that are prevented from using the /decide endpoint
+# until they fix an issue with their feature flags causing instability in posthog.
+DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
+
+# Decide db settings
+DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
+
+# Decide billing analytics
+DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
+DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+
+# Decide regular request analytics
+# Takes 3 possible formats, all separated by commas:
+# A number: "2"
+# A range: "2:5" -- represents team IDs 2, 3, 4, 5
+# The string "all" -- represents all team IDs
+DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
+
+# Decide skip hash key overrides
+DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
+    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
+)
+
+# if `true` we disable session replay if over quota
+DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
+
+# if `true` we disable feature flags if over quota
+DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
+
+####
+# /remote_config
 REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE = get_from_env("REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE", 0.0, type_cast=float)
 
 if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
@@ -413,10 +435,42 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+####
+# /capture
+
+KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)
+
+####
+# /query
+
+# if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
+API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
+
+####
+# Hog
+
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
 HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
+####
+# Livestream
+
 # Passed to the frontend for the web app to know where to connect to
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")
+
+####
+# Local dev
+
+# disables frontend side navigation hooks to make hot-reload work seamlessly
+DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+
+####
+# Random/temporary
+# Everything that is supposed to be removed eventually
+
+# temporary flag to control new UUID version setting in posthog-js
+# is set to v7 to test new generation but can be set to "og" to revert
+POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")

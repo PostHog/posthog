@@ -1,5 +1,6 @@
 # posthog/models/file_system/unfiled_file_saver.py
-
+from datetime import datetime
+from django.utils import timezone
 from typing import Optional
 
 from posthog.models.action.action import Action
@@ -17,6 +18,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 MIXIN_MODELS = {
     "action": Action,
@@ -25,7 +27,8 @@ MIXIN_MODELS = {
     "insight": Insight,
     "dashboard": Dashboard,
     "notebook": Notebook,
-    "replay_playlist": SessionRecordingPlaylist,
+    "early_access_feature": EarlyAccessFeature,
+    "session_recording_playlist": SessionRecordingPlaylist,
     "cohort": Cohort,
     "hog_function": HogFunction,
     "survey": Survey,
@@ -46,6 +49,7 @@ class UnfiledFileSaver:
     def save_unfiled_for_model(self, model_cls: type[FileSystemSyncMixin]) -> list[FileSystem]:
         unfiled_qs = model_cls.get_file_system_unfiled(self.team)
         new_files: list[FileSystem] = []
+        users_by_id: dict[int, User] = {}
         for obj in unfiled_qs:
             rep = obj.get_file_system_representation()
 
@@ -53,7 +57,19 @@ class UnfiledFileSaver:
             if rep.should_delete:
                 continue
 
-            path = self._generate_unique_path(rep.base_folder, rep.name)
+            path = f"{rep.base_folder}/{escape_path(rep.name)}"
+            user: User | None = None
+            if rep.meta.get("created_by"):
+                user = users_by_id.get(rep.meta["created_by"])
+                if user is None:
+                    user = User.objects.filter(pk=rep.meta["created_by"]).first()
+                    if user:
+                        users_by_id[rep.meta["created_by"]] = user
+                if user is None:
+                    user = self.user
+            created_at = timezone.now()
+            if rep.meta.get("created_at"):
+                created_at = datetime.fromisoformat(rep.meta["created_at"])
             new_files.append(
                 FileSystem(
                     team=self.team,
@@ -63,21 +79,13 @@ class UnfiledFileSaver:
                     ref=rep.ref,
                     href=rep.href,
                     meta=rep.meta,
-                    created_by=self.user,
+                    created_by=user,
+                    created_at=created_at,
+                    shortcut=False,
                 )
             )
         FileSystem.objects.bulk_create(new_files)
         return new_files
-
-    def _generate_unique_path(self, base_folder: str, name: str) -> str:
-        desired = f"{base_folder}/{escape_path(name)}"
-        path = desired
-        index = 1
-        while path in self._in_memory_paths or FileSystem.objects.filter(team=self.team, path=path).exists():
-            path = f"{desired} ({index})"
-            index += 1
-        self._in_memory_paths.add(path)
-        return path
 
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []

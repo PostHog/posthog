@@ -2,8 +2,6 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
@@ -16,16 +14,11 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 const documentationUrl = 'https://posthog.com/docs/sql/variables'
 
 export function QueryVariables(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { variablesForInsight } = useValues(variablesLogic)
     const { updateVariableValue, removeVariable } = useActions(variablesLogic)
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variableOverridesAreSet } = useValues(dataNodeLogic)
     const { openExistingVariableModal } = useActions(variableModalLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-        return <></>
-    }
 
     return (
         <div className="flex flex-col gap-2 py-2 h-full overflow-auto">

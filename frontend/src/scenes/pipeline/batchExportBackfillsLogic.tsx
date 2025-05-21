@@ -111,6 +111,11 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                 lemonToast.error('Failed to cancel backfill. Please try again.')
             }
         },
+        submitBackfillFormSuccess: () => {
+            setTimeout(() => {
+                actions.loadBackfills()
+            }, 1000)
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadBackfills()

@@ -50,6 +50,15 @@ from posthog.warehouse.models import (
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -122,6 +131,7 @@ async def _run(
         team=team,
         status="running",
         source_type=source_type,
+        revenue_analytics_enabled=source_type == ExternalDataSource.Type.STRIPE,
         job_inputs=job_inputs,
     )
 
@@ -250,7 +260,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
 async def test_stripe_balance_transactions(team, stripe_balance_transaction):
     await _run(
         team=team,
-        schema_name="BalanceTransaction",
+        schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         table_name="stripe_balancetransaction",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
@@ -263,12 +273,16 @@ async def test_stripe_balance_transactions(team, stripe_balance_transaction):
 async def test_stripe_charges(team, stripe_charge):
     await _run(
         team=team,
-        schema_name="Charge",
+        schema_name=STRIPE_CHARGE_RESOURCE_NAME,
         table_name="stripe_charge",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_charge["data"],
     )
+
+    # Get team from the DB to remove cached config value
+    team = await sync_to_async(Team.objects.get)(id=team.id)
+    assert team.revenue_analytics_config.notified_first_sync
 
 
 @pytest.mark.django_db(transaction=True)
@@ -276,7 +290,7 @@ async def test_stripe_charges(team, stripe_charge):
 async def test_stripe_customer(team, stripe_customer):
     await _run(
         team=team,
-        schema_name="Customer",
+        schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
         table_name="stripe_customer",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
@@ -289,7 +303,7 @@ async def test_stripe_customer(team, stripe_customer):
 async def test_stripe_invoice(team, stripe_invoice):
     await _run(
         team=team,
-        schema_name="Invoice",
+        schema_name=STRIPE_INVOICE_RESOURCE_NAME,
         table_name="stripe_invoice",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
@@ -302,7 +316,7 @@ async def test_stripe_invoice(team, stripe_invoice):
 async def test_stripe_price(team, stripe_price):
     await _run(
         team=team,
-        schema_name="Price",
+        schema_name=STRIPE_PRICE_RESOURCE_NAME,
         table_name="stripe_price",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
@@ -315,7 +329,7 @@ async def test_stripe_price(team, stripe_price):
 async def test_stripe_product(team, stripe_product):
     await _run(
         team=team,
-        schema_name="Product",
+        schema_name=STRIPE_PRODUCT_RESOURCE_NAME,
         table_name="stripe_product",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
@@ -328,7 +342,7 @@ async def test_stripe_product(team, stripe_product):
 async def test_stripe_subscription(team, stripe_subscription):
     await _run(
         team=team,
-        schema_name="Subscription",
+        schema_name=STRIPE_SUBSCRIPTION_RESOURCE_NAME,
         table_name="stripe_subscription",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
@@ -1548,6 +1562,93 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
+    assert schema.partition_count is not None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
+    team, postgres_config, postgres_connection, minio_client
+):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id uuid, created_at timestamp)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-02T12:00:00.000Z')".format(
+            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
+        )
+    )
+    await postgres_connection.commit()
+
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_partition_folders",
+        table_name="postgres_test_partition_folders",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    # Set the parition format on the schema - this will persist after a reset_pipeline
+    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    schema.sync_type_config["partition_format"] = "day"
+    await sync_to_async(schema.save)()
+
+    # Resync with reset_pipeline = True
+    await _execute_run(
+        str(uuid.uuid4()),
+        ExternalDataWorkflowInputs(
+            team_id=inputs.team_id,
+            external_data_source_id=inputs.external_data_source_id,
+            external_data_schema_id=inputs.external_data_schema_id,
+            reset_pipeline=True,
+        ),
+        [],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+
+    # Using datetime partition mode with created_at - formatted to the day
+    assert any(f"{PARTITION_KEY}=2025-01-01" in obj["Key"] for obj in s3_objects["Contents"])
+    assert any(f"{PARTITION_KEY}=2025-01-02" in obj["Key"] for obj in s3_objects["Contents"])
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partitioning_enabled is True
+    assert schema.partitioning_keys == ["created_at"]
+    assert schema.partition_mode == "datetime"
+    assert schema.partition_format == "day"
     assert schema.partition_count is not None
 
 

@@ -1,6 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -23,7 +22,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -49,6 +47,7 @@ import {
 
 import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { stripChromeExtensionData } from './snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
@@ -62,9 +61,9 @@ import {
 import { patchMetaEventIntoMobileData } from './snapshot-processing/patch-meta-event'
 import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for.
+const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
+const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
@@ -221,7 +220,9 @@ async function processEncodedResponse(
     return { transformed, untransformed }
 }
 
-const getSourceKey = (source: SessionRecordingSnapshotSource): string => {
+export type SourceKey = `${SnapshotSourceType}-${string}`
+
+const getSourceKey = (source: SessionRecordingSnapshotSource): SourceKey => {
     // realtime sources vary so blob_key is not always present and is either null or undefined...
     // we only care about key when not realtime
     // and we'll always have a key when not realtime
@@ -232,10 +233,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect({
-        logic: [eventUsageLogic],
+    connect(() => ({
+        actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
-    }),
+    })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
@@ -288,7 +289,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
         snapshotsBySource: [
-            null as Record<string, SessionRecordingSnapshotSourceResponse> | null,
+            null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
             {
                 loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
                     const sourceKey = getSourceKey(snapshotsForSource.source)
@@ -430,7 +431,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
                             FROM events
                             WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -442,8 +443,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     let relatedEventsQuery = hogql`
                             SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
                             FROM events
-                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                            WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
+                              AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
                               AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
                         `
                     if (person?.uuid) {
@@ -506,6 +507,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $pathname: pathname,
                                     $viewport_width: viewportWidth,
                                     $viewport_height: viewportHeight,
+                                    $screen_name: event.length > 9 ? event[9] : undefined,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
@@ -566,9 +568,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        captureException(e, {
-                            tags: { feature: 'session-recording-load-full-event-data' },
-                        })
+                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
@@ -605,7 +605,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadSnapshotSources: () => {
             // We only load events once we actually start loading the recording
-            actions.loadEvents()
+            if (!values.sessionEventsData) {
+                actions.loadEvents()
+            }
         },
         loadRecordingMetaSuccess: () => {
             cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
@@ -704,7 +706,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
             if (values.fullyLoaded) {
-                eventUsageLogic.actions.reportRecording(
+                actions.reportRecording(
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,

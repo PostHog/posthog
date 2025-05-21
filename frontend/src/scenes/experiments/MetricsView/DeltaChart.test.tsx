@@ -1,4 +1,4 @@
-import { generateViolinPath } from './DeltaChart'
+import { generateViolinPath } from './violinUtils'
 
 /**
  * Helper function to parse SVG path string into points, optionally skipping the initial move command

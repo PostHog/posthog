@@ -33,7 +33,7 @@ describe('runAsyncHandlersStep()', () => {
                     processAsyncOnEventHandlers: true,
                 },
                 actionMatcher: {
-                    match: jest.fn().mockResolvedValue(['action1', 'action2']),
+                    match: jest.fn().mockReturnValue(['action1', 'action2']),
                 },
                 hookCannon: {
                     findAndFireHooks: jest.fn().mockResolvedValue(true),

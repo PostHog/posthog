@@ -32,9 +32,9 @@ export const variableModalLogic = kea<variableModalLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableLogic']),
     props({ key: '' } as AddVariableLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [variableDataLogic, ['getVariables'], variablesLogic, ['addVariable']],
-    }),
+    })),
     actions({
         openNewVariableModal: (variableType: VariableType) => ({ variableType }),
         openExistingVariableModal: (variable: Variable) => ({ variable }),

@@ -27,6 +27,7 @@ interface FilterRowProps {
     orFiltering?: boolean
     errorMessage?: JSX.Element | null
     disabledReason?: string
+    editable: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -44,6 +45,7 @@ export const FilterRow = React.memo(function FilterRow({
     orFiltering,
     errorMessage,
     disabledReason,
+    editable,
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
 
@@ -73,7 +75,7 @@ export const FilterRow = React.memo(function FilterRow({
                 {disablePopover ? (
                     <>
                         {filterComponent(() => setOpen(false))}
-                        {!!Object.keys(filters[index]).length && (
+                        {Object.keys(filters[index]).length > 0 && editable ? (
                             <LemonButton
                                 icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}
@@ -81,7 +83,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 className="ml-2"
                                 noPadding
                             />
-                        )}
+                        ) : null}
                     </>
                 ) : (
                     <Popover

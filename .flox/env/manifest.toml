@@ -10,7 +10,7 @@ version = 1
 # the `[install]` section.
 [install]
 # Python - Python itself is installed on activation via `uv sync`
-uv = { pkg-path = "uv", pkg-group = "uv", version = "0.6.10" }
+uv = { pkg-path = "uv", pkg-group = "uv", version = "0.6.12" }
 xmlsec = { pkg-path = "xmlsec", version = "1.3.6" }
 freetds = { pkg-path = "freetds" } # For pymssql
 # Node
@@ -93,15 +93,16 @@ if [ ! -d "node_modules" ]; then
   echo "Node dependencies installed"
 fi
 
-if [[ -t 0 ]]; then # The block below only runs when in an interactive shell
-  # Add required entries to /etc/hosts if not present
-  if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator" /etc/hosts; then
-    echo
-    echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse' and 'clickhouse-coordinator' to 127.0.0.1..."
-    echo "127.0.0.1 kafka clickhouse clickhouse-coordinator" | sudo tee -a /etc/hosts 1> /dev/null
-    echo "✅ /etc/hosts amended"
-  fi
+# Add required entries to /etc/hosts if not present
+if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+  echo
+  echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
+  echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
+  echo "✅ /etc/hosts amended"
+fi
 
+# The block below only runs when in an interactive shell
+if [[ -t 0 ]]; then 
   quotes=(
     # https://github.com/PostHog/posthog.com/blob/cd0ad2e5a96c3ff7d2662ec696a5560022ff318d/src/components/Careers/FounderNote/Audio
     "At PostHog, we don't follow trends, we set them, like records."
@@ -119,10 +120,9 @@ if [[ -t 0 ]]; then # The block below only runs when in an interactive shell
   # Print intro message
   echo -e "
 \033[3mRun the following commands in the given order to get the stack up and running:\033[0m
-1. Spin up containers - \033[33mdocker compose -f docker-compose.dev.yml up -d\033[0m
-2. Run all migrations - \033[31mbin/migrate\033[0m
-3. Start the stack - \033[32mbin/start\033[0m
-4. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
+1. Run all migrations - \033[31mbin/migrate\033[0m
+2. Start the stack - \033[32mbin/start\033[0m
+3. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
 "
 fi
 '''

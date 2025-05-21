@@ -61,7 +61,7 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
                 RunQuotaLimitingAllOrgsInputs(),
                 start_to_close_timeout=timedelta(minutes=20),
                 retry_policy=common.RetryPolicy(
-                    maximum_attempts=3,
+                    maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),
                 ),
                 heartbeat_timeout=timedelta(minutes=1),

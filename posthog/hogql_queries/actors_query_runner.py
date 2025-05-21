@@ -1,6 +1,7 @@
 import itertools
 from typing import Any, Optional
 from collections.abc import Sequence, Iterator
+import re
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
@@ -22,6 +23,7 @@ from posthog.schema import (
     InsightActorsQuery,
     TrendsQuery,
 )
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -38,6 +40,7 @@ class ActorsQueryRunner(QueryRunner):
 
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+            self.modifiers = self.source_query_runner.modifiers
 
         self.strategy = self.determine_strategy()
         self.calculating = False
@@ -81,6 +84,8 @@ class ActorsQueryRunner(QueryRunner):
                 new_row[actor_column_index] = actor
             else:
                 actor_data: dict[str, Any] = {"id": actor_id}
+                if self.group_type_index is not None:
+                    actor_data["group_type_index"] = self.group_type_index
                 if events_distinct_id_lookup is not None:
                     actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
                 new_row[actor_column_index] = actor_data
@@ -148,6 +153,17 @@ class ActorsQueryRunner(QueryRunner):
                 recordings_lookup,
                 person_uuid_to_event_distinct_ids,
             )
+
+        for column_index, col in enumerate(input_columns):
+            # convert tuple that gets returned into a dict
+            if col.split("--")[0].strip() == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "id": str(result[column_index][1]),
+                    }
+                    self.paginator.results[index] = row
 
         return ActorsQueryResponse(
             results=results,
@@ -240,8 +256,21 @@ class ActorsQueryRunner(QueryRunner):
             columns = []
             group_by = []
             aggregations = []
-            for expr in self.input_columns():
-                column: ast.Expr = parse_expr(expr)
+            person_display_name_indices = []
+            for idx, expr in enumerate(self.input_columns()):
+                if expr.split("--")[0].strip() == "person_display_name":
+                    property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                    # Only use backticks for property names with spaces or special chars
+                    props = []
+                    for key in property_keys:
+                        if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                            props.append(f"toString(properties.{key})")
+                        else:
+                            props.append(f"toString(properties.`{key}`)")
+                    column = parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
+                    person_display_name_indices.append(idx)
+                else:
+                    column = parse_expr(expr)
 
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)

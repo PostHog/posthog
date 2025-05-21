@@ -33,17 +33,26 @@ export const manifest: ProductManifest = {
             (id: string): string => `/early_access_features/${id}`,
     },
     fileSystemTypes: {
-        // TODO: add to project tree backend
-        // early_access_feature: {
-        //     icon: <IconRocket />,
-        //     href: (ref: string) => urls.earlyAccessFeature(ref),
-        // },
-    },
-    treeItemsExplore: [
-        {
-            path: 'Early access features',
+        early_access_feature: {
             icon: <IconRocket />,
-            href: () => urls.earlyAccessFeatures(),
+            href: (ref: string) => urls.earlyAccessFeature(ref),
+        },
+    },
+    treeItemsNew: [
+        {
+            path: `Early access feature`,
+            type: 'early_access_feature',
+            href: urls.earlyAccessFeature('new'),
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Early access features',
+            type: 'early_access_feature',
+            href: urls.earlyAccessFeatures(),
+        },
+    ],
+    fileSystemFilterTypes: {
+        early_access_feature: { name: 'Early access features' },
+    },
 }

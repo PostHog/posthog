@@ -1,7 +1,7 @@
 import './LemonCheckbox.scss'
 
 import clsx from 'clsx'
-import { useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 
 import { Tooltip } from '../Tooltip'
 
@@ -12,7 +12,7 @@ export interface LemonCheckboxProps {
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
-    onChange?: (value: boolean) => void
+    onChange?: (value: boolean, event: ChangeEvent<HTMLInputElement>) => void
     label?: string | JSX.Element
     id?: string
     className?: string
@@ -71,6 +71,13 @@ export function LemonCheckbox({
         }
     }, [checked, indeterminate])
 
+    // Prevent text selection when clicking on the area between the checkbox and the label
+    const stopShiftSelection = (e: React.MouseEvent): void => {
+        if (e.shiftKey && e.button === 0) {
+            e.preventDefault()
+        }
+    }
+
     return (
         <Tooltip title={disabledReason ? <i>{disabledReason}</i> : null} placement="top-start">
             <span
@@ -85,6 +92,7 @@ export function LemonCheckbox({
                     className
                 )}
                 data-attr={dataAttr}
+                onMouseDownCapture={stopShiftSelection}
             >
                 <input
                     className="LemonCheckbox__input"
@@ -94,7 +102,7 @@ export function LemonCheckbox({
                     onChange={(e) => {
                         // NOTE: We only want to setLocalChecked if the component is not controlled externally
                         checked === undefined && setLocalChecked(e.target.checked)
-                        onChange?.(e.target.checked)
+                        onChange?.(e.target.checked, e)
                     }}
                     id={id}
                     disabled={disabled}

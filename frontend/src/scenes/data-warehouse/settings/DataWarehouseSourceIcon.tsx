@@ -37,11 +37,12 @@ export function mapUrlToProvider(url: string): string {
     return 'BlushingHog'
 }
 
-/**
- * DataWarehouseSourceIcon component to render an icon
- * @param type
- * @param size
- */
+const SIZE_PX_MAP = {
+    xsmall: 16,
+    small: 30,
+    medium: 60,
+}
+
 export function DataWarehouseSourceIcon({
     type,
     size = 'small',
@@ -49,11 +50,11 @@ export function DataWarehouseSourceIcon({
     disableTooltip = false,
 }: {
     type: string
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean
 }): JSX.Element {
-    const sizePx = sizePxProps ?? (size === 'small' ? 30 : 60)
+    const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
 
     const icon = {
         Stripe: IconStripe,

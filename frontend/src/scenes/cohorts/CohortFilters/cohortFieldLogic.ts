@@ -26,9 +26,9 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
     path(['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic']),
     key((props) => `${props.cohortFilterLogicKey}`),
     props({} as CohortFieldLogicProps),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.fieldKey && !objectsEqual(props.criteria, oldProps.criteria)) {
             actions.onChange(props.criteria)

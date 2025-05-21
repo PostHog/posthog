@@ -47,7 +47,7 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
 
-    connect({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] }),
+    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -157,6 +157,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmObservabilityUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmObservabilityPlayground') {
+                    return 'playground'
                 }
                 return 'dashboard'
             },
@@ -650,6 +652,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 

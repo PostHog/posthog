@@ -34,7 +34,7 @@ if (not empty(inputs.testEventCode)) {
 }
 
 for (let key, value in inputs.userProperties) {
-    if (not empty(value)) {
+    if (not empty(value) or value == '') {
         body.data.1.user[key] := value
     }
 }
@@ -130,14 +130,21 @@ if (res.status >= 400) {
             description:
                 'A map that contains customer information data. See this page for options: https://business-api.tiktok.com/portal/docs?id=1771101151059969#item-link-user%20parameters',
             default: {
-                email: '{sha256Hex(lower(person.properties.email))}',
+                email: "{not empty(person.properties.email) ? sha256Hex(lower(person.properties.email)) : ''}",
+                first_name:
+                    "{not empty(person.properties.first_name) ? sha256Hex(lower(person.properties.first_name)) : ''}",
+                last_name:
+                    "{not empty(person.properties.last_name) ? sha256Hex(lower(person.properties.last_name)) : ''}",
+                phone: "{not empty(person.properties.phone) ? sha256Hex(person.properties.phone) : ''}",
+                external_id: "{not empty(person.id) ? sha256Hex(person.id) : ''}",
+                city: "{not empty(person.properties.$geoip_city_name) ? replaceAll(lower(person.properties.$geoip_city_name), ' ', '') : null}",
+                state: '{lower(person.properties.$geoip_subdivision_1_code)}',
+                country: '{lower(person.properties.$geoip_country_code)}',
+                zip_code:
+                    "{not empty (person.properties.$geoip_postal_code) ? sha256Hex(replaceAll(lower(person.properties.$geoip_postal_code), ' ', '')) : null}",
                 ttclid: '{person.properties.ttclid ?? person.properties.$initial_ttclid}',
-                phone: '{sha256Hex(person.properties.phone)}',
-                external_id: '{sha256Hex(person.id)}',
                 ip: '{event.properties.$ip}',
                 user_agent: '{event.properties.$raw_user_agent}',
-                first_name: '{sha256Hex(lower(person.properties.first_name))}',
-                last_name: '{sha256Hex(lower(person.properties.last_name))}',
             },
             secret: false,
             required: true,

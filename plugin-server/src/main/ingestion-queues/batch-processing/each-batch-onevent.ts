@@ -11,9 +11,6 @@ import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter } from '../metrics'
 import { eachBatchHandlerHelper } from './each-batch-webhooks'
 
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
-
 export async function handleOnEventPlugins(event: PostIngestionEvent, queue: KafkaJSIngestionConsumer): Promise<void> {
     await runInstrumentedFunction({
         func: () => processOnEventStep(queue.pluginsServer, event),

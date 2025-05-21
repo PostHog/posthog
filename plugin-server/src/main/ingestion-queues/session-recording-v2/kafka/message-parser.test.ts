@@ -29,7 +29,7 @@ describe('KafkaMessageParser', () => {
     })
 
     describe('parseBatch', () => {
-        it('handles valid snapshot message', async () => {
+        it('handles valid snapshot message including source and lib', async () => {
             const snapshotItems = [
                 { type: 1, timestamp: 1234567890 },
                 { type: 2, timestamp: 1234567891 },
@@ -42,6 +42,8 @@ describe('KafkaMessageParser', () => {
                             $session_id: 'session1',
                             $window_id: 'window1',
                             $snapshot_items: snapshotItems,
+                            $snapshot_source: 'test-source',
+                            $lib: 'test-lib',
                         },
                     }),
                     distinct_id: 'user123',
@@ -68,6 +70,40 @@ describe('KafkaMessageParser', () => {
                 eventsRange: {
                     start: DateTime.fromMillis(1234567890),
                     end: DateTime.fromMillis(1234567891),
+                },
+                snapshot_source: 'test-source',
+                snapshot_library: 'test-lib',
+            })
+            expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
+        })
+
+        it('handles valid snapshot message missing source and lib', async () => {
+            const snapshotItems = [
+                { type: 1, timestamp: 1234567890 },
+                { type: 2, timestamp: 1234567891 },
+            ]
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session1',
+                            $window_id: 'window1',
+                            $snapshot_items: snapshotItems,
+                        },
+                    }),
+                    distinct_id: 'user123',
+                }),
+            ]
+
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
+                distinct_id: 'user123',
+                session_id: 'session1',
+                eventsByWindowId: {
+                    window1: snapshotItems,
                 },
                 snapshot_source: null,
                 snapshot_library: null,

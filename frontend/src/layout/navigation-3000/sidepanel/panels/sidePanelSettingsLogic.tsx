@@ -9,10 +9,10 @@ import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
 
 export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSettingsLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-    }),
+    })),
 
     actions({
         openSettingsPanel: (settingsLogicProps: SettingsLogicProps) => ({

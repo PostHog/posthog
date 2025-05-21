@@ -39,7 +39,7 @@ export interface AnnotationModalForm {
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
     path(['scenes', 'annotations', 'annotationModalLogic']),
-    connect({
+    connect(() => ({
         actions: [
             annotationsModel,
             [
@@ -60,7 +60,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions({
         openModalToCreateAnnotation: (
             initialDate?: Dayjs | null,

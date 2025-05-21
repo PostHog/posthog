@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -68,9 +69,14 @@ export interface InsightCardProps extends Resizeable {
     doNotLoad?: boolean
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
+    /** Dashboard breakdown colors to override the ones in the insight */
+    breakdownColorOverride?: BreakdownColorConfig[]
+    /** Dashboard color theme to override the ones in the insight */
+    dataColorThemeId?: number | null
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
+    noCache?: boolean
 }
 
 function InsightCardInternal(
@@ -102,6 +108,9 @@ function InsightCardInternal(
         doNotLoad,
         variablesOverride,
         children,
+        noCache,
+        breakdownColorOverride: _breakdownColorOverride,
+        dataColorThemeId: _dataColorThemeId,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -146,7 +155,7 @@ function InsightCardInternal(
             ref={mergedRefs}
         >
             {isVisible ? (
-                <ErrorBoundary tags={{ feature: 'insight' }}>
+                <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
                             insight={insight}
@@ -171,7 +180,7 @@ function InsightCardInternal(
                         <div className="InsightCard__viz">
                             <Query
                                 query={insight.query}
-                                cachedResults={insight}
+                                cachedResults={noCache ? undefined : insight}
                                 context={{
                                     insightProps: insightLogicProps,
                                 }}

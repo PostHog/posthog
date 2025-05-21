@@ -44,9 +44,7 @@ Any_Source_Errors: list[str] = [
 ]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
-    ExternalDataSource.Type.BIGQUERY: [
-        "PermissionDenied: 403 request failed",
-    ],
+    ExternalDataSource.Type.BIGQUERY: ["PermissionDenied: 403 request failed", "NotFound: 404"],
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
@@ -72,6 +70,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "Can't connect to MySQL server on",
         "No primary key defined for table",
         "Access denied for user",
+        "sqlstate 42S02",  # Table not found error
     ],
     ExternalDataSource.Type.SALESFORCE: [
         "400 Client Error: Bad Request for url",

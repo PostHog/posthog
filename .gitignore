@@ -12,7 +12,7 @@ __pycache__/
 .dlt
 .dmypy.json
 .DS_Store
-.env
+.env*
 .eslintcache
 .idea
 .mypy_cache
@@ -103,3 +103,6 @@ playwright/test-results/
 
 # Dist release target dir
 target/*
+
+# Ignore user's Cursor rules
+.cursor/**/user*.mdc

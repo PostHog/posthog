@@ -16,6 +16,7 @@ import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
+    const { visibleMenu: activeToolbarMode } = useValues(toolbarLogic)
     const {
         heatmapElements,
         elementsToDisplay,
@@ -28,6 +29,7 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+
     const shiftPressed = useShiftKeyPressed()
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
@@ -58,7 +60,7 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                <HeatmapCanvas />
+                {activeToolbarMode === 'heatmap' && <HeatmapCanvas />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
@@ -87,119 +89,156 @@ export function Elements(): JSX.Element {
                     )
                 })}
 
-                {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
-                    return (
-                        <Fragment key={`heatmap-${index}`}>
-                            <AutocaptureElement
-                                rect={rect}
-                                style={{
-                                    pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
-                                    zIndex: hoverElement === element ? 4 : 3,
-                                    opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
-                                    transition: 'opacity 0.2s, box-shadow 0.2s',
-                                    cursor: 'pointer',
-                                    borderRadius: 5,
-                                    ...getBoxColors(
-                                        'red',
-                                        hoverElement === element,
-                                        ((count || 0) / highestClickCount) * 0.4
-                                    ),
-                                }}
-                                onClick={() => selectElement(element)}
-                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
-                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
-                            />
-                            {!!clickCount && (
-                                <AutocaptureElementLabel
-                                    rect={rect}
-                                    style={{
-                                        pointerEvents: heatmapPointerEvents,
-                                        zIndex: 5,
-                                        opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
-                                        transition: 'opacity 0.2s, transform 0.2s linear',
-                                        transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                        cursor: 'pointer',
-                                        color: `hsla(${getHeatMapHue(
-                                            clickCount || 0,
-                                            highestClickCount
-                                        )}, 20%, 12%, 1)`,
-                                        background: `hsla(${getHeatMapHue(
-                                            clickCount || 0,
-                                            highestClickCount
-                                        )}, 100%, 62%, 1)`,
-                                        boxShadow: `hsla(${getHeatMapHue(
-                                            clickCount || 0,
-                                            highestClickCount
-                                        )}, 100%, 32%, 1) 0px 1px 5px 1px`,
-                                    }}
-                                    onClick={() => selectElement(element)}
-                                    onMouseOver={() => selectedElement === null && setHoverElement(element)}
-                                    onMouseOut={() => selectedElement === null && setHoverElement(null)}
-                                >
-                                    {compactNumber(clickCount || 0)}
-                                </AutocaptureElementLabel>
-                            )}
-                            {!!rageclickCount && (
-                                <AutocaptureElementLabel
-                                    rect={rect}
-                                    style={{
-                                        pointerEvents: heatmapPointerEvents,
-                                        zIndex: 5,
-                                        opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
-                                        transition: 'opacity 0.2s, transform 0.2s linear',
-                                        transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                        cursor: 'pointer',
-                                        color: `hsla(${getHeatMapHue(
-                                            rageclickCount || 0,
-                                            highestClickCount
-                                        )}, 20%, 12%, 1)`,
-                                        background: `hsla(${getHeatMapHue(
-                                            rageclickCount || 0,
-                                            highestClickCount
-                                        )}, 100%, 62%, 1)`,
-                                        boxShadow: `hsla(${getHeatMapHue(
-                                            rageclickCount || 0,
-                                            highestClickCount
-                                        )}, 100%, 32%, 1) 0px 1px 5px 1px`,
-                                    }}
-                                    align="left"
-                                    onClick={() => selectElement(element)}
-                                    onMouseOver={() => selectedElement === null && setHoverElement(element)}
-                                    onMouseOut={() => selectedElement === null && setHoverElement(null)}
-                                >
-                                    {compactNumber(rageclickCount)}&#128545;
-                                </AutocaptureElementLabel>
-                            )}
-                        </Fragment>
-                    )
-                })}
-
-                {labelsToDisplay.map(({ element, rect, index }, loopIndex) => {
-                    if (rect) {
+                {heatmapElements.map(
+                    ({ rect, count, clickCount, rageclickCount, deadclickCount, element, visible }, index) => {
+                        if (!visible) {
+                            return null
+                        }
                         return (
-                            <AutocaptureElementLabel
-                                key={`label-${loopIndex}`}
-                                rect={rect}
-                                align="left"
-                                style={{
-                                    zIndex: 5,
-                                    opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
-                                    transition: 'opacity 0.2s, transform 0.2s linear',
-                                    transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                    pointerEvents: heatmapPointerEvents,
-                                    cursor: 'pointer',
-                                    color: 'hsla(141, 21%, 12%, 1)',
-                                    background: 'hsl(147, 100%, 62%)',
-                                    boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
-                                }}
-                                onClick={() => selectElement(element)}
-                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
-                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
-                            >
-                                {(index || loopIndex) + 1}
-                            </AutocaptureElementLabel>
+                            <Fragment key={`heatmap-${index}`}>
+                                <AutocaptureElement
+                                    rect={rect}
+                                    style={{
+                                        pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
+                                        zIndex: hoverElement === element ? 4 : 3,
+                                        opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
+                                        transition: 'opacity 0.2s, box-shadow 0.2s',
+                                        cursor: 'pointer',
+                                        borderRadius: 5,
+                                        ...getBoxColors(
+                                            'red',
+                                            hoverElement === element,
+                                            ((count || 0) / highestClickCount) * 0.4
+                                        ),
+                                    }}
+                                    onClick={() => selectElement(element)}
+                                    onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                    onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                />
+                                {!!clickCount && (
+                                    <AutocaptureElementLabel
+                                        rect={rect}
+                                        style={{
+                                            pointerEvents: heatmapPointerEvents,
+                                            zIndex: 5,
+                                            opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                            transition: 'opacity 0.2s, transform 0.2s linear',
+                                            transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                            cursor: 'pointer',
+                                            color: `hsla(${getHeatMapHue(
+                                                clickCount || 0,
+                                                highestClickCount
+                                            )}, 20%, 12%, 1)`,
+                                            background: `hsla(${getHeatMapHue(
+                                                clickCount || 0,
+                                                highestClickCount
+                                            )}, 100%, 62%, 1)`,
+                                            boxShadow: `hsla(${getHeatMapHue(
+                                                clickCount || 0,
+                                                highestClickCount
+                                            )}, 100%, 32%, 1) 0px 1px 5px 1px`,
+                                        }}
+                                        onClick={() => selectElement(element)}
+                                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                    >
+                                        {compactNumber(clickCount || 0)}
+                                    </AutocaptureElementLabel>
+                                )}
+                                {!!rageclickCount && (
+                                    <AutocaptureElementLabel
+                                        rect={rect}
+                                        style={{
+                                            pointerEvents: heatmapPointerEvents,
+                                            zIndex: 5,
+                                            opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                            transition: 'opacity 0.2s, transform 0.2s linear',
+                                            transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                            cursor: 'pointer',
+                                            color: `hsla(${getHeatMapHue(
+                                                rageclickCount || 0,
+                                                highestClickCount
+                                            )}, 20%, 12%, 1)`,
+                                            background: `hsla(${getHeatMapHue(
+                                                rageclickCount || 0,
+                                                highestClickCount
+                                            )}, 100%, 62%, 1)`,
+                                            boxShadow: `hsla(${getHeatMapHue(
+                                                rageclickCount || 0,
+                                                highestClickCount
+                                            )}, 100%, 32%, 1) 0px 1px 5px 1px`,
+                                        }}
+                                        align="left"
+                                        onClick={() => selectElement(element)}
+                                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                    >
+                                        {compactNumber(rageclickCount)}&#128545;
+                                    </AutocaptureElementLabel>
+                                )}
+                                {!!deadclickCount && (
+                                    <AutocaptureElementLabel
+                                        rect={rect}
+                                        style={{
+                                            pointerEvents: heatmapPointerEvents,
+                                            zIndex: 5,
+                                            opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                            transition: 'opacity 0.2s, transform 0.2s linear',
+                                            transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                            cursor: 'pointer',
+                                            color: `hsla(${getHeatMapHue(
+                                                deadclickCount || 0,
+                                                highestClickCount
+                                            )}, 20%, 12%, 1)`,
+                                            background: `hsla(${getHeatMapHue(
+                                                deadclickCount || 0,
+                                                highestClickCount
+                                            )}, 100%, 62%, 1)`,
+                                            boxShadow: `hsla(${getHeatMapHue(
+                                                deadclickCount || 0,
+                                                highestClickCount
+                                            )}, 100%, 32%, 1) 0px 1px 5px 1px`,
+                                        }}
+                                        align="left"
+                                        onClick={() => selectElement(element)}
+                                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                    >
+                                        {compactNumber(deadclickCount)}&#128565;
+                                    </AutocaptureElementLabel>
+                                )}
+                            </Fragment>
                         )
                     }
+                )}
+
+                {labelsToDisplay.map(({ element, rect, index, visible }, loopIndex) => {
+                    if (!visible || !rect) {
+                        return null
+                    }
+                    return (
+                        <AutocaptureElementLabel
+                            key={`label-${loopIndex}`}
+                            rect={rect}
+                            align="left"
+                            style={{
+                                zIndex: 5,
+                                opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                transition: 'opacity 0.2s, transform 0.2s linear',
+                                transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                pointerEvents: heatmapPointerEvents,
+                                cursor: 'pointer',
+                                color: 'hsla(141, 21%, 12%, 1)',
+                                background: 'hsl(147, 100%, 62%)',
+                                boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
+                            }}
+                            onClick={() => selectElement(element)}
+                            onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                            onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                        >
+                            {(index || loopIndex) + 1}
+                        </AutocaptureElementLabel>
+                    )
                 })}
             </div>
         </>

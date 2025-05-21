@@ -1,7 +1,7 @@
-use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use common_cookieless::CookielessManagerError;
+use common_database::CustomDatabaseError;
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
@@ -63,6 +63,10 @@ pub enum FlagError {
     CohortDependencyCycle(String),
     #[error("Person not found")]
     PersonNotFound,
+    #[error("Person properties not found")]
+    PropertiesNotInCache,
+    #[error("Static cohort matches not cached")]
+    StaticCohortMatchesNotCached,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -167,18 +171,24 @@ impl IntoResponse for FlagError {
             }
             FlagError::CohortNotFound(msg) => {
                 tracing::error!("Cohort not found: {}", msg);
-                (StatusCode::NOT_FOUND, msg)
+                (StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
-                (StatusCode::BAD_REQUEST, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
             FlagError::CohortDependencyCycle(msg) => {
                 tracing::error!("Cohort dependency cycle: {}", msg);
-                (StatusCode::BAD_REQUEST, msg)
+                (StatusCode::INTERNAL_SERVER_ERROR, msg)
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::PropertiesNotInCache => {
+                (StatusCode::BAD_REQUEST, "Person properties not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::StaticCohortMatchesNotCached => {
+                (StatusCode::BAD_REQUEST, "Static cohort matches not cached. Please check your distinct_id and try again.".to_string())
             }
             FlagError::CookielessError(err) => {
                 match err {
@@ -237,12 +247,15 @@ impl From<CustomDatabaseError> for FlagError {
 
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
-        // TODO: Be more precise with error handling here
-        tracing::error!("sqlx error: {}", e);
-        println!("sqlx error: {}", e);
         match e {
-            sqlx::Error::RowNotFound => FlagError::RowNotFound,
-            _ => FlagError::DatabaseError(e.to_string()),
+            sqlx::Error::RowNotFound => {
+                tracing::error!("Row not found in database query");
+                FlagError::RowNotFound
+            }
+            _ => {
+                tracing::error!("Database error occurred: {}", e);
+                FlagError::DatabaseError(e.to_string())
+            }
         }
     }
 }

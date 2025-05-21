@@ -1,47 +1,12 @@
+import pytest
+from freezegun import freeze_time
 from rest_framework import status
-from posthog.api.file_system import has_permissions_to_access_tree_view
 from posthog.test.base import APIBaseTest
-from posthog.models import FeatureFlag, Dashboard, Experiment, Insight, Notebook
+from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
 from posthog.models.file_system.file_system import FileSystem
 from unittest.mock import patch
-from rest_framework.exceptions import PermissionDenied
-
-
-class TestFileSystemAPIPermissions(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = False
-        self.user.save()
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_permissions_no_staff_no_feature(self, mock_feature_flag):
-        with self.assertRaises(PermissionDenied):
-            has_permissions_to_access_tree_view(self.user, self.team)
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_permissions_no_staff_yes_feature(self, mock_feature_flag):
-        try:
-            has_permissions_to_access_tree_view(self.user, self.team)
-        except Exception as e:
-            self.fail(f"Permission check raised an exception unexpectedly: {e}")
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_permissions_yes_staff_no_feature(self, mock_feature_flag):
-        self.user.is_staff = True
-        self.user.save()
-        try:
-            has_permissions_to_access_tree_view(self.user, self.team)
-        except Exception as e:
-            self.fail(f"Permission check raised an exception unexpectedly: {e}")
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_permissions_yes_staff_yes_feature(self, mock_feature_flag):
-        self.user.is_staff = True
-        self.user.save()
-        try:
-            has_permissions_to_access_tree_view(self.user, self.team)
-        except Exception as e:
-            self.fail(f"Permission check raised an exception unexpectedly: {e}")
+from ee.models.rbac.access_control import AccessControl
+from datetime import UTC
 
 
 class TestFileSystemAPI(APIBaseTest):
@@ -75,8 +40,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn("id", response_data)
         self.assertEqual(response_data["path"], "MyFolder/Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
+        self.assertEqual(response_data["shortcut"], False)
         self.assertDictEqual(response_data["meta"], {"description": "A test file"})
-        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
+
+    def test_create_shortcut(self):
+        """
+        Ensure that we can create a FileSystem object for our team.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {
+                "path": "MyFolder/Document.txt",
+                "type": "doc-file",
+                "meta": {"description": "A test file", "created_by": self.user.pk},
+                "shortcut": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        response_data = response.json()
+        self.assertIn("id", response_data)
+        self.assertEqual(response_data["path"], "MyFolder/Document.txt")
+        self.assertEqual(response_data["type"], "doc-file")
+        self.assertEqual(response_data["shortcut"], True)
+        self.assertDictEqual(response_data["meta"], {"description": "A test file", "created_by": self.user.pk})
 
     def test_retrieve_file(self):
         """
@@ -128,6 +115,23 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
+    def test_delete_folder_obj(self):
+        """
+        Test deleting a FileSystem folder.
+        """
+        folder_obj = FileSystem.objects.create(team=self.team, path="DeleteMe", type="folder", created_by=self.user)
+        file1_obj = FileSystem.objects.create(
+            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+        )
+        file2_obj = FileSystem.objects.create(
+            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+        )
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
     def test_unfiled_endpoint_no_content(self):
         """
         If there are no relevant items to create (e.g. no FeatureFlags, Experiments, etc.),
@@ -137,7 +141,6 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 0)
-        self.assertEqual(data["results"], [])
         self.assertEqual(FileSystem.objects.count(), 0)
 
     def test_unfiled_endpoint_is_idempotent(self):
@@ -145,7 +148,7 @@ class TestFileSystemAPI(APIBaseTest):
         Calling the unfiled endpoint multiple times should not create duplicate
         FileSystem rows for the same objects.
         """
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         FileSystem.objects.all().delete()
 
         first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
@@ -168,7 +171,7 @@ class TestFileSystemAPI(APIBaseTest):
         and return them. We now exclude folder rows when counting total.
         """
         # Create 5 objects
-        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
@@ -179,26 +182,15 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         data = response.json()
-        results = data["results"]
 
         # We get 5 newly created "leaf" entries
-        self.assertEqual(len(results), 5)
-        # In the entire FileSystem table, ignoring 'folder' rows, we should also have 5
-        self.assertEqual(FileSystem.objects.exclude(type="folder").count(), 5)
-
-        # check that each type is present
-        types = {item["type"] for item in results}
-        self.assertIn("feature_flag", types)
-        self.assertIn("experiment", types)
-        self.assertIn("dashboard", types)
-        self.assertIn("insight", types)
-        self.assertIn("notebook", types)
+        self.assertEqual(data["count"], 5)
 
     def test_unfiled_endpoint_with_type_filtering(self):
         """
         Ensure that the 'type' query parameter filters creation to a single type.
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="Only Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
         FileSystem.objects.all().delete()
 
@@ -237,6 +229,46 @@ class TestFileSystemAPI(APIBaseTest):
         data2 = response2.json()
         self.assertEqual(data2["count"], 1)
         self.assertEqual(data2["results"][0]["path"], "Random/Other File")
+
+    def test_search_hog_function_types(self):
+        """
+        Ensure the search functionality is working on the 'path' field.
+        """
+        FileSystem.objects.create(
+            team=self.team, path="Analytics/Report 1", type="hog_function/source", created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Analytics/Report 2", type="hog_function/destination", created_by=self.user
+        )
+        FileSystem.objects.create(team=self.team, path="Random/Other File", type="misc", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:source")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Analytics/Report 1"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:destination")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Analytics/Report 2"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:misc")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Random/Other File"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:hog_function/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Analytics/Report 1", "Analytics/Report 2"})
 
     def test_depth_on_create_single_segment(self):
         """
@@ -322,7 +354,7 @@ class TestFileSystemAPI(APIBaseTest):
         By default, an unfiled FeatureFlag ends up with something like "Unfiled/Feature Flags/Flag Name" => depth=3
         """
         # Create a FeatureFlag
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         FileSystem.objects.all().delete()
 
         # Call unfiled - that should create the new FileSystem item
@@ -331,13 +363,9 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["count"], 1)
 
-        # Check the resulting item
-        item = data["results"][0]
-        self.assertEqual(item["path"], "Unfiled/Feature Flags/Beta Feature")
-        self.assertEqual(item["depth"], 3)  # e.g. ["Unfiled", "Feature Flags", "Beta Feature"]
-
         # Double-check in DB
-        fs_obj = FileSystem.objects.get(id=item["id"])
+        fs_obj = FileSystem.objects.all()[0]
+        self.assertEqual(fs_obj.path, "Unfiled/Feature Flags/Beta Feature")
         self.assertEqual(fs_obj.depth, 3)
 
     def test_depth_for_unfiled_items_multiple_segments(self):
@@ -345,7 +373,7 @@ class TestFileSystemAPI(APIBaseTest):
         If an object name contains a slash, it should be escaped in the path, but still count as a single path segment.
         """
         # If a user enters something with a slash in the name...
-        FeatureFlag.objects.create(team=self.team, name="Flag / With Slash", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="Flag / With Slash", created_by=self.user)
         FileSystem.objects.all().delete()
 
         # This becomes "Unfiled/Feature Flags/Flag \/ With Slash"
@@ -354,9 +382,8 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 1)
-
-        item = data["results"][0]
-        self.assertEqual(item["depth"], 3)  # "Unfiled" / "Feature Flags" / "Flag \/ With Slash"
+        item = FileSystem.objects.filter(depth=3).all()
+        self.assertEqual(item[0].path, "Unfiled/Feature Flags/Flag \\/ With Slash")
 
     def test_list_by_depth(self):
         """
@@ -381,7 +408,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["path"], "Deep/Nested/Path")
 
-    def test_list_by_parent(self):
+    def test_list_by_parent_and_path(self):
         """
         Verify that passing ?parent=SomeFolder returns only items whose path starts with "SomeFolder/".
         """
@@ -401,6 +428,12 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn("SomeFolder/SubFolder/File2", paths)
         self.assertNotIn("RootItem", paths)
         self.assertNotIn("AnotherFolder/File3", paths)
+
+        # Filter by ?parent=SomeFolder
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?path=SomeFolder/File1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1, data["results"])
 
     def test_list_by_parent_and_depth(self):
         """
@@ -487,8 +520,13 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
         FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
 
-        # Move the folder
+        # Count the folder by id
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 2)
+
+        # Count the folder by path
+        response = self.client.post(f"/api/projects/{self.team.id}/file_system/count_by_path?path=OldFolder")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["count"], 2)
 
@@ -516,21 +554,628 @@ class TestFileSystemAPI(APIBaseTest):
         # Expecting 2 items with type starting with 'd'
         self.assertEqual(data["count"], 2)
 
-    def test_search_files_by_ref(self):
-        """
-        Ensure that searching with the ?search= query param returns items matching on the 'ref' field.
-        """
-        # Create items with unique ref values
-        FileSystem.objects.create(
-            team=self.team, path="SomePath/File1", type="doc", ref="unique-ref-123", created_by=self.user
-        )
-        FileSystem.objects.create(
-            team=self.team, path="OtherPath/File2", type="doc", ref="other-ref-456", created_by=self.user
-        )
-        # Using search to filter by part of the ref value
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=unique-ref")
+        # Filter by type 'doc'
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?not_type=doc")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        # Expecting only the item with ref "unique-ref-123"
+        # Expecting 1 items with type 'img'
         self.assertEqual(data["count"], 1)
-        self.assertEqual(data["results"][0]["ref"], "unique-ref-123")
+        self.assertEqual(data["results"][0]["type"], "img")
+
+    def test_link_file_endpoint(self):
+        """
+        Test linking a file creates a new file with an updated path and that missing parent folders are auto-created.
+        """
+        # Create an original file.
+        file_obj = FileSystem.objects.create(
+            team=self.team,
+            path="OriginalFile.txt",
+            type="doc",
+            created_by=self.user,
+        )
+        new_path = "NewFolder/NewFile.txt"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/link",
+            {"new_path": new_path},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        result = response.json()
+        self.assertEqual(result["path"], new_path)
+        self.assertEqual(result["shortcut"], True)
+        # "NewFolder/NewFile.txt" should have a depth of 2.
+        self.assertEqual(result["depth"], 2)
+        # Ensure that the parent folder "NewFolder" was auto-created as a folder.
+        self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder", type="folder").exists())
+        self.assertTrue(FileSystem.objects.filter(team=self.team, path="NewFolder/NewFile.txt", shortcut=True).exists())
+
+    def test_link_folder_endpoint(self):
+        """
+        Test linking a folder creates a new folder instance and also clones its child items with updated paths.
+        """
+        # Create a folder and a child file.
+        folder_obj = FileSystem.objects.create(
+            team=self.team,
+            path="Folder1",
+            type="folder",
+            created_by=self.user,
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="Folder1/Child.txt",
+            type="doc",
+            created_by=self.user,
+        )
+        new_path = "LinkedFolder"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/link",
+            {"new_path": new_path},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        result = response.json()
+        self.assertEqual(result["path"], new_path)
+        # A single-segment folder should have depth 1.
+        self.assertEqual(result["depth"], 1)
+        # Verify that the child file was linked with its path updated.
+        linked_child = FileSystem.objects.filter(team=self.team, path="LinkedFolder/Child.txt", type="doc").first()
+        assert linked_child is not None
+        self.assertEqual(linked_child.depth, 2)
+
+    def test_link_folder_into_itself(self):
+        """
+        Test that linking a folder into itself is rejected.
+        """
+        folder_obj = FileSystem.objects.create(
+            team=self.team,
+            path="Folder2",
+            type="folder",
+            created_by=self.user,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/link",
+            {"new_path": "Folder2"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("detail", response.json())
+        self.assertEqual(response.json()["detail"], "Cannot link folder into itself")
+
+    def test_assure_parent_folders(self):
+        """
+        Test that assure_parent_folders creates all missing parent folder entries for a given path.
+        """
+        # Clear existing FileSystem entries to start fresh.
+        FileSystem.objects.all().delete()
+        test_path = "A/B/C"
+        # Import the function to be tested.
+        from posthog.api.file_system import assure_parent_folders
+
+        assure_parent_folders(test_path, self.team, self.user)
+
+        # For the path "A/B/C", we expect the parent folders "A" and "A/B" to be created.
+        folder_a = FileSystem.objects.filter(team=self.team, path="A", type="folder").first()
+        folder_ab = FileSystem.objects.filter(team=self.team, path="A/B", type="folder").first()
+        assert folder_a is not None
+        self.assertEqual(folder_a.depth, 1)
+        assert folder_ab is not None
+        self.assertEqual(folder_ab.depth, 2)
+        # The full path "A/B/C" should NOT be created by assure_parent_folders.
+        folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
+        self.assertIsNone(folder_abc)
+
+    def test_list_depth_folders_first_case_insensitive(self):
+        """
+        ?depth=N must return folders first, then everything else, each block ordered
+        case-insensitively by path.
+        """
+        # FOLDERS (depth=1)
+        FileSystem.objects.create(team=self.team, path="beta", type="folder", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="alpha", type="folder", created_by=self.user, depth=1)
+
+        # FILES (depth=1)
+        FileSystem.objects.create(team=self.team, path="bFile.txt", type="doc", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="Afile.txt", type="doc", created_by=self.user, depth=1)
+
+        url = f"/api/projects/{self.team.id}/file_system/?depth=1"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
+        paths = [item["path"] for item in resp.json()["results"]]
+        self.assertEqual(
+            paths,
+            ["alpha", "beta", "Afile.txt", "bFile.txt"],  # folders first, then files, both A→Z ignoring case
+        )
+
+    def test_list_no_depth_case_insensitive_order_only(self):
+        """
+        Without ?depth the endpoint should ignore type and sort *everything*
+        purely case-insensitively by path.
+        """
+        FileSystem.objects.create(team=self.team, path="beta", type="folder", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="alpha", type="folder", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="bFile.txt", type="doc", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="Afile.txt", type="doc", created_by=self.user, depth=1)
+
+        resp = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
+        paths = [item["path"] for item in resp.json()["results"]]
+        # Pure case-insensitive alphabetical order, regardless of type
+        self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
+
+    def test_list_order_by_created_at(self):
+        # Create items in chronological order
+        with freeze_time("2020-01-01 10:00:00"):
+            file_1 = FileSystem.objects.create(team=self.team, path="File_1", type="doc", created_by=self.user)
+        with freeze_time("2020-01-02 10:00:00"):
+            file_2 = FileSystem.objects.create(team=self.team, path="File_2", type="doc", created_by=self.user)
+        with freeze_time("2020-01-03 10:00:00"):
+            file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="doc", created_by=self.user)
+
+        # Query with descending order
+        url = f"/api/projects/{self.team.id}/file_system/?order_by=-created_at"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        results = response.json()["results"]
+        # Expect the newest (file_3) first, then file_2, then file_1
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]["id"], str(file_3.id))
+        self.assertEqual(results[1]["id"], str(file_2.id))
+        self.assertEqual(results[2]["id"], str(file_1.id))
+
+        # Query with ascending order
+        url = f"/api/projects/{self.team.id}/file_system/?order_by=created_at"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        results = response.json()["results"]
+        # Expect the oldest (file_1) first, then file_2, then file_3
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]["id"], str(file_1.id))
+        self.assertEqual(results[1]["id"], str(file_2.id))
+        self.assertEqual(results[2]["id"], str(file_3.id))
+
+    def test_search_path_token(self):
+        """
+        `path:<txt>` must match items whose *parent* segment contains <txt>.
+        """
+        FileSystem.objects.create(team=self.team, path="Analytics/Reports/Q1.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Analytics/Other/Q2.txt", type="doc", created_by=self.user)
+
+        url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+        self.assertEqual(resp.json()["results"][0]["path"], "Analytics/Reports/Q1.txt")
+
+    def test_search_name_token(self):
+        """
+        `name:<txt>` must match on the last segment only.
+        """
+        FileSystem.objects.create(
+            team=self.team, path="Marketing/Plan/Q1 Overview.pdf", type="doc", created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Marketing/Plan/Q2-Summary.pdf", type="doc", created_by=self.user
+        )
+
+        url = f"/api/projects/{self.team.id}/file_system/?search=name:Overview"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+        self.assertEqual(resp.json()["results"][0]["path"], "Marketing/Plan/Q1 Overview.pdf")
+
+    def test_search_user_full_name(self):
+        """
+        `user:"Paul Duncan"` must match items created by that user (first + last).
+        """
+        paul = User.objects.create_and_join(
+            self.organization, "paul@example.com", "pwd", first_name="Paul", last_name="Duncan"
+        )
+        FileSystem.objects.create(team=self.team, path="Docs/PaulFile.txt", type="doc", created_by=paul)
+        FileSystem.objects.create(team=self.team, path="Docs/OtherFile.txt", type="doc", created_by=self.user)
+
+        url = f'/api/projects/{self.team.id}/file_system/?search=user:"Paul Duncan"'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+        self.assertEqual(resp.json()["results"][0]["path"], "Docs/PaulFile.txt")
+
+    def test_search_user_me_shortcut(self):
+        """
+        `user:me` must return only items created by the currently authenticated user.
+        """
+        FileSystem.objects.create(team=self.team, path="Mine.txt", type="doc", created_by=self.user)
+        other = User.objects.create_and_join(self.organization, "someone@ph.com", "pwd")
+        FileSystem.objects.create(team=self.team, path="Theirs.txt", type="doc", created_by=other)
+
+        url = f"/api/projects/{self.team.id}/file_system/?search=user:me"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+        self.assertEqual(resp.json()["results"][0]["path"], "Mine.txt")
+
+    def test_search_negation_and_combination(self):
+        """
+        Negated tokens (`-path:` etc.) must exclude matches and AND-combine with positives.
+        """
+        FileSystem.objects.create(team=self.team, path="Current/Reports/Now.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Old/Reports/Old.txt", type="doc", created_by=self.user)
+
+        url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports+-path:Old"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+        self.assertEqual(resp.json()["results"][0]["path"], "Current/Reports/Now.txt")
+
+    def test_search_type_prefix_token(self):
+        """
+        `type:<prefix>/` must act like startswith on the type field.
+        """
+        FileSystem.objects.create(team=self.team, path="Doc1", type="doc/file", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Doc2", type="doc/image", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Img1", type="img", created_by=self.user)
+
+        url = f"/api/projects/{self.team.id}/file_system/?search=type:doc/"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        paths = {item["path"] for item in resp.json()["results"]}
+        self.assertSetEqual(paths, {"Doc1", "Doc2"})
+
+    def test_meta_sync_create_or_update_file(self):
+        """
+        When `create_or_update_file` is called with explicit `created_at`
+        and `created_by_id`, those values must be stored both in the top-level
+        columns *and* duplicated inside the `meta` dictionary.
+        Updating the same file a second time must overwrite the fields.
+        """
+        from datetime import datetime
+        from posthog.models.file_system.file_system import create_or_update_file, FileSystem
+
+        # Fixed timestamp for determinism
+        ts_1 = datetime(2021, 5, 4, 12, 34, 56, tzinfo=UTC)
+        path = "Synced/Item.txt"
+
+        create_or_update_file(
+            team=self.team,
+            base_folder="Synced",
+            name="Item.txt",
+            file_type="doc",
+            ref="Ref-123",
+            href="/any",
+            meta={"created_at": ts_1.isoformat(), "created_by": self.user.pk},
+            created_at=ts_1,
+            created_by_id=self.user.pk,
+        )
+
+        fs = FileSystem.objects.get(team=self.team, path=path)
+        self.assertEqual(fs.created_by_id, self.user.pk)
+        self.assertEqual(fs.created_at, ts_1)
+        self.assertEqual(fs.meta["created_by"], self.user.pk)
+        self.assertEqual(fs.meta["created_at"], ts_1.isoformat())
+
+        # Second update – should overwrite timestamps
+        ts_2 = datetime(2021, 6, 1, 9, 0, 0, tzinfo=UTC)
+
+        create_or_update_file(
+            team=self.team,
+            base_folder="Synced",
+            name="Item.txt",
+            file_type="doc",
+            ref="Ref-123",
+            href="/any",
+            meta={"created_at": ts_2.isoformat(), "created_by": self.user.pk},
+            created_at=ts_2,
+            created_by_id=self.user.pk,
+        )
+
+        fs.refresh_from_db()
+        self.assertEqual(fs.created_at, ts_2)
+        self.assertEqual(fs.meta["created_at"], ts_2.isoformat())
+
+    def test_meta_sync_via_unfiled_endpoint(self):
+        """
+        The `/file_system/unfiled/` endpoint must copy the source object's
+        `created_at` and `created_by` into both the FileSystem columns and the
+        `meta` dict.
+        """
+        from django.utils import timezone
+        from freezegun import freeze_time
+
+        # Create a FeatureFlag at a known moment in time
+        with freeze_time("2023-02-10 15:00:00"):
+            flag = FeatureFlag.objects.create(team=self.team, key="Synced-Flag", created_by=self.user)
+
+        FileSystem.objects.all().delete()
+
+        # Trigger unfiled sync
+        resp = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+
+        fs = FileSystem.objects.exclude(type="folder").get()
+
+        # created_at matches (ignore possible micro-second differences)
+        self.assertEqual(
+            timezone.make_naive(fs.created_at, UTC).replace(microsecond=0),
+            timezone.make_naive(flag.created_at, UTC).replace(microsecond=0),
+        )
+        self.assertEqual(fs.created_by_id, flag.created_by_id)
+
+        # meta mirrors those values
+        self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
+        self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
+
+
+@pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)
+class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
+    """
+    These tests confirm that 'filter_and_annotate_file_system_queryset' actually
+    excludes items marked 'none' from the user's perspective, triggers 404 on
+    detail endpoints, etc., unless the user is the creator, staff, or project admin.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Enable advanced permissions & role-based access
+        self.organization.available_product_features = [
+            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+
+        # Make our main user NOT staff => must rely on feature flag or ACL
+        self.user.is_staff = False
+        self.user.save()
+
+        # Another user in the same organization
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
+
+        # Create two files:
+        # file_a => (type="doc", ref="FileA")
+        # file_b => (type="doc", ref="FileB")
+        # That way, we can create AccessControl rows that match resource="doc", resource_id="FileB"
+        self.file_a = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/FileA",
+            depth=2,
+            type="doc",
+            ref="FileA",
+            created_by=self.user,
+        )
+        self.file_b = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/FileB",
+            depth=2,
+            type="doc",
+            ref="FileB",
+            created_by=self.other_user,
+        )
+        self.folder = FileSystem.objects.create(
+            team=self.team,
+            path="Docs",
+            depth=2,
+            type="folder",
+            created_by=self.user,
+        )
+
+    def _create_access_control(self, resource, resource_id, access_level, organization_member=None, role=None):
+        """
+        Helper to create an AccessControl row. Ensures 'team' is set.
+        """
+        return AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=organization_member,
+            role=role,
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_excludes_items_with_none_access(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        # The user is not staff, not the creator of file_b => 'none' should exclude it
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+
+        # We'll see Docs/FileA but not Docs/FileB
+        paths = {item["path"] for item in data["results"]}
+        self.assertIn("Docs/FileA", paths)
+        self.assertNotIn("Docs/FileB", paths)
+
+        # Meanwhile, the other_user is the creator of file_b => they can see it
+        self.client.force_login(self.other_user)
+        response2 = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK, response2.json())
+        data2 = response2.json()
+        paths2 = {item["path"] for item in data2["results"]}
+        # other_user sees both items, since file_a is not blocked, file_b is created_by them
+        self.assertIn("Docs/FileA", paths2)
+        self.assertIn("Docs/FileB", paths2)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_excludes_none_access_objects(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+
+        # Attempt to delete file_b => expect 404 because user doesn't see it
+        url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Confirm we can still delete file_a (which isn't restricted).
+        url_a = f"/api/projects/{self.team.id}/file_system/{self.file_a.id}/"
+        resp_a = self.client.delete(url_a)
+        self.assertEqual(resp_a.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(FileSystem.objects.filter(pk=self.file_a.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_move_excludes_none_access_objects(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/move"
+        resp = self.client.post(url, {"new_path": "NewDocs/FileB"})
+        # Because user doesn't see file_b => 404
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_link_and_count_on_none_access(self, mock_flag):
+        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+
+        # link
+        link_url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/link"
+        resp_link = self.client.post(link_url, {"new_path": "Anywhere/FileBCopy"})
+        self.assertEqual(resp_link.status_code, status.HTTP_404_NOT_FOUND)
+
+        count_url = f"/api/projects/{self.team.id}/file_system/{self.folder.id}/count"
+        resp = self.client.post(count_url)
+        self.assertEqual(resp.json()["count"], 1)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_project_admin_override_none_access(self, mock_flag):
+        # Mark file_b => none for everyone
+        AccessControl.objects.create(
+            team=self.team,
+            resource="doc",
+            resource_id="FileB",
+            access_level="none",
+        )
+        # Confirm by default we don't see file_b
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        resp = self.client.get(list_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        paths = {item["path"] for item in resp.json()["results"]}
+        self.assertNotIn("Docs/FileB", paths)
+
+        # Now give the user "admin" on the entire project
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+        )
+
+        # Re-list => user can see file_b now
+        resp2 = self.client.get(list_url)
+        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
+        paths2 = {item["path"] for item in resp2.json()["results"]}
+        self.assertIn("Docs/FileB", paths2)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_staff_user_sees_all_despite_none(self, mock_flag):
+        # Mark the user staff => skip ACL
+        self.user.is_staff = True
+        self.user.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="doc",
+            resource_id="FileB",
+            access_level="none",
+        )
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        resp = self.client.get(list_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        paths = {item["path"] for item in resp.json()["results"]}
+
+        # staff user sees everything
+        self.assertIn("Docs/FileA", paths)
+        self.assertIn("Docs/FileB", paths)
+
+    def test_created_at_filters(self):
+        """
+        Verify we can filter by created_at greater-than and less-than.
+        """
+        # Create 3 files with different timestamps.
+        with freeze_time("2020-01-01T10:00:00Z"):
+            FileSystem.objects.create(team=self.team, path="OldFile", type="doc", created_by=self.user)
+        with freeze_time("2020-01-02T10:00:00Z"):
+            FileSystem.objects.create(team=self.team, path="MidFile", type="doc", created_by=self.user)
+        with freeze_time("2020-01-03T10:00:00Z"):
+            FileSystem.objects.create(team=self.team, path="NewFile", type="doc", created_by=self.user)
+
+        # 1) Filter with ?created_at__gt=2020-01-01T12:00:00Z
+        #    => should exclude anything created on or before 2020-01-01T12:00:00Z
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?created_at__gt=2020-01-01T12:00:00Z")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        paths = [item["path"] for item in data["results"]]
+
+        # Expect OldFile (created at 10:00) to be excluded
+        self.assertIn("MidFile", paths)
+        self.assertIn("NewFile", paths)
+        self.assertNotIn("OldFile", paths)
+
+        # 2) Filter with ?created_at__lt=2020-01-02T10:00:00Z
+        #    => should include only items created before 2020-01-02T10:00:00Z
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?created_at__lt=2020-01-02T10:00:00Z")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        paths = [item["path"] for item in data["results"]]
+
+        # Expect only OldFile (created at 2020-01-01T10:00:00Z)
+        self.assertIn("OldFile", paths)
+        self.assertNotIn("MidFile", paths)
+        self.assertNotIn("NewFile", paths)
+
+        # 3) Combine both ?created_at__gt=... & ?created_at__lt=...
+        #    => only items between these two timestamps
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/"
+            f"?created_at__gt=2020-01-01T12:00:00Z&created_at__lt=2020-01-03T00:00:00Z"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        paths = [item["path"] for item in data["results"]]
+
+        # Only MidFile (created at 2020-01-02T10:00:00Z) matches this range
+        self.assertIn("MidFile", paths)
+        self.assertNotIn("OldFile", paths)
+        self.assertNotIn("NewFile", paths)
+
+    def test_list_includes_users_array(self):
+        """
+        Verify that the list endpoint returns a 'users' array containing distinct user objects.
+        """
+        for file in FileSystem.objects.all():
+            file.delete()
+        # Create another user in the same org/team
+        second_user = User.objects.create_and_join(self.organization, "second@posthog.com", "testpass")
+
+        # Create two files with different created_by users
+        FileSystem.objects.create(
+            team=self.team, path="File1", type="doc", created_by=self.user, meta={"created_by": self.user.pk}
+        )
+        FileSystem.objects.create(
+            team=self.team, path="File2", type="doc", created_by=second_user, meta={"created_by": second_user.pk}
+        )
+
+        # Request the list
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        response_data = response.json()
+
+        # 1) Check "results" shape
+        self.assertIn("results", response_data)
+        self.assertEqual(response_data["count"], 2)
+        self.assertEqual(len(response_data["results"]), 2)
+
+        # 2) Check that "users" is present & correct
+        self.assertIn("users", response_data)
+        users = response_data["users"]
+        self.assertEqual(len(users), 2, "Should have 2 distinct users")
+
+        # Collect user IDs from "users" array
+        user_ids_in_response = {u["id"] for u in users}
+
+        self.assertIn(self.user.id, user_ids_in_response)
+        self.assertIn(second_user.id, user_ids_in_response)
+
+        # 3) Verify each FileSystem item has "created_by" referencing the correct user
+        results_by_path = {item["path"]: item for item in response_data["results"]}
+        file1_data = results_by_path["File1"]
+        file2_data = results_by_path["File2"]
+
+        self.assertEqual(file1_data["meta"]["created_by"], self.user.pk)
+        self.assertEqual(file2_data["meta"]["created_by"], second_user.pk)

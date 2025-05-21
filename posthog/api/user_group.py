@@ -29,9 +29,6 @@ class UserGroupViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
 
-    def safely_get_object(self, queryset):
-        return super().safely_get_object(queryset)
-
     @action(methods=["POST"], detail=True)
     def add(self, request, **kwargs):
         group = self.get_object()

@@ -24,6 +24,8 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                 return 'Feature flags are'
             case ProductKey.SURVEYS:
                 return 'Surveys are'
+            case ProductKey.ERROR_TRACKING:
+                return 'Tracking errors is'
             default:
                 return 'PostHog is'
         }

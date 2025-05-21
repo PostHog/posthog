@@ -3,27 +3,7 @@
     "short_id": "jEAIVJnQ",
     "name": "",
     "derived_name": "Pageview count by event's Browser Version",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "ActionsPie",
-        "insight": "TRENDS",
-        "interval": "day",
-        "breakdown": "$browser_version",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "breakdown_type": "event",
-        "filter_test_accounts": false
-    },
+    "filters": {},
     "filters_hash": "cache_1da4a08aff8749422697dce98500edc3",
     "order": null,
     "deleted": false,
@@ -201,5 +181,38 @@
     },
     "is_sample": false,
     "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "effective_privilege_level": 37,
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "$browser_version",
+                "breakdown_type": "event"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsPie",
+                "resultCustomizationBy": "value"
+            }
+        },
+        "full": true
+    }
 }

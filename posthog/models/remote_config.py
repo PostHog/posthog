@@ -207,6 +207,7 @@ class RemoteConfig(UUIDModel):
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
                 # NOTE: This is cached but stripped out at the api level depending on the caller
                 "domains": team.recording_domains or [],

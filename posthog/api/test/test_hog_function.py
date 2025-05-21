@@ -15,10 +15,12 @@ from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+
+
+webhook_template = MOCK_NODE_TEMPLATES[0]
 
 
 EXAMPLE_FULL = {
@@ -131,7 +133,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
     def test_free_users_cannot_create_non_free_templates(self):
         response = self._create_slack_function(
             {
-                "template_id": template_webhook.id,
+                "template_id": "template-webhook",
             }
         )
 
@@ -146,22 +148,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         response = self._create_slack_function(
             {
-                "name": template_webhook.name,
-                "template_id": template_webhook.id,
+                "name": "Webhook",
+                "template_id": "template-webhook",
                 "inputs": {
                     "url": {"value": "https://example.com"},
                 },
             }
         )
 
-        assert response.json()["template"]["status"] == template_webhook.status
+        assert response.json()["template"]["status"] == "beta"
 
         self.organization.available_product_features = []
         self.organization.save()
 
         payload = {
-            "name": template_webhook.name,
-            "template_id": template_webhook.id,
+            "name": "Webhook",
+            "template_id": "template-webhook",
             "inputs": {
                 "url": {"value": "https://example.com/posthog-webhook-updated"},
             },
@@ -232,6 +234,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "id": ANY,
             "type": "destination",
+            "kind": None,
             "name": "Fetch URL",
             "description": "Test description",
             "created_at": ANY,
@@ -287,7 +290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
                 "inputs": {"url": {"value": "https://example.com"}},
-                "template_id": template_webhook.id,
+                "template_id": "template-webhook",
                 "type": "destination",
             },
         )
@@ -296,25 +299,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
+            "kind": None,
             "free": False,
-            "name": template_webhook.name,
-            "description": template_webhook.description,
-            "id": template_webhook.id,
-            "status": template_webhook.status,
-            "icon_url": template_webhook.icon_url,
-            "category": template_webhook.category,
-            "inputs_schema": template_webhook.inputs_schema,
-            "hog": template_webhook.hog,
+            "name": webhook_template["name"],
+            "description": webhook_template["description"],
+            "id": "template-webhook",
+            "status": "beta",
+            "icon_url": webhook_template["icon_url"],
+            "category": webhook_template["category"],
+            "inputs_schema": webhook_template["inputs_schema"],
+            "hog": webhook_template["hog"].strip(),
             "filters": None,
             "masking": None,
             "mappings": None,
             "mapping_templates": None,
-            "sub_templates": response.json()["template"]["sub_templates"],
         }
 
     def test_creates_with_template_values_if_not_provided(self, *args):
         payload: dict = {
-            "template_id": template_webhook.id,
+            "template_id": "template-webhook",
             "type": "destination",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
@@ -330,11 +333,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == template_webhook.hog
-        assert response.json()["inputs_schema"] == template_webhook.inputs_schema
-        assert response.json()["name"] == template_webhook.name
-        assert response.json()["description"] == template_webhook.description
-        assert response.json()["icon_url"] == template_webhook.icon_url
+        assert response.json()["hog"] == webhook_template["hog"].strip()
+        assert response.json()["inputs_schema"] == webhook_template["inputs_schema"]
+        assert response.json()["name"] == webhook_template["name"]
+        assert response.json()["description"] == webhook_template["description"]
+        assert response.json()["icon_url"] == webhook_template["icon_url"]
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
@@ -1187,6 +1190,75 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
 
+    def test_list_with_kind_filters(self, *args):
+        # Create functions with different kinds
+        response_messaging = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "Messaging Campaign",
+                "kind": "messaging_campaign",
+            },
+        )
+        messaging_id = response_messaging.json()["id"]
+
+        response_other = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "Other Function",
+                "kind": "other_kind",
+            },
+        )
+        other_id = response_other.json()["id"]
+
+        response_no_kind = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "No Kind Function",
+            },
+        )
+        no_kind_id = response_no_kind.json()["id"]
+
+        # Test listing all functions
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 3
+
+        # Test filtering by kind
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?kind=messaging_campaign")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == messaging_id
+
+        # Test filtering by multiple kinds
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?kind=messaging_campaign,other_kind")
+        assert len(response.json()["results"]) == 2
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert messaging_id in result_ids
+        assert other_id in result_ids
+
+        # Test excluding by kind
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?exclude_kind=messaging_campaign")
+        assert len(response.json()["results"]) == 2
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert other_id in result_ids
+        assert no_kind_id in result_ids
+        assert messaging_id not in result_ids
+
+        # Test excluding multiple kinds
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?exclude_kind=messaging_campaign,other_kind"
+        )
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == no_kind_id
+
+        # Test combining kind and exclude_kind (should exclude take precedence)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?kind=messaging_campaign,other_kind&exclude_kind=messaging_campaign"
+        )
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == other_id
+
     def test_create_hog_function_with_site_app_type(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1568,8 +1640,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response3.status_code == status.HTTP_201_CREATED
             assert response3.json()["execution_order"] is None
 
-    def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
-        # Create functions with different execution orders and creation times
+    def test_list_hog_functions_ordered_by_execution_order_and_updated_at(self):
+        # Create functions with different execution orders and update times
+        # First create all functions with the same timestamp
         with freeze_time("2024-01-01T00:00:00Z"):
             self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -1580,7 +1653,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             ).json()
 
-        with freeze_time("2024-01-02T00:00:00Z"):
             self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
@@ -1590,7 +1662,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             ).json()
 
-        with freeze_time("2024-01-03T00:00:00Z"):
             self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
@@ -1600,7 +1671,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             ).json()
 
-        with freeze_time("2024-01-04T00:00:00Z"):
             self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
@@ -1923,64 +1993,365 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert "HOG code exceeds maximum size" in update_response.json()["detail"]
             assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
 
-    def test_validation_catches_runtime_exceeded_in_python_vm_for_transformations(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that runtime exceeded errors during validation in our Python VM are properly handled for transformations"""
-            # Create a function with an infinite loop that will exceed the 100ms validation timeout
-            response = self.client.post(
+    def test_transformation_undeletion_puts_at_end(self, *args):
+        """Test that undeleted transformation functions are placed at the end of the execution order sequence."""
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create initial transformations
+            response1 = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
-                    "name": "Slow Function",
+                    "name": "Transform A",
                     "type": "transformation",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
                 },
             )
+            assert response1.status_code == status.HTTP_201_CREATED
 
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
-
-            # Test that the same code is allowed for destinations
-            response = self.client.post(
+            response2 = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
-                    "name": "Slow Function",
-                    "type": "destination",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_validation_catches_memory_exceeded_in_python_vm_for_transformations(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that memory exceeded errors during validation in our Python VM are properly handled for transformations"""
-            memory_hungry_code = """
-                let arr := arrayMap(x -> toString(x), range(10000000));  // Create array with 10M strings
-                return event;
-                """
-
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Memory Hungry Function",
+                    "name": "Transform B",
                     "type": "transformation",
-                    "hog": memory_hungry_code,
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
                 },
             )
+            assert response2.status_code == status.HTTP_201_CREATED
+            fn_b_id = response2.json()["id"]
 
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function needs too much memory" in response.json()["detail"]
+            # Delete function B
+            delete_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{fn_b_id}/",
+                data={"deleted": True},
+            )
+            assert delete_response.status_code == status.HTTP_200_OK
 
-            # Test that the same code is allowed for destinations
-            response = self.client.post(
+            # Create a third function
+            response3 = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
-                    "name": "Memory Hungry Function",
-                    "type": "destination",
-                    "hog": memory_hungry_code,
+                    "name": "Transform C",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
                 },
             )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response3.status_code == status.HTTP_201_CREATED
+            # At this point we should have A with order 1 and C with order 2
+            list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+            results = list_response.json()["results"]
+            transformations = [f for f in results if f["type"] == "transformation"]
+            assert len(transformations) == 2
+
+            # Verify current order
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert fn_orders["Transform A"] == 1
+            assert fn_orders["Transform C"] == 2
+
+            # Now undelete function B
+            undelete_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{fn_b_id}/",
+                data={"deleted": False},
+            )
+            assert undelete_response.status_code == status.HTTP_200_OK
+
+            # Check order - B should now be at the end (order 3)
+            list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+            results = list_response.json()["results"]
+            transformations = [f for f in results if f["type"] == "transformation"]
+            assert len(transformations) == 3
+
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert fn_orders["Transform A"] == 1
+            assert fn_orders["Transform C"] == 2
+            assert fn_orders["Transform B"] == 3
+
+    def test_transformation_reenabling_puts_at_end(self, *args):
+        """Test that re-enabled transformation functions are placed at the end of the execution order sequence."""
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create initial transformations - all enabled
+            response1 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Transform A",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "enabled": True,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
+
+            response2 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Transform B",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "enabled": True,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
+            fn_b_id = response2.json()["id"]
+
+            # Disable function B
+            disable_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{fn_b_id}/",
+                data={"enabled": False},
+            )
+            assert disable_response.status_code == status.HTTP_200_OK
+
+            # Create a third function
+            response3 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Transform C",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "enabled": True,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response3.status_code == status.HTTP_201_CREATED
+
+            # Check current order before re-enabling
+            list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+            results = list_response.json()["results"]
+            transformations = sorted(
+                [f for f in results if f["type"] == "transformation"], key=lambda x: x["execution_order"] or 999
+            )
+
+            # Verify current order (B is disabled but still in the list)
+            fn_orders = {f["name"]: {"order": f["execution_order"], "enabled": f["enabled"]} for f in transformations}
+            assert fn_orders["Transform A"]["order"] == 1
+            assert fn_orders["Transform B"]["order"] == 2 and not fn_orders["Transform B"]["enabled"]
+            assert fn_orders["Transform C"]["order"] == 3
+
+            # Now re-enable function B without specifying an execution_order
+            reenable_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{fn_b_id}/",
+                data={"enabled": True},
+            )
+            assert reenable_response.status_code == status.HTTP_200_OK
+
+            # Check order - B should now be at the end
+            list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+            results = list_response.json()["results"]
+            transformations = sorted(
+                [f for f in results if f["type"] == "transformation"], key=lambda x: x["execution_order"] or 999
+            )
+
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert str(fn_orders["Transform A"]) == "1", "A should still have order 1"
+            assert str(fn_orders["Transform C"]) == "3", "C should remain at order 3"
+            assert str(fn_orders["Transform B"]) == "4", "B should now be at the end (order 4)"
+
+    def test_transformation_normal_execution_order_update(self, *args):
+        """Test updating execution_order for a transformation function directly."""
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create three transformations with consecutive orders
+            response1 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Transform A",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
+
+            response2 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Transform B",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
+            fn_b_id = response2.json()["id"]
+
+            response3 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Transform C",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response3.status_code == status.HTTP_201_CREATED
+
+            # Verify initial order: A=1, B=2, C=3
+            list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+            results = list_response.json()["results"]
+            transformations = [f for f in results if f["type"] == "transformation"]
+            assert len(transformations) == 3
+
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert str(fn_orders["Transform A"]) == "1"
+            assert str(fn_orders["Transform B"]) == "2"
+            assert str(fn_orders["Transform C"]) == "3"
+
+            # Test 1: Update B's execution_order to match A (both will have order 1)
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{fn_b_id}/",
+                data={"execution_order": 1},
+            )
+            assert update_response.status_code == status.HTTP_200_OK
+
+            # Check the updated orders
+            list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+            results = list_response.json()["results"]
+            transformations = [f for f in results if f["type"] == "transformation"]
+
+            # Order by function name for verification
+            fn_orders = {f["name"]: f["execution_order"] for f in transformations}
+            assert str(fn_orders["Transform A"]) == "1", "A should still have order 1"
+            assert str(fn_orders["Transform B"]) == "1", "B should now have order 1"
+            assert str(fn_orders["Transform C"]) == "3", "C should remain at order 3"
+
+            # In results, B should be first because it was most recently updated
+            names_in_order = [f["name"] for f in transformations]
+            assert names_in_order[0] == "Transform B", "B should be first (order 1, most recently updated)"
+            assert names_in_order[1] == "Transform A", "A should be second (order 1, updated earlier)"
+            assert names_in_order[2] == "Transform C", "C should be last (order 3)"
+
+    def test_create_in_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL With Folder",
+                "hog": "fetch(inputs.url);",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                },
+                "_create_in_folder": "Special/Hog Destinations",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        hog_function_id = response.json()["id"]
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            type="hog_function/destination",
+            ref=str(hog_function_id),
+        ).first()
+        assert fs_entry is not None, "No FileSystem entry was created for this HogFunction."
+        assert "Special/Hog Destinations" in fs_entry.path
+
+    def test_hog_function_template_fk_set_on_create(self):
+        """
+        When creating a HogFunction with a template_id, the hog_function_template FK should be set to the latest template.
+        When creating without a template_id, the FK should be null.
+        """
+        from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        # Create a template in the DB
+        db_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-fk-test",
+            sha="abcdef",
+            name="FK Test Template",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="alpha",
+            category=[],
+        )
+
+        # Create a HogFunction with template_id
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "FK Test Function",
+                "hog": "return event",
+                "type": "destination",
+                "template_id": "template-fk-test",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 201, response.json()
+        hog_function_id = response.json()["id"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.hog_function_template is not None, "FK should be set when template_id is provided"
+        assert hog_function.hog_function_template.id == db_template.id, "FK should point to the correct template"
+
+        # Create a HogFunction without template_id
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "No Template FK",
+                "hog": "return event",
+                "type": "destination",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 201, response.json()
+        hog_function_id = response.json()["id"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.hog_function_template is None, "FK should be null when template_id is not provided"
+
+    def test_hog_function_template_fk_validation_error_on_missing_template(self):
+        """
+        Creating a HogFunction with a template_id that does not exist in the DB should raise a validation error and not create the object.
+        """
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        initial_count = HogFunction.objects.count()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Should Fail",
+                "hog": "return event",
+                "type": "destination",
+                "template_id": "nonexistent-template-id",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "template_id"
+        assert "No template found for id 'nonexistent-template-id'" in response.json()["detail"]
+        assert HogFunction.objects.count() == initial_count, "No HogFunction should be created on error"

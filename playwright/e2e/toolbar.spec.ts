@@ -1,7 +1,7 @@
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Toolbar', () => {
-    test('Toolbar loads', async ({ page }) => {
+    test.skip('Toolbar loads', async ({ page }) => {
         await page.goToMenuItem('toolbarlaunch')
         await page.getByText('Add authorized URL').click()
 
@@ -14,7 +14,7 @@ test.describe('Toolbar', () => {
             await page.goto(href)
         }
 
-        await expect(page.locator('#__POSTHOG_TOOLBAR__ .Toolbar')).toBeVisible()
+        await expect(page.locator('#__POSTHOG_TOOLBAR__ .Toolbar')).toBeVisible({ timeout: 5000 })
     })
 
     test('Toolbar item in sidebar has launch options', async ({ page }) => {

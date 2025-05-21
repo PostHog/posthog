@@ -337,17 +337,20 @@ fn test_property_timestamp_rejections() {
         Some(PropertyValueType::Numeric)
     );
 
-    // without a keyword in the property key, these older
-    // UNIX timestamp values will be classified as a number
+    // without a keyword in the property key, even recent, valid
+    // UNIX timestamp values will be classified as Numeric
     assert_eq!(
         detect_property_type(
             "hedgehogs_enumerated",
-            &Value::Number(serde_json::Number::from(1639400730))
+            &Value::Number(Number::from(Utc::now().timestamp_millis() as u64 / 1000u64))
         ),
         Some(PropertyValueType::Numeric)
     );
     assert_eq!(
-        detect_property_type("not_a_thyme", &Value::Number(Number::from(1639400730))),
+        detect_property_type(
+            "thyme_stamp",
+            &Value::Number(Number::from(Utc::now().timestamp_millis() as u64 / 1000u64))
+        ),
         Some(PropertyValueType::Numeric)
     );
 

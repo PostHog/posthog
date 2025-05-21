@@ -1,7 +1,8 @@
 # serializer version: 1
 # name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner
   '''
-  SELECT groupArray(5)(prop), count()
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT groups.properties___industry AS prop
      FROM
@@ -22,12 +23,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner.1
   '''
-  SELECT groupArray(5)(prop), count()
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT groups.`properties___does not exist` AS prop
      FROM
@@ -48,12 +51,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner.2
   '''
-  SELECT groupArray(5)(prop), count()
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT groups.properties___employee_count AS prop
      FROM
@@ -74,12 +79,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_max_value_count
   '''
-  SELECT groupArray(1)(prop), count()
+  SELECT groupArray(1)(prop) AS `groupArray(1)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.properties___age AS prop
      FROM
@@ -92,7 +99,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -102,12 +110,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner
   '''
-  SELECT groupArray(5)(prop), count()
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.properties___email AS prop
      FROM
@@ -120,7 +130,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -130,12 +141,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner.1
   '''
-  SELECT groupArray(5)(prop), count()
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.`properties___does not exist` AS prop
      FROM
@@ -148,7 +161,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -158,12 +172,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner.2
   '''
-  SELECT groupArray(5)(prop), count()
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`
   FROM
     (SELECT DISTINCT persons.properties___age AS prop
      FROM
@@ -176,7 +192,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -186,6 +203,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

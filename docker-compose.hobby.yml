@@ -86,6 +86,7 @@ services:
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
@@ -105,6 +106,7 @@ services:
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
         depends_on:
@@ -126,10 +128,12 @@ services:
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
         depends_on:
             - db
             - redis
@@ -282,11 +286,11 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${POSTHOG_SECRET}
+            - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
         ports:
             - '8666:8080'
         volumes:
-            - ./posthog/docker/livestream/configs-dev.yml:/configs/configs.yml
+            - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
 volumes:
     zookeeper-data:

@@ -1,7 +1,6 @@
 import './Login.scss'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -15,7 +14,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { loginLogic } from './loginLogic'
-import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
 
@@ -52,21 +51,12 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError, signupUrl } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
-
-    useEffect(() => {
-        if (preflight?.cloud) {
-            try {
-                redirectIfLoggedInOtherInstance()
-            } catch (e) {
-                captureException(e)
-            }
-        }
-    }, [])
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -86,6 +76,7 @@ export function Login(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
+            {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
@@ -170,7 +161,7 @@ export function Login(): JSX.Element {
                 {preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
-                        <Link to="/signup" data-attr="signup" className="font-bold">
+                        <Link to={signupUrl} data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
                     </div>

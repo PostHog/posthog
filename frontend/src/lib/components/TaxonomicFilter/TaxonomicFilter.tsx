@@ -8,9 +8,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -68,11 +68,12 @@ export function TaxonomicFilter({
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
         useVerticalLayout,
+        autoSelectItem: true,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { searchQuery, searchPlaceholder, activeTab } = useValues(logic)
-    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
+    const { activeTab } = useValues(logic)
+    const [refReady, setRefReady] = useState(false)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -80,12 +81,17 @@ export function TaxonomicFilter({
         }
     }, [groupType])
 
+    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
+    useEffect(() => {
+        if (taxonomicFilterRef.current) {
+            setRefReady(true)
+        }
+    }, [taxonomicFilterRef.current])
+
     const style = {
         ...(width ? { width } : {}),
         ...(height ? { height } : {}),
     }
-
-    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
@@ -102,66 +108,98 @@ export function TaxonomicFilter({
             >
                 {activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1 ? (
                     <div className="relative">
-                        <LemonInput
-                            data-attr="taxonomic-filter-searchfield"
-                            type="search"
-                            fullWidth
-                            placeholder={`Search ${searchPlaceholder}`}
-                            value={searchQuery}
-                            suffix={
-                                <Tooltip
-                                    title={
-                                        <>
-                                            You can easily navigate between tabs with your keyboard.{' '}
-                                            <div>
-                                                Use <b>tab</b> to move to the next tab.
-                                            </div>
-                                            <div>
-                                                Use <b>shift + tab</b> to move to the previous tab.
-                                            </div>
-                                        </>
-                                    }
-                                >
-                                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
-                                </Tooltip>
-                            }
-                            onKeyDown={(e) => {
-                                let shouldPreventDefault = true
-                                switch (e.key) {
-                                    case 'ArrowUp':
-                                        moveUp()
-                                        break
-                                    case 'ArrowDown':
-                                        moveDown()
-                                        break
-                                    case 'Tab':
-                                        e.shiftKey ? tabLeft() : tabRight()
-                                        break
-                                    case 'Enter':
-                                        selectSelected()
-                                        break
-                                    case 'Escape':
-                                        onClose?.()
-                                        break
-                                    default:
-                                        shouldPreventDefault = false
-                                }
-                                if (shouldPreventDefault) {
-                                    e.preventDefault()
-                                }
-                            }}
-                            inputRef={searchInputRef}
-                            onChange={(newValue) => setSearchQuery(newValue)}
-                        />
+                        <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
                     </div>
                 ) : null}
-                <InfiniteSelectResults
-                    focusInput={focusInput}
-                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                    popupAnchorElement={taxonomicFilterRef.current}
-                    useVerticalLayout={useVerticalLayout}
-                />
+                {refReady && (
+                    <InfiniteSelectResults
+                        focusInput={focusInput}
+                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        popupAnchorElement={taxonomicFilterRef.current}
+                        useVerticalLayout={useVerticalLayout}
+                    />
+                )}
             </div>
         </BindLogic>
     )
 }
+
+export const TaxonomicFilterSearchInput = forwardRef<
+    HTMLInputElement,
+    {
+        searchInputRef: React.Ref<HTMLInputElement> | null
+        onClose: TaxonomicFilterProps['onClose']
+    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'>
+>(function UniversalSearchInput({ searchInputRef, onClose, onChange, ...props }, ref): JSX.Element {
+    const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
+    const {
+        setSearchQuery: setTaxonomicSearchQuery,
+        moveUp,
+        moveDown,
+        tabLeft,
+        tabRight,
+        selectSelected,
+    } = useActions(taxonomicFilterLogic)
+
+    const _onChange = (query: string): void => {
+        setTaxonomicSearchQuery(query)
+        onChange?.(query)
+    }
+
+    return (
+        <LemonInput
+            {...props}
+            ref={ref}
+            data-attr="taxonomic-filter-searchfield"
+            type="search"
+            fullWidth
+            placeholder={`Search ${searchPlaceholder}`}
+            value={searchQuery}
+            suffix={
+                <Tooltip
+                    title={
+                        <>
+                            You can easily navigate between tabs with your keyboard.{' '}
+                            <div>
+                                Use <b>tab</b> to move to the next tab.
+                            </div>
+                            <div>
+                                Use <b>shift + tab</b> to move to the previous tab.
+                            </div>
+                        </>
+                    }
+                >
+                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                </Tooltip>
+            }
+            onKeyDown={(e) => {
+                let shouldPreventDefault = true
+                switch (e.key) {
+                    case 'ArrowUp':
+                        moveUp()
+                        break
+                    case 'ArrowDown':
+                        moveDown()
+                        break
+                    case 'Tab':
+                        e.shiftKey ? tabLeft() : tabRight()
+                        break
+                    case 'Enter':
+                        selectSelected()
+                        break
+                    case 'Escape':
+                        _onChange('')
+                        onClose?.()
+                        break
+                    default:
+                        shouldPreventDefault = false
+                }
+                if (shouldPreventDefault) {
+                    e.preventDefault()
+                }
+            }}
+            inputRef={searchInputRef}
+            onChange={_onChange}
+        />
+    )
+})

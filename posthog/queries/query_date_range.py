@@ -35,6 +35,7 @@ class QueryDateRange:
     _team: Team
     _table: str
     _should_round: Optional[bool]
+    _earliest_timestamp_fallback: Optional[datetime]
 
     def __init__(
         self,
@@ -42,12 +43,14 @@ class QueryDateRange:
         team: Team,
         should_round: Optional[bool] = None,
         table="",
+        earliest_timestamp_fallback: Optional[datetime] = None,
     ) -> None:
         filter.team = team  # This is a dirty - but the easiest - way to get the team into the filter
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
         self._should_round = should_round
+        self._earliest_timestamp_fallback = earliest_timestamp_fallback
 
     @cached_property
     def date_to_param(self) -> datetime:
@@ -71,6 +74,9 @@ class QueryDateRange:
         return date_to
 
     def get_earliest_timestamp(self):
+        if self._earliest_timestamp_fallback:
+            return self._earliest_timestamp_fallback
+
         return get_earliest_timestamp(self._team.pk)
 
     @property

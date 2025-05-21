@@ -325,6 +325,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # project tree and file system related replacements
+    query = re.sub(
+        r"\"href\" = '[^']+'",
+        "\"href\" = '__skipped__'",
+        query,
+    )
+
     return query
 
 
@@ -1030,7 +1037,8 @@ def failhard_threadhook_context():
 
     def raise_hook(args: threading.ExceptHookArgs):
         if args.exc_value is not None:
-            raise args.exc_type(args.exc_value)
+            exc = args.exc_type(args.exc_value).with_traceback(args.exc_traceback)
+            raise AssertionError from exc  # Must be an AssertionError to fail tests
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:

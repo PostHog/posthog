@@ -8,7 +8,7 @@ import { pipelineTransformationsLogic } from './transformationsLogic'
 
 export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
     path(['scenes', 'pipeline', 'overviewLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -27,5 +27,5 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                 'loadBatchExports as loadBatchExportConfigs',
             ],
         ],
-    }),
+    })),
 ])

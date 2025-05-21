@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,7 +18,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
     key((props: GroupsListLogicProps) => props.groupTypeIndex),
     path(['groups', 'groupsListLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -27,9 +27,10 @@ export const groupsListLogic = kea<groupsListLogicType>([
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
-    }),
+    })),
     actions(() => ({
         setQuery: (query: DataTableNode) => ({ query }),
+        setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
     })),
     reducers({
         query: [
@@ -48,14 +49,18 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },
         ],
-    }),
-    selectors({
-        groupTypeName: [
-            (s, p) => [s.aggregationLabel, p.groupTypeIndex],
-            (aggregationLabel, groupTypeIndex): string =>
-                groupTypeIndex ? aggregationLabel(groupTypeIndex).singular : 'Group',
+        queryWasModified: [
+            false,
+            {
+                setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
+            },
         ],
     }),
+    listeners(({ actions }) => ({
+        setQuery: () => {
+            actions.setQueryWasModified(true)
+        },
+    })),
     afterMount(({ actions, values }) => {
         if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
             const defaultColumns = values.groupTypes.get(
@@ -68,6 +73,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     select: defaultColumns ?? defaultDataTableColumns(NodeKind.GroupsQuery),
                 },
             })
+            actions.setQueryWasModified(false)
         }
     }),
 ])

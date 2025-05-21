@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path } from 'kea'
+import { events, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -14,7 +14,6 @@ export const variableDataLogic = kea<variableDataLogicType>([
             {
                 getVariables: async () => {
                     const insights = await api.insightVariables.list()
-
                     return insights.results
                 },
                 deleteVariable: async (variableId: string) => {
@@ -28,5 +27,10 @@ export const variableDataLogic = kea<variableDataLogicType>([
                 },
             },
         ],
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.getVariables()
+        },
     })),
 ])

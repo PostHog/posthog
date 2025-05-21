@@ -33,9 +33,9 @@ export type ProductConfigOption = ProductConfigurationToggle | ProductConfigurat
 
 export const onboardingProductConfigurationLogic = kea<onboardingProductConfigurationLogicType>([
     path(() => ['scenes', 'onboarding', 'onboardingProductConfigurationLogic']),
-    connect({
+    connect(() => ({
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions({
         setConfigOptions: (configOptions: ProductConfigOption[]) => ({ configOptions }),
         saveConfiguration: true,

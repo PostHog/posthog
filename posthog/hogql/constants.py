@@ -59,7 +59,11 @@ class LimitContext(StrEnum):
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
-    if limit_context in (LimitContext.EXPORT, LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+    if limit_context in (
+        LimitContext.EXPORT,
+        LimitContext.QUERY,
+        LimitContext.QUERY_ASYNC,
+    ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
@@ -117,3 +121,9 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
     allow_experimental_analyzer: Optional[bool] = None
     transform_null_in: Optional[bool] = True
+    # A bugfix workaround that stops clauses that look like
+    # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
+    # which can cause an error like `Not found column if(in(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8) in block.
+    # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
+    # https://github.com/ClickHouse/ClickHouse/issues/64487
+    optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295

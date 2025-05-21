@@ -113,6 +113,7 @@ pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     partition: Option<OverflowLimiter>,
     main_topic: String,
+    overflow_topic: String,
     historical_topic: String,
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
@@ -138,6 +139,10 @@ impl KafkaSink {
             .set(
                 "metadata.max.age.ms",
                 config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "topic.metadata.refresh.interval.ms",
+                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
             )
             .set(
                 "message.send.max.retries",
@@ -193,6 +198,7 @@ impl KafkaSink {
             producer,
             partition,
             main_topic: config.kafka_topic,
+            overflow_topic: config.kafka_overflow_topic,
             historical_topic: config.kafka_historical_topic,
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
@@ -231,9 +237,20 @@ impl KafkaSink {
                     None => false,
                     Some(partition) => partition.is_limited(&event_key),
                 };
+
                 if is_limited {
-                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
+                    // Analytics overflow goes to the overflow topic
+                    // we configure to retain partition key or not.
+                    // if is_limited is true, the OverflowLimiter is
+                    // configured and is safe to unwrap here.
+                    if self.partition.as_ref().unwrap().should_preserve_locality() {
+                        (&self.overflow_topic, Some(event_key.as_str()))
+                    } else {
+                        (&self.overflow_topic, None)
+                    }
                 } else {
+                    // event_key is "<token>:<distinct_id>" for std events or
+                    // "<token>:<ip_addr>" for cookieless events
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
@@ -282,7 +299,9 @@ impl KafkaSink {
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
                     report_dropped_events("kafka_message_size", 1);
-                    Err(CaptureError::EventTooBig)
+                    Err(CaptureError::EventTooBig(
+                        "Event rejected by kafka during send".to_string(),
+                    ))
                 }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
@@ -305,7 +324,9 @@ impl KafkaSink {
             Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
                 // Rejected by broker due to message size
                 report_dropped_events("kafka_message_size", 1);
-                Err(CaptureError::EventTooBig)
+                Err(CaptureError::EventTooBig(
+                    "Event rejected by kafka broker during ack".to_string(),
+                ))
             }
             Ok(Err((err, _))) => {
                 // Unretriable produce error
@@ -400,16 +421,19 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
+            false,
         ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
+            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
@@ -518,7 +542,7 @@ mod tests {
         };
 
         match sink.send(big_event).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),
             Ok(()) => panic!("should have errored"),
         };
@@ -528,7 +552,7 @@ mod tests {
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),
             Ok(()) => panic!("should have errored"),
         };

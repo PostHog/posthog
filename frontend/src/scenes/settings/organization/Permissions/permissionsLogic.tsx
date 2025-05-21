@@ -31,10 +31,10 @@ const ResourceAccessLevelMapping: Record<Resource, string> = {
 
 export const permissionsLogic = kea<permissionsLogicType>([
     path(['scenes', 'organization', 'Settings', 'Permissions', 'permissionsLogic']),
-    connect({
+    connect(() => ({
         values: [rolesLogic, ['roles']],
         actions: [rolesLogic, ['updateRole']],
-    }),
+    })),
     actions({
         updatePermission: (
             checked: boolean,
@@ -57,13 +57,12 @@ export const permissionsLogic = kea<permissionsLogicType>([
                         return values.organizationResourcePermissions.map((permission) =>
                             permission.id == response.id ? response : permission
                         )
-                    } else {
-                        const response = await api.resourcePermissions.create({
-                            resource: resource,
-                            access_level: access_level,
-                        })
-                        return [...values.organizationResourcePermissions, response]
                     }
+                    const response = await api.resourcePermissions.create({
+                        resource: resource,
+                        access_level: access_level,
+                    })
+                    return [...values.organizationResourcePermissions, response]
                 },
             },
         ],

@@ -1,5 +1,6 @@
 import collections.abc
 import contextlib
+import math
 import typing
 from datetime import date, datetime
 
@@ -13,7 +14,10 @@ from posthog.temporal.data_imports.pipelines.bigquery import bigquery_client
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.warehouse.types import IncrementalFieldType
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
 @contextlib.contextmanager
@@ -29,12 +33,41 @@ def bigquery_storage_read_client(
             "client_email": client_email,
             "project_id": project_id,
         },
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    client = bigquery_storage.BigQueryReadClient(credentials=credentials)
+    client = bigquery_storage.BigQueryReadClient(
+        credentials=credentials,
+    )
 
     yield client
+
+
+def get_partition_settings(
+    table: bigquery.Table,
+    client: bigquery.Client,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+) -> PartitionSettings | None:
+    """Get partition settings for given BigQuery table.
+
+    The `bigquery.Table` is refreshed to obtain latest number of rows and number
+    of bytes. This will fail if the table doesn't exist.
+    """
+    table = client.get_table(table)
+
+    if not table.num_rows or not table.num_bytes:
+        return None
+
+    avg_row_size = table.num_bytes / table.num_rows
+
+    # Partition must have at least one row
+    partition_size = max(round(partition_size_bytes / avg_row_size), 1)
+    partition_count = math.floor(table.num_rows / partition_size)
+
+    if partition_count == 0:
+        return PartitionSettings(partition_count=1, partition_size=partition_size)
+
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
 def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
@@ -86,6 +119,7 @@ def bigquery_source(
     db_incremental_field_last_value: typing.Any,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> SourceResponse:
     """Produce a pipeline source for BigQuery.
 
@@ -105,6 +139,7 @@ def bigquery_source(
     ) as bq_client:
         bq_table = bq_client.get_table(fully_qualified_table_name)
         primary_keys = get_primary_keys(bq_table, bq_client)
+        partition_settings = get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
 
     def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
         with bigquery_client(
@@ -149,7 +184,7 @@ def bigquery_source(
 
                 bq_table = bq_client.get_table(destination_table)
 
-            elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW"):
+            elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL"):
                 # BigQuery storage API does not support reading directly from views or
                 # materialized views. So, similarly to incremental runs, we must copy the
                 # results to a temporary table first. In the case of an incremental sync,
@@ -216,4 +251,10 @@ def bigquery_source(
                 if record_batches:
                     yield pa.Table.from_batches(record_batches)
 
-    return SourceResponse(name=name, items=get_rows(DEFAULT_TABLE_SIZE_BYTES), primary_keys=primary_keys)
+    return SourceResponse(
+        name=name,
+        items=get_rows(DEFAULT_TABLE_SIZE_BYTES),
+        primary_keys=primary_keys,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
+    )

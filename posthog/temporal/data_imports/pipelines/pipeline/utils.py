@@ -11,6 +11,7 @@ from typing import Any, Optional
 import deltalake as deltalake
 import numpy as np
 import orjson
+import posthoganalytics
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
@@ -20,13 +21,22 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
     PartitionMode,
     SourceResponse,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
+from posthog.warehouse.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -285,14 +295,22 @@ def should_partition_table(
 
 
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
+    used_names = set()
+
     for column_name in table.column_names:
         normalized_column_name = normalize_column_name(column_name)
-        if normalized_column_name != column_name:
+        temp_name = normalized_column_name
+
+        if temp_name != column_name:
+            while temp_name in used_names or temp_name in table.column_names:
+                temp_name = "_" + temp_name
+
             table = table.set_column(
                 table.schema.get_field_index(column_name),
-                normalized_column_name,
+                temp_name,
                 table.column(column_name),  # type: ignore
             )
+            used_names.add(temp_name)
 
     return table
 
@@ -303,6 +321,7 @@ def append_partition_key_to_table(
     partition_size: int,
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
 ) -> tuple[pa.Table, PartitionMode, list[str]]:
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
@@ -345,11 +364,17 @@ def append_partition_key_to_table(
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
+
+                if partition_format == "day":
+                    date_format = "%Y-%m-%d"
+                else:
+                    date_format = "%Y-%m"
+
                 if isinstance(date, int):
                     date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
             else:
@@ -377,9 +402,32 @@ def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: 
     return last_value
 
 
-def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
-    schema.last_synced_at = job.created_at
-    schema.save()
+def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    try:
+        if (
+            schema.name == STRIPE_CHARGE_RESOURCE_NAME
+            and schema.source.source_type == ExternalDataSource.Type.STRIPE
+            and schema.source.revenue_analytics_enabled
+            and not schema.team.revenue_analytics_config.notified_first_sync
+        ):
+            # For every admin in the org, send a revenue analytics ready event
+            # This will trigger a Campaign in PostHog and send an email
+            for user in schema.team.all_users_with_access():
+                if user.distinct_id is not None:
+                    posthoganalytics.capture(
+                        user.distinct_id,
+                        "revenue_analytics_ready",
+                        {"source_type": schema.source.source_type},
+                    )
+
+            # Mark the team as notified, avoiding spamming emails
+            schema.team.revenue_analytics_config.notified_first_sync = True
+            schema.team.revenue_analytics_config.save()
+    except Exception as e:
+        # Silently fail, we don't want this to crash the pipeline
+        # Sending an email is not critical to the pipeline
+        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
+        capture_exception(e)
 
 
 def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
@@ -581,6 +629,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if pa.types.is_binary(field.type):
                 drop_column_names.add(field_name)
 
+            # Ensure duration columns have the correct arrow type
+            col = columnar_table_data[field_name]
+            if (
+                isinstance(col, pa.Array)
+                and pa.types.is_duration(col.type)
+                and not pa.types.is_duration(arrow_schema.field(field_index).type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(col.type))
+
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
             uuid_str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
@@ -720,3 +777,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
+
+
+def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
+    """
+    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
+    the approach.
+    """
+    return schema.source.source_type == ExternalDataSource.Type.STRIPE

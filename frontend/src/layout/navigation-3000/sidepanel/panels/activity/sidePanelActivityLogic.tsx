@@ -45,10 +45,10 @@ export enum SidePanelActivityTab {
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
@@ -105,7 +105,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
 
-                    if (!latestNotification.unread) {
+                    const hasUnread = values.notifications.some((ic) => ic.unread)
+
+                    if (!hasUnread) {
                         return current
                     }
 

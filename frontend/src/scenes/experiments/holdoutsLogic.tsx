@@ -43,9 +43,9 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
         deleteHoldout: (id: number | null) => ({ id }),
         loadHoldout: (id: number | null) => ({ id }),
     }),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentHoldoutCreated']],
-    }),
+    })),
     reducers({
         holdout: [
             NEW_HOLDOUT,

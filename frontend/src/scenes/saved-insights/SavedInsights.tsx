@@ -10,8 +10,10 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLive,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -46,11 +48,12 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -58,6 +61,7 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     InsightType,
@@ -80,38 +84,51 @@ export interface InsightTypeMetadata {
     tooltipDescription?: string
     icon: (props?: any) => JSX.Element | null
     inMenu: boolean
+    tooltipDocLink?: string
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
+    [NodeKind.CalendarHeatmapQuery]: {
+        name: 'Calendar Heatmap',
+        description: 'Visualize total or unique users broken down by day and hour.',
+        icon: IconHogQL,
+        inMenu: true,
+        // tooltipDescription TODO: Add tooltip description
+    },
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time.',
         icon: IconTrends,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/trends/overview',
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: IconFunnels,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/funnels',
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/retention',
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
         icon: IconUserPaths,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: IconStickiness,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/stickiness',
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
@@ -120,6 +137,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
             "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include anonymous events and users/groups appear as new when they are first identified.",
         icon: IconLifecycle,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },
     [NodeKind.FunnelCorrelationQuery]: {
         name: 'Funnel Correlation',
@@ -253,6 +271,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
+        name: 'Revenue Analytics Growth Rate',
+        description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website.',
@@ -286,6 +322,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebVitalsPathBreakdownQuery]: {
         name: 'Web vitals path breakdown',
         description: 'View web vitals broken down by path.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebPageURLSearchQuery]: {
+        name: 'Web Page URL Search',
+        description: 'Search and analyze web page URLs.',
         icon: IconPieChart,
         inMenu: true,
     },
@@ -398,6 +440,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.LogsQuery]: {
+        name: 'Logs',
+        icon: IconLive,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -407,6 +454,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
+    [InsightType.CALENDAR_HEATMAP]: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery],
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
@@ -461,7 +509,7 @@ export function InsightIcon({
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
-        <LemonButton
+        <AccessControlledLemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -469,16 +517,19 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr),
+                    overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
             size="small"
             icon={<IconPlusSmall />}
+            resourceType={AccessControlResourceType.Insight}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
             New insight
-        </LemonButton>
+        </AccessControlledLemonButton>
     )
 }
 
@@ -561,7 +612,7 @@ export function SavedInsights(): JSX.Element {
 
                                     <AccessControlledLemonButton
                                         userAccessLevel={insight.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.Insight}
                                         className="ml-1"
                                         size="xsmall"
@@ -632,7 +683,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     to={urls.insightEdit(insight.short_id)}
                                     fullWidth
@@ -642,7 +693,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
@@ -663,7 +714,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     status="danger"
                                     onClick={() =>

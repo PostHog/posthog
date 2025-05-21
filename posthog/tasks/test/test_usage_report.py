@@ -156,6 +156,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
 
+        # Clear existing data
+        sync_execute("TRUNCATE TABLE events")
+        sync_execute("TRUNCATE TABLE person")
+        sync_execute("TRUNCATE TABLE person_distinct_id")
+
         self.expected_properties: dict = {}
 
     def _create_sample_usage_data(self, include_mobile_replay: bool) -> None:
@@ -391,6 +396,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 "posthog-ruby",
                 "posthog-python",
                 "posthog-php",
+                "posthog-dotnet",
+                "posthog-elixir",
             ]
 
             for sdk in sdks:
@@ -546,7 +553,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ruby_events_count_in_period": 1,
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
-                    "dotnet_events_count_in_period": 0,
+                    "dotnet_events_count_in_period": 1,
+                    "elixir_events_count_in_period": 1,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
                     "mobile_recording_bytes_in_period": 6,
@@ -610,7 +618,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 1,
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
-                            "dotnet_events_count_in_period": 0,
+                            "dotnet_events_count_in_period": 1,
+                            "elixir_events_count_in_period": 1,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -669,6 +678,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
+                            "elixir_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
                             "mobile_recording_bytes_in_period": 6,
@@ -750,6 +760,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "python_events_count_in_period": 0,
                     "php_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 0,
+                    "elixir_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_bytes_in_period": 0,
@@ -814,6 +825,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
+                            "elixir_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -1641,13 +1653,6 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
             timestamp=now() - relativedelta(days=20),
             team=self.analytics_team,
         )
-        # sentry events excluded
-        _create_event(
-            distinct_id="4",
-            event="$exception",
-            properties={"$sentry_event_id": "some id"},
-            team=self.org_1_team_1,
-        )
 
         flush_persons_and_events()
 
@@ -2061,3 +2066,245 @@ class SendUsageNoLicenseTest(APIBaseTest):
         # This field is not included in the original team query, so should require an additional query
         with self.assertNumQueries(1):
             _ = team.organization.for_internal_metrics
+
+
+class TestQuerySplitting(ClickhouseTestMixin, TestCase):
+    team: Team = None  # type: ignore
+    begin: datetime = None  # type: ignore
+    end: datetime = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        # Clear existing ClickHouse data
+        sync_execute("TRUNCATE TABLE events")
+        sync_execute("TRUNCATE TABLE person")
+        sync_execute("TRUNCATE TABLE person_distinct_id")
+
+        # Clear existing Django data
+        Team.objects.all().delete()
+        Organization.objects.all().delete()
+
+        # Create a fresh team for testing
+        cls.team = Team.objects.create(organization=Organization.objects.create(name="test"))
+        # Create test events across a time period
+        cls.begin = datetime(2023, 1, 1, 0, 0)
+        cls.end = datetime(2023, 1, 2, 0, 0)
+
+        # Create 10 events in the time period
+        for i in range(10):
+            _create_event(
+                event="test_event",
+                team=cls.team,
+                distinct_id=f"user_{i}",
+                timestamp=cls.begin + relativedelta(hours=i),
+                properties={},
+                person_mode="propertyless",
+            )
+
+        # Create some events with person_mode for enhanced persons test
+        for i in range(5):
+            _create_event(
+                event="enhanced_event",
+                team=cls.team,
+                distinct_id=f"enhanced_user_{i}",
+                timestamp=cls.begin + relativedelta(hours=i),
+                properties={"$lib": "web"},
+                person_mode="full",
+            )
+
+        # Create survey sent and feature flag called events
+        for i in range(3):
+            _create_event(
+                event="survey sent",
+                team=cls.team,
+                distinct_id=f"survey_user_{i}",
+                timestamp=cls.begin + relativedelta(hours=i),
+                properties={"survey_id": f"survey_{i}"},
+                person_mode="full",
+            )
+
+        for i in range(3):
+            _create_event(
+                event="$feature_flag_called",
+                team=cls.team,
+                distinct_id=f"ff_user_{i}",
+                timestamp=cls.begin + relativedelta(hours=i),
+                properties={"$feature_flag": f"flag_{i}"},
+                person_mode="full",
+            )
+
+        flush_persons_and_events()
+
+    def setUp(self) -> None:
+        # Copy class attributes to instance attributes
+        self.team = self.__class__.team
+        self.begin = self.__class__.begin
+        self.end = self.__class__.end
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
+        """Test that _execute_split_query correctly splits the time period and combines results."""
+        # Mock the sync_execute to return test data
+        mock_sync_execute.side_effect = [
+            [(self.team.id, 5)],  # First split returns 5 events
+            [(self.team.id, 5)],  # Second split returns 5 events
+        ]
+
+        # Test with 2 splits
+        query_template = """
+            SELECT team_id, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id
+        """
+
+        from posthog.tasks.usage_report import _execute_split_query
+
+        result = _execute_split_query(
+            begin=self.begin, end=self.end, query_template=query_template, params={}, num_splits=2
+        )
+
+        # Verify sync_execute was called twice with different time ranges
+        self.assertEqual(mock_sync_execute.call_count, 2)
+
+        # First call should use the first half of the time range
+        first_call_args = mock_sync_execute.call_args_list[0][0]
+        self.assertEqual(first_call_args[1]["begin"], self.begin)
+        mid_point = self.begin + (self.end - self.begin) / 2
+        self.assertEqual(first_call_args[1]["end"], mid_point)
+
+        # Second call should use the second half of the time range
+        second_call_args = mock_sync_execute.call_args_list[1][0]
+        self.assertEqual(second_call_args[1]["begin"], mid_point)
+        self.assertEqual(second_call_args[1]["end"], self.end)
+
+        # Result should combine both splits (5 + 5 = 10)
+        self.assertEqual(result, [(self.team.id, 10)])
+
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_execute_split_query_with_custom_combiner(self, mock_sync_execute: MagicMock) -> None:
+        """Test that _execute_split_query works with a custom result combiner function."""
+        # Mock the sync_execute to return test data for event metrics
+        mock_sync_execute.side_effect = [
+            [(self.team.id, "web_events", 3)],  # First split
+            [(self.team.id, "web_events", 2), (self.team.id, "mobile_events", 1)],  # Second split
+        ]
+
+        # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
+        def custom_combiner(results_list: list) -> dict[str, list[tuple[int, int]]]:
+            metrics: dict[str, dict[int, int]] = {
+                "web_events": {},
+                "mobile_events": {},
+            }
+
+            for results in results_list:
+                for team_id, metric, count in results:
+                    if team_id in metrics[metric]:
+                        metrics[metric][team_id] += count
+                    else:
+                        metrics[metric][team_id] = count
+
+            return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
+
+        query_template = """
+            SELECT team_id, 'web_events' as metric, count(1) as count
+            FROM events
+            WHERE timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY team_id, metric
+        """
+
+        from posthog.tasks.usage_report import _execute_split_query
+
+        result = _execute_split_query(
+            begin=self.begin,
+            end=self.end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
+            combine_results_func=custom_combiner,
+        )
+
+        # Verify the custom combiner worked correctly
+        self.assertEqual(result["web_events"], [(self.team.id, 5)])
+        self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
+
+    def test_get_teams_with_billable_event_count_in_period(self) -> None:
+        """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting."""
+        from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
+
+        # Run the function with our test data
+        result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+
+        # We should get 10 events for our team
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.team.id)
+        self.assertEqual(result[0][1], 15)
+
+        # Test with count_distinct=True
+        result_distinct = get_teams_with_billable_event_count_in_period(self.begin, self.end, count_distinct=True)
+        self.assertEqual(len(result_distinct), 1)
+        self.assertEqual(result_distinct[0][0], self.team.id)
+        # Should still be 15 since we created 15 distinct events
+        self.assertEqual(result_distinct[0][1], 15)
+
+    def test_get_teams_with_billable_enhanced_persons_event_count_in_period(self) -> None:
+        """Test that get_teams_with_billable_enhanced_persons_event_count_in_period returns correct results after splitting."""
+        from posthog.tasks.usage_report import get_teams_with_billable_enhanced_persons_event_count_in_period
+
+        # Run the function with our test data
+        result = get_teams_with_billable_enhanced_persons_event_count_in_period(self.begin, self.end)
+
+        # We should get 5 enhanced events for our team
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.team.id)
+        self.assertEqual(result[0][1], 5)
+
+    @patch("posthog.tasks.usage_report._execute_split_query")
+    def test_split_query_with_different_num_splits(self, mock_execute_split_query: MagicMock) -> None:
+        """Test that functions call _execute_split_query with the correct number of splits."""
+        mock_execute_split_query.return_value = [(self.team.id, 10)]
+
+        from posthog.tasks.usage_report import (
+            get_teams_with_billable_event_count_in_period,
+            get_all_event_metrics_in_period,
+        )
+
+        # Call the functions
+        get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        get_all_event_metrics_in_period(self.begin, self.end)
+
+        # Verify the calls
+        self.assertEqual(mock_execute_split_query.call_count, 2)
+
+        # First call (get_teams_with_billable_event_count_in_period) should use 2 splits
+        first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
+        self.assertEqual(first_call_kwargs["num_splits"], 2)
+
+        # Second call (get_all_event_metrics_in_period) should use 2 splits
+        second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
+        self.assertEqual(second_call_kwargs["num_splits"], 2)
+
+    def test_integration_with_usage_report(self) -> None:
+        """Test that the usage report generation still works with the new query splitting."""
+        period_start, period_end = get_previous_day(at=self.end)
+
+        # Create some events in the period
+        for i in range(5):
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id=f"user_{i}",
+                timestamp=period_start + relativedelta(hours=i),
+                properties={},
+            )
+
+        flush_persons_and_events()
+
+        # Get the usage data
+        all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+
+        # Verify the data
+        self.assertIn("teams_with_event_count_in_period", all_data)
+        self.assertEqual(len(all_data["teams_with_event_count_in_period"]), 1)
+        self.assertEqual(next(iter(all_data["teams_with_event_count_in_period"].keys())), self.team.id)
+        self.assertEqual(all_data["teams_with_event_count_in_period"][self.team.id], 20)

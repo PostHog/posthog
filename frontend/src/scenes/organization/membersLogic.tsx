@@ -10,7 +10,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { OrganizationMemberType } from '~/types'
+import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
 
@@ -20,13 +20,14 @@ const PAGINATION_LIMIT = 200
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         ensureAllMembersLoaded: true,
         loadAllMembers: true,
         loadMemberUpdates: true,
+        loadMemberScopedApiKeys: (member: OrganizationMemberType) => ({ member }),
         setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
@@ -99,6 +100,17 @@ export const membersLogic = kea<membersLogicType>([
                     updatedMembers[existingIndex] = updatedMember
                 }
                 return updatedMembers
+            },
+        },
+        scopedApiKeys: {
+            __default: null as OrganizationMemberScopedApiKeysResponse | null,
+            loadMemberScopedApiKeys: async ({ member }: { member: OrganizationMemberType }) => {
+                try {
+                    const res = await api.organizationMembers.scopedApiKeys.list(member.user.uuid)
+                    return res
+                } catch (e) {
+                    return null
+                }
             },
         },
     })),

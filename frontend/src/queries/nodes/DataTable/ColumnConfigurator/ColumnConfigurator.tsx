@@ -21,7 +21,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, GroupsQuery } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import {
     isEventsQuery,
     isGroupsQuery,
@@ -81,10 +81,11 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 setQuery?.({ ...query, columns })
             }
         },
-        context:
-            query.context || isGroupsQuery(query.source)
-                ? { type: 'groups', groupTypeIndex: (query.source as GroupsQuery).group_type_index as GroupTypeIndex }
-                : { type: 'team_columns' },
+        context: query.context
+            ? query.context
+            : isGroupsQuery(query.source)
+            ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
+            : { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 

@@ -5,8 +5,16 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { PartialResponsesShuffleQuestionsBanner } from 'scenes/surveys/SurveyResponsesCollection'
 
-import { AvailableFeature, SurveyAppearance, SurveyAppearance as SurveyAppearanceType } from '~/types'
+import {
+    AvailableFeature,
+    SurveyAppearance,
+    SurveyAppearance as SurveyAppearanceType,
+    SurveyPosition,
+    SurveyType,
+    SurveyWidgetType,
+} from '~/types'
 
 import { defaultSurveyAppearance, WEB_SAFE_FONTS } from './constants'
 import { surveysLogic } from './surveysLogic'
@@ -22,6 +30,7 @@ interface CustomizationProps {
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
     isCustomFontsEnabled?: boolean
     validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
+    type?: SurveyType
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
@@ -35,6 +44,7 @@ export function Customization({
     deleteBranchingLogic,
     isCustomFontsEnabled = false,
     validationErrors,
+    type,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -42,6 +52,9 @@ export function Customization({
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+
+    const isWidgetSurveyWithSelectorWidgetType =
+        type === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
 
     return (
         <>
@@ -74,12 +87,31 @@ export function Customization({
                     {validationErrors?.borderColor && <LemonField.Error error={validationErrors?.borderColor} />}
                 </LemonField.Pure>
                 <>
-                    <LemonField.Pure className="mt-2" label="Position">
+                    <LemonField.Pure
+                        className="mt-2"
+                        label="Position"
+                        info={
+                            isWidgetSurveyWithSelectorWidgetType
+                                ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
+                                : undefined
+                        }
+                    >
                         <div className="flex gap-1">
-                            {['left', 'center', 'right'].map((position) => {
+                            {Object.values(SurveyPosition).map((position) => {
+                                if (
+                                    position === SurveyPosition.NextToTrigger &&
+                                    !isWidgetSurveyWithSelectorWidgetType
+                                ) {
+                                    return null
+                                }
                                 return (
                                     <LemonButton
                                         key={position}
+                                        tooltip={
+                                            position === SurveyPosition.NextToTrigger
+                                                ? 'This option is only available for feedback button surveys. The survey will be displayed next to the chosen feedback button, based on the CSS selector you provided.'
+                                                : undefined
+                                        }
                                         type="tertiary"
                                         onClick={() => onAppearanceChange({ ...appearance, position })}
                                         active={appearance.position === position}
@@ -89,7 +121,9 @@ export function Customization({
                                                 : 'Upgrade your plan to customize survey position.'
                                         }
                                     >
-                                        {position}
+                                        {position === SurveyPosition.NextToTrigger
+                                            ? 'next to feedback button'
+                                            : position}
                                     </LemonButton>
                                 )
                             })}
@@ -229,7 +263,7 @@ export function Customization({
                         checked={appearance?.whiteLabel}
                     />
                 </div>
-                <div className="mt-2">
+                <div className="mt-2 flex flex-col gap-2">
                     <LemonCheckbox
                         disabledReason={surveyShufflingQuestionsDisabledReason}
                         label={
@@ -269,6 +303,8 @@ export function Customization({
                         }}
                         checked={appearance?.shuffleQuestions}
                     />
+                    {/* Only show the partial responses banner when the survey type is defined */}
+                    {type && <PartialResponsesShuffleQuestionsBanner />}
                 </div>
                 <div className="mt-1">
                     <LemonField.Pure>
@@ -321,12 +357,12 @@ export function WidgetCustomization({
                     value={appearance.widgetType}
                     onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
                     options={[
-                        { label: 'Embedded tab', value: 'tab' },
-                        { label: 'Custom', value: 'selector' },
+                        { label: 'Embedded tab', value: SurveyWidgetType.Tab },
+                        { label: 'Custom', value: SurveyWidgetType.Selector },
                     ]}
                 />
             </LemonField.Pure>
-            {appearance.widgetType === 'selector' ? (
+            {appearance.widgetType === SurveyWidgetType.Selector ? (
                 <LemonField.Pure
                     className="mt-2"
                     label="CSS selector"

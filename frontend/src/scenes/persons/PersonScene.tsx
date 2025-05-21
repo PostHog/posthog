@@ -39,7 +39,6 @@ import {
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import { PersonDashboard } from './PersonDashboard'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -107,7 +106,6 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function PersonScene(): JSX.Element | null {
     const {
-        showCustomerSuccessDashboards,
         feedEnabled,
         person,
         personLoading,
@@ -131,7 +129,7 @@ export function PersonScene(): JSX.Element | null {
         throw new Error(personError)
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" meta={{ urlId }} />
     }
 
     const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
@@ -226,6 +224,7 @@ export function PersonScene(): JSX.Element | null {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
                                         personId: person.id,
+                                        where: ["notEquals(event, '$exception')"],
                                         after: '-24h',
                                     },
                                 }}
@@ -267,6 +266,27 @@ export function PersonScene(): JSX.Element | null {
                                     />
                                 </div>
                             </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
+                        content: (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    full: true,
+                                    showEventFilter: false,
+                                    hiddenColumns: ['person'],
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        personId: person.id,
+                                        event: '$exception',
+                                        after: '-24h',
+                                    },
+                                }}
+                            />
                         ),
                     },
                     {
@@ -354,13 +374,6 @@ export function PersonScene(): JSX.Element | null {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <PersonDashboard person={person} />,
-                          }
-                        : false,
                 ]}
             />
 

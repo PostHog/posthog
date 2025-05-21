@@ -3,39 +3,43 @@
     "short_id": "ZzKvMiTK",
     "name": "",
     "derived_name": "Pageview count & Rageclick count & All events count",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "math": "total",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
+    "filters": {},
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "2023-07-03",
+                "date_to": "2023-07-10"
             },
-            {
-                "id": "$rageclick",
-                "math": "total",
-                "name": "$rageclick",
-                "type": "events",
-                "order": 1
-            },
-            {
-                "id": null,
-                "math": "total",
-                "name": "All events",
-                "type": "events",
-                "order": 2
+            "filterTestAccounts": true,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$pageview"
+                },
+                {
+                    "event": "$rageclick",
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$rageclick"
+                },
+                {
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "All events"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
             }
-        ],
-        "date_to": "2023-07-10",
-        "display": "ActionsLineGraph",
-        "insight": "TRENDS",
-        "interval": "day",
-        "date_from": "2023-07-03",
-        "entity_type": "events",
-        "filter_test_accounts": true
+        },
+        "full": true
     },
-    "query": null,
     "order": null,
     "deleted": false,
     "dashboards": [],

@@ -29,6 +29,35 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at"]
 
+    def to_representation(self, instance):
+        view = super().to_representation(instance)
+
+        view["source_table_name"] = self.get_source_table_name(instance)
+        view["joining_table_name"] = self.get_joining_table_name(instance)
+
+        return view
+
+    def get_source_table_name(self, join: DataWarehouseJoin) -> str:
+        team_id = self.context["team_id"]
+        database = create_hogql_database(team_id)
+        if not database.has_table(join.source_table_name):
+            return join.source_table_name
+
+        table = database.get_table(join.source_table_name)
+
+        return table.to_printed_hogql().replace("`", "")
+
+    def get_joining_table_name(self, join: DataWarehouseJoin) -> str:
+        team_id = self.context["team_id"]
+        database = create_hogql_database(team_id)
+
+        if not database.has_table(join.joining_table_name):
+            return join.joining_table_name
+
+        table = database.get_table(join.joining_table_name)
+
+        return table.to_printed_hogql().replace("`", "")
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -50,6 +79,9 @@ class ViewLinkSerializer(serializers.ModelSerializer):
     def _validate_key_uniqueness(self, field_name: str, table_name: str, team_id: int) -> None:
         if field_name is None:
             raise serializers.ValidationError("Field name must not be empty.")
+
+        if "." in field_name:
+            raise serializers.ValidationError("Field name must not contain a period: '.'")
 
         database = create_hogql_database(team_id)
         table = database.get_table(table_name)

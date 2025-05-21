@@ -185,6 +185,6 @@ export const createInvocation = (
         hogFunction,
         queue: 'hog',
         timings: [],
-        priority: 0,
+        queuePriority: 0,
     }
 }

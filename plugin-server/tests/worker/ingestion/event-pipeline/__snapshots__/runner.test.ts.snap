@@ -80,11 +80,34 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "uuid": "uuid1",
       },
       {
+        "api_token": "token1",
         "id": 2,
         "person_processing_opt_out": false,
       },
       "2020-02-23T02:15:00.000Z",
       true,
+      {
+        "cacheMetrics": {
+          "checkCacheHits": 0,
+          "checkCacheMisses": 0,
+          "updateCacheHits": 0,
+          "updateCacheMisses": 0,
+        },
+        "databaseOperationCounts": {},
+        "db": {
+          "kafkaProducer": {},
+        },
+        "distinctId": "my_id",
+        "methodCounts": {},
+        "options": {
+          "personCacheEnabledForChecks": true,
+          "personCacheEnabledForUpdates": true,
+        },
+        "personCache": {},
+        "personCheckCache": {},
+        "token": "token1",
+        "updateLatencyPerDistinctIdSeconds": {},
+      },
     ],
   ],
   [

@@ -17,9 +17,9 @@ export interface LiveEventsTableProps {
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     props({} as LiveEventsTableProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions(() => ({
         addEvents: (events) => ({ events }),
         clearEvents: true,

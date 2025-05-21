@@ -4,14 +4,16 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-
+import json
 import jwt
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 from requests import get, Response
 from rest_framework import status
+import urllib.parse
 
+from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import (
     BillingPeriod,
@@ -1022,3 +1024,223 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestStartupApplicationBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Set user as admin/owner by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.url = "/api/billing/startups/apply"
+        self.data = {"organization_id": str(self.organization.id)}
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
+    def test_startup_apply_owner_success(self, mock_apply_startup_program):
+        mock_apply_startup_program.return_value = {"success": True}
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        mock_apply_startup_program.assert_called_once()
+
+    def test_startup_apply_non_admin_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or owner to apply for the startup program"
+        )
+
+    def test_startup_apply_missing_org_id(self):
+        empty_data: dict[str, Any] = {}
+
+        response = self.client.post(self.url, empty_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "organization_id",
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
+    def test_startup_apply_passes_user_info(self, mock_apply_startup_program):
+        mock_apply_startup_program.return_value = {"success": True}
+
+        # Set user properties
+        self.user.email = "test@example.com"
+        self.user.first_name = "Test"
+        self.user.last_name = "User"
+        self.user.save()
+
+        # Add additional data fields
+        data = {
+            **self.data,
+            "raised": "1000000",
+            "incorporation_date": "2023-01-01",
+        }
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_data = {
+            "organization_id": str(self.organization.id),
+            "raised": "1000000",
+            "incorporation_date": "2023-01-01",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+        }
+
+        # Check that apply_startup_program was called with the organization and the expected data
+        mock_apply_startup_program.assert_called_once()
+        _, call_args, _ = mock_apply_startup_program.mock_calls[0]
+        self.assertEqual(call_args[0], self.organization)
+        self.assertEqual(call_args[1], expected_data)
+
+
+class TestBillingUsageRequestSerializer(TestCase):
+    def test_valid_dates(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01", "end_date": "2025-01-31"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-01-31")
+
+    @freeze_time("2025-02-15")
+    def test_relative_dates(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "-7d", "end_date": "-1d"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
+
+    def test_start_date_all(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
+
+    def test_passthrough_fields(self):
+        data = {
+            "usage_types": urllib.parse.quote('["event_count_in_period","recording_count_in_period"]'),
+            "team_ids": urllib.parse.quote("[1,2,3]"),
+            "breakdowns": urllib.parse.quote("[type,team]"),
+            "interval": "week",
+        }
+        serializer = BillingUsageRequestSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        for key, value in data.items():
+            self.assertEqual(serializer.validated_data[key], value)
+
+    def test_empty_and_null_dates_are_valid(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data.get("start_date"))
+        self.assertIsNone(serializer.validated_data.get("end_date"))
+
+
+class TestBillingUsageAndSpendAPI(APILicensedTest):
+    MOCK_USAGE_DATA = {"results": [{"data": [1, 2], "count": 2}]}
+    MOCK_SPEND_DATA = {"results": [{"spend": 100.0, "usage": 10000}]}
+
+    def setUp(self):
+        super().setUp()
+        # Ensure the user is an admin for these tests by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_success(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get(f"/api/billing/usage/?start_date=2025-01-01&team_ids=[{self.team.pk}]")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        mock_get_usage_data.assert_called_once()
+        call_args = mock_get_usage_data.call_args[0]
+        self.assertEqual(call_args[0], self.organization)  # First arg is organization
+        passed_params = call_args[1]  # Second arg is params dict
+        self.assertEqual(passed_params["start_date"], "2025-01-01")
+        self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    def test_get_spend_success(self, mock_get_spend_data):
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(
+            f"/api/billing/spend/?start_date=2025-01-01&usage_types=events&team_ids=[{self.team.pk}]"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+        mock_get_spend_data.assert_called_once()
+        call_args = mock_get_spend_data.call_args[0]
+        self.assertEqual(call_args[0], self.organization)
+        passed_params = call_args[1]
+        self.assertEqual(passed_params["start_date"], "2025-01-01")
+        self.assertEqual(passed_params["usage_types"], "events")
+        self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+
+    def test_get_usage_permission_denied_for_member(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/billing/usage/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_spend_permission_denied_for_member(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/billing/spend/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.BillingViewset._get_teams_map")
+    def test_get_usage_empty_teams_map_graceful_handling(self, mock_get_teams_map, mock_get_usage_data):
+        mock_get_teams_map.return_value = {}
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get(f"/api/billing/usage/?start_date=2025-01-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        mock_get_usage_data.assert_called_once()
+        call_args = mock_get_usage_data.call_args[0]
+        passed_params = call_args[1]
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {})
+        mock_get_teams_map.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.api.billing.BillingViewset._get_teams_map")
+    def test_get_spend_empty_teams_map_graceful_handling(self, mock_get_teams_map, mock_get_spend_data):
+        mock_get_teams_map.return_value = {}
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(f"/api/billing/spend/?start_date=2025-01-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+        mock_get_spend_data.assert_called_once()
+        call_args = mock_get_spend_data.call_args[0]
+        passed_params = call_args[1]
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {})
+        mock_get_teams_map.assert_called_once()

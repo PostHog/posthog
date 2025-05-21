@@ -8,9 +8,9 @@ export interface StatsResponse {
 }
 export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'liveWebAnalyticsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions(() => ({
         pollStats: true,
         setLiveUserCount: ({ liveUserCount, now }: { liveUserCount: number; now: Date }) => ({

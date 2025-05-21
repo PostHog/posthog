@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../types'
-import { createInvocation } from '../../utils'
+import { cloneInvocation, createInvocation } from '../../utils'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
@@ -163,11 +163,10 @@ export class TemplateTester {
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {
-        const modifiedInvocation = {
-            ...invocation,
+        const modifiedInvocation = cloneInvocation(invocation, {
             queue: 'hog' as const,
             queueParameters: response,
-        }
+        })
 
         return this.executor.execute(modifiedInvocation)
     }

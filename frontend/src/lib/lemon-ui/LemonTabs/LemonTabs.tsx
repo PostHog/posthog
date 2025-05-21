@@ -14,6 +14,7 @@ export interface AbstractLemonTab<T extends string | number> {
     tooltip?: string | JSX.Element
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
+    tooltipDocLink?: string
 }
 
 /** A tab with content. In this case the LemonTabs component automatically renders content of the active tab. */
@@ -31,6 +32,7 @@ export interface LemonTabsProps<T extends string | number> {
     size?: 'small' | 'medium'
     'data-attr'?: string
     barClassName?: string
+    className?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -44,6 +46,7 @@ export function LemonTabs<T extends string | number>({
     tabs,
     barClassName,
     size = 'medium',
+    className,
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
@@ -57,7 +60,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`)}
+            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -76,7 +79,13 @@ export function LemonTabs<T extends string | number>({
                         </>
                     )
                     return (
-                        <Tooltip key={tab.key} title={tab.tooltip} placement="top" offset={0}>
+                        <Tooltip
+                            key={tab.key}
+                            title={tab.tooltip}
+                            placement="top"
+                            offset={0}
+                            docLink={tab.tooltipDocLink}
+                        >
                             <li
                                 className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
                                 onClick={onChange ? () => onChange(tab.key) : undefined}

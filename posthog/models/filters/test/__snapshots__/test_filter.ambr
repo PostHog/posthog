@@ -4,6 +4,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -22,6 +23,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -31,6 +34,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -55,7 +59,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -71,7 +74,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -82,6 +86,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -100,6 +105,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -109,6 +116,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -133,7 +141,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -149,7 +156,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -160,6 +168,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -178,6 +187,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -187,6 +198,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -211,7 +223,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -227,7 +238,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -238,6 +250,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -256,6 +269,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -265,6 +280,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -289,7 +305,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -305,7 +320,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -316,6 +332,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -334,6 +351,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -343,6 +362,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -367,7 +387,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -383,7 +402,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -469,37 +489,19 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.1
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort1'
-         AND "posthog_filesystem"."team_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.2
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.3
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -528,7 +530,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.4
+# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.2
   '''
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
@@ -559,6 +561,24 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
+# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.3
+  '''
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  '''
+# ---
+# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.4
+  '''
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  '''
+# ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.5
   '''
   SELECT "posthog_persondistinctid"."distinct_id"
@@ -587,37 +607,19 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.1
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort1'
-         AND "posthog_filesystem"."team_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.2
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.3
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -646,7 +648,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.4
+# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.2
   '''
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
@@ -677,6 +679,24 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
+# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.3
+  '''
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  '''
+# ---
+# name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.4
+  '''
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  '''
+# ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.5
   '''
   SELECT "posthog_persondistinctid"."distinct_id"
@@ -696,110 +716,125 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.1
   '''
-  SELECT 1 AS "a"
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort1'
-         AND "posthog_filesystem"."team_id" = 99999)
-  LIMIT 1
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.10
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort2'
-         AND "posthog_filesystem"."team_id" = 99999)
-  LIMIT 1
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.11
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort2 (1)'
-         AND "posthog_filesystem"."team_id" = 99999)
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.12
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE (NOT ((("posthog_person"."properties" -> 'bla') = '1'::jsonb
+               AND "posthog_person"."properties" ? 'bla'
+               AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+              OR (("posthog_person"."properties" -> 'bla') = '2'::jsonb
+                  AND "posthog_person"."properties" ? 'bla'
+                  AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND NOT ((("posthog_person"."properties" -> 'bla') = '3'::jsonb
+                   AND "posthog_person"."properties" ? 'bla'
+                   AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+                  OR (("posthog_person"."properties" -> 'bla') = '4'::jsonb
+                      AND "posthog_person"."properties" ? 'bla'
+                      AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND ("posthog_person"."properties" -> 'other') = '1'::jsonb
+         AND "posthog_person"."properties" ? 'other'
+         AND NOT (("posthog_person"."properties" -> 'other') = 'null'::jsonb)
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.13
   '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 99999
-         AND "posthog_team"."project_id" = 99999)
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.14
   '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 99999
-         AND "posthog_team"."project_id" = 99999)
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.15
@@ -911,12 +946,24 @@
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.2
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."project_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.3
@@ -929,94 +976,171 @@
          "posthog_filesystem"."type",
          "posthog_filesystem"."ref",
          "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.4
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort2'
-         AND "posthog_filesystem"."team_id" = 99999)
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.5
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.6
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.7
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/cohort3'
-         AND "posthog_filesystem"."team_id" = 99999)
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.8
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
-  LIMIT 1
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE (NOT ((("posthog_person"."properties" -> 'bla') = '1'::jsonb
+               AND "posthog_person"."properties" ? 'bla'
+               AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+              OR (("posthog_person"."properties" -> 'bla') = '2'::jsonb
+                  AND "posthog_person"."properties" ? 'bla'
+                  AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND NOT ((("posthog_person"."properties" -> 'bla') = '3'::jsonb
+                   AND "posthog_person"."properties" ? 'bla'
+                   AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+                  OR (("posthog_person"."properties" -> 'bla') = '4'::jsonb
+                      AND "posthog_person"."properties" ? 'bla'
+                      AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND ("posthog_person"."properties" -> 'other') = '1'::jsonb
+         AND "posthog_person"."properties" ? 'other'
+         AND NOT (("posthog_person"."properties" -> 'other') = 'null'::jsonb)
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.9
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
+  SELECT "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."person_id" = 99999
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
   '''
 # ---

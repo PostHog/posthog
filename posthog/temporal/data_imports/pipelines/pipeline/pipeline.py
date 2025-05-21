@@ -6,6 +6,7 @@ import deltalake as deltalake
 import pyarrow as pa
 from dlt.sources import DltSource
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
@@ -23,14 +24,16 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_incremental_field_last_value,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
+    _notify_revenue_analytics_that_sync_has_completed,
     _update_job_row_count,
-    _update_last_synced_at_sync,
     append_partition_key_to_table,
     normalize_table_column_names,
     should_partition_table,
+    supports_partial_data_loading,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
+    update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -100,7 +103,11 @@ class PipelineNonDLT:
 
         try:
             # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
-            if self._job.rows_synced is not None and self._job.rows_synced != 0:
+            if (
+                self._job.rows_synced is not None
+                and self._job.rows_synced != 0
+                and (not self._is_incremental or self._reset_pipeline is True)
+            ):
                 self._job.rows_synced = 0
                 self._job.save()
 
@@ -118,6 +125,9 @@ class PipelineNonDLT:
                 self._logger.debug("Deleting existing table due to sync being full refresh")
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
+
+            # If the schema has no DWH table, it's a first ever sync
+            is_first_ever_sync: bool = self._schema.table is None
 
             for item in self._resource.items:
                 py_table = None
@@ -147,10 +157,12 @@ class PipelineNonDLT:
                     raise Exception(f"Unhandled item type: {item.__class__.__name__}")
 
                 assert py_table is not None
-
-                self._process_pa_table(pa_table=py_table, index=chunk_index)
-
                 row_count += py_table.num_rows
+
+                self._process_pa_table(
+                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
+                )
+
                 chunk_index += 1
 
                 # Cleanup
@@ -164,8 +176,10 @@ class PipelineNonDLT:
 
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
-                self._process_pa_table(pa_table=py_table, index=chunk_index)
                 row_count += py_table.num_rows
+                self._process_pa_table(
+                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
+                )
 
             self._post_run_operations(row_count=row_count)
         finally:
@@ -186,8 +200,9 @@ class PipelineNonDLT:
             pa_memory_pool.release_unused()
             gc.collect()
 
-    def _process_pa_table(self, pa_table: pa.Table, index: int):
+    def _process_pa_table(self, pa_table: pa.Table, index: int, row_count: int, is_first_ever_sync: bool):
         delta_table = self._delta_table_helper.get_delta_table()
+        previous_file_uris = delta_table.file_uris() if delta_table else []
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
@@ -196,6 +211,7 @@ class PipelineNonDLT:
             partition_count = self._schema.partition_count or self._resource.partition_count
             partition_size = self._schema.partition_size or self._resource.partition_size
             partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
+            partition_format = self._schema.partition_format
             if partition_count and partition_keys and partition_size:
                 # This needs to happen before _evolve_pyarrow_schema
                 pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
@@ -204,6 +220,7 @@ class PipelineNonDLT:
                     partition_size=partition_size,
                     partition_keys=partition_keys,
                     partition_mode=self._schema.partition_mode,
+                    partition_format=partition_format,
                     logger=self._logger,
                 )
 
@@ -244,6 +261,61 @@ class PipelineNonDLT:
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
 
+        # if it's the first ever sync for this schema and the source supports partial data loading, we make the delta
+        # table files available for querying and create the data warehouse table, so that the user has some data
+        # available to start using
+        # TODO - enable this for all source types
+        if is_first_ever_sync and supports_partial_data_loading(self._schema):
+            self._process_partial_data(
+                previous_file_uris=previous_file_uris,
+                file_uris=delta_table.file_uris(),
+                row_count=row_count,
+                chunk_index=index,
+            )
+
+    def _process_partial_data(
+        self, previous_file_uris: list[str], file_uris: list[str], row_count: int, chunk_index: int
+    ):
+        self._logger.debug(
+            "Source supports partial data loading and is first ever sync -> "
+            "making delta table files available for querying and creating data warehouse table"
+        )
+        if chunk_index == 0:
+            new_file_uris = file_uris
+        else:
+            new_file_uris = list(set(file_uris) - set(previous_file_uris))
+            # in theory, we should always be appending files for a first time sync but we just check that this is the
+            # case in case we update this assumption
+            files_modified = set(previous_file_uris) - set(file_uris)
+            if len(files_modified) > 0:
+                self._logger.warning(
+                    "Should always be appending delta table files for a first time sync but found modified files!"
+                )
+                capture_exception(
+                    Exception(
+                        "Should always be appending delta table files for a first time sync but found modified files!"
+                    )
+                )
+                return
+
+        self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
+        prepare_s3_files_for_querying(
+            folder_path=self._job.folder_path(),
+            table_name=self._resource_name,
+            file_uris=new_file_uris,
+            # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
+            delete_existing=chunk_index == 0,
+        )
+        self._logger.debug("Validating schema and updating table")
+        validate_schema_and_update_table_sync(
+            run_id=str(self._job.id),
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            table_schema_dict=self._internal_schema.to_hogql_types(),
+            row_count=row_count,
+            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        )
+
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
 
@@ -257,12 +329,13 @@ class PipelineNonDLT:
 
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-        prepare_s3_files_for_querying(
-            self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2
-        )
+        prepare_s3_files_for_querying(self._job.folder_path(), self._resource_name, file_uris)
 
         self._logger.debug("Updating last synced at timestamp on schema")
-        _update_last_synced_at_sync(self._schema, self._job)
+        update_last_synced_at_sync(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
+
+        self._logger.debug("Notifying revenue analytics that sync has completed")
+        _notify_revenue_analytics_that_sync_has_completed(self._schema, self._logger)
 
         # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
         # have processed all of the data (we could also update it here for 'asc' but it's not needed)
@@ -270,6 +343,7 @@ class PipelineNonDLT:
             self._logger.debug(
                 f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
             )
+            self._schema.refresh_from_db()
             self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
 
         self._logger.debug("Validating schema and updating table")
@@ -277,7 +351,6 @@ class PipelineNonDLT:
             run_id=str(self._job.id),
             team_id=self._job.team_id,
             schema_id=self._schema.id,
-            table_schema={},
             table_schema_dict=self._internal_schema.to_hogql_types(),
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,

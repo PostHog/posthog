@@ -25,10 +25,10 @@ const EXPERIMENT_STATUS_TO_RIBBON_STATUS = { draft: 'muted', running: 'success',
 
 export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'experimentsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [experimentsLogic, ['experiments', 'experimentsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
         actions: [experimentsLogic, ['loadExperiments', 'deleteExperiment']],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantExperiments, s.experimentsLoading],

@@ -11,7 +11,14 @@ import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
+import {
+    EditConclusionModal,
+    ExploreButton,
+    LoadingState,
+    PageHeaderCustom,
+    ResultsQuery,
+    StopExperimentModal,
+} from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -28,7 +35,7 @@ const ResultsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         metricResultsLoading,
-        hasMinimumExposureForResults,
+        hasEnoughDataForResults,
     } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
@@ -36,7 +43,7 @@ const ResultsTab = (): JSX.Element => {
 
     return (
         <>
-            {!hasSomeResults && !metricResultsLoading && (
+            {!experiment.start_date && !metricResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -46,14 +53,14 @@ const ResultsTab = (): JSX.Element => {
                 </>
             )}
             {/* Show overview if there's only a single primary metric */}
-            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
+            {hasSinglePrimaryMetric && hasEnoughDataForResults && (
                 <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
             <MetricsView isSecondary={false} />
             {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
@@ -141,6 +148,9 @@ export function ExperimentView(): JSX.Element {
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <StopExperimentModal experimentId={experimentId} />
+                        <EditConclusionModal experimentId={experimentId} />
 
                         <VariantDeltaTimeseries />
                     </>

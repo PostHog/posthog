@@ -1,10 +1,11 @@
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import AutoTab from './AutoTab'
-import { NEW_QUERY, QueryTab } from './multitabEditorLogic'
+import { multitabEditorLogic, NEW_QUERY, QueryTab } from './multitabEditorLogic'
 
 interface QueryTabsProps {
     models: QueryTab[]
@@ -16,20 +17,37 @@ interface QueryTabsProps {
 }
 
 export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeModelUri }: QueryTabsProps): JSX.Element {
+    const { allTabs } = useValues(multitabEditorLogic)
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const prevTabsCountRef = useRef(allTabs.length)
+
+    useEffect(() => {
+        if (allTabs.length > prevTabsCountRef.current) {
+            containerRef.current?.scrollTo({
+                left: containerRef.current.scrollWidth,
+                behavior: 'smooth',
+            })
+        }
+
+        prevTabsCountRef.current = allTabs.length
+    }, [allTabs])
+
     return (
-        <div className="flex flex-row w-full overflow-scroll hide-scrollbar h-10">
-            {models.map((model: QueryTab) => (
-                <QueryTabComponent
-                    key={model.uri.path}
-                    model={model}
-                    onClear={models.length > 1 ? onClear : undefined}
-                    onClick={onClick}
-                    active={activeModelUri?.uri.path === model.uri.path}
-                    onRename={onRename}
-                />
-            ))}
+        <>
+            <div className="flex flex-row overflow-scroll hide-scrollbar h-10" ref={containerRef}>
+                {models.map((model: QueryTab) => (
+                    <QueryTabComponent
+                        key={model.uri.path}
+                        model={model}
+                        onClear={models.length > 1 ? onClear : undefined}
+                        onClick={onClick}
+                        active={activeModelUri?.uri.path === model.uri.path}
+                        onRename={onRename}
+                    />
+                ))}
+            </div>
             <LemonButton className="rounded-none" onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
-        </div>
+        </>
     )
 }
 
@@ -47,7 +65,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
 
     useEffect(() => {
         setTabName(model.view?.name || model.name || NEW_QUERY)
-    }, [model.view?.name])
+    }, [model.view?.name, model.name])
 
     const handleRename = (): void => {
         setIsEditing(false)
@@ -71,7 +89,6 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                     onChange={(e) => setTabName(e.target.value)}
                     onBlur={handleRename}
                     autoFocus
-                    handleRename={() => onRename(model, tabName)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             handleRename()

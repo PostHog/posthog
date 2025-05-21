@@ -2,21 +2,20 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
 
 import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
-
 // This logic is used to fetch properties for a list of recordings
 // It is used in a global way as the cached values can be re-used
 export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPropertiesLogicType>([
     path(() => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListPropertiesLogic']),
     connect(() => ({
-        actions: [eventUsageLogic, ['reportRecordingsListPropertiesFetched']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingsListPropertiesFetched']],
     })),
 
     actions({

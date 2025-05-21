@@ -27,29 +27,36 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
-const Caption = (): JSX.Element => (
+const StripeCaption = (): JSX.Element => (
     <>
         Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
         <br />
         You can find your account ID{' '}
-        <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+        <Link to="https://dashboard.stripe.com/settings/account" target="_blank">
             in your Stripe dashboard
         </Link>
         , and create a secret key{' '}
-        <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+        <Link to="https://dashboard.stripe.com/apikeys/create" target="_blank">
             here
         </Link>
         .
+        <br />
+        <br />
+        Currently, <strong>read permissions are required</strong> for the following resources:
+        <br />
+        <code>Entire Connected resource type</code>, <code>Invoice</code>, <code>Customer</code>,{' '}
+        <code>Subscription</code>, <code>Product</code>, <code>Price</code>, <code>BalanceTransaction</code>, and{' '}
+        <code>Charge</code>.
     </>
 )
 
 export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source)}?kind=hubspot`
+    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { kind: 'hubspot' })}`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: <Caption />,
+        caption: <StripeCaption />,
         fields: [
             {
                 name: 'stripe_account_id',
@@ -361,11 +368,11 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
     MSSQL: {
         name: 'MSSQL',
-        label: 'Azure SQL Server',
+        label: 'Microsoft SQL Server',
         caption: (
             <>
-                Enter your MS SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the
-                PostHog Data warehouse.
+                Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into
+                the PostHog Data warehouse.
             </>
         ),
         fields: [
@@ -791,7 +798,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        handleRedirect: (kind: string, searchParams?: any) => ({ kind, searchParams }),
         onClear: true,
         onBack: true,
         onNext: true,
@@ -827,7 +834,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
-    connect({
+    connect(() => ({
         values: [
             dataWarehouseTableLogic,
             ['tableLoading'],
@@ -844,7 +851,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-    }),
+    })),
     reducers({
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
@@ -1203,7 +1210,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.updateSource({
                         source_type: 'Hubspot',
                         payload: {
-                            code: searchParams.code,
+                            code: searchParams?.code,
                             redirect_uri: getHubspotRedirectUri(),
                         },
                     })
@@ -1212,6 +1219,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 case 'salesforce': {
                     actions.updateSource({
                         source_type: 'Salesforce',
+                    })
+                    break
+                }
+                case 'stripe': {
+                    actions.updateSource({
+                        source_type: 'Stripe',
                     })
                     break
                 }
@@ -1267,7 +1280,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
             if (searchParams.kind == 'salesforce') {
                 actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind, {})
+                actions.handleRedirect(searchParams.kind)
+                actions.setStep(2)
+            }
+            if (searchParams.kind == 'stripe') {
+                actions.selectConnector(SOURCE_DETAILS['Stripe'])
+                actions.handleRedirect(searchParams.kind)
                 actions.setStep(2)
             }
         },
@@ -1369,7 +1387,8 @@ export const getErrorsForFields = (
         errorsObj: Record<string, any>
     ): void => {
         if (field.type === 'switch-group') {
-            if (valueObj[field.name]?.['enabled']) {
+            // handle string value coming down from the backend for an update
+            if (valueObj[field.name]?.['enabled'] && valueObj[field.name]?.['enabled'] !== 'False') {
                 errorsObj[field.name] = {}
                 field.fields.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
             }

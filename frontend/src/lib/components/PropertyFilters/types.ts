@@ -1,3 +1,4 @@
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
     ExcludedProperties,
     TaxonomicFilterGroup,
@@ -41,6 +42,7 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     filters: AnyPropertyFilter[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
+    editable?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]
@@ -48,6 +50,7 @@ export interface PropertyFilterInternalProps {
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
     addText?: string | null
+    size?: LemonButtonProps['size']
     hasRowOperator?: boolean
     metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
@@ -55,4 +58,5 @@ export interface PropertyFilterInternalProps {
     allowRelativeDateOptions?: boolean
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
+    addFilterDocLink?: string
 }

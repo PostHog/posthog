@@ -7,6 +7,7 @@ use axum::{
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use tracing::error;
+use uuid::Uuid;
 
 use crate::api::{
     errors::FlagError,
@@ -109,10 +110,13 @@ pub async fn test_black_hole(
     // If we got here, the request is valid
     metrics::counter!(REQUEST_OUTCOME, "outcome" => "success").increment(1);
 
+    let request_id = Uuid::new_v4();
+
     Ok(Json(LegacyFlagsResponse {
         feature_flags: Default::default(),
         feature_flag_payloads: Default::default(),
         quota_limited: None,
         errors_while_computing_flags: false,
+        request_id,
     }))
 }

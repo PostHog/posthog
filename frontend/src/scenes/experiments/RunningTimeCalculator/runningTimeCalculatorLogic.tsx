@@ -1,20 +1,24 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
     FunnelsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
     NodeKind,
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
+    AnyPropertyFilter,
     BaseMathType,
     CountPerActorMathType,
     Experiment,
@@ -34,54 +38,71 @@ export enum ConversionRateInputType {
     AUTOMATIC = 'automatic',
 }
 
-const getKindField = (metric: ExperimentMetric): NodeKind => {
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        return NodeKind.FunnelsQuery
-    }
+// Creates the correct identifier properties for a series item based on metric type
+const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Record<string, any> => {
+    if (isExperimentMeanMetric(metric)) {
+        const { source } = metric
 
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
-        const { kind } = metric.source
-        // For most sources, we can return the kind directly
-        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
-            return kind
+        if (source.kind === NodeKind.EventsNode) {
+            return {
+                kind: NodeKind.EventsNode,
+                event: source.event,
+            }
+        }
+
+        if (source.kind === NodeKind.ActionsNode) {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: source.id,
+            }
+        }
+
+        if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            return {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: source.table_name,
+            }
         }
     }
 
-    return NodeKind.EventsNode
-}
+    if (isExperimentFunnelMetric(metric)) {
+        /**
+         * For multivariate funnels, we select the last step
+         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
+         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
+         */
+        const step = metric.series.at(-1)!
 
-const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
-        const { source } = metric
-        return source.kind === NodeKind.ExperimentDataWarehouseNode
-            ? source.table_name
-            : source.kind === NodeKind.EventsNode
-            ? source.event
-            : source.kind === NodeKind.ActionsNode
-            ? source.id
-            : null
+        if (step.kind === NodeKind.EventsNode) {
+            return {
+                kind: NodeKind.EventsNode,
+                event: step.event,
+            }
+        }
+
+        if (step.kind === NodeKind.ActionsNode) {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: step.id,
+            }
+        }
     }
 
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        const step = metric.series[0]
-        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
-    }
-
-    return null
+    throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: BaseMathType.UniqueUsers,
             },
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: CountPerActorMathType.Average,
             },
         ],
@@ -96,22 +117,26 @@ const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): T
 }
 
 const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+    const mathProperty =
+        metric.metric_type === ExperimentMetricType.MEAN
+            ? {
+                  math_property: metric.source.math_property,
+                  math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+              }
+            : {}
+
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: BaseMathType.UniqueUsers,
             },
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: PropertyMathType.Sum,
-                math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-                ...(metric.metric_type === ExperimentMetricType.MEAN && {
-                    math_property: metric.source.math_property,
-                }),
+                ...mathProperty,
             },
         ],
         trendsFilter: {},
@@ -124,18 +149,22 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
     } as TrendsQuery
 }
 
-const getFunnelQuery = (metric: ExperimentMetric, experiment: Experiment): FunnelsQuery => {
+const getFunnelQuery = (
+    metric: ExperimentMetric,
+    eventConfig: EventConfig | null,
+    experiment: Experiment
+): FunnelsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                event: '$feature_flag_called',
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
             },
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-            },
+            baseProps,
         ],
         funnelsFilter: {
             funnelVizType: FunnelVizType.Steps,
@@ -154,13 +183,45 @@ export interface RunningTimeCalculatorLogicProps {
     experimentId?: Experiment['id']
 }
 
+export interface ExposureEstimateConfig {
+    /**
+     * This is the filter for the first step of the funnel for estimation purposes.
+     * It is not used for the funnel query. Instead, typically we'll use a $feature_flag event.
+     */
+    eventFilter: EventConfig | null
+    metric: ExperimentMetric | null
+    conversionRateInputType: ConversionRateInputType
+    manualConversionRate: number | null
+    uniqueUsers: number | null
+}
+
+/** TODO: this is not a great name for this type, but we'll change it later. */
+export interface EventConfig {
+    event: string
+    name: string
+    properties: AnyPropertyFilter[]
+    entityType: TaxonomicFilterGroupType.Events | TaxonomicFilterGroupType.Actions
+}
+
+const defaultExposureEstimateConfig: ExposureEstimateConfig = {
+    eventFilter: {
+        event: '$pageview',
+        name: '$pageview',
+        properties: [],
+        entityType: TaxonomicFilterGroupType.Events,
+    },
+    metric: null as ExperimentMetric | null,
+    conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+    manualConversionRate: 2,
+    uniqueUsers: null,
+}
+
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
     connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
         values: [experimentLogic({ experimentId }), ['experiment']],
     })),
     actions({
-        setMinimumDetectableEffect: (value: number) => ({ value }),
         setMetricIndex: (value: number) => ({ value }),
         setMetricResult: (value: {
             uniqueUsers: number
@@ -170,26 +231,26 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         }) => ({ value }),
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
+        setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
+        setMinimumDetectableEffect: (value: number) => ({ value }),
     }),
     reducers({
-        metricIndex: [
+        _exposureEstimateConfig: [
+            null as ExposureEstimateConfig | null,
+            { setExposureEstimateConfig: (_, { value }) => value },
+        ],
+        _metricIndex: [
             null as number | null,
             {
                 setMetricIndex: (_, { value }) => value,
             },
         ],
-        eventOrAction: ['click' as string, { setEventOrAction: (_, { value }) => value }],
-        minimumDetectableEffect: [
-            5 as number,
-            {
-                setMinimumDetectableEffect: (_, { value }) => value,
-            },
-        ],
-        conversionRateInputType: [
-            ConversionRateInputType.MANUAL as string,
+        _conversionRateInputType: [
+            ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
         ],
-        manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
+        _manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
+        _minimumDetectableEffect: [null as number | null, { setMinimumDetectableEffect: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -211,45 +272,203 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
-                        : getFunnelQuery(metric, values.experiment)
+                        : getFunnelQuery(metric, values.exposureEstimateConfig?.eventFilter ?? null, values.experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
-                return {
-                    uniqueUsers: result?.results?.[0]?.count ?? null,
-                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
-                        : {}),
-                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.source.math === ExperimentMetricMathType.Sum
-                        ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
-                        : {}),
-                    ...(metric.metric_type === ExperimentMetricType.FUNNEL
-                        ? {
-                              automaticConversionRateDecimal:
-                                  result?.results?.[1]?.count / result?.results?.[0]?.count || null,
-                          }
-                        : {}),
+                if (isExperimentMeanMetric(metric)) {
+                    return {
+                        uniqueUsers: result?.results?.[0]?.count ?? null,
+                        ...(metric.source.math === ExperimentMetricMathType.TotalCount
+                            ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
+                            : {}),
+                        ...(metric.source.math === ExperimentMetricMathType.Sum
+                            ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
+                            : {}),
+                    }
                 }
+
+                if (isExperimentFunnelMetric(metric)) {
+                    const firstStepCount = result?.results?.[0]?.count
+                    const automaticConversionRateDecimal =
+                        firstStepCount && firstStepCount > 0
+                            ? (result?.results?.at(-1)?.count || 0) / firstStepCount
+                            : null
+
+                    return {
+                        uniqueUsers: result?.results?.[0]?.count ?? null,
+                        automaticConversionRateDecimal: automaticConversionRateDecimal,
+                    }
+                }
+
+                return {}
             },
             // For testing purposes, we want to be able set the metric result directly
             setMetricResult: ({ value }) => value,
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setMetricIndex: () => {
+            // When metric index changes, update exposure estimate config with the new metric
+            if (values.metric) {
+                actions.setExposureEstimateConfig({
+                    ...(values.exposureEstimateConfig ?? defaultExposureEstimateConfig),
+                    metric: values.metric,
+                })
+            }
             actions.loadMetricResult()
+        },
+        setExposureEstimateConfig: () => {
+            actions.loadMetricResult()
+        },
+        setManualConversionRate: () => {
+            /**
+             * We listen for changes in the manual conversion rate and update the exposure estimate config
+             */
+            actions.setExposureEstimateConfig({
+                ...(values.exposureEstimateConfig ?? {
+                    eventFilter: null,
+                    metric: null,
+                    conversionRateInputType: ConversionRateInputType.MANUAL,
+                    uniqueUsers: null,
+                }),
+                manualConversionRate: values._manualConversionRate,
+            })
+        },
+        loadMetricResultSuccess: () => {
+            /**
+             * We listen for changes in the metric results.
+             * If the unique users have changed, we update the exposure estimate config.
+             * Otherwise, this could cause an infinite loop, because changing the exposure estimate config
+             * could trigger a change in the metric result.
+             */
+            const uniqueUsers = values.metricResult?.uniqueUsers
+            if (uniqueUsers !== values.exposureEstimateConfig?.uniqueUsers) {
+                actions.setExposureEstimateConfig({
+                    ...(values.exposureEstimateConfig ?? {
+                        eventFilter: null,
+                        metric: null,
+                        conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                        manualConversionRate: null,
+                    }),
+                    uniqueUsers,
+                })
+            }
         },
     })),
     selectors({
+        defaultMetricIndex: [
+            (s) => [s.experiment, s.exposureEstimateConfig],
+            (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
+                if (!experiment?.metrics || !exposureEstimateConfig?.metric) {
+                    return null
+                }
+
+                // First check regular metrics
+                const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
+                if (metricIndex >= 0) {
+                    return metricIndex
+                }
+
+                // If not found, check shared metrics
+                const primarySharedMetrics = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')
+                const sharedMetricIndex = primarySharedMetrics.findIndex((m) =>
+                    equal(m.query, exposureEstimateConfig.metric)
+                )
+
+                return sharedMetricIndex >= 0 ? experiment.metrics.length + sharedMetricIndex : null
+            },
+        ],
+        metricIndex: [
+            (s) => [s._metricIndex, s.defaultMetricIndex],
+            (metricIndex: number | null, defaultMetricIndex: number | null): number | null => {
+                // If metricIndex was manually set, use that
+                // Otherwise use the default from exposureEstimateConfig if available
+                return metricIndex ?? defaultMetricIndex
+            },
+        ],
+        exposureEstimateConfig: [
+            (s) => [s._exposureEstimateConfig, s.experiment],
+            (
+                localExposureEstimateConfig: ExposureEstimateConfig | null,
+                experiment: Experiment
+            ): ExposureEstimateConfig | null => {
+                // If we have a "local" state, use that
+                if (localExposureEstimateConfig) {
+                    return localExposureEstimateConfig
+                }
+
+                // If we don't have a "local" state, use the exposure estimate config saved in the experiment parameters
+                // In case of not having all of the fields, we use the default exposure estimate config
+                if (experiment.parameters.exposure_estimate_config) {
+                    return {
+                        ...defaultExposureEstimateConfig,
+                        ...experiment.parameters.exposure_estimate_config,
+                    }
+                }
+
+                // Otherwise, use the default exposure estimate config
+                return defaultExposureEstimateConfig
+            },
+        ],
+        conversionRateInputType: [
+            (s) => [s._conversionRateInputType, s.exposureEstimateConfig],
+            (conversionRateInputType: string, exposureEstimateConfig: ExposureEstimateConfig | null): string => {
+                if (!conversionRateInputType) {
+                    return conversionRateInputType
+                }
+
+                if (exposureEstimateConfig) {
+                    return exposureEstimateConfig.conversionRateInputType
+                }
+
+                return ConversionRateInputType.AUTOMATIC
+            },
+        ],
+        manualConversionRate: [
+            (s) => [s._manualConversionRate, s.exposureEstimateConfig],
+            (manualConversionRate: number, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
+                if (exposureEstimateConfig?.conversionRateInputType === ConversionRateInputType.MANUAL) {
+                    return exposureEstimateConfig.manualConversionRate
+                }
+                return manualConversionRate
+            },
+        ],
+        minimumDetectableEffect: [
+            (s) => [s._minimumDetectableEffect, s.experiment],
+            (minimumDetectableEffect: number | null, experiment: Experiment) =>
+                minimumDetectableEffect ?? experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
+        ],
         metric: [
             (s) => [s.metricIndex, s.experiment],
-            (metricIndex: number, experiment: Experiment) => experiment.metrics[metricIndex],
+            (metricIndex: number | null, experiment: Experiment): ExperimentMetric | null => {
+                if (metricIndex === null) {
+                    return null
+                }
+
+                // Check if the index is within the regular metrics array
+                if (metricIndex < experiment.metrics.length) {
+                    return experiment.metrics[metricIndex] as ExperimentMetric
+                }
+
+                // If not, check shared metrics with primary type
+                const sharedMetricIndex = metricIndex - experiment.metrics.length
+                const sharedMetric = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')[
+                    sharedMetricIndex
+                ]
+
+                return sharedMetric?.query as ExperimentMetric
+            },
         ],
         uniqueUsers: [
-            (s) => [s.metricResult],
-            (metricResult: { uniqueUsers: number }) => metricResult?.uniqueUsers ?? null,
+            (s) => [s.metricResult, s.exposureEstimateConfig],
+            (metricResult: { uniqueUsers: number }, exposureEstimateConfig: ExposureEstimateConfig | null) => {
+                if (metricResult && metricResult.uniqueUsers !== null) {
+                    return metricResult.uniqueUsers
+                }
+
+                return exposureEstimateConfig?.uniqueUsers ?? null
+            },
         ],
         averageEventsPerUser: [
             (s) => [s.metricResult],
@@ -331,7 +550,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         Count Per User Metric:
                         - "mean" is the average number of events per user (e.g., clicks per user).
                         - MDE is applied as a percentage of this mean to compute `d`.
-        
+
                         Formula:
                         d = MDE * averageEventsPerUser
                     */
@@ -339,9 +558,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample size formula:
-        
+
                         N = (16 * variance) / d^2
-        
+
                         Where:
                         - `16` comes from statistical power analysis:
                             - Based on a 95% confidence level (Z_alpha/2 = 1.96) and 80% power (Z_beta = 0.84),
@@ -358,7 +577,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         Continuous property metric:
                         - "mean" is the average value of the measured property per user (e.g., revenue per user).
                         - MDE is applied as a percentage of this mean to compute `d`.
-        
+
                         Formula:
                         d = MDE * averagePropertyValuePerUser
                     */
@@ -366,9 +585,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample Size Formula for Continuous metrics:
-        
+
                         N = (16 * variance) / d^2
-        
+
                         Where:
                         - `variance` is the estimated variance of the continuous property.
                         - The formula is identical to the Count metric case.
@@ -386,7 +605,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         - Here, "mean" does not exist in the same way as for count/continuous metrics.
                         - Instead, we use `p`, the baseline conversion rate (historical probability of success).
                         - MDE is applied as an absolute percentage change to `p`.
-        
+
                         Formula:
                         d = MDE * conversionRate
                     */
@@ -394,9 +613,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample size formula:
-        
+
                         N = (16 * p * (1 - p)) / d^2
-        
+
                         Where:
                         - `p` is the historical conversion rate (baseline success probability).
                         - `d` is the absolute MDE (e.g., detecting a 5% increase means `d = 0.05`).
@@ -416,7 +635,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return sampleSizeFormula * numberOfVariants
             },
         ],
-
         recommendedRunningTime: [
             (s) => [s.recommendedSampleSize, s.uniqueUsers],
             (recommendedSampleSize: number, uniqueUsers: number): number => {

@@ -6,7 +6,7 @@ from django.db import models
 from django.db.models import QuerySet
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.utils import generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class Notebook(FileSystemSyncMixin, UUIDModel):
+class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=256, blank=True, null=True)
@@ -43,8 +43,8 @@ class Notebook(FileSystemSyncMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Notebooks",
-            type="notebook",
+            base_folder=self._create_in_folder or "Unfiled/Notebooks",
+            type="notebook",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.title or "Untitled",
             href=f"/notebooks/{self.short_id}",

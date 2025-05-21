@@ -184,7 +184,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
         # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        if self.scope_object == "project":
+        # "insights" is a special one where we always want to include all insights if you're an org admin because the insights retrieve uses a list call :|
+        if self.scope_object == "project" or self.scope_object == "insight":
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(

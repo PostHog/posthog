@@ -222,7 +222,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 ],
             }
         ]
-        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions, 3 filesystem
+        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions, 4 filesystem
         with self.assertNumQueries(8):
             self.action.save()
         hog_function_1.refresh_from_db()
@@ -323,12 +323,16 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 "filter_test_accounts": False,
             },
         )
-        file = FileSystem.objects.filter(team=self.team, type="hog/destination", ref=str(hog_function_3.id)).first()
+        file = FileSystem.objects.filter(
+            team=self.team, type="hog_function/destination", ref=str(hog_function_3.id)
+        ).first()
         assert file is not None
         assert file.path == "Unfiled/Destinations/func 3"
 
         hog_function_3.deleted = True
         hog_function_3.save()
 
-        file = FileSystem.objects.filter(team=self.team, type="hog/destination", ref=str(hog_function_3.id)).first()
+        file = FileSystem.objects.filter(
+            team=self.team, type="hog_function/destination", ref=str(hog_function_3.id)
+        ).first()
         assert file is None

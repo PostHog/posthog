@@ -15,10 +15,17 @@ def get_migrations_cluster():
     return get_cluster(cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
 
 
-def run_sql_with_exceptions(sql: str, node_role: NodeRole = NodeRole.DATA, sharded: bool = False):
+def run_sql_with_exceptions(
+    sql: str, node_role: NodeRole = NodeRole.DATA, sharded: bool = False, is_alter_on_replicated_table: bool = False
+):
     """
     migrations.RunSQL does not raise exceptions, so we need to wrap it in a function that does.
     node_role is set to DATA by default to keep compatibility with the old migrations.
+
+    sql: str - the SQL to run
+    node_role: NodeRole - the role of the nodes to run the migration on. In general, run everything on NodeRole.ALL except changes to sharded tables / writable distributed tables.
+    sharded: bool - whether the migration is on a sharded table
+    is_alter_on_replicated_table: bool - whether the migration is an ALTER TABLE on a replicated table. This will run on just one host per shard or one host for the whole cluster if there is no sharding.
     """
     cluster = get_migrations_cluster()
 
@@ -27,7 +34,10 @@ def run_sql_with_exceptions(sql: str, node_role: NodeRole = NodeRole.DATA, shard
         if node_role == NodeRole.ALL:
             assert not sharded
             logger.info("       Running migration on coordinators and data nodes")
-            return cluster.map_all_hosts(query).result()
+            if is_alter_on_replicated_table:
+                return cluster.any_host(query).result()
+            else:
+                return cluster.map_all_hosts(query).result()
         else:
             logger.info("       Running migration on %ss", node_role.value.lower())
             if sharded:
