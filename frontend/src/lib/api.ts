@@ -1656,11 +1656,17 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<{ results: LogMessage[] }> {
-            return new ApiRequest().logsQuery().create({ data: { query } })
+        async query({
+            query,
+            signal,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            signal?: AbortSignal
+        }): Promise<{ results: LogMessage[] }> {
+            return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
-        async sparkline({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<{ results: LogMessage[] }> {
-            return new ApiRequest().logsSparkline().create({ data: { query } })
+        async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
+            return new ApiRequest().logsSparkline().create({ signal, data: { query } })
         },
     },
 

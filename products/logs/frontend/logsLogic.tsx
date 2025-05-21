@@ -1,10 +1,10 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { useDebouncedCallback } from 'use-debounce'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
-import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 import { UniversalFiltersGroup } from '~/types'
 
 import type { logsLogicType } from './logsLogicType'
@@ -15,7 +15,13 @@ export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
 
     actions({
-        runQuery: true,
+        runQuery: (debounce?: integer) => ({ debounce }),
+        cancelInProgressLogs: (logsAbortController: AbortController) => ({ logsAbortController }),
+        cancelInProgressSparkline: (sparklineAbortController: AbortController) => ({ sparklineAbortController }),
+        setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
+        setSparklineAbortController: (sparklineAbortController: AbortController | null) => ({
+            sparklineAbortController,
+        }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
@@ -69,6 +75,18 @@ export const logsLogic = kea<logsLogicType>([
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
         ],
+        logsAbortController: [
+            null as AbortController | null,
+            {
+                setLogsAbortController: (_, { logsAbortController }) => logsAbortController,
+            },
+        ],
+        sparklineAbortController: [
+            null as AbortController | null,
+            {
+                setSparklineAbortController: (_, { sparklineAbortController }) => sparklineAbortController,
+            },
+        ],
         hasRunQuery: [
             false as boolean,
             {
@@ -76,13 +94,33 @@ export const logsLogic = kea<logsLogicType>([
                 fetchLogsFailure: () => true,
             },
         ],
+        logsLoading: [
+            false as boolean,
+            {
+                fetchLogs: () => true,
+                fetchLogsSuccess: () => false,
+                fetchLogsFailure: () => true,
+            },
+        ],
+        sparklineLoading: [
+            false as boolean,
+            {
+                fetchSparkline: () => true,
+                fetchSparklineSuccess: () => false,
+                fetchSparklineFailure: () => true,
+            },
+        ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         logs: [
-            [] as LogMessage[],
+            [],
             {
                 fetchLogs: async () => {
+                    const logsController = new AbortController()
+                    const signal = logsController.signal
+                    actions.cancelInProgressLogs(logsController)
+
                     const response = await api.logs.query({
                         query: {
                             limit: 100,
@@ -93,7 +131,9 @@ export const logsLogic = kea<logsLogicType>([
                             resource: values.resource,
                             severityLevels: values.severityLevels,
                         },
+                        signal,
                     })
+                    actions.setLogsAbortController(null)
                     return response.results
                 },
             },
@@ -102,6 +142,10 @@ export const logsLogic = kea<logsLogicType>([
             [] as any[],
             {
                 fetchSparkline: async () => {
+                    const sparklineController = new AbortController()
+                    const signal = sparklineController.signal
+                    actions.cancelInProgressSparkline(sparklineController)
+
                     const response = await api.logs.sparkline({
                         query: {
                             limit: 100,
@@ -112,7 +156,9 @@ export const logsLogic = kea<logsLogicType>([
                             resource: values.resource,
                             severityLevels: values.severityLevels,
                         },
+                        signal,
                     })
+                    actions.setSparklineAbortController(null)
                     return response
                 },
             },
@@ -122,14 +168,29 @@ export const logsLogic = kea<logsLogicType>([
     listeners(({ values, actions }) => {
         const maybeRefreshLogs = (): void => {
             if (values.hasRunQuery) {
-                actions.runQuery()
+                actions.runQuery(500)
             }
         }
 
         return {
-            runQuery: () => {
+            runQuery: async ({ debounce }, breakpoint) => {
+                if (debounce) {
+                    await breakpoint(debounce)
+                }
                 actions.fetchLogs()
                 actions.fetchSparkline()
+            },
+            cancelInProgressLogs: ({ logsAbortController }) => {
+                if (values.logsAbortController !== null) {
+                    values.logsAbortController.abort('new query started')
+                }
+                actions.setLogsAbortController(logsAbortController)
+            },
+            cancelInProgressSparkline: ({ sparklineAbortController }) => {
+                if (values.sparklineAbortController !== null) {
+                    values.sparklineAbortController.abort('new query started')
+                }
+                actions.setSparklineAbortController(sparklineAbortController)
             },
             setDateRange: maybeRefreshLogs,
             setOrderBy: maybeRefreshLogs,
