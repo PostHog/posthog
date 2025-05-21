@@ -819,35 +819,109 @@ function PersonSummaries(): JSX.Element {
 
 function PerformanceMetrics(): JSX.Element {
     const segments = [
-        { label: 'Core Services', value: '40%', color: 'bg-success', width: 'w-[40%]' },
-        { label: 'Cache Layer', value: '25%', color: 'bg-warning', width: 'w-[25%]' },
-        { label: 'API Gateway', value: '20%', color: 'bg-danger', width: 'w-[20%]' },
-        { label: 'Database', value: '10%', color: 'bg-danger-dark', width: 'w-[10%]' },
-        { label: 'External', value: '5%', color: 'bg-danger-darker', width: 'w-[5%]' },
+        { 
+            label: 'Query Caching', 
+            value: '40%', 
+            color: 'bg-success', 
+            width: 'w-[40%]',
+            status: 'enabled',
+            description: 'Active',
+            details: 'Caches frequently used query results to reduce database load and improve response times.'
+        },
+        { 
+            label: 'Data Compression', 
+            value: '25%', 
+            color: 'bg-success', 
+            width: 'w-[25%]',
+            status: 'enabled',
+            description: 'Active',
+            details: 'Compresses data in transit and at rest to reduce bandwidth usage and storage costs.'
+        },
+        { 
+            label: 'Batch Processing', 
+            value: '20%', 
+            color: 'bg-warning', 
+            width: 'w-[20%]',
+            status: 'disabled',
+            description: 'Disabled',
+            details: 'Processes multiple operations in a single batch to reduce overhead and improve throughput.'
+        },
+        { 
+            label: 'Parallel Queries', 
+            value: '10%', 
+            color: 'bg-warning', 
+            width: 'w-[10%]',
+            status: 'disabled',
+            description: 'Disabled',
+            details: 'Executes independent queries concurrently to reduce total processing time.'
+        },
+        { 
+            label: 'Result Caching', 
+            value: '5%', 
+            color: 'bg-warning', 
+            width: 'w-[5%]',
+            status: 'disabled',
+            description: 'Disabled',
+            details: 'Caches final results to serve identical requests instantly without reprocessing.'
+        },
     ]
 
     return (
         <div className="p-4">
             <div className="flex items-center gap-2 mb-4">
-                <h3 className="text-lg font-semibold m-0">System Performance</h3>
+                <h3 className="text-lg font-semibold m-0">Performance Features</h3>
                 <LemonTag type="completion" size="medium">
                     ALPHA
                 </LemonTag>
             </div>
             
-            <div className="flex h-24 rounded-lg overflow-hidden border">
+            <div className="flex h-24 rounded-lg overflow-hidden border mb-6">
                 {segments.map((segment, index) => (
                     <div
                         key={index}
                         className={`${segment.color} ${segment.width} flex flex-col items-center justify-center text-white relative group`}
                     >
                         <div className="text-sm font-medium mb-1">{segment.label}</div>
-                        <div className="text-xs opacity-80">{segment.value}</div>
+                        <div className="text-xs opacity-80 mb-1">{segment.value} improvement</div>
+                        <div className="text-xs opacity-60">{segment.description}</div>
                         {index < segments.length - 1 && (
                             <div className="absolute right-0 top-0 bottom-0 w-px bg-white/20" />
                         )}
                     </div>
                 ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                {segments.map((feature, i) => (
+                    <div key={i} className="bg-bg-light border rounded p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-sm font-medium mb-0">{feature.label}</h3>
+                            <LemonTag 
+                                size="small" 
+                                type={feature.status === 'enabled' ? 'success' : 'warning'}
+                            >
+                                {feature.status}
+                            </LemonTag>
+                        </div>
+                        <div className="text-sm text-muted mb-2">
+                            {feature.details}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonTag size="small" type="default">
+                                {feature.value} improvement
+                            </LemonTag>
+                            {feature.status === 'disabled' && (
+                                <LemonButton size="small" type="primary">
+                                    Enable
+                                </LemonButton>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            <div className="mt-4 text-sm text-muted">
+                2 features enabled • 3 features disabled • Total potential improvement: 100%
             </div>
         </div>
     )
