@@ -70,7 +70,19 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
+        /**
+         * we need to wait for the metric to load to check if we need to modify the name and id
+         */
+        loadSharedMetricSuccess: () => {
+            if (props.action === 'duplicate' && values.sharedMetric) {
+                actions.setSharedMetric({
+                    ...values.sharedMetric,
+                    name: `${values.sharedMetric.name} (Duplicate)`,
+                    id: undefined,
+                })
+            }
+        },
         createSharedMetric: async () => {
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
             if (response.id) {
