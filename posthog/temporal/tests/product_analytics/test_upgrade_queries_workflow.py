@@ -1,4 +1,13 @@
+import uuid
 import pytest
+from asgiref.sync import sync_to_async
+from concurrent.futures import ThreadPoolExecutor
+
+from django.conf import settings
+from temporalio.client import Client
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.insight import Insight
 from posthog.schema import NodeKind
@@ -6,6 +15,8 @@ from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigrati
 from posthog.temporal.product_analytics.upgrade_queries_workflow import (
     GetInsightsToMigrateActivityInputs,
     MigrateInsightsBatchActivityInputs,
+    UpgradeQueriesWorkflow,
+    UpgradeQueriesWorkflowInputs,
     get_insights_to_migrate,
     migrate_insights_batch,
 )
@@ -148,7 +159,7 @@ def setup_insights(team):
 
 
 class TestUpgradeQueriesWorkflow(QueryMatchingTest):
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_get_insights_to_migrate_activity(self, activity_environment, team):
         i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
         inputs = GetInsightsToMigrateActivityInputs()
@@ -159,7 +170,7 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         expected_ids = [i2.id, i3.id, i4.id, i7.id, i8.id]
         assert sorted(result), expected_ids
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_migrate_insights_batch_activity(self, activity_environment, team):
         i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
         inputs = MigrateInsightsBatchActivityInputs(
@@ -167,6 +178,31 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         )
 
         activity_environment.run(migrate_insights_batch, inputs)
+
+        i3.refresh_from_db()
+        assert i3.query["source"]["v"] == 6
+        assert i3.query["source"]["interval"] == "day"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_upgrade_queries_workflow(self, team):
+        i1, i2, i3, i4, i5, i6, i7, i8 = await sync_to_async(setup_insights)(team)
+
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                workflows=[UpgradeQueriesWorkflow],
+                activities=[get_insights_to_migrate, migrate_insights_batch],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=50),
+            ):
+                await activity_environment.client.execute_workflow(
+                    UpgradeQueriesWorkflow.run,
+                    UpgradeQueriesWorkflowInputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
 
         i3.refresh_from_db()
         assert i3.query["source"]["v"] == 6

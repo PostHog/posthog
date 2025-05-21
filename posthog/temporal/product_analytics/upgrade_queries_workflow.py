@@ -20,7 +20,7 @@ class GetInsightsToMigrateActivityInputs:
 
 
 @temporalio.activity.defn
-def get_insights_to_migrate(inputs: typing.Any) -> list[int]:
+def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> list[int]:
     # TODO: Add index
     # TODO: Cross-join or run separately for each kind?
     # CREATE INDEX insight_query_gin_path
@@ -96,14 +96,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> UpgradeQueriesWorkflowInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
-
-        batch_size = loaded.get("batch_size", 100)
-        if not isinstance(batch_size, int) or batch_size <= 0:
-            raise ValueError("batch_size must be a positive integer")
-
-        return UpgradeQueriesWorkflowInputs(
-            batch_size=batch_size,
-        )
+        return UpgradeQueriesWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: UpgradeQueriesWorkflowInputs) -> None:
