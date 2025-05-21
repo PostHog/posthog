@@ -89,11 +89,6 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Update messages from the opposite side
             instance.messages.filter(is_assistant=not is_assistant_bool, read=False).update(read=True)
 
-            # Reset unread count if needed
-            if instance.unread_count > 0:
-                instance.unread_count = 0
-                instance.save(update_fields=["unread_count"])
-
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -494,6 +489,20 @@ def chat_endpoints(http_request: HttpResponse):
         conversations_data = []
 
         for conversation in conversations[:20]:
+            # Fetch messages for the current conversation
+            messages_qs = ChatMessage.objects.filter(conversation=conversation).order_by("created_at")
+            current_conv_messages_data = []
+            for message_obj in messages_qs:
+                current_conv_messages_data.append(
+                    {
+                        "id": str(message_obj.id),
+                        "content": message_obj.content,
+                        "created_at": message_obj.created_at.isoformat(),
+                        "read": message_obj.read,
+                        "is_assistant": message_obj.is_assistant,
+                    }
+                )
+
             conversations_data.append(
                 {
                     "id": str(conversation.id),
@@ -502,6 +511,7 @@ def chat_endpoints(http_request: HttpResponse):
                     "updated_at": conversation.updated_at.isoformat(),
                     "unread_count": conversation.unread_count,
                     "person_uuid": str(conversation.person_uuid),
+                    "messages": current_conv_messages_data,
                 }
             )
 
