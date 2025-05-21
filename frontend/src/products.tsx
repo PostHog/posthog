@@ -325,7 +325,12 @@ export const fileSystemTypes = {
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
     survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
-    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
+    user_interview: {
+        icon: (
+            <IconChat className="group-[.colorful-icons]/file-system:text-[var(--product-user-interviews-primary)]" />
+        ),
+        href: (ref: string) => urls.userInterview(ref),
+    },
 }
 
 /** This const is auto-generated, as is the whole file */

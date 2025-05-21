@@ -21,18 +21,18 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
 const iconTypes: Record<string, JSX.Element> = {
-    ai: <IconAI />,
-    cursorClick: <IconCursorClick />,
-    database: <IconDatabase />,
+    ai: <IconAI className='text-[var(--product-max-ai-primary)]'/>,
+    cursorClick: <IconCursorClick className='text-[var(--product-session-replay-primary)]'/>,
+    database: <IconDatabase className='text-[var(--product-data-warehouse-primary)]'/>,
     folder: <IconChevronRight />,
-    handMoney: <IconHandMoney />,
-    live: <IconLive />,
-    notification: <IconNotification />,
-    pieChart: <IconPieChart />,
-    piggyBank: <IconPiggyBank />,
-    plug: <IconPlug />,
-    sql: <IconServer />,
-    warning: <IconWarning />,
+    handMoney: <IconHandMoney className='text-[var(--product-revenue-analytics-primary)]'/>,
+    live: <IconLive className='text-[var(--activity-live-events-primary)]'/>,
+    notification: <IconNotification className='text-[var(--product-feature-flags-primary)]'/>,
+    pieChart: <IconPieChart className='text-[var(--product-web-analytics-primary)]'/>,
+    piggyBank: <IconPiggyBank className='text-[var(--product-revenue-analytics-primary)]'/>,
+    plug: <IconPlug className='text-[var(--product-data-pipeline-primary)]'/>,
+    sql: <IconServer className='text-[var(--product-data-warehouse-primary)]'/>,
+    warning: <IconWarning className='text-[var(--ingestion-warning-primary)]'/>,
 }
 
 export function iconForType(type?: string): JSX.Element {

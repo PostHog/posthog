@@ -211,7 +211,7 @@ export function PanelLayoutPanel({
                 </div>
             </div>
             <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/file-system colorful-icons">
                 <div className="flex gap-1 p-1 items-center justify-between">
                     <LemonInput
                         placeholder={searchPlaceholder}

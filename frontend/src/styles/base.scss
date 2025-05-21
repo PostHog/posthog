@@ -321,6 +321,23 @@
     --primitive-posthog-brand-yellow-saturation: 94%;
     --primitive-posthog-brand-yellow-lightness: 57%;
 
+    // Product specific colors
+    --product-web-analytics-primary: rgb(54 196 111 1);
+    --product-product-analytics-primary: rgb(47 128 250 1);
+    --product-session-replay-primary: rgb(255 193 7 1);
+    --product-feature-flags-primary: rgb(48 171 198 1);
+    --product-experiments-primary: rgb(182 42 217 1);
+    --product-error-tracking-primary: rgb(235 157 42 1);
+    --product-surveys-primary: rgb(243 84 84 1);
+    --product-data-pipeline-primary: rgb(46 162 211 1);
+    --product-data-warehouse-primary: rgb(133 103 255 1);
+    --product-ai-primary: rgb(182 42 217 1);
+    --product-revenue-analytics-primary: rgb(35 181 69);
+    --activity-live-events-primary: rgb(214, 37, 123);
+    --ingestion-warning-primary: rgb(255, 7, 7);
+    --product-user-interviews-primary: rgb(0, 140, 255);
+
+
     // Generic brand color assignments
     // Change these to change the brand colors
     // //////////////////////////////////////////////////////////

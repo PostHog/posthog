@@ -29,7 +29,8 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         user_interview: {
-            icon: <IconChat />,
+            // Add these classes to parent: "group/file-system colorful-icons" to enable colorful icons
+            icon: <IconChat className='group-[.colorful-icons]/file-system:text-[var(--product-user-interviews-primary)]'/>,
             href: (ref: string) => urls.userInterview(ref),
         },
     },
