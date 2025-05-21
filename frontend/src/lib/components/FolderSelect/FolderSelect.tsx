@@ -18,16 +18,18 @@ export interface FolderSelectProps {
     onChange?: (folder: string) => void
     /** Class name for the component */
     className?: string
+    /** Root for folder */
+    root?: string
 }
 
 /** Input component for selecting a folder */
 let counter = 0
 
-export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
+export function FolderSelect({ value, onChange, root, className }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true }
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root }
 
-    const { searchTerm, expandedSearchFolders, expandedFolders, projectTreeItems, treeTableKeys, editingItemId } =
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
     const {
         setSearchTerm,
@@ -100,7 +102,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                     ref={treeRef}
                     selectMode="folder-only"
                     className="px-0 py-1"
-                    data={projectTreeItems}
+                    data={fullFileSystemFiltered}
                     mode="tree"
                     tableViewKeys={treeTableKeys}
                     defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
