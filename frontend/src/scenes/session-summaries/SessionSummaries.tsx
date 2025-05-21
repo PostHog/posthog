@@ -6,8 +6,18 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { LemonBanner } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconAIText, IconCalendar, IconChevronDown, IconChevronRight, IconFilter, IconTarget } from '@posthog/icons'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import {
+    IconAIText,
+    IconCalendar,
+    IconChevronDown,
+    IconChevronRight,
+    IconFilter,
+    IconTarget,
+    IconDashboard,
+    IconGear,
+    IconTrending,
+} from '@posthog/icons'
+import { IconPlayCircle, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import React from 'react'
 
 export const scene: SceneExport = {
@@ -715,6 +725,93 @@ function PersonSummaries(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+
+            <div className="flex justify-center items-center flex-wrap w-full gap-2 mb-2 mt-2">
+                <div className="flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between">
+                    <div className="flex flex-row w-full">
+                        <div className="flex flex-row items-start justify-start flex-1" />
+                        <div className="font-bold uppercase text-xs py-1">Total Person Summaries</div>
+                        <div className="flex flex-1 flex-row justify-end items-start" />
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className="text-2xl">538</div>
+                    </div>
+                    <div className="text-success">
+                        <IconTrending /> +12.5%
+                    </div>
+                </div>
+
+                <div className="flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between">
+                    <div className="flex flex-row w-full">
+                        <div className="flex flex-row items-start justify-start flex-1" />
+                        <div className="font-bold uppercase text-xs py-1">Blocking Issues</div>
+                        <div className="flex flex-1 flex-row justify-end items-start" />
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className="text-2xl">23</div>
+                    </div>
+                    <div className="text-danger">
+                        <IconTrending /> +5.2%
+                    </div>
+                </div>
+
+                <div className="flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between">
+                    <div className="flex flex-row w-full">
+                        <div className="flex flex-row items-start justify-start flex-1" />
+                        <div className="font-bold uppercase text-xs py-1">Non-blocking Issues</div>
+                        <div className="flex flex-1 flex-row justify-end items-start" />
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className="text-2xl">132</div>
+                    </div>
+                    <div className="text-danger">
+                        <IconTrending /> +8.3%
+                    </div>
+                </div>
+
+                <div className="flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between">
+                    <div className="flex flex-row w-full">
+                        <div className="flex flex-row items-start justify-start flex-1" />
+                        <div className="font-bold uppercase text-xs py-1">Abandonments</div>
+                        <div className="flex flex-1 flex-row justify-end items-start" />
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className="text-2xl">92</div>
+                    </div>
+                    <div className="text-success">
+                        <IconTrendingDown /> -15.7%
+                    </div>
+                </div>
+
+                <div className="flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between">
+                    <div className="flex flex-row w-full">
+                        <div className="flex flex-row items-start justify-start flex-1" />
+                        <div className="font-bold uppercase text-xs py-1">Confusions</div>
+                        <div className="flex flex-1 flex-row justify-end items-start" />
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className="text-2xl">212</div>
+                    </div>
+                    <div className="text-muted">
+                        <IconTrendingFlat /> 0%
+                    </div>
+                </div>
+
+                <div className="flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between">
+                    <div className="flex flex-row w-full">
+                        <div className="flex flex-row items-start justify-start flex-1" />
+                        <div className="font-bold uppercase text-xs py-1">Failed summaries</div>
+                        <div className="flex flex-1 flex-row justify-end items-start" />
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className="text-2xl">8</div>
+                    </div>
+                    <div className="text-success">
+                        <IconTrendingDown /> -3.1%
+                    </div>
+                </div>
+            </div>
+
             <PersonSummariesTable />
         </div>
     )
