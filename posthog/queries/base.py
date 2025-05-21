@@ -181,32 +181,54 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         if not parsed_date:
             return False
 
-        if isinstance(override_value, datetime.datetime):
-            override_date = convert_to_datetime_aware(override_value)
-            if operator == "is_date_before":
-                return override_date < parsed_date
-            else:
-                return override_date > parsed_date
-        elif isinstance(override_value, datetime.date):
-            if operator == "is_date_before":
-                return override_value < parsed_date.date()
-            else:
-                return override_value > parsed_date.date()
-        elif isinstance(override_value, str):
-            try:
-                override_date = parser.parse(override_value)
-                override_date = convert_to_datetime_aware(override_date)
-                if operator == "is_date_before":
-                    return override_date < parsed_date
-                else:
-                    return override_date > parsed_date
-            except Exception:
-                return False
+        parsed_override_date = determine_parsed_incoming_date(override_value)
+
+        if not parsed_override_date:
+            return False
+
+        if operator == "is_date_before":
+            return parsed_override_date < parsed_date
+        else:
+            return parsed_override_date > parsed_date
 
     return False
 
 
-def determine_parsed_date_for_property_matching(value: ValueT):
+def determine_parsed_incoming_date(
+    value: ValueT | datetime.date | datetime.datetime | float,
+) -> datetime.datetime | None:
+    # This parses the incoming date value. The range of possibilities is only limited by our customers imagination, but usually
+    # take the form of a string, a unix timestamp, or a datetime object.
+    if isinstance(value, datetime.datetime):
+        return convert_to_datetime_aware(value)
+
+    if isinstance(value, datetime.date):
+        return convert_to_datetime_aware(datetime.datetime.combine(value, datetime.time.min))
+
+    if isinstance(value, int) or isinstance(value, float):
+        return datetime.datetime.fromtimestamp(value, tz=ZoneInfo("UTC"))
+    if isinstance(value, str):
+        try:
+            parsed = parser.parse(value)
+            return convert_to_datetime_aware(parsed)
+        except Exception:
+            try:
+                # This might be a Unix timestamp passed as a string in milliseconds
+                parsed_date = float(value)
+                return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
+            except Exception:
+                try:
+                    # This might be a Unix timestamp passed as a string in seconds
+                    parsed_date = int(value)
+                    return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
+                except Exception:
+                    pass
+
+    return None
+
+
+def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datetime | None:
+    # This parses the filter value we compare against. The range of possible values is limited by our UI.
     parsed_date = None
     try:
         parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
