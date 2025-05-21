@@ -97,6 +97,7 @@ export const maxLogic = kea<maxLogicType>([
         pollConversation: (currentRecursionDepth: number = 0) => ({ currentRecursionDepth }),
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
+        focusInput: true,
     }),
 
     reducers({
@@ -193,6 +194,11 @@ export const maxLogic = kea<maxLogicType>([
                 startNewConversation: () => null,
             },
         ],
+
+        /**
+         * When the focus counter updates, the input component will rerender and refocus the input.
+         */
+        focusCounter: [0, { focusInput: (state) => state + 1 }],
     }),
 
     loaders({
