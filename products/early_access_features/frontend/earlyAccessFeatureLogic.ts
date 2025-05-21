@@ -201,12 +201,14 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
-            refreshTreeItem('early_access_feature', props.id)
-            _earlyAccessFeature.id && router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
+            if (_earlyAccessFeature.id) {
+                refreshTreeItem('early_access_feature', _earlyAccessFeature.id)
+                router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
+            }
         },
         updateStage: async ({ stage }) => {
             actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
