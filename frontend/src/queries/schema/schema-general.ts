@@ -2624,12 +2624,15 @@ export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<Suggeste
 export interface TeamTaxonomyItem {
     event: string
     count: integer
+    description?: string
+    similarity?: number
 }
 
 export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
+    plan?: string
 }
 
 export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse>

@@ -18027,10 +18027,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
-                "event": {
+                "description": {
                     "type": "string"
                 },
-                "description": {
+                "event": {
                     "type": "string"
                 },
                 "similarity": {
@@ -18047,13 +18047,12 @@
                     "const": "TeamTaxonomyQuery",
                     "type": "string"
                 },
-                "plan": {
-                    "description": "The query plan to use for similarity search",
-                    "type": "string"
-                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "plan": {
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"

@@ -120,7 +120,7 @@ def calculate_tfidf_similarity_batch(query: str, texts: list[str]) -> list[float
 
 def calculate_similarity_batch(
     query: str, event_names: list[str], descriptions: dict[str, Optional[str]]
-) -> list[float]:
+) -> dict[str, float]:
     """Calculate similarity scores for multiple events at once"""
     sequence_similarities = [calculate_sequence_similarity(query, name) for name in event_names]
     ngram_similarities = [calculate_ngram_similarity(query, name) for name in event_names]
@@ -137,10 +137,12 @@ def calculate_similarity_batch(
     # Weight and combine similarities
     weights = {"sequence": 0.3, "ngram": 0.4, "tfidf": 0.3}
 
-    return [
-        weights["sequence"] * seq + weights["ngram"] * ngram + weights["tfidf"] * tfidf
-        for seq, ngram, tfidf in zip(sequence_similarities, ngram_similarities, tfidf_similarities)
-    ]
+    return {
+        event_name: weights["sequence"] * seq + weights["ngram"] * ngram + weights["tfidf"] * tfidf
+        for event_name, seq, ngram, tfidf in zip(
+            event_names, sequence_similarities, ngram_similarities, tfidf_similarities
+        )
+    }
 
 
 class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
@@ -183,17 +185,17 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         # Calculate similarities in batch if query plan exists
         similarities = None
         if self.query.plan:
-            similarities = calculate_similarity_batch(self.query.plan, list(event_names), descriptions)
+            similarities = calculate_similarity_batch(self.query.plan, event_names, descriptions)
 
         # Create results
         results: list[TeamTaxonomyItem] = []
-        for i, (event, count) in enumerate(filtered_results):
+        for event, count in filtered_results:
             results.append(
                 TeamTaxonomyItem(
                     event=event,
                     count=count,
                     description=descriptions[event],
-                    similarity=similarities[i] if similarities is not None else None,
+                    similarity=similarities[event] if similarities is not None else None,
                 )
             )
 
