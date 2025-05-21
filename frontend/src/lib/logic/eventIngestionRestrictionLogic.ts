@@ -34,10 +34,14 @@ export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogic
     })),
 
     selectors({
-        hasAnyRestriction: [
+        hasProjectNoticeRestriction: [
             (s) => [s.eventIngestionRestrictions],
-            (eventIngestionRestrictions): boolean => {
-                return eventIngestionRestrictions.length > 0
+            (eventIngestionRestrictions: EventIngestionRestriction[]): boolean => {
+                return eventIngestionRestrictions.some(
+                    (r: EventIngestionRestriction) =>
+                        r.restriction_type === RestrictionType.DROP_EVENT_FROM_INGESTION ||
+                        r.restriction_type === RestrictionType.SKIP_PERSON_PROCESSING
+                )
             },
         ],
     }),

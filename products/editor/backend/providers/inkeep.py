@@ -5,6 +5,7 @@ from django.conf import settings
 import openai
 from anthropic.types import MessageParam
 import logging
+from typing import Any
 
 from products.editor.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
@@ -30,19 +31,31 @@ class InkeepProvider:
         return api_key
 
     def stream_response(
-        self, system: str, messages: list[MessageParam], thinking: bool = False
+        self,
+        system: str,
+        messages: list[MessageParam],
+        thinking: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Generator[str, None, None]:
         """
         Generator function that yields SSE formatted data
         """
 
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model_id,
-                stream=True,
-                messages=convert_to_openai_messages(messages),
-                stream_options={"include_usage": True},
-            )
+            kwargs: dict[str, Any] = {
+                "model": self.model_id,
+                "stream": True,
+                "messages": convert_to_openai_messages(messages),
+                "stream_options": {"include_usage": True},
+            }
+
+            if temperature is not None:
+                kwargs["temperature"] = temperature
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+
+            stream = self.client.chat.completions.create(**kwargs)
         except openai.APIError as e:
             logger.exception(f"Inkeep API error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Inkeep API error'})}\n\n"
