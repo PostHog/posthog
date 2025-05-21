@@ -53,7 +53,7 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -88,6 +88,13 @@ export interface InsightTypeMetadata {
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
+    [NodeKind.CalendarHeatmapQuery]: {
+        name: 'Calendar Heatmap',
+        description: 'Visualize total or unique users broken down by day and hour.',
+        icon: IconHogQL,
+        inMenu: true,
+        // tooltipDescription TODO: Add tooltip description
+    },
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time.',
@@ -433,11 +440,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
-    [NodeKind.EventsHeatMapQuery]: {
-        name: 'Active Hours Heat Map',
-        icon: IconHogQL,
-        inMenu: false,
-    },
     [NodeKind.LogsQuery]: {
         name: 'Logs',
         icon: IconLive,
@@ -452,6 +454,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
+    [InsightType.CALENDAR_HEATMAP]: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery],
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
@@ -514,7 +517,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr),
+                    overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}

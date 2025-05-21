@@ -157,6 +157,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmObservabilityUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmObservabilityPlayground') {
+                    return 'playground'
                 }
                 return 'dashboard'
             },
@@ -650,6 +652,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 

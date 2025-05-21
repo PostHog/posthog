@@ -11,7 +11,6 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -68,11 +67,6 @@ export function Billing(): JSX.Element {
         }
     }, [!!billing])
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        768: 'medium',
-    })
-
     if (!billing && billingLoading) {
         return (
             <>
@@ -107,8 +101,9 @@ export function Billing(): JSX.Element {
 
     const products = billing?.products
     const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
+
     return (
-        <div ref={ref}>
+        <div className="@container">
             {showLicenseDirectInput && (
                 <>
                     <Form
@@ -157,17 +152,12 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {(showBillingSummary || showCreditCTAHero || showBillingHero) && !!size && (
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
                 <div
                     className={clsx(
                         'flex gap-6 max-w-300',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        billing?.has_active_subscription
-                            ? {
-                                  'flex-col': size === 'small',
-                                  'flex-row': size !== 'small',
-                              }
-                            : 'flex-col-reverse'
+                        billing?.has_active_subscription ? 'flex-col @3xl:flex-row' : 'flex-col-reverse'
                     )}
                 >
                     {showBillingSummary && (

@@ -82,6 +82,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
+                tabs.push(SidePanelTab.FeaturePreviews)
                 if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
@@ -94,7 +95,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
                 tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {

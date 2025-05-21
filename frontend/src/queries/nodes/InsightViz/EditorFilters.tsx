@@ -44,6 +44,7 @@ import {
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
+import { CalendarHeatmapFilters } from './CalendarHeatmapFilters'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
@@ -70,6 +71,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isStickiness,
         isTrendsLike,
+        isCalendarHeatmap,
         display,
         pathsFilter,
         querySource,
@@ -168,6 +170,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'series',
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
+                },
+                isCalendarHeatmap && {
+                    key: 'filters',
+                    label: 'Filters',
+                    component: CalendarHeatmapFilters,
                 },
                 isTrends && hasFormula
                     ? {
@@ -338,32 +345,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-        {
-            title: 'Advanced Options',
-            defaultExpanded: false,
-            editorFilters: filterFalsy([
-                {
-                    key: 'poe',
-                    component: PoeFilter,
-                },
-                {
-                    key: 'sampling',
-                    component: SamplingFilter,
-                },
-                isTrends &&
-                    isLineGraph && {
-                        key: 'goal-lines',
-                        label: 'Goal lines',
-                        tooltip: (
-                            <>
-                                Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
-                                (Web Vitals, etc.)
-                            </>
-                        ),
-                        component: GoalLines,
-                    },
-            ]),
-        },
+        ...(!isCalendarHeatmap
+            ? [
+                  {
+                      title: 'Advanced Options',
+                      defaultExpanded: false,
+                      editorFilters: filterFalsy([
+                          {
+                              key: 'poe',
+                              component: PoeFilter,
+                          },
+                          {
+                              key: 'sampling',
+                              component: SamplingFilter,
+                          },
+                          isTrends &&
+                              isLineGraph && {
+                                  key: 'goal-lines',
+                                  label: 'Goal lines',
+                                  tooltip: (
+                                      <>
+                                          Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
+                                          limits (Web Vitals, etc.)
+                                      </>
+                                  ),
+                                  component: GoalLines,
+                              },
+                      ]),
+                  },
+              ]
+            : []),
     ]
 
     const filterGroupsGroups = [

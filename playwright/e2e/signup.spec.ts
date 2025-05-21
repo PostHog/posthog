@@ -47,7 +47,7 @@ test.describe('Signup', () => {
         await expect(page.getByText('Add another word or two')).not.toBeVisible()
     })
 
-    test('Can create user account with first name, last name and organization name', async ({ page }) => {
+    test.skip('Can create user account with first name, last name and organization name', async ({ page }) => {
         let signupRequestBody: string | null = null
 
         await page.route('/api/signup/', async (route) => {

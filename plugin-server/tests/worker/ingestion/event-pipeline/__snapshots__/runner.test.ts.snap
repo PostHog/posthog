@@ -106,6 +106,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "personCache": {},
         "personCheckCache": {},
         "token": "token1",
+        "updateLatencyPerDistinctIdSeconds": {},
       },
     ],
   ],

@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -8,6 +9,7 @@ use crate::token::InvalidTokenReason;
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CaptureResponseCode {
     Ok = 1,
+    NoContent = 2,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -16,6 +18,15 @@ pub struct CaptureResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
+}
+
+impl IntoResponse for CaptureResponse {
+    fn into_response(self) -> Response {
+        match self.status {
+            CaptureResponseCode::NoContent => StatusCode::NO_CONTENT.into_response(),
+            CaptureResponseCode::Ok => (StatusCode::OK, Json(self)).into_response(),
+        }
+    }
 }
 
 #[derive(Clone, Error, Debug)]
@@ -126,5 +137,33 @@ impl IntoResponse for CaptureError {
             }
         }
         .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn test_capture_response_into_response_ok() {
+        // Test Ok response
+        let response = CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        };
+        let response = response.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_capture_response_into_response_no_content() {
+        // Test NoContent response
+        let response = CaptureResponse {
+            status: CaptureResponseCode::NoContent,
+            quota_limited: None,
+        };
+        let response = response.into_response();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 }

@@ -1,11 +1,9 @@
-from dataclasses import dataclass
-from datetime import datetime, date
-from typing import Any, Optional
 import uuid
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any, Optional
 
 import dlt
-from django.conf import settings
-from django.db.models import Prefetch
 import dlt.common
 import dlt.common.libs
 import dlt.common.libs.pyarrow
@@ -14,10 +12,10 @@ import dlt.extract.incremental
 import dlt.extract.incremental.transform
 import pendulum
 import pyarrow
-
-from dlt.common.normalizers.naming.snake_case import NamingConvention
-from dlt.common.schema.typing import TSchemaTables
 from clickhouse_driver.errors import ServerException
+from django.conf import settings
+from django.db.models import Prefetch
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
@@ -54,15 +52,9 @@ class PipelineInputs:
 
 
 def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> None:
-    job = ExternalDataJob.objects.prefetch_related(
-        "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-    ).get(pk=job_id)
-
-    schema = (
-        ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    )
+    job = ExternalDataJob.objects.get(pk=job_id)
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
     schema.last_synced_at = job.created_at
-
     schema.save()
 
 
@@ -70,7 +62,6 @@ def validate_schema_and_update_table_sync(
     run_id: str,
     team_id: int,
     schema_id: uuid.UUID,
-    table_schema: TSchemaTables,
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
     table_schema_dict: Optional[dict[str, str]] = None,
@@ -84,8 +75,9 @@ def validate_schema_and_update_table_sync(
         run_id: The id of the external data job
         team_id: The id of the team
         schema_id: The schema for which the data job relates to
-        table_schema: The DLT schema from the data load stage
-        table_row_counts: The count of synced rows from DLT
+        row_count: The count of synced rows
+        table_format: The format of the table
+        table_schema_dict: The schema of the table
     """
 
     logger = bind_temporal_worker_logger_sync(team_id=team_id)
@@ -130,7 +122,7 @@ def validate_schema_and_update_table_sync(
         }
 
         # create or update
-        table_created: DataWarehouseTable | None = ExternalDataSchema.objects.get(id=_schema_id, team_id=team_id).table
+        table_created: DataWarehouseTable | None = external_data_schema.table
         if table_created:
             table_created.credential = table_params["credential"]
             table_created.format = table_params["format"]

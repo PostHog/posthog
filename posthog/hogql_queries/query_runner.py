@@ -32,7 +32,6 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
-    EventsHeatMapQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -49,6 +48,7 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -211,11 +211,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "EventsHeatMapQuery":
-        from .web_analytics.web_active_hours_heatmap_query_runner import EventsHeatMapQueryRunner
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
-        return EventsHeatMapQueryRunner(
-            query=cast(EventsHeatMapQuery | dict[str, Any], query),
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

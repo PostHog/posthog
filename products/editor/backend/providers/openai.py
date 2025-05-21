@@ -9,6 +9,7 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
 )
 import logging
+from typing import Any
 
 from products.editor.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
@@ -75,7 +76,12 @@ class OpenAIProvider:
         yield f"data: {json.dumps({'type': 'usage', 'input_tokens': non_cached_input_tokens, 'output_tokens': output_tokens, 'cache_read_tokens': cache_read_tokens, 'cache_write_tokens': cache_write_tokens})}\n\n"
 
     def stream_response(
-        self, system: str, messages: list[MessageParam], thinking: bool = False
+        self,
+        system: str,
+        messages: list[MessageParam],
+        thinking: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -88,6 +94,18 @@ class OpenAIProvider:
             reasoning_on = False
 
         try:
+            effective_temperature = temperature if temperature is not None else OpenAIConfig.TEMPERATURE
+
+            def build_common_kwargs() -> dict[str, Any]:
+                common: dict[str, Any] = {
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                    "temperature": effective_temperature,
+                }
+                if max_tokens is not None:
+                    common["max_tokens"] = max_tokens
+                return common
+
             if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
                 stream = self.client.chat.completions.create(
                     model=self.model_id,
@@ -100,9 +118,8 @@ class OpenAIProvider:
                         ),
                         *convert_to_openai_messages(messages),
                     ],
-                    stream=True,
-                    stream_options={"include_usage": True},
                     reasoning_effort=OpenAIConfig.REASONING_EFFORT if reasoning_on else None,
+                    **build_common_kwargs(),
                 )
             else:
                 stream = self.client.chat.completions.create(
@@ -116,9 +133,7 @@ class OpenAIProvider:
                         ),
                         *convert_to_openai_messages(messages),
                     ],
-                    stream=True,
-                    stream_options={"include_usage": True},
-                    temperature=OpenAIConfig.TEMPERATURE,
+                    **build_common_kwargs(),
                 )
 
             for chunk in stream:

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::properties::property_models::{OperatorType, PropertyFilter};
+use crate::properties::relative_date;
 use chrono::{DateTime, Utc};
 use dateparser::parse as parse_date;
 use regex::Regex;
@@ -286,6 +287,11 @@ fn is_truthy_property_value(value: &Value) -> bool {
 }
 
 fn parse_date_string(date_str: &str) -> Option<DateTime<Utc>> {
+    // Try relative date parsing first
+    if let Some(date) = relative_date::parse_relative_date(date_str) {
+        return Some(date);
+    }
+    // Fall back to dateparser for other formats
     parse_date(date_str).ok()
 }
 
@@ -1467,7 +1473,7 @@ mod test_match_properties {
     }
 
     #[test]
-    fn test_match_properties_date_operators() {
+    fn test_match_properties_exact_date() {
         let exact_date = "2024-03-21T00:00:00Z"; // Define the exact date we want to test
         let property_exact = PropertyFilter {
             key: "date".to_string(),
@@ -1507,5 +1513,68 @@ mod test_match_properties {
             true
         )
         .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_relative_date() {
+        let property_relative = PropertyFilter {
+            key: "joined_at".to_string(),
+            value: Some(json!("-3d")),
+            operator: Some(OperatorType::IsDateBefore),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Get current time and 3 days ago
+        let now = chrono::Utc::now();
+        let four_days_ago = now - chrono::Duration::days(4);
+        let two_days_ago = now - chrono::Duration::days(2);
+
+        // Test with date 4 days ago (should match)
+        assert!(match_property(
+            &property_relative,
+            &HashMap::from([("joined_at".to_string(), json!(four_days_ago.to_rfc3339()))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with date 2 days ago (should not match)
+        assert!(!match_property(
+            &property_relative,
+            &HashMap::from([("joined_at".to_string(), json!(two_days_ago.to_rfc3339()))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with timestamp format
+        assert!(match_property(
+            &property_relative,
+            &HashMap::from([(
+                "joined_at".to_string(),
+                json!(four_days_ago.timestamp_millis() as f64)
+            )]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with invalid date
+        assert!(!match_property(
+            &property_relative,
+            &HashMap::from([("joined_at".to_string(), json!("invalid-date"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with null value
+        assert!(!match_property(
+            &property_relative,
+            &HashMap::from([("joined_at".to_string(), json!(null))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with missing property
+        assert!(match_property(&property_relative, &HashMap::from([]), true).is_err());
     }
 }
