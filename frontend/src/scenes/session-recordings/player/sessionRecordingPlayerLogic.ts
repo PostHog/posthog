@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
 import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
+import { toJpeg } from 'html-to-image'
 import {
     actions,
     afterMount,
@@ -241,6 +242,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecordingToFile: (exportUntransformedMobileData?: boolean) => ({ exportUntransformedMobileData }),
         deleteRecording: true,
         openExplorer: true,
+        takeScreenshot: true,
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -1306,6 +1308,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: parseFloat(iframe.width),
                 height: parseFloat(iframe.height),
             })
+        },
+        takeScreenshot: async () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            if (!iframe) {
+                return
+            }
+
+            const dataUrl = await toJpeg(iframe, { quality: 0.95 })
+            if (dataUrl) {
+                const link = document.createElement('a')
+                link.download = 'screenshot.jpeg'
+                link.href = dataUrl
+                link.click()
+            }
         },
         openHeatmap: () => {
             actions.setPause()
