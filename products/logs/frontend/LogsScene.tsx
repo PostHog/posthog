@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparkline, logsLoading, sparklineLoading, hasRunQuery } = useValues(logsLogic)
+    const { wrapBody, logs, sparkline, logsLoading, sparklineLoading } = useValues(logsLogic)
     const { runQuery } = useActions(logsLogic)
 
     useEffect(() => {
@@ -58,58 +58,51 @@ export function LogsScene(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
-
-            {hasRunQuery ? (
-                <>
-                    {sparkline.length > 0 && (
-                        <Sparkline
-                            labels={labels}
-                            data={timeseries}
-                            className={sparklineLoading ? 'opacity-50 w-full' : 'w-full'}
-                        />
-                    )}
-                    <DisplayOptions />
-                    <div className="flex-1">
-                        <LemonTable
-                            hideScrollbar
-                            dataSource={logs}
-                            loading={logsLoading}
-                            size="small"
-                            // disableTableWhileLoading={true}
-                            columns={[
-                                {
-                                    title: 'Timestamp',
-                                    key: 'timestamp',
-                                    dataIndex: 'timestamp',
-                                    width: 0,
-                                    render: (timestamp) => <TZLabel time={timestamp as string} />,
-                                },
-                                {
-                                    title: 'Level',
-                                    key: 'severity_text',
-                                    dataIndex: 'severity_text',
-                                    width: 0,
-                                    render: (_, record) => <LogTag level={record.severity_text} />,
-                                },
-                                {
-                                    title: 'Message',
-                                    key: 'body',
-                                    dataIndex: 'body',
-                                    render: (body) => (
-                                        <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>
-                                    ),
-                                },
-                            ]}
-                            expandable={{
-                                noIndent: true,
-                                expandedRowRender: (log) => <ExpandedLog log={log} />,
-                            }}
-                        />
-                    </div>
-                </>
-            ) : (
-                <div>Run your query to start seeing logs</div>
-            )}
+            <>
+                {sparkline.length > 0 && (
+                    <Sparkline
+                        labels={labels}
+                        data={timeseries}
+                        className={sparklineLoading ? 'opacity-50 w-full' : 'w-full'}
+                    />
+                )}
+                <DisplayOptions />
+                <div className="flex-1">
+                    <LemonTable
+                        hideScrollbar
+                        dataSource={logs}
+                        loading={logsLoading}
+                        size="small"
+                        // disableTableWhileLoading={true}
+                        columns={[
+                            {
+                                title: 'Timestamp',
+                                key: 'timestamp',
+                                dataIndex: 'timestamp',
+                                width: 0,
+                                render: (timestamp) => <TZLabel time={timestamp as string} />,
+                            },
+                            {
+                                title: 'Level',
+                                key: 'severity_text',
+                                dataIndex: 'severity_text',
+                                width: 0,
+                                render: (_, record) => <LogTag level={record.severity_text} />,
+                            },
+                            {
+                                title: 'Message',
+                                key: 'body',
+                                dataIndex: 'body',
+                                render: (body) => <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>,
+                            },
+                        ]}
+                        expandable={{
+                            noIndent: true,
+                            expandedRowRender: (log) => <ExpandedLog log={log} />,
+                        }}
+                    />
+                </div>
+            </>
         </div>
     )
 }
@@ -154,7 +147,7 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { hasRunQuery, logsLoading } = useValues(logsLogic)
+    const { logsLoading } = useValues(logsLogic)
     const { runQuery } = useActions(logsLogic)
 
     return (
@@ -168,12 +161,12 @@ const Filters = (): JSX.Element => {
                     <DateRangeFilter />
                     <LemonButton
                         size="small"
-                        icon={hasRunQuery ? <IconRefresh /> : <IconRefresh />}
+                        icon={<IconRefresh />}
                         type="secondary"
-                        onClick={runQuery}
+                        onClick={() => runQuery()}
                         loading={logsLoading}
                     >
-                        {hasRunQuery ? 'Refresh' : 'Run'}
+                        Run
                     </LemonButton>
                 </div>
             </div>
