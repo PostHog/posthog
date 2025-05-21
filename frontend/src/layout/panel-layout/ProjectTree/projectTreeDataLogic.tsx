@@ -522,7 +522,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         getStaticTreeItems: [
             (s) => [s.featureFlags, s.shortcutData],
-            (featureFlags, shortcutData): ((searchTerm: string) => TreeDataItem[]) => {
+            (featureFlags, shortcutData): ((searchTerm?: string) => TreeDataItem[]) => {
                 const convert = (imports: FileSystemImport[], root: string, searchTerm?: string): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
                         root,
