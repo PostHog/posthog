@@ -18,6 +18,7 @@ from collections import Counter
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from functools import lru_cache
+from scipy.sparse import spmatrix
 
 try:
     from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -25,9 +26,28 @@ except ImportError:
     CORE_FILTER_DEFINITIONS_BY_GROUP = {}
 
 
+class CachedTfidfVectorizer:
+    def __init__(self):
+        self._vectorizer = TfidfVectorizer()
+        self._last_texts = None
+        self._last_matrix = None
+
+    def fit_transform(self, texts: list[str]) -> spmatrix:
+        if self._last_texts == texts and self._last_matrix is not None:
+            return self._last_matrix
+
+        self._last_texts = texts
+        self._last_matrix = self._vectorizer.fit_transform(texts)
+        return self._last_matrix
+
+
+# Global instance
+_vectorizer = CachedTfidfVectorizer()
+
+
 def get_event_descriptions_batch(event_names: set[str]) -> dict[str, Optional[str]]:
     """Get event descriptions in batch from either core definitions or enterprise definitions"""
-    result = {}
+    result: dict[str, Optional[str]] = {}
 
     # Get from core definitions
     for event_name in event_names:
@@ -86,9 +106,8 @@ def calculate_tfidf_similarity_batch(query: str, texts: list[str]) -> list[float
     if not texts:
         return []
 
-    vectorizer = TfidfVectorizer()
     all_texts = [query.lower()] + [t.lower() for t in texts]
-    tfidf_matrix = vectorizer.fit_transform(all_texts)
+    tfidf_matrix = _vectorizer.fit_transform(all_texts)
 
     # Convert sparse matrix to dense array for similarity calculation
     query_matrix = tfidf_matrix[0:1]
@@ -156,7 +175,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         ]
 
         # Get all event names for batch processing
-        event_names = {event for event, _ in filtered_results}
+        event_names: set[str] = {event for event, _ in filtered_results}
 
         # Get descriptions in batch
         descriptions = get_event_descriptions_batch(event_names)
@@ -164,8 +183,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         # Calculate similarities in batch if query plan exists
         similarities = None
         if self.query.plan:
-            event_names = [event for event, _ in filtered_results]
-            similarities = calculate_similarity_batch(self.query.plan, event_names, descriptions)
+            similarities = calculate_similarity_batch(self.query.plan, list(event_names), descriptions)
 
         # Create results
         results: list[TeamTaxonomyItem] = []
