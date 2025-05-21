@@ -88,10 +88,15 @@ class UpgradeQueriesWorkflowInputs:
     batch_size: int = dataclasses.field(default=100)
 
 
+# reset temporal event history after 250 pages
+MAX_PAGES_PER_RUN = 250
+
+
 @dataclasses.dataclass
 class WorkflowState:
     after_id: Optional[int]
     migrated: int
+    pages_done: int
 
 
 @temporalio.workflow.defn(name="upgrade-queries")
@@ -104,10 +109,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: UpgradeQueriesWorkflowInputs) -> None:
-        state = WorkflowState(
-            after_id=None,
-            migrated=0,
-        )
+        state = WorkflowState(after_id=None, migrated=0, pages_done=0)
 
         while True:
             page = await temporalio.workflow.execute_activity(
@@ -137,3 +139,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
 
             state.after_id = page.last_id
             state.migrated += len(page.insight_ids)
+            state.pages_done += 1
+
+            if state.pages_done >= MAX_PAGES_PER_RUN:
+                await temporalio.workflow.continue_as_new(state)
