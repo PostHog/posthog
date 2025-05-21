@@ -125,7 +125,7 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.globals.inputs
-            addLog('warn', 'config', config)
+            addLog('debug', 'config', config)
 
             try {
                 const action = segmentDestination.destination.actions[config.internal_partner_action]
@@ -137,19 +137,19 @@ export class SegmentDestinationExecutorService {
                 await action.perform(
                     // @ts-expect-error can't figure out unknown extends Data
                     async (endpoint, options) => {
-                        addLog('warn', 'endpoint', endpoint)
-                        addLog('warn', 'options', options)
+                        addLog('debug', 'endpoint', endpoint)
+                        addLog('debug', 'options', options)
                         const requestExtension = segmentDestination.destination.extendRequest?.({
                             settings: config,
                             auth: config as any,
                             payload: config,
                         })
-                        addLog('warn', 'requestExtension', requestExtension)
+                        addLog('debug', 'requestExtension', requestExtension)
                         const headers: Record<string, string> = {
                             ...options?.headers,
                             ...requestExtension?.headers,
                         }
-                        addLog('warn', 'headers', headers)
+                        addLog('debug', 'headers', headers)
 
                         let body: string | undefined = undefined
                         if (options?.json) {
@@ -220,14 +220,14 @@ export class SegmentDestinationExecutorService {
                             endpoint: endpoint + '?' + params.toString(),
                         }
 
-                        addLog('warn', 'fetchOptions', fetchOptions)
+                        addLog('debug', 'fetchOptions', fetchOptions)
                         const fetchResponse = await this.fetch(
                             `${endpoint}${params.toString() ? '?' + params.toString() : ''}`,
                             fetchOptions
                         )
                         const convertedResponse = await convertFetchResponse(fetchResponse)
                         addLog(
-                            'warn',
+                            'debug',
                             'convertedResponse',
                             convertedResponse.data,
                             convertedResponse.content,
