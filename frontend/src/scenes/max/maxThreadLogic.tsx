@@ -420,6 +420,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const currentMessage: ThreadMessage = thread[i]
                     const previousMessage = thread[i - 1] as ThreadMessage | undefined
 
+                    if (currentMessage.type === AssistantMessageType.ToolCall && !currentMessage.visible) {
+                        continue
+                    }
+
                     // Do not use the human message type guard here, as it incorrectly infers the type
                     if (previousMessage && isHumanMessageType(currentMessage) === isHumanMessageType(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
