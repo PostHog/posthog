@@ -34,7 +34,7 @@
                0 AS counts,
                sec.status AS status
         FROM
-          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(numbers.number, 1))) AS start_of_period
+          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(plus(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1)))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
@@ -114,7 +114,7 @@
                0 AS counts,
                sec.status AS status
         FROM
-          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(numbers.number, 1))) AS start_of_period
+          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(plus(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1)))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
@@ -191,7 +191,7 @@
                0 AS counts,
                sec.status AS status
         FROM
-          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(multiply(numbers.number, 1))) AS start_of_period
+          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(plus(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1)))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
@@ -268,7 +268,7 @@
                0 AS counts,
                sec.status AS status
         FROM
-          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(multiply(numbers.number, 1))) AS start_of_period
+          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'US/Pacific')), toIntervalDay(1)), toStartOfInterval(plus(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1)))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
