@@ -2813,6 +2813,7 @@ class HogQLQueryModifiers(BaseModel):
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
+    csvAllowDoubleQuotes: Optional[bool] = None
 
 
 class HogQuery(BaseModel):

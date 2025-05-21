@@ -177,6 +177,10 @@ class HogQLQueryExecutor:
             LimitContext.SAVED_QUERY,
         ):
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+
+        if self.query_modifiers.csvAllowDoubleQuotes is not None:
+            settings.format_csv_allow_double_quotes = self.query_modifiers.csvAllowDoubleQuotes
+
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,
