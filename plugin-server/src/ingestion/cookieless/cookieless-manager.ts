@@ -571,7 +571,7 @@ interface SessionCacheState {
 export class CookielessStateForBatch {
     private readonly hub: Hub
 
-    // cache the result of running the hash function to avoid burning CPU
+    // cache the result of running the hash function to avoid using more CPU than needed
     private readonly hashCache: Record<string, Buffer> = {}
 
     // cache the identifies for each original hash
@@ -585,24 +585,63 @@ export class CookielessStateForBatch {
     }
 
     async doBatch(events: IncomingEventWithTeam[]): Promise<EventWithStatus[]> {
+        if (this.hub.cookielessManager.config.disabled) {
+            // cookieless is globally disabled, don't any processing just drop all cookieless events
+            return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
+        }
+        try {
+            return await runInstrumentedFunction({
+                func: () => this.doBatchInner(events),
+                statsKey: 'cookieless-batch',
+            })
+        } catch (e) {
+            if (e instanceof RedisOperationError) {
+                cookielessRedisErrorCounter.labels({
+                    operation: e.operation,
+                })
+            }
+
+            // Drop all cookieless events if there are any errors.
+            // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
+            // errors to interfere with the processing of other events.
+            return this.dropAllCookielessEvents(events, 'cookieless-fail-close')
+        }
+    }
+
+    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<EventWithStatus[]> {
         // do a first pass just to extract properties and compute the bash hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
         for (const { event, team, message } of events) {
-            if (
-                !event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY] ||
-                !(
-                    team.cookieless_server_hash_mode === CookielessServerHashMode.Stateful ||
-                    team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless
-                )
-            ) {
+            if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
                 eventsWithStatus.push({ event, team, message })
                 continue
             }
 
+            // only cookieless events past this point
+
+            if (
+                team.cookieless_server_hash_mode == null ||
+                team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
+            ) {
+                // if the specific team doesn't have cookieless enabled, drop the event
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'cookieless_team_disabled',
+                    })
+                    .inc()
+                continue
+            }
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
+
             if (!timestamp) {
-                // TODO log the drop
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'cookieless_no_timestamp',
+                    })
+                    .inc()
                 continue
             }
 
@@ -615,7 +654,16 @@ export class CookielessStateForBatch {
                 timezone: eventTimeZone,
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
-                // TODO log the drop
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: !userAgent
+                            ? 'cookieless_missing_ua'
+                            : !ip
+                            ? 'cookieless_missing_ip'
+                            : 'cookieless_missing_host',
+                    })
+                    .inc()
                 continue
             }
 
@@ -665,7 +713,6 @@ export class CookielessStateForBatch {
             firstPass.secondPass = { identifiesRedisKey }
         }
 
-        // TODO what if redis is down?
         // Fetch the identifies from redis and populate our in-memory cache
         const identifiesResult = await this.hub.cookielessManager.redisHelpers.redisSMembersMulti(
             Array.from(identifiesKeys.values()),
@@ -725,7 +772,6 @@ export class CookielessStateForBatch {
             }
         }
 
-        // TODO what if redis is down?
         // Load the session state from redis
         const sessionResult = await this.hub.cookielessManager.redisHelpers.redisMGetBuffer(
             Array.from(sessionKeys.values()),
@@ -790,7 +836,6 @@ export class CookielessStateForBatch {
         }
 
         // write identifies to redis
-        // TODO what if redis is down
         await this.hub.cookielessManager.redisHelpers.redisSAddMulti(
             Object.fromEntries(
                 Object.entries(this.identifiesCache)
@@ -815,8 +860,24 @@ export class CookielessStateForBatch {
             'CookielessStateForBatch.sessionCacheWrite',
             this.hub.cookielessManager.config.sessionTtlSeconds
         )
-
         return eventsWithStatus
+    }
+
+    dropAllCookielessEvents(events: IncomingEventWithTeam[], dropCause: string): IncomingEventWithTeam[] {
+        const nonCookielessEvents: IncomingEventWithTeam[] = []
+        for (const incomingEvent of events) {
+            if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: dropCause,
+                    })
+                    .inc()
+            } else {
+                nonCookielessEvents.push(incomingEvent)
+            }
+        }
+        return nonCookielessEvents
     }
 }
 
