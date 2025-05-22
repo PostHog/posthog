@@ -9,7 +9,9 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
+    IconPineapple,
     IconSearch,
+    IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -34,7 +36,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
-import { Shortcuts } from '~/layout/panel-layout/Shortcuts/Shortcuts'
+import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -189,7 +191,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             ? [
                   {
                       identifier: 'Products',
-                      id: 'Products',
+                      id: 'Tools',
                       icon: <IconCdCase />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -202,10 +204,41 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                               ? 'Close products'
                               : 'Open products',
                   },
+                  {
+                      identifier: 'Shortcuts',
+                      id: 'Shortcuts',
+                      icon: <IconShortcut />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Shortcuts')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts'
+                              ? 'Close shortcuts'
+                              : 'Open shortcuts',
+                  },
               ]
             : []),
         ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-            ? []
+            ? [
+                  {
+                      identifier: 'Data management',
+                      id: 'Data management',
+                      icon: <IconDatabase />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Data management')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Data management'
+                              ? 'Close data management'
+                              : 'Open data management',
+                  },
+              ]
             : [
                   {
                       identifier: 'Dashboards',
@@ -241,7 +274,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                       tooltipDocLink: 'https://posthog.com/docs/data',
                   },
               ]),
-
+        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+            ? [
+                  {
+                      identifier: 'Games',
+                      id: 'Games',
+                      icon: <IconPineapple />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Games')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                  },
+              ]
+            : []),
         {
             identifier: 'PersonsManagement',
             id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
@@ -335,9 +383,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            {item.identifier === 'Recent' ||
-                                            item.identifier === 'Project' ||
-                                            item.identifier === 'Products' ? (
+                                            {item.showChevron ? (
                                                 <ButtonPrimitive
                                                     active={activePanelIdentifier === item.id}
                                                     className="group"
@@ -398,8 +444,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <div className="border-b border-primary h-px my-1" />
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
-                                    <div className={!isLayoutNavCollapsed ? 'pt-1' : ''}>
-                                        <Shortcuts />
+                                    <div
+                                        className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
+                                    >
+                                        <PinnedFolder />
                                     </div>
                                 ) : (
                                     <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>

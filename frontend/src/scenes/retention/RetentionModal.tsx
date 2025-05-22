@@ -140,7 +140,7 @@ export function RetentionModal(): JSX.Element | null {
                                     {row.values?.map((data: any, index: number) => {
                                         return (
                                             <th key={index}>
-                                                <div>{results[index].label}</div>
+                                                <div>{data.label}</div>
                                                 <div>
                                                     {data.count}
                                                     &nbsp;

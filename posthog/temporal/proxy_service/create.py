@@ -362,7 +362,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 type(e),
             )
 
-            if hasattr(e, "cause") and e.cause.type == "RecordDeletedException":
+            if hasattr(e, "cause") and hasattr(e.cause, "type") and e.cause.type == "RecordDeletedException":
                 logger.info(
                     "Record was deleted before completing provisioning for id %s (%s)",
                     inputs.proxy_record_id,

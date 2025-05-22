@@ -303,7 +303,8 @@ export function Customization({
                         }}
                         checked={appearance?.shuffleQuestions}
                     />
-                    <PartialResponsesShuffleQuestionsBanner />
+                    {/* Only show the partial responses banner when the survey type is defined */}
+                    {type && <PartialResponsesShuffleQuestionsBanner />}
                 </div>
                 <div className="mt-1">
                     <LemonField.Pure>

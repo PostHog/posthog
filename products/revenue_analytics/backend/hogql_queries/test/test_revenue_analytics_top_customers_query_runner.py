@@ -7,9 +7,11 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
-from products.revenue_analytics.backend.models import (
-    STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
-    STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER,
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    STRIPE_CHARGE_RESOURCE_NAME,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
+    STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from posthog.schema import (
     CurrencyCode,
@@ -100,10 +102,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
         # Besides the default creations above, also create the external data schemas
-        # because this is required by the `RevenueAnalyticsRevenueView` to find the right tables
+        # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.charges_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.charges_table,
             should_sync=True,
@@ -112,7 +114,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         self.customers_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER,
+            name=STRIPE_CUSTOMER_RESOURCE_NAME,
             source=self.source,
             table=self.customers_table,
             should_sync=True,
