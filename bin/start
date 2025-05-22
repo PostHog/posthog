@@ -17,7 +17,11 @@ export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
 export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
 export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
 export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
-# export OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED="true" # Uncomment to capture Python logs as OTel logs
+if [[ "$*" == *"--enable-tracing"* ]]; then
+    export OTEL_SDK_DISABLED="false"
+else
+    export OTEL_SDK_DISABLED="true"
+fi
 
 if [ -f .env ]; then
     set -o allexport
