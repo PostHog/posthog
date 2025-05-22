@@ -1,9 +1,5 @@
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
-import {
-    processOnEventStep,
-    processWebhooksStep,
-} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { runOnEvent } from '../../../../src/worker/plugins/run'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -42,22 +38,10 @@ describe('runAsyncHandlersStep()', () => {
         }
     })
 
-    it('stops processing', async () => {
-        const response = await processOnEventStep(runner.hub, ingestionEvent)
-
-        expect(response).toEqual(null)
-    })
-
     it('does action matching and fires webhooks', async () => {
         await processWebhooksStep(ingestionEvent, runner.hub.actionMatcher, runner.hub.hookCannon)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
         expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, ['action1', 'action2'])
-    })
-
-    it('calls onEvent plugin methods', async () => {
-        await processOnEventStep(runner.hub, ingestionEvent)
-
-        expect(runOnEvent).toHaveBeenCalledWith(runner.hub, ingestionEvent)
     })
 })
