@@ -38,12 +38,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.INITIAL_UTM_TERM,
         WebStatsBreakdown.INITIAL_UTM_CONTENT,
         WebStatsBreakdown.COUNTRY,
+        WebStatsBreakdown.INITIAL_PAGE,
     ]
 
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
-        super().__init__(
-            runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS, table_name="web_stats_daily"
-        )
+        _table_name = "web_stats_daily"
+
+        if runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
+            _table_name = "web_bounces_daily"
+
+        super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS, table_name=_table_name)
 
     def can_use_preaggregated_tables(self) -> bool:
         if not super().can_use_preaggregated_tables():
@@ -51,13 +55,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
 
-    def get_query(self) -> ast.SelectQuery:
+    def _bounce_rate_query(self) -> str:
+        # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         previous_period_filter, current_period_filter = self.get_date_ranges()
-        breakdown_field = self._get_breakdown_field()
 
         query_str = f"""
         SELECT
-            {breakdown_field} as `context.columns.breakdown_value`,
+            entry_path as `context.columns.breakdown_value`,
             tuple(
                 uniqMergeIf(persons_uniq_state, {current_period_filter}),
                 uniqMergeIf(persons_uniq_state, {previous_period_filter})
@@ -65,10 +69,39 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             tuple(
                 sumMergeIf(pageviews_count_state, {current_period_filter}),
                 sumMergeIf(pageviews_count_state, {previous_period_filter})
-            ) as `context.columns.views`
-        FROM web_stats_daily
+            ) as `context.columns.views`,
+            tuple(
+                (sumMergeIf(bounces_count_state, {current_period_filter}) / nullif(uniqMergeIf(sessions_uniq_state, {current_period_filter}), 0)),
+                (sumMergeIf(bounces_count_state, {previous_period_filter}) / nullif(uniqMergeIf(sessions_uniq_state, {previous_period_filter}), 0))
+            ) as `context.columns.bounce_rate`
+        FROM {self.table_name}
         GROUP BY `context.columns.breakdown_value`
         """
+
+        return query_str
+
+    def get_query(self) -> ast.SelectQuery:
+        previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        query_str = ""
+        if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
+            query_str = self._bounce_rate_query()
+        else:
+            breakdown_field = self._get_breakdown_field()
+            query_str = f"""
+            SELECT
+                {breakdown_field} as `context.columns.breakdown_value`,
+                tuple(
+                    uniqMergeIf(persons_uniq_state, {current_period_filter}),
+                    uniqMergeIf(persons_uniq_state, {previous_period_filter})
+                ) AS `context.columns.visitors`,
+                tuple(
+                    sumMergeIf(pageviews_count_state, {current_period_filter}),
+                    sumMergeIf(pageviews_count_state, {previous_period_filter})
+                ) as `context.columns.views`
+            FROM {self.table_name}
+            GROUP BY `context.columns.breakdown_value`
+            """
 
         query = cast(ast.SelectQuery, parse_select(query_str))
 
@@ -91,6 +124,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 column = "context.columns.visitors"
             elif field == WebAnalyticsOrderByFields.VIEWS:
                 column = "context.columns.views"
+            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE:
+                column = "context.columns.bounce_rate"
 
             if column:
                 return ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
@@ -121,3 +156,5 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return "utm_content"
             case WebStatsBreakdown.COUNTRY:
                 return "country"
+            case WebStatsBreakdown.INITIAL_PAGE:
+                return "entry_path"

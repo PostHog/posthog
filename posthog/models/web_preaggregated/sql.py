@@ -112,15 +112,26 @@ def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
 
 
+def get_team_filters(team_ids):
+    team_ids_str = format_team_ids(team_ids) if team_ids else None
+    return {
+        "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1",
+        "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})"
+        if team_ids
+        else "1=1",
+        "events": f"e.team_id IN({team_ids_str})" if team_ids else "1=1",
+    }
+
+
 # This should be similar and kept in sync with what the web_overview query runner needs at posthog/hogql_queries/web_analytics/web_overview.py
 # It is ok if we have some difference in order to make the aggregations work.
 def WEB_OVERVIEW_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_overview_daily"
 ):
-    team_ids_str = format_team_ids(team_ids)
-    team_filter = f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1"
-    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-    events_team_filter = f"e.team_id IN({team_ids_str})" if team_ids else "1=1"
+    filters = get_team_filters(team_ids)
+    team_filter = filters["raw_sessions"]
+    person_team_filter = filters["person_distinct_id_overrides"]
+    events_team_filter = filters["events"]
 
     return f"""
     INSERT INTO {table_name}
@@ -199,10 +210,10 @@ def WEB_OVERVIEW_INSERT_SQL(
 def WEB_STATS_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily"
 ):
-    team_ids_str = format_team_ids(team_ids)
-    team_filter = f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1"
-    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-    events_team_filter = f"e.team_id IN({team_ids_str})" if team_ids else "1=1"
+    filters = get_team_filters(team_ids)
+    team_filter = filters["raw_sessions"]
+    person_team_filter = filters["person_distinct_id_overrides"]
+    events_team_filter = filters["events"]
 
     return f"""
     INSERT INTO {table_name}
@@ -319,10 +330,10 @@ def WEB_STATS_INSERT_SQL(
 def WEB_BOUNCES_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_bounces_daily"
 ):
-    team_ids_str = format_team_ids(team_ids)
-    team_filter = f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1"
-    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-    events_team_filter = f"e.team_id IN({team_ids_str})" if team_ids else "1=1"
+    filters = get_team_filters(team_ids)
+    team_filter = filters["raw_sessions"]
+    person_team_filter = filters["person_distinct_id_overrides"]
+    events_team_filter = filters["events"]
 
     return f"""
     INSERT INTO {table_name}
