@@ -3,8 +3,7 @@
   '''
   SELECT 1
   WHERE 0
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -12,15 +11,15 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsGrowthRateQueryRunner.test_no_crash_when_no_source_is_selected
   '''
   SELECT 1
   WHERE 0
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -28,7 +27,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsGrowthRateQueryRunner.test_with_data
@@ -83,8 +83,7 @@
         GROUP BY month
         ORDER BY month ASC) AS monthly_revenue) AS revenue_with_growth
   ORDER BY revenue_with_growth.month ASC
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -92,7 +91,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsGrowthRateQueryRunner.test_with_data_and_date_range
@@ -147,8 +147,7 @@
         GROUP BY month
         ORDER BY month ASC) AS monthly_revenue) AS revenue_with_growth
   ORDER BY revenue_with_growth.month ASC
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -156,7 +155,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsGrowthRateQueryRunner.test_with_events_data
@@ -213,8 +213,7 @@
         GROUP BY month
         ORDER BY month ASC) AS monthly_revenue) AS revenue_with_growth
   ORDER BY revenue_with_growth.month ASC
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -222,7 +221,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsGrowthRateQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -280,8 +280,7 @@
         GROUP BY month
         ORDER BY month ASC) AS monthly_revenue) AS revenue_with_growth
   ORDER BY revenue_with_growth.month ASC
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -289,6 +288,7 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

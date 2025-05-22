@@ -59,8 +59,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -69,7 +68,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_cohort_properties.3
@@ -112,8 +112,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -122,7 +121,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_events_and_cohorts
@@ -191,8 +191,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -201,7 +200,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_events_and_cohorts.3
@@ -250,8 +250,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -260,7 +259,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties
@@ -328,8 +328,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -338,7 +337,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.2
@@ -411,8 +411,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -421,7 +420,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.6
@@ -464,8 +464,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -474,7 +473,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.7
@@ -517,8 +517,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -527,7 +526,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.8
@@ -570,8 +570,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -580,7 +579,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_filter_with_static_and_dynamic_cohort_properties.9
@@ -629,8 +629,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -639,7 +638,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestSessionRecordingsListByCohort.test_internal_account_filter_with_cohort_properties
@@ -701,8 +701,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -711,6 +710,7 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

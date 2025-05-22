@@ -19,8 +19,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -28,7 +27,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -63,7 +63,6 @@
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -72,7 +71,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -95,8 +95,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -104,7 +103,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -127,8 +127,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -136,7 +135,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -171,7 +171,6 @@
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -180,7 +179,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -203,8 +203,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -212,7 +211,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -234,8 +234,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), or(equals(events.event, '$pageview'), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -243,8 +242,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -252,7 +250,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -283,8 +282,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), or(equals(events.event, '$pageview'), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -292,8 +290,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -301,7 +298,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -323,8 +321,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$some_event', 'sign up')), or(equals(events.event, 'sign up'), equals(events.event, '$some_event')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -332,8 +329,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -341,7 +337,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -363,8 +360,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -374,8 +370,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview', 'non_matching_event')), or(or(and(equals(events.event, '$pageview'), ifNull(equals(events__person.properties___email, 'person1@test.com'), 0)), equals(events.event, 'non_matching_event')), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -383,8 +378,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -392,7 +386,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -414,8 +409,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), or(equals(events.event, '$pageview'), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -423,8 +417,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -432,7 +425,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -454,8 +448,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'US/Pacific')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(events.event, tuple('$pageview', '$pageview')), or(equals(events.event, '$pageview'), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -463,8 +456,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -472,7 +464,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -494,8 +487,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-07 00:00:00', 'UTC')), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), or(equals(events.event, '$pageview'), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -503,8 +495,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -512,7 +503,8 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -534,8 +526,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-06-08 00:00:00', 'UTC')), 3)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), or(equals(events.event, '$pageview'), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -543,8 +534,7 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS allow_experimental_join_condition=1,
-                       readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -552,6 +542,7 @@
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128,
                        transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
