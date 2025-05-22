@@ -1,6 +1,5 @@
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
-import { api } from 'lib/api.mock'
 import { join } from 'path'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
@@ -19,6 +18,8 @@ const pathForKeyOne = join(__dirname, './__mocks__/perf-snapshot-key1.jsonl')
 const readFileContents = (path: string): string => {
     return readFileSync(path, 'utf-8')
 }
+
+jest.setTimeout(60_000)
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -86,8 +87,6 @@ describe('sessionRecordingDataLogic', () => {
             },
         })
         initKeaTests()
-        jest.spyOn(api, 'get')
-        jest.spyOn(api, 'create')
     })
 
     describe('loading session core', () => {
@@ -103,7 +102,7 @@ describe('sessionRecordingDataLogic', () => {
 
         it('loads all data', async () => {
             const durations: number[] = []
-            const iterations = 10
+            const iterations = 25
 
             for (let i = 0; i < iterations; i++) {
                 setupLogic()
