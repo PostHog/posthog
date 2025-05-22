@@ -140,7 +140,7 @@ class MSSQLColumn(Column):
                 arrow_type = pa.string()
             case "date":
                 arrow_type = pa.date32()
-            case "datetime" | "datetime2" | "smalldatetime":
+            case "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset":
                 arrow_type = pa.timestamp("us")
             case "time":
                 arrow_type = pa.time64("us")
