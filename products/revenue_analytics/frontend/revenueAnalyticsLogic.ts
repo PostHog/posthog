@@ -17,7 +17,7 @@ import {
 import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
-import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
@@ -76,7 +76,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         values: [
             databaseTableListLogic,
             ['managedViews'],
-            revenueEventsSettingsLogic,
+            revenueAnalyticsSettingsLogic,
             ['baseCurrency', 'events', 'dataWarehouseSources'],
         ],
         actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
