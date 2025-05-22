@@ -51,6 +51,7 @@ export function SummaryTable({
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
         featureFlags,
+        hasEnoughDataForResults,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
@@ -192,7 +193,7 @@ export function SummaryTable({
                 }
 
                 const credibleInterval = credibleIntervalForVariant(result || null, variant.key, insightType)
-                if (!credibleInterval) {
+                if (!credibleInterval || !hasEnoughDataForResults) {
                     return <>—</>
                 }
                 const [lowerBound, upperBound] = credibleInterval
@@ -230,7 +231,7 @@ export function SummaryTable({
                     const variant = item as FunnelExperimentVariant
                     const converted = variant.success_count
                     if (!converted) {
-                        return <>—</>
+                        return <>0</>
                     }
 
                     return <div className="font-semibold">{humanFriendlyNumber(converted)}</div>
@@ -296,7 +297,7 @@ export function SummaryTable({
                     }
 
                     const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
-                    if (!credibleInterval) {
+                    if (!credibleInterval || !hasEnoughDataForResults) {
                         return <>—</>
                     }
                     const [lowerBound, upperBound] = credibleInterval
@@ -356,7 +357,9 @@ export function SummaryTable({
 
             return (
                 <>
-                    {percentage && (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
+                    {percentage &&
+                    (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) &&
+                    hasEnoughDataForResults ? (
                         <span className="inline-flex items-center w-52 deprecated-space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
