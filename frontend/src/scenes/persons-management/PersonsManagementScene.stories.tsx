@@ -1,5 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -34,7 +35,7 @@ export const Persons: StoryFn = () => {
                     return [
                         200,
                         {
-                            columns: ['person_display_name -- Person', 'id', 'created_at', 'person.$delete'],
+                            columns: [PERSON_DISPLAY_NAME_COLUMN_NAME, 'id', 'created_at', 'person.$delete'],
                             results: [
                                 [
                                     {
