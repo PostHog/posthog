@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
+exports[`EventPipelineRunner runEventPipeline() runs steps starting from cookielessServerHashStep 1`] = `
 [
   [
     "cookielessServerHashStep",
