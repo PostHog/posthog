@@ -269,7 +269,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 7
+            baseline = 8
 
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})

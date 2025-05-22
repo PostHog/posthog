@@ -41,7 +41,7 @@ class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 class InsightVariableMappingMixin:
-    def map_stale_to_latest(self, stale_variables: dict, latest_variables: list[dict]) -> dict:
+    def map_stale_to_latest(self, stale_variables: dict, latest_variables: list[InsightVariable]) -> dict:
         # Keep the variables in an insight up to date based on variable code names that exist
         current_variables = stale_variables
         insight_variables = latest_variables
