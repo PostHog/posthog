@@ -28,6 +28,10 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
+from posthog.clickhouse.adhoc_events_deletion import (
+    ADHOC_EVENTS_DELETION_TABLE_SQL,
+    DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.materialized_columns import MaterializedColumn
@@ -1081,6 +1085,7 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1137,6 +1142,7 @@ def reset_clickhouse_database() -> None:
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
+            ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
 

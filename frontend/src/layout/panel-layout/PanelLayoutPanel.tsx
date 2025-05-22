@@ -23,6 +23,8 @@ import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
+import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
+import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
@@ -178,12 +180,12 @@ export function PanelLayoutPanel({
     const {
         isLayoutPanelPinned,
         panelTreeRef,
-        projectTreeMode,
         isLayoutNavCollapsed,
         panelWidth: computedPanelWidth,
     } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const panelContents = (
         <nav

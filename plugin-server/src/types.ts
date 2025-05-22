@@ -64,7 +64,6 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
-    async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -391,7 +390,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean

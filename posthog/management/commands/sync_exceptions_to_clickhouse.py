@@ -1,5 +1,6 @@
 import logging
 
+from kafka import KafkaProducer
 import structlog
 from django.core.management.base import BaseCommand
 from posthog.clickhouse.client.execute import sync_execute
@@ -107,3 +108,4 @@ class Command(BaseCommand):
 
         logger.info(f"fingerprint overriden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
+        KafkaProducer().flush(5 * 60)

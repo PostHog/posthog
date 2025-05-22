@@ -28,6 +28,24 @@ export function getItemId(item: FileSystemImport | FileSystemEntry): string {
     return item.type === 'folder' ? `project://${item.path}` : `project/${item.id || item.path}`
 }
 
+export function protocolTitle(str: string): string {
+    return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
+}
+
+export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
+    const parts = splitPath(url)
+    if (parts[0]?.endsWith(':') && (parts.length === 1 || parts[1] === '')) {
+        if (parts.length > 2) {
+            return parts[parts.length - 1]
+        }
+        return protocolTitle(parts[0].slice(0, -1))
+    }
+    if (parts.length > 0) {
+        return parts[parts.length - 1]
+    }
+    return defaultName
+}
+
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
     const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
     const parentB = b.path.substring(0, b.path.lastIndexOf('/'))

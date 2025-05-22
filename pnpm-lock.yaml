@@ -800,6 +800,9 @@ importers:
       hls.js:
         specifier: ^1.5.15
         version: 1.5.15
+      html-to-image:
+        specifier: ^1.11.13
+        version: 1.11.13
       husky:
         specifier: ^7.0.4
         version: 7.0.4
@@ -870,8 +873,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.245.1
-        version: 1.245.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.245.2
+        version: 1.245.2(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -10642,6 +10645,9 @@ packages:
     resolution: {integrity: sha512-ztqyC3kLto0e9WbNp0aeP+M3kTt+nbaIveGmUxAtZa+8iFgKLUOD4YKM5j+f3QD89bra7UeumolZHKuOXnTmeQ==}
     engines: {node: '>=8'}
 
+  html-to-image@1.11.13:
+    resolution: {integrity: sha512-cuOPoI7WApyhBElTTb9oqsawRvZ0rHhaHwghRLlTuffoD1B2aDemlCruLeZrUIIdvG7gs9xeELEPm6PhuASqrg==}
+
   html-to-react@1.5.0:
     resolution: {integrity: sha512-tjihXBgaJZRRYzmkrJZ/Qf9jFayilFYcb+sJxXXE2BVLk2XsNrGeuNCVvhXmvREULZb9dz6NFTBC96DTR/lQCQ==}
 
@@ -13638,8 +13644,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.245.1:
-    resolution: {integrity: sha512-I2HWR4VKAfX6Y8e/VtAq1DRUMcZi/1pjlpaRqDp60AGs0JnTiJ1F7o2ke52VTIs6gBnoZIQCe3Xh8z384hLMGQ==}
+  posthog-js@1.245.2:
+    resolution: {integrity: sha512-6N2CMksaTXolR4z6UmMgJt6NdDvfGMJu4gLrV9te855aKm6huLviIQ3AUY8XTsd64YqVhrGyIyk3Nnfm45OPgg==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -27532,6 +27538,8 @@ snapshots:
 
   html-tags@3.3.1: {}
 
+  html-to-image@1.11.13: {}
+
   html-to-react@1.5.0:
     dependencies:
       domhandler: 5.0.3
@@ -31329,7 +31337,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.245.1(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.245.2(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
