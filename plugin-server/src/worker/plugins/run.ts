@@ -7,7 +7,7 @@ import {
     convertToPostHogEvent,
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
-import { trackedFetch } from '../../utils/fetch'
+import { legacyFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
@@ -175,11 +175,10 @@ async function runSingleTeamPluginComposeWebhook(
     const timer = new Date()
 
     try {
-        const request = await trackedFetch(webhook.url, {
+        const request = await legacyFetch(webhook.url, {
             method: webhook.method || 'POST',
             body: webhook.body,
             headers: webhook.headers || { 'Content-Type': 'application/json' },
-            timeout: hub.EXTERNAL_REQUEST_TIMEOUT_MS,
         })
         if (request.ok) {
             pluginActionMsSummary

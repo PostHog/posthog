@@ -1,6 +1,6 @@
 import { FetchError } from 'node-fetch'
 
-import { SecureFetch } from './fetch'
+import { legacyFetch } from './fetch'
 
 // Restore the real fetch implementation for this test file
 jest.unmock('node-fetch')
@@ -15,7 +15,7 @@ jest.mock('dns/promises', () => ({
 import dns from 'dns/promises'
 import { range } from 'lodash'
 
-describe('secureFetch', () => {
+describe('legacyFetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
@@ -23,36 +23,28 @@ describe('secureFetch', () => {
         process.env.NODE_ENV = 'production'
     })
 
-    describe('trackedFetch', () => {
+    describe('calls', () => {
         // By default security features are only enabled in production but for tests we want to enable them
-        const trackedFetch = new SecureFetch({
-            allowUnsafe: false,
-        })
-
         it('should raise if the URL is unsafe', async () => {
-            await expect(trackedFetch.fetch('http://localhost')).rejects.toMatchInlineSnapshot(
+            await expect(legacyFetch('http://localhost')).rejects.toMatchInlineSnapshot(
                 `[FetchError: request to http://localhost/ failed, reason: Internal hostname]`
             )
         })
 
         it('should raise if the URL is unknown', async () => {
-            await expect(trackedFetch.fetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
+            await expect(legacyFetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
                 `[FetchError: request to http://unknown.domain.unknown/ failed, reason: Invalid hostname]`
             )
         })
 
         it('should successfully fetch from safe URLs', async () => {
             // This will make a real HTTP request
-            const response = await trackedFetch.fetch('https://example.com')
+            const response = await legacyFetch('https://example.com')
             expect(response.ok).toBe(true)
         })
     })
 
     describe('IPv4 address validation', () => {
-        const trackedFetch = new SecureFetch({
-            allowUnsafe: false,
-        })
-
         beforeEach(() => {
             jest.mocked(dns.lookup).mockClear()
         })
@@ -72,7 +64,7 @@ describe('secureFetch', () => {
         ])('should block requests to %s (%s)', async (ip) => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
 
-            await expect(trackedFetch.fetch(`http://example.com`)).rejects.toThrow(
+            await expect(legacyFetch(`http://example.com`)).rejects.toThrow(
                 new FetchError(`request to http://example.com/ failed, reason: Internal hostname`, 'posthog-host-guard')
             )
         })
@@ -81,16 +73,13 @@ describe('secureFetch', () => {
     // NOTE: Skipped as this is mostly to validate against the new request implementation
     describe.skip('parallel requests execution', () => {
         jest.retryTimes(3)
-        const trackedFetch = new SecureFetch({
-            allowUnsafe: true,
-        })
         it('should execute requests in parallel', async () => {
             const start = performance.now()
             const timings: number[] = []
             const parallelRequests = 100
 
             const requests = range(parallelRequests).map(() =>
-                trackedFetch.fetch('https://example.com').then(() => {
+                legacyFetch('https://example.com').then(() => {
                     timings.push(performance.now() - start)
                 })
             )

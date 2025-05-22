@@ -4,7 +4,7 @@ import { RustyHook } from 'worker/rusty-hook'
 import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload } from '../../utils/event'
-import { trackedFetch } from '../../utils/fetch'
+import { legacyFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { TeamManager } from '../../utils/team-manager'
@@ -187,7 +187,7 @@ export class HookCommander {
 
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await trackedFetch(url, {
+                const request = await legacyFetch(url, {
                     method: 'POST',
                     body: JSON.stringify(body, null, 4),
                     headers: { 'Content-Type': 'application/json' },
