@@ -247,6 +247,9 @@ class RemoteConfig(UUIDModel):
 
         config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
+        config["chat_opt_in"] = True if team.chat_opt_in else False
+        config["chat_config"] = team.chat_config
+
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []
         if team.inject_web_apps:
