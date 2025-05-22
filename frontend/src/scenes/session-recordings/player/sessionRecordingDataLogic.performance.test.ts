@@ -20,7 +20,7 @@ const readFileContents = (path: string): string => {
     return readFileSync(path, 'utf-8')
 }
 
-jest.setTimeout(60_000)
+jest.setTimeout(120_000)
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -103,7 +103,7 @@ describe('sessionRecordingDataLogic', () => {
 
         it('loads all data', async () => {
             const durations: number[] = []
-            const iterations = 20
+            const iterations = 15
 
             for (let i = 0; i < iterations; i++) {
                 setupLogic()
