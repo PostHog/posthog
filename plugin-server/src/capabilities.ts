@@ -10,7 +10,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2Combined: true,
-                processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
@@ -19,7 +18,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
-                // cdpLegacyOnEvent: true,
+                cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
                 cdpCyclotronWorkerFetch: true,
@@ -50,10 +49,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: true,
             }
 
-        case PluginServerMode.async_onevent:
-            return {
-                processAsyncOnEventHandlers: true,
-            }
         case PluginServerMode.async_webhooks:
             return {
                 processAsyncWebhooksHandlers: true,
@@ -95,7 +90,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2Combined: true,
-                processAsyncOnEventHandlers: true,
+                cdpLegacyOnEvent: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
