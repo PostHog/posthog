@@ -39,15 +39,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.INITIAL_UTM_CONTENT,
         WebStatsBreakdown.COUNTRY,
         WebStatsBreakdown.INITIAL_PAGE,
+        WebStatsBreakdown.PAGE,
     ]
 
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
-        _table_name = "web_stats_daily"
-
-        if runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
-            _table_name = "web_bounces_daily"
-
-        super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS, table_name=_table_name)
+        super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
     def can_use_preaggregated_tables(self) -> bool:
         if not super().can_use_preaggregated_tables():
@@ -74,7 +70,36 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 (sumMergeIf(bounces_count_state, {current_period_filter}) / nullif(uniqMergeIf(sessions_uniq_state, {current_period_filter}), 0)),
                 (sumMergeIf(bounces_count_state, {previous_period_filter}) / nullif(uniqMergeIf(sessions_uniq_state, {previous_period_filter}), 0))
             ) as `context.columns.bounce_rate`
-        FROM {self.table_name}
+        FROM web_bounces_daily
+        GROUP BY `context.columns.breakdown_value`
+        """
+
+        return query_str
+
+    def _path_query(self) -> str:
+        previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        query_str = f"""
+        SELECT
+            pathname as `context.columns.breakdown_value`,
+            tuple(
+                uniqMergeIf(p.persons_uniq_state, {current_period_filter}),
+                uniqMergeIf(p.persons_uniq_state, {previous_period_filter})
+            ) AS `context.columns.visitors`,
+            tuple(
+                sumMergeIf(p.pageviews_count_state, {current_period_filter}),
+                sumMergeIf(p.pageviews_count_state, {previous_period_filter})
+            ) as `context.columns.views`,
+            tuple(
+                sumMergeIf(bounces.bounces_count_state, {current_period_filter}),
+                sumMergeIf(bounces.bounces_count_state, {previous_period_filter})
+            ) as `context.columns.bounces`
+        FROM
+            web_paths_daily p
+        LEFT JOIN web_bounces_daily bounces
+            ON p.pathname = bounces.entry_path
+                AND p.team_id = bounces.team_id
+                AND p.day_bucket = bounces.day_bucket
         GROUP BY `context.columns.breakdown_value`
         """
 
@@ -84,8 +109,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
         query_str = ""
+        table_name = "web_stats_daily"
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query_str = self._bounce_rate_query()
+            table_name = "web_bounces_daily"
+        elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
+            query_str = self._path_query()
+            table_name = "web_paths_daily"
         else:
             breakdown_field = self._get_breakdown_field()
             query_str = f"""
@@ -99,13 +129,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     sumMergeIf(pageviews_count_state, {current_period_filter}),
                     sumMergeIf(pageviews_count_state, {previous_period_filter})
                 ) as `context.columns.views`
-            FROM {self.table_name}
+            FROM web_stats_daily
             GROUP BY `context.columns.breakdown_value`
             """
 
         query = cast(ast.SelectQuery, parse_select(query_str))
 
-        filters = self._get_filters()
+        filters = self._get_filters(table_name=table_name)
         if filters:
             query.where = filters
 

@@ -58,6 +58,7 @@ defs = dagster.Definitions(
         web_preaggregated_internal.web_overview_daily,
         web_preaggregated_internal.web_stats_daily,
         web_preaggregated_internal.web_bounces_daily,
+        web_preaggregated_internal.web_paths_daily,
     ],
     jobs=[
         deletes.deletes_job,
