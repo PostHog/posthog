@@ -41,12 +41,10 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             else:
                 components = path.path.split(".")
 
-            # Add nodes
             for i, component in enumerate(components):
                 node_id = component
                 if node_id not in seen_nodes:
                     seen_nodes.add(node_id)
-                    node_type = "external" if component in ["postgres", "supabase"] else "saved_query"
                     try:
                         uuid_obj = uuid.UUID(component)
                         saved_query = DataWarehouseSavedQuery.objects.get(id=uuid_obj)
@@ -56,7 +54,7 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     dag["nodes"].append(
                         {
                             "id": node_id,
-                            "type": node_type,
+                            "type": "view" if saved_query else "table",
                             "name": name,
                             "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
                             "last_run_at": saved_query.last_run_at if saved_query else None,
