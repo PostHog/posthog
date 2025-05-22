@@ -127,7 +127,7 @@ export class HogTransformerService {
 
                 void this.promiseScheduler.schedule(
                     this.hogFunctionMonitoringService
-                        .processInvocationResults(transformationResult.invocationResults)
+                        .queueInvocationResults(transformationResult.invocationResults)
                         .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
                 )
 
@@ -176,7 +176,7 @@ export class HogTransformerService {
 
                         // If the function is in a degraded state, skip it
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
-                            this.hogFunctionMonitoringService.produceAppMetric({
+                            this.hogFunctionMonitoringService.queueAppMetric({
                                 team_id: event.team_id,
                                 app_source_id: hogFunction.id,
                                 metric_kind: 'failure',
