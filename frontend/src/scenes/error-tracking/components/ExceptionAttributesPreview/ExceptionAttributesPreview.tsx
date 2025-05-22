@@ -15,7 +15,7 @@ export function ExceptionAttributesPreview({
     loading = false,
 }: ExceptionAttributesPreviewProps): JSX.Element {
     return (
-        <span className="flex items-center gap-1 text-muted group-hover:text-brand-red">
+        <>
             {match(loading)
                 .with(true, () => (
                     <span className="text-muted space-x-2 text-xs">
@@ -27,7 +27,7 @@ export function ExceptionAttributesPreview({
                     false,
                     () =>
                         attributes && (
-                            <div className="flex items-center gap-2">
+                            <>
                                 <PropertyWrapper title="Unhandled" visible={!attributes.handled}>
                                     <IconBug className="text-sm text-secondary" />
                                 </PropertyWrapper>
@@ -45,11 +45,11 @@ export function ExceptionAttributesPreview({
                                         className="text-sm text-secondary"
                                     />
                                 </PropertyWrapper>
-                            </div>
+                            </>
                         )
                 )
                 .exhaustive()}
-        </span>
+        </>
     )
 }
 

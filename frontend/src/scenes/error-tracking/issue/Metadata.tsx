@@ -12,7 +12,6 @@ import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 import { EventsTable } from '../components/EventsTable/EventsTable'
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { TimeBoundary } from '../components/TimeBoundary'
-import { useErrorTagRenderer } from '../hooks/use-error-tag-renderer'
 import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../hooks/use-sparkline-events'
 import { useSparklineOptions } from '../hooks/use-sparkline-options'
@@ -35,7 +34,6 @@ export const Metadata = (): JSX.Element => {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
-    const tagRenderer = useErrorTagRenderer()
     const sparklineEvents = useSparklineEvents()
     const sparklineOptions = useSparklineOptions(
         {
@@ -111,7 +109,6 @@ export const Metadata = (): JSX.Element => {
             </div>
             <EventsTable
                 issueId={issueId}
-                renderLabel={tagRenderer}
                 selectedEvent={selectedEvent}
                 onEventSelect={(selectedEvent) =>
                     selectedEvent ? selectEvent(selectedEvent) : selectEvent(firstSeenEvent)

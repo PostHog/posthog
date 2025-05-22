@@ -6,7 +6,7 @@ import { ErrorTrackingRelationalIssue, EventsQuery } from '~/queries/schema/sche
 
 import { DataQueryLogic } from '../DataTable'
 import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
-import { eventsQueryLogicType } from './eventsQueryLogicType'
+import type { eventsQueryLogicType } from './eventsQueryLogicType'
 
 export interface EventDataLogicProps {
     issueId: ErrorTrackingRelationalIssue['id']

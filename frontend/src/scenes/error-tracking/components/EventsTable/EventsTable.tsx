@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useErrorTagRenderer } from 'scenes/error-tracking/hooks/use-error-tag-renderer'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { DataTable, DataTableColumn } from '../DataTable/DataTable'
@@ -13,12 +14,12 @@ import { eventsSourceLogic } from './eventsSourceLogic'
 export interface EventsTableProps {
     issueId: string
     selectedEvent: ErrorEventType | null
-    renderLabel: (evt: ErrorEventType) => JSX.Element
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({ issueId, renderLabel, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
+export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
     const { query, queryKey } = useValues(eventsQueryLogic({ issueId }))
+    const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
 
     function isEventSelected(record: ErrorEventType): boolean {
@@ -40,7 +41,8 @@ export function EventsTable({ issueId, renderLabel, selectedEvent, onEventSelect
 
     function renderAttributes(record: ErrorEventType): JSX.Element {
         return (
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-1">
+                {tagRenderer(record)}
                 <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
             </div>
         )
@@ -55,7 +57,6 @@ export function EventsTable({ issueId, renderLabel, selectedEvent, onEventSelect
             <DataTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
             <DataTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
             <DataTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
-            <DataTableColumn<ErrorEventType> width="120px" cellRenderer={renderLabel} />
             <DataTableColumn<ErrorEventType> align="right" cellRenderer={renderAttributes} />
         </DataTable>
     )

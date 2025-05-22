@@ -1,6 +1,6 @@
 import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { Children, isValidElement, MouseEvent, ReactElement, useCallback, useMemo } from 'react'
+import { Children, isValidElement, MouseEvent, ReactElement, useCallback } from 'react'
 
 import { DataSourceLogic } from './types'
 
@@ -21,20 +21,18 @@ export function DataTable<T extends Record<string, any>>({
 }: DataTableProps<T>): JSX.Element {
     const { items, itemsLoading } = useValues(dataSource)
 
-    const columns = useMemo(() => {
-        return Children.toArray(children)
-            .filter((child) => isValidElement(child))
-            .map((child) => {
-                const props = (child as ReactElement).props as DataTableColumnProps<T>
-                return {
-                    title: props.title,
-                    align: props.align,
-                    width: props.width,
-                    render: (_, record: T, recordIndex: number, rowCount: number) =>
-                        props.cellRenderer(record, recordIndex, rowCount),
-                } as LemonTableColumn<T, keyof T | undefined>
-            })
-    }, [children])
+    const columns = Children.toArray(children)
+        .filter((child) => isValidElement(child))
+        .map((child) => {
+            const props = (child as ReactElement).props as DataTableColumnProps<T>
+            return {
+                title: props.title,
+                align: props.align,
+                width: props.width,
+                render: (_, record: T, recordIndex: number, rowCount: number) =>
+                    props.cellRenderer(record, recordIndex, rowCount),
+            } as LemonTableColumn<T, keyof T | undefined>
+        })
 
     const onRow = useCallback(
         (record: T) => {
