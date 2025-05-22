@@ -148,6 +148,32 @@ def _get_table_chunk_size(
         return DEFAULT_CHUNK_SIZE
 
 
+def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+    try:
+        query = sql.SQL("""
+            SELECT COUNT(t.*) FROM ({}) as t
+        """).format(inner_query)
+
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
+
+
 def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
     query = sql.SQL("""
         SELECT
@@ -348,6 +374,7 @@ def postgres_source(
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
             chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Fallback on checking for an `id` field on the table
@@ -409,4 +436,5 @@ def postgres_source(
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
+        rows_to_sync=rows_to_sync,
     )

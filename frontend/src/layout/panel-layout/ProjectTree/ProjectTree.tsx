@@ -5,7 +5,7 @@ import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -31,7 +31,6 @@ import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -54,12 +53,12 @@ export function ProjectTree({
     logicKey,
     sortMethod,
     root,
-    onlyTree,
+    onlyTree = false,
     searchPlaceholder,
 }: ProjectTreeProps): JSX.Element {
-    const [uniqueKey] = useState(() => `folder-select-${counter++}`)
+    const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
-    const { setLastNewFolder, deleteShortcut } = useActions(projectTreeDataLogic)
+    const { setLastNewFolder, deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const {
         fullFileSystemFiltered,
         treeTableKeys,
@@ -103,12 +102,12 @@ export function ProjectTree({
         clearSearch,
     } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const { openMoveToModal } = useActions(moveToLogic)
-    const { addShortcutItem } = useActions(shortcutsLogic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
-        useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned, projectTreeMode } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -402,7 +401,7 @@ export function ProjectTree({
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
             data={fullFileSystemFiltered}
-            mode={projectTreeMode as TreeMode}
+            mode={onlyTree ? 'tree' : projectTreeMode}
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
@@ -414,6 +413,7 @@ export function ProjectTree({
             }}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
+            disableScroll={onlyTree ? true : false}
             onItemClick={(item) => {
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
@@ -458,7 +458,7 @@ export function ProjectTree({
             enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
             onDragEnd={(dragEvent) => {
                 const itemToId = (item: FileSystemEntry): string =>
-                    item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
+                    item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
                 const oldId = dragEvent.active.id as string
                 const newId = dragEvent.over?.id
                 if (oldId === newId) {
@@ -474,8 +474,8 @@ export function ProjectTree({
 
                 const folder = newItem
                     ? newItem.path || ''
-                    : newId && String(newId).startsWith('project-folder/')
-                    ? String(newId).substring(15)
+                    : newId && String(newId).startsWith('project://')
+                    ? String(newId).substring(10)
                     : ''
 
                 if (checkedItems[oldId]) {
@@ -488,13 +488,13 @@ export function ProjectTree({
                 }
             }}
             isItemDraggable={(item) => {
-                return (item.id.startsWith('project/') || item.id.startsWith('project-folder/')) && item.record?.path
+                return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
 
                 // disable dropping for these IDS
-                if (!item.id.startsWith('project-folder/')) {
+                if (!item.id.startsWith('project://')) {
                     return false
                 }
 

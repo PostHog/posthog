@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
 import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
+import { toBlob } from 'html-to-image'
 import {
     actions,
     afterMount,
@@ -238,9 +239,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         syncSnapshotsWithPlayer: true,
-        exportRecordingToFile: (exportUntransformedMobileData?: boolean) => ({ exportUntransformedMobileData }),
+        exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
+        takeScreenshot: true,
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -1234,7 +1236,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async ({ exportUntransformedMobileData }) => {
+        exportRecordingToFile: async () => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -1259,13 +1261,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = values.createExportJSON(!!exportUntransformedMobileData)
+                const payload = values.createExportJSON()
 
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}.${
-                        exportUntransformedMobileData ? 'mobile.' : ''
-                    }ph-recording.json`,
+                    `export-${props.sessionRecordingId}-ph-recording.json`,
                     { type: 'application/json' }
                 )
 
@@ -1306,6 +1306,32 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: parseFloat(iframe.width),
                 height: parseFloat(iframe.height),
             })
+        },
+        takeScreenshot: async () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            if (!iframe) {
+                return
+            }
+
+            await lemonToast.promise(
+                (async () => {
+                    const blob = await toBlob(iframe)
+                    if (blob) {
+                        const file = new File([blob], `${props.sessionRecordingId}-screenshot.jpeg`, {
+                            type: 'image/jpeg',
+                        })
+                        downloadFile(file)
+                    } else {
+                        throw new Error('Screenshot blob could not be created.')
+                    }
+                })(),
+                {
+                    success: 'Screenshot taken!',
+                    error: 'Failed to take screenshot. Please try again.',
+                    pending: 'Taking screenshot...',
+                }
+            )
         },
         openHeatmap: () => {
             actions.setPause()
