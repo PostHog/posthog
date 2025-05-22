@@ -49,12 +49,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return Promise.allSettled([
                 this.hogFunctionMonitoringService
                     .queueInvocationResults(invocationResults)
-                    .then(() => {
-                        return this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
-                            captureException(err)
-                            logger.error('Error producing queued messages for monitoring', { err })
-                        })
-                    })
+                    .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
                     .catch((err) => {
                         captureException(err)
                         logger.error('Error processing invocation results', { err })
