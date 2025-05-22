@@ -62,10 +62,7 @@ export function WebOverview(props: {
     return (
         <>
             <EvenlyDistributedRows
-                className={clsx('flex justify-center items-center flex-wrap w-full gap-2', {
-                    'border border-dashed border-success':
-                        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql,
-                })}
+                className="flex justify-center items-center flex-wrap w-full gap-2"
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
