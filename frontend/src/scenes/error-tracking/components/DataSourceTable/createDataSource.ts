@@ -25,7 +25,7 @@ export function createDataSourceLogic<Props extends DataSourceLogicProps<DataNod
         key(createKey),
         connect((props: Props) => {
             const sourceKey = createKey(props)
-            const [dataKey] = `DataNode.${sourceKey}`
+            const dataKey = `DataNode.${sourceKey}`
             const insightProps: InsightLogicProps<DataTableNode> = {
                 dashboardItemId: `new-AdHoc.${dataKey}`,
                 dataNodeCollectionId: dataKey,
