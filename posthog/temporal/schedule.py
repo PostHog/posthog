@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 
+from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -73,7 +74,7 @@ async def create_upgrade_queries_schedule(client: Client):
     upgrade_queries_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "upgrade-queries",
-            None,
+            asdict(UpgradeQueriesWorkflowInputs()),
             id="upgrade-queries-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
