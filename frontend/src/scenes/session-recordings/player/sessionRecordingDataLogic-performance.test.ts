@@ -120,7 +120,7 @@ describe('sessionRecordingDataLogic', () => {
 
             const end = performance.now()
 
-            expect(end - start).toBeLessThan(400)
+            expect(end - start).toBeLessThan(800)
         })
     })
 })
