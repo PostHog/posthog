@@ -63,7 +63,7 @@
                 "response": {
                     "type": "object"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -94,7 +94,7 @@
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -240,7 +240,7 @@
                         }
                     ]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -773,7 +773,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -842,7 +842,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -1703,7 +1703,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -1814,7 +1814,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -5438,7 +5438,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -7194,7 +7194,7 @@
                     ],
                     "description": "Source of the events"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -7221,7 +7221,7 @@
                 "tableSettings": {
                     "$ref": "#/definitions/TableSettings"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -7312,7 +7312,7 @@
                 "timestamp_field": {
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -7588,7 +7588,7 @@
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -7922,7 +7922,7 @@
                 "response": {
                     "type": "object"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -8120,7 +8120,7 @@
                     "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 },
@@ -8353,7 +8353,7 @@
                 "response": {
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -8587,7 +8587,7 @@
                 "response": {
                     "type": "object"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -8673,7 +8673,7 @@
                     "$ref": "#/definitions/InsightActorsQuery",
                     "description": "source for querying events for insights"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 },
@@ -8833,7 +8833,7 @@
                 "timestamp_field": {
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -8908,7 +8908,7 @@
                 "start_date": {
                     "type": ["string", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9044,7 +9044,7 @@
                 "response": {
                     "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9303,7 +9303,7 @@
                 "response": {
                     "$ref": "#/definitions/ExperimentQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9416,7 +9416,7 @@
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9708,7 +9708,7 @@
                 "source": {
                     "$ref": "#/definitions/FunnelCorrelationQuery"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9762,7 +9762,7 @@
                 "source": {
                     "$ref": "#/definitions/FunnelsActorsQuery"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9908,7 +9908,7 @@
                 "response": {
                     "type": "object"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -9985,7 +9985,7 @@
                 "response": {
                     "type": "object"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -10157,7 +10157,7 @@
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -10376,7 +10376,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -10568,7 +10568,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -10703,10 +10703,6 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
-                "v": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                },
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
                     "type": "object"
@@ -10717,6 +10713,10 @@
                     },
                     "description": "Variables to be substituted into the query",
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "query"],
@@ -10764,7 +10764,7 @@
                     "$ref": "#/definitions/integer",
                     "description": "Start position of the editor word"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -10860,16 +10860,16 @@
                     "$ref": "#/definitions/AnyDataNode",
                     "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
                 },
-                "v": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                },
                 "variables": {
                     "additionalProperties": {
                         "$ref": "#/definitions/HogQLVariable"
                     },
                     "description": "Variables to be subsituted into the query",
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "language", "query"],
@@ -10982,10 +10982,6 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
                 },
-                "v": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                },
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
                     "type": "object"
@@ -10996,6 +10992,10 @@
                     },
                     "description": "Variables to be substituted into the query",
                     "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
                 }
             },
             "required": ["kind", "query"],
@@ -11188,7 +11188,7 @@
                 "response": {
                     "$ref": "#/definitions/HogQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11292,7 +11292,7 @@
                 "status": {
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11316,7 +11316,7 @@
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11350,7 +11350,7 @@
                         }
                     ]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11617,7 +11617,7 @@
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 },
@@ -11685,7 +11685,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11750,7 +11750,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11815,7 +11815,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11880,7 +11880,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -11945,7 +11945,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -12010,7 +12010,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -12228,7 +12228,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -12404,7 +12404,7 @@
                     },
                     "type": "array"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -12956,7 +12956,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -13100,7 +13100,7 @@
                 "search": {
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -16602,7 +16602,7 @@
                 "user_modified_filters": {
                     "type": "object"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -16880,7 +16880,7 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -16984,7 +16984,7 @@
                 "revenueSources": {
                     "$ref": "#/definitions/RevenueSources"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17011,7 +17011,7 @@
                 "revenueSources": {
                     "$ref": "#/definitions/RevenueSources"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17038,7 +17038,7 @@
                 "revenueSources": {
                     "$ref": "#/definitions/RevenueSources"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17108,7 +17108,7 @@
                 "revenueSources": {
                     "$ref": "#/definitions/RevenueSources"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17190,7 +17190,7 @@
                 "revenueSources": {
                     "$ref": "#/definitions/RevenueSources"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17261,7 +17261,7 @@
                 "revenueSources": {
                     "$ref": "#/definitions/RevenueSources"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17338,7 +17338,7 @@
                 "response": {
                     "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17414,7 +17414,7 @@
                 "response": {
                     "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17697,7 +17697,7 @@
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 },
@@ -17749,7 +17749,7 @@
                 "response": {
                     "$ref": "#/definitions/SessionAttributionExplorerQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -17955,7 +17955,7 @@
                 "response": {
                     "$ref": "#/definitions/SessionsTimelineQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -18069,7 +18069,7 @@
                 "status": {
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -18233,7 +18233,7 @@
                     "$ref": "#/definitions/StickinessFilter",
                     "description": "Properties specific to the stickiness insight"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -18291,7 +18291,7 @@
                 "response": {
                     "$ref": "#/definitions/SuggestedQuestionsQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -18395,7 +18395,7 @@
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -18605,7 +18605,7 @@
                 "traceId": {
                     "type": "string"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -18978,7 +18978,7 @@
                     "$ref": "#/definitions/TrendsFilter",
                     "description": "Properties specific to the trends insight"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -19075,7 +19075,7 @@
                 "response": {
                     "$ref": "#/definitions/VectorSearchQueryResponse"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -19341,7 +19341,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -19467,7 +19467,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -19619,7 +19619,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -19745,7 +19745,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -19896,7 +19896,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -20079,7 +20079,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
@@ -20232,7 +20232,7 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
-                "v": {
+                "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }

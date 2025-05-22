@@ -258,7 +258,7 @@ export type QueryResponseAlternative = QueryAllResponses['response']
 export interface Node<R extends Record<string, any> = Record<string, any>> {
     kind: NodeKind
     /** version of the node, used for schema migrations */
-    v?: number
+    version?: number
     /** @internal Don't use this property at runtime, it's here for typing. */
     response?: R
 }

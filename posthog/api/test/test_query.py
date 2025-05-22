@@ -1082,7 +1082,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         mock_process_query.assert_called_once()
         updated_query = mock_process_query.call_args.args[1]
         assert isinstance(updated_query, RetentionQuery)
-        assert updated_query.v == 2
+        assert updated_query.version == 2
         assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
 
 
