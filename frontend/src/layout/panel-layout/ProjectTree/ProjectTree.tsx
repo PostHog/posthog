@@ -332,22 +332,25 @@ export function ProjectTree({
                     )
                 ) : null}
 
-                <MenuItem
-                    asChild
-                    onClick={(e: any) => {
-                        e.stopPropagation()
-                        if (
-                            checkedItemsArray.length > 0 &&
-                            checkedItemsArray.find(({ id }) => id === item.record?.id)
-                        ) {
-                            openMoveToModal(checkedItemsArray)
-                        } else {
-                            openMoveToModal([item.record as unknown as FileSystemEntry])
-                        }
-                    }}
-                >
-                    <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
-                </MenuItem>
+                {item.id.startsWith('project/') || item.id.startsWith('project://') ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            if (
+                                checkedItemsArray.length > 0 &&
+                                checkedItemsArray.find(({ id }) => id === item.record?.id)
+                            ) {
+                                openMoveToModal(checkedItemsArray)
+                            } else {
+                                openMoveToModal([item.record as unknown as FileSystemEntry])
+                            }
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
                 {item.record?.path && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
