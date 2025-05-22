@@ -33,6 +33,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
             orderBy=query_data.get("orderBy"),
+            searchTerm=query_data.get("searchTerm", None),
         )
         runner = LogsQueryRunner(query, self.team)
         try:
@@ -50,6 +51,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
+            searchTerm=query_data.get("searchTerm", None),
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
