@@ -3,13 +3,12 @@ import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import {
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import {
-    getSourceKey, parseEncodedSnapshots,
-    processAllSnapshots
-} from "scenes/session-recordings/player/snapshot-processing/process-all-snapshots";
+    parseEncodedSnapshots,
+    processAllSnapshots,
+} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,7 +16,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
+import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
@@ -282,20 +281,28 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('deduplicateSnapshots', () => {
-        const sources: SessionRecordingSnapshotSource[] = [{
-            source: 'blob',
-            start_timestamp: '2025-05-14T15:37:18.897000Z',
-            end_timestamp: '2025-05-14T15:42:18.378000Z',
-            blob_key: '1',
-        }]
-        const sourceKey = getSourceKey(sources[0])
-        const fakeViewportForTimestamp = () => ({
-          width: '100',
+        const sources: SessionRecordingSnapshotSource[] = [
+            {
+                source: 'blob',
+                start_timestamp: '2025-05-14T15:37:18.897000Z',
+                end_timestamp: '2025-05-14T15:42:18.378000Z',
+                blob_key: '1',
+            },
+        ]
+
+        const fakeViewportForTimestamp: (timestamp: number) => ViewportResolution | undefined = () => ({
+            width: '100',
             height: '100',
+            href: '',
         })
 
         const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
-            return processAllSnapshots(sources, { "blob-1": { snapshots } }, fakeViewportForTimestamp, '12345')
+            return processAllSnapshots(
+                sources,
+                { 'blob-1': { source: SnapshotSourceType.blob_v2, snapshots } },
+                fakeViewportForTimestamp,
+                '12345'
+            )
         }
 
         it('should remove duplicate snapshots and sort by timestamp', () => {
@@ -331,9 +338,7 @@ describe('sessionRecordingDataLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
-                verySimilarSnapshots
-            )
+            expect(callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(verySimilarSnapshots)
         })
 
         it('should match snapshot', () => {

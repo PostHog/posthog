@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { parseEncodedSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
@@ -135,8 +135,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 return
             }
 
-            // TODO why are we ever parsing this data, it should be already parsed
-            const snapshots = await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
+            const snapshots = values.sessionRecording.snapshots
 
             // Simulate a loaded source and sources so that nothing extra gets loaded
             dataLogic.actions.loadSnapshotsForSourceSuccess({

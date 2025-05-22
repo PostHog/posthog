@@ -13,25 +13,17 @@ import {
     patchMetaEventIntoWebData,
     ViewportResolution,
 } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
+import { keyForSource, SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
 
 import {
     EncodedRecordingSnapshot,
     RecordingSnapshot,
     SessionRecordingSnapshotSource,
-    SessionRecordingSnapshotSourceResponse, SnapshotSourceType,
+    SessionRecordingSnapshotSourceResponse,
 } from '~/types'
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
-
-export type SourceKey = `${SnapshotSourceType}-${string}`
-
-export const getSourceKey = (source: SessionRecordingSnapshotSource): SourceKey => {
-    // realtime sources vary so blob_key is not always present and is either null or undefined...
-    // we only care about key when not realtime
-    // and we'll always have a key when not realtime
-    return `${source.source}-${source.blob_key || source.source}`
-}
 
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
@@ -53,7 +45,7 @@ export function processAllSnapshots(
     let needToPatchMeta = false
 
     for (const source of sources) {
-        const sourceKey = getSourceKey(source)
+        const sourceKey = keyForSource(source)
         const sourceSnapshots = snapshotsBySource?.[sourceKey]?.snapshots || []
 
         let sawMeta = false
@@ -61,7 +53,7 @@ export function processAllSnapshots(
             const { delay: _delay, ...delayFreeSnapshot } = snapshot
 
             const key = (snapshot as any).seen || cyrb53(JSON.stringify(delayFreeSnapshot))
-                ; (snapshot as any).seen = key
+            ;(snapshot as any).seen = key
 
             if (seenHashes.has(key)) {
                 continue
@@ -85,11 +77,13 @@ export function processAllSnapshots(
             if (snapshot.type === EventType.FullSnapshot) {
                 const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
-                if (stripChromeExtensionDataFromNode(
-                    fullSnapshot.data.node,
-                    Object.keys(CHROME_EXTENSION_DENY_LIST),
-                    matchedExtensions
-                )) {
+                if (
+                    stripChromeExtensionDataFromNode(
+                        fullSnapshot.data.node,
+                        Object.keys(CHROME_EXTENSION_DENY_LIST),
+                        matchedExtensions
+                    )
+                ) {
                     // Add the custom event at the start of the result array
                     result.unshift({
                         type: EventType.Custom,
@@ -109,14 +103,12 @@ export function processAllSnapshots(
         }
     }
 
-
     // Sort by timestamp
     result.sort((a, b) => a.timestamp - b.timestamp)
 
     // Second pass: patch meta-events on the sorted array
     return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
 }
-
 
 let postHogEEModule: PostHogEE
 

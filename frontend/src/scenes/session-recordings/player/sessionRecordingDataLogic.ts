@@ -10,11 +10,10 @@ import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
-    getSourceKey,
     parseEncodedSnapshots,
     processAllSnapshots,
-    SourceKey,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
+import { keyForSource, SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -117,7 +116,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
             {
                 loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
-                    const sourceKey = getSourceKey(snapshotsForSource.source)
+                    const sourceKey = keyForSource(snapshotsForSource.source)
 
                     return {
                         ...state,
@@ -460,7 +459,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         loadNextSnapshotSource: () => {
             const nextSourceToLoad = values.snapshotSources?.find((s) => {
-                const sourceKey = getSourceKey(s)
+                const sourceKey = keyForSource(s)
                 return !values.snapshotsBySource?.[sourceKey]
             })
 
