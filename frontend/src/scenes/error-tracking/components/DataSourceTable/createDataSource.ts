@@ -52,10 +52,7 @@ export function createDataSourceLogic<Props extends DataSourceLogicProps<DataNod
                     return []
                 },
             ],
-            itemsLoading: [
-                (s) => [s.responseLoading],
-                (loading: boolean) => loading,
-            ],
+            itemsLoading: [(s) => [s.responseLoading], (loading: boolean) => loading],
         }),
     ])
 }
