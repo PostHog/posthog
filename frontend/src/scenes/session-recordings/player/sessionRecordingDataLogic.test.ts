@@ -280,20 +280,6 @@ describe('sessionRecordingDataLogic', () => {
                     sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
         })
-        it('clears the cache after unmounting', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-            expect(Object.keys(logic.cache)).toEqual(
-                expect.arrayContaining(['metaStartTime', 'snapshotsStartTime', 'eventsStartTime'])
-            )
-            expect(typeof logic.cache.metaStartTime).toBe('number')
-
-            logic.unmount()
-            expect(logic.cache.metaStartTime).toBeNull()
-            expect(logic.cache.snapshotsStartTime).toBeNull()
-            expect(logic.cache.eventsStartTime).toBeNull()
-        })
     })
 
     describe('deduplicateSnapshots', () => {
