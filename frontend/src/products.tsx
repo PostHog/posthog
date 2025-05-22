@@ -406,6 +406,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
+export const getTreeItemsDataManagement = (): FileSystemImport[] => [
+    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
+    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
+    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+]
+
+/** This const is auto-generated, as is the whole file */
 export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
     action: { name: 'Actions' },
     dashboard: { name: 'Dashboards' },
