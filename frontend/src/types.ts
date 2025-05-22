@@ -5414,3 +5414,16 @@ export interface ProjectTreeRef {
      */
     ref: string | null
 }
+
+// Representation of a `Link` model in our backend
+export type LinkType = {
+    id: string
+    redirect_url: string
+    short_link_domain: string
+    short_code: string
+    description?: string
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
+    _create_in_folder?: string | null
+}
