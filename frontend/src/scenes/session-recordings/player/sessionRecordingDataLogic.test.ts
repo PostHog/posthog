@@ -400,7 +400,7 @@ describe('sessionRecordingDataLogic', () => {
         const sessionId = '12345'
         const numberOfParsedLinesInData = 8
         it('handles normal web data', async () => {
-            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId, false)
+            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId)
             expect(parsed.length).toEqual(numberOfParsedLinesInData)
             expect(parsed).toMatchSnapshot()
         })
@@ -410,8 +410,7 @@ describe('sessionRecordingDataLogic', () => {
                 encodedWebSnapshotData.map((line, index) => {
                     return index == 0 ? line.substring(0, line.length / 2) : line
                 }),
-                sessionId,
-                false
+                sessionId
             )
 
             // unparseable lines are not returned
