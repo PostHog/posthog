@@ -174,8 +174,8 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
                 // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                 // This makes the transition from one view into another just that bit smoother visually.
-                <div className="@container/max-welcome relative gap-6 px-4 pb-7 grow grid grid-rows-2">
-                    <div className="flex flex-col justify-end">
+                <div className="@container/max-welcome relative px-4 pb-7 grow grid grid-rows-[50dvh_minmax(calc(50dvh_-_5rem),auto)]">
+                    <div className="flex flex-col gap-4">
                         {wasUserAutoEnrolled && (
                             <LemonBanner
                                 type="info"
@@ -197,12 +197,12 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                                 !
                             </LemonBanner>
                         )}
-                        <div className="items-center justify-center flex flex-col gap-3">
+                        <div className="items-center justify-center flex flex-col gap-3 mt-auto">
                             <Intro />
                             <QuestionInput />
                         </div>
                     </div>
-                    <div className="flex flex-col justify-between w-[min(44rem,100%)] items-center justify-self-center gap-4">
+                    <div className="flex flex-col justify-between w-[min(44rem,100%)] items-center justify-self-center gap-4 pt-6">
                         <QuestionSuggestions />
                         <HistoryPreview sidePanel={sidePanel} />
                     </div>
