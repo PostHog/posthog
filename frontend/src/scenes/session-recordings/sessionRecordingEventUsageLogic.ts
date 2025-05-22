@@ -33,7 +33,6 @@ interface RecordingViewedProps {
     recording_id: string // Id of the session
     start_time?: number // Start timestamp of the session
     end_time?: number // End timestamp of the session
-    loadedFromBlobStorage: boolean
     snapshot_source: 'web' | 'mobile' | 'unknown'
 }
 
