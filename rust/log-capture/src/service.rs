@@ -54,7 +54,11 @@ impl LogsService for Service {
 
         let export_request = request.into_inner();
 
-        let mut insert = match self.clickhouse_writer.client.insert("logs") {
+        let mut insert = match self
+            .clickhouse_writer
+            .client
+            .insert(&self.config.clickhouse_table)
+        {
             Ok(insert) => insert,
             Err(e) => {
                 error!("Failed to create ClickHouse insert: {}", e);
