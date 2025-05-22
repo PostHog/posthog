@@ -34,8 +34,8 @@ export function protocolTitle(str: string): string {
 
 export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
     const parts = splitPath(url)
-    if (parts[0]?.endsWith(':') && (parts.length === 1 || parts[1] === '')) {
-        if (parts.length > 2) {
+    if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
+        if (parts.length > 1) {
             return parts[parts.length - 1]
         }
         return protocolTitle(parts[0].slice(0, -1))

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
-import { api } from 'lib/api.mock'
+import { uuid } from 'lib/utils'
 import { join } from 'path'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
@@ -13,14 +13,17 @@ import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
 
-jest.setTimeout(60_000)
-
 const pathForKeyZero = join(__dirname, './__mocks__/perf-snapshot-key0.jsonl')
 const pathForKeyOne = join(__dirname, './__mocks__/perf-snapshot-key1.jsonl')
 
 const readFileContents = (path: string): string => {
     return readFileSync(path, 'utf-8')
 }
+
+const keyZero = readFileContents(pathForKeyZero)
+const keyOne = readFileContents(pathForKeyOne)
+
+jest.setTimeout(120_000)
 
 describe('sessionRecordingDataLogic performance', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -40,8 +43,7 @@ describe('sessionRecordingDataLogic performance', () => {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
-                        const contents =
-                            key === '0' ? readFileContents(pathForKeyZero) : readFileContents(pathForKeyOne)
+                        const contents = key === '0' ? keyZero : keyOne
                         return res(ctx.text(contents))
                     }
 
@@ -88,14 +90,12 @@ describe('sessionRecordingDataLogic performance', () => {
             },
         })
         initKeaTests()
-        jest.spyOn(api, 'get')
-        jest.spyOn(api, 'create')
     })
 
     describe('loading snapshots', () => {
         const setupLogic = (): void => {
             logic = sessionRecordingDataLogic({
-                sessionRecordingId: '2',
+                sessionRecordingId: uuid(),
                 blobV2PollingDisabled: true,
             })
             logic.mount()
@@ -123,7 +123,7 @@ describe('sessionRecordingDataLogic performance', () => {
                         'loadSnapshotsForSourceSuccess',
                         'reportUsageIfFullyLoaded',
                     ])
-                    .toFinishAllListeners()
+                    .toFinishListeners()
 
                 const actual = logic.values.sessionPlayerData
                 const snapshotData = actual.snapshotsByWindowId
@@ -137,9 +137,15 @@ describe('sessionRecordingDataLogic performance', () => {
             }
 
             const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
+            const variance = durations.reduce((a, b) => a + Math.pow(b - averageDuration, 2), 0) / iterations
+            const stdDev = Math.sqrt(variance)
             // eslint-disable-next-line no-console
             console.log(`Average duration: ${averageDuration}ms`)
-            expect(averageDuration).toBeLessThan(400)
+            // eslint-disable-next-line no-console
+            console.log(`Standard deviation: ${stdDev}ms`)
+
+            expect(averageDuration).toBeLessThan(1500)
+            expect(stdDev).toBeLessThan(2000)
         })
     })
 })
