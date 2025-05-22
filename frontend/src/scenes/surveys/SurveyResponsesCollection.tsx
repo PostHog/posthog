@@ -1,4 +1,4 @@
-import { LemonBanner, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -30,13 +30,8 @@ export function SurveyResponsesCollection(): JSX.Element | null {
         <div className="flex flex-col gap-1">
             <LemonField.Pure
                 inline
-                label={
-                    <h3 className="mb-0 flex items-center gap-1">
-                        <LemonTag type="warning">BETA</LemonTag>
-                        Enable partial responses
-                    </h3>
-                }
-                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now. If you face any issues when using partial responses, please report it to us."
+                label={<h3 className="mb-0 flex items-center gap-1">Enable partial responses</h3>}
+                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now."
                 htmlFor="enable-partial-responses"
             >
                 <LemonSwitch
