@@ -400,7 +400,7 @@ export function ProjectTree({
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
             data={fullFileSystemFiltered}
-            mode={projectTreeMode as TreeMode}
+            mode={onlyTree ? 'tree' : (projectTreeMode as TreeMode)}
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
@@ -412,6 +412,7 @@ export function ProjectTree({
             }}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
+            disableScroll={onlyTree ? true : false}
             onItemClick={(item) => {
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
