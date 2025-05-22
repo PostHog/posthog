@@ -239,7 +239,7 @@ export function QuestionSuggestions(): JSX.Element {
                                     !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
                                 }
                                 title={suggestion.label}
-                                className="[&_span]:line-clamp-1 [&>span]:flex"
+                                className="[&_span]:line-clamp-1 [&_span]:break-all [&>span]:flex"
                             >
                                 {suggestion.label}
                             </LemonButton>
