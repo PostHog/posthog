@@ -564,8 +564,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: '0.14'
-        version: 0.14.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: ~0.17.0
+        version: 0.17.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -4624,6 +4624,12 @@ packages:
 
   '@posthog/icons@0.14.0':
     resolution: {integrity: sha512-kv4PQD9O7y7a1i8ahpqjLNdIvKDP8Mh/g9JmegzwMyRa6SFEcYkrDrMyxpREzlYws9W9q7E2WDvhamU3htGFLA==}
+    peerDependencies:
+      react: '>=16.14.0'
+      react-dom: '>=16.14.0'
+
+  '@posthog/icons@0.17.0':
+    resolution: {integrity: sha512-C0+ETCBEx6lzGFKKnMp/h9k5wa6BwycfcyMN4q2jOT8mKmL1955DZEVLTGxPZIAH0GZd8l2MjKG9vvQCDyQvTw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -15633,8 +15639,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.263.0:
-    resolution: {integrity: sha512-dOpGPj8P6WkpR1lSRJqprPh8KzFTLdXN7TQAJWjPeSw+RwnIyGtiBRH80efV21S/gjBVT5UL7K1g12S3zTEL6w==}
+  unlayer-types@1.266.0:
+    resolution: {integrity: sha512-0o5P60todvhXUM2ubPxnH9GN3gCWYVC4Bkq9U7CxcgK6EE9ggm2OBXYeBrcUltCkfyJjsoqeJ0Tk8TLG2FcHhg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -19685,6 +19691,11 @@ snapshots:
   '@posthog/clickhouse@1.7.0': {}
 
   '@posthog/icons@0.14.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+
+  '@posthog/icons@0.17.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -31460,7 +31471,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.263.0
+      unlayer-types: 1.266.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33572,7 +33583,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.263.0: {}
+  unlayer-types@1.266.0: {}
 
   unpipe@1.0.0: {}
 
