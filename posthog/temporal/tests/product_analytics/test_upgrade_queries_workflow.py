@@ -11,10 +11,12 @@ from posthog.models.insight import Insight
 from posthog.schema import NodeKind
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration
 from posthog.temporal.product_analytics.upgrade_queries_workflow import (
-    GetInsightsToMigrateActivityInputs,
-    MigrateInsightsBatchActivityInputs,
     UpgradeQueriesWorkflow,
     UpgradeQueriesWorkflowInputs,
+)
+from posthog.temporal.product_analytics.upgrade_queries_activities import (
+    GetInsightsToMigrateActivityInputs,
+    MigrateInsightsBatchActivityInputs,
     get_insights_to_migrate,
     migrate_insights_batch,
 )
@@ -213,7 +215,7 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
                 activities=[get_insights_to_migrate, migrate_insights_batch],
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
-                debug_mode=True,  # turn off deadlock detector
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     UpgradeQueriesWorkflow.run,
