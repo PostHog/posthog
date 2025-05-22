@@ -325,7 +325,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
     """,
     )
-    query = QueryFieldSerializer(required=False)
+    query = QueryFieldSerializer(required=False, allow_null=True)
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
