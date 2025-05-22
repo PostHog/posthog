@@ -168,7 +168,7 @@ export interface SessionRecordingDataLogicProps {
 async function processEncodedResponse(
     encodedResponse: (EncodedRecordingSnapshot | string)[],
     props: SessionRecordingDataLogicProps
-): Promise<RecordingSnapshot[] | null> {
+): Promise<RecordingSnapshot[]> {
     return await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId)
 }
 
@@ -350,7 +350,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw e
                     })
 
-                    return { snapshots: (await processEncodedResponse(response, props)) ?? undefined, source }
+                    return { snapshots: await processEncodedResponse(response, props), source }
                 },
             },
         ],
