@@ -14,6 +14,7 @@ use opentelemetry_proto::tonic::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha512};
+use tracing::debug;
 
 #[derive(Row, Debug, Serialize, Deserialize)]
 pub struct LogRow {
@@ -104,7 +105,7 @@ impl LogRow {
         // Trace flags
         let trace_flags = record.flags;
 
-        Ok(Self {
+        let log_row = Self {
             // uuid: Uuid::now_v7(),
             team_id,
             trace_id,
@@ -121,7 +122,10 @@ impl LogRow {
             event_name,
             resource_id,
             service_name,
-        })
+        };
+        debug!("log: {:?}", log_row);
+
+        Ok(log_row)
     }
 }
 
