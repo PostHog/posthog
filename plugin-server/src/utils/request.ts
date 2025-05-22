@@ -217,10 +217,9 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
 
-    // options.timeoutMs = options.timeoutMs ?? defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS
-
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
+    requestOptions.signal = AbortSignal.timeout(defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)
 }

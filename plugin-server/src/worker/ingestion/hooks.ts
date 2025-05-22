@@ -191,7 +191,6 @@ export class HookCommander {
                     method: 'POST',
                     body: JSON.stringify(body, null, 4),
                     headers: { 'Content-Type': 'application/json' },
-                    timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })
                 // special handling for hooks
                 if (hook && request.status === 410) {
