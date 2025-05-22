@@ -18,7 +18,12 @@ def test_validate_migrations():
     # Should not raise
     validate_migrations()
 
-    # Add a gap in versions for EVENTS_NODE
+    # Gap in versions for EVENTS_NODE
     MIGRATIONS[NodeKind.EVENTS_NODE] = {1: MagicMock(), 3: MagicMock()}
+    with pytest.raises(Exception):
+        validate_migrations()
+
+    # Wrong order of versions for EVENTS_NODE
+    MIGRATIONS[NodeKind.EVENTS_NODE] = {2: MagicMock(), 1: MagicMock()}
     with pytest.raises(Exception):
         validate_migrations()

@@ -5,9 +5,12 @@ logger = structlog.get_logger(__name__)
 
 
 def validate_migrations():
-    """Validate that all migrations are linear."""
+    """Validate that all migrations are linear and in strictly increasing order."""
     for kind, migrations in MIGRATIONS.items():
-        versions = sorted(migrations.keys())
-        expected = list(range(min(versions), max(versions) + 1))
-        if versions != expected:
-            raise ValueError(f"Non-linear migration versions for {kind}: {versions} (expected {expected})")
+        versions = list(migrations.keys())
+        sorted_versions = sorted(versions)
+        expected = list(range(min(sorted_versions), max(sorted_versions) + 1))
+        if versions != sorted_versions:
+            raise ValueError(f"Migration versions for {kind} are not in strictly increasing order: {versions}")
+        if sorted_versions != expected:
+            raise ValueError(f"Non-linear migration versions for {kind}: {sorted_versions} (expected {expected})")
