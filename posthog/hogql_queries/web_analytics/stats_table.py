@@ -36,9 +36,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
     preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
+    used_preaggregated_tables: bool
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
@@ -52,6 +54,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         )
 
         if should_use_preaggregated:
+            self.used_preaggregated_tables = True
             return self.preaggregated_query_builder.get_query()
 
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
@@ -601,6 +604,7 @@ GROUP BY session_id, breakdown_value
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            usedPreAggregatedTables=self.used_preaggregated_tables,
             **self.paginator.response_params(),
         )
 
