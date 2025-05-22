@@ -30,6 +30,7 @@ import {
 } from './LemonTreeUtils'
 
 export type LemonTreeSelectMode = 'default' | 'multi' | 'folder-only'
+export type LemonTreeSize = 'default' | 'narrow'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -165,7 +166,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
      *
      * narrow: icon, no text, side action hidden
      */
-    size?: 'default' | 'narrow'
+    size?: LemonTreeSize
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {

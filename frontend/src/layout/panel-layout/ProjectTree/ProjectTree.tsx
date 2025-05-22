@@ -5,7 +5,7 @@ import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -44,6 +44,7 @@ export interface ProjectTreeProps {
     root?: string
     onlyTree?: boolean
     searchPlaceholder?: string
+    treeSize?: LemonTreeSize
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -55,6 +56,7 @@ export function ProjectTree({
     root,
     onlyTree = false,
     searchPlaceholder,
+    treeSize = 'default',
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
@@ -411,6 +413,7 @@ export function ProjectTree({
                 }
                 return window.location.href.endsWith(item.record?.href)
             }}
+            size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
