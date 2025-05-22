@@ -576,7 +576,6 @@ export class IngestionConsumer {
         for (const { event, message } of messages) {
             const result = await populateTeamDataStep(this.hub, event)
             if (!result) {
-                // TODO log dropped event
                 continue
             }
             resolvedMessaged.push({
