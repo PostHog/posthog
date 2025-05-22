@@ -39,6 +39,7 @@ import {
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentExposureCriteria,
+    ExperimentExposureQueryResponse,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -2242,8 +2243,8 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
-            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
+            (s) => [s.exposures, s.shouldUseExperimentMetrics],
+            (exposures: ExperimentExposureQueryResponse, shouldUseExperimentMetrics: boolean): boolean => {
                 // Not relevant for old metrics
                 if (!shouldUseExperimentMetrics) {
                     return true
@@ -2253,12 +2254,13 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                const variantKeys = experiment.parameters.feature_flag_variants?.map((variant) => variant.key) || []
-                for (const variant of variantKeys) {
-                    const exposure = exposures.total_exposures[variant]
-                    if (!exposure || exposure < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
-                        return false
-                    }
+                const total_experiment_exposures = Object.values(exposures.total_exposures).reduce(
+                    (acc, curr) => acc + curr,
+                    0
+                )
+
+                if (total_experiment_exposures < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
+                    return false
                 }
 
                 return true
