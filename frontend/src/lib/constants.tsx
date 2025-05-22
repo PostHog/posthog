@@ -270,6 +270,7 @@ export const FEATURE_FLAGS = {
     LOGS: 'logs', // owner: @david @frank @olly @ross
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
+    LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

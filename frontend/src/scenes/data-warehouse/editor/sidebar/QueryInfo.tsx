@@ -2,10 +2,12 @@ import { IconBolt, IconLightBulb, IconRevert, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
@@ -61,6 +63,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView, upstream } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
     const {
         dataWarehouseSavedQueryMapById,
@@ -333,54 +338,59 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     ]}
                     dataSource={savedQuery?.columns || []}
                 />
-                <div>
-                    <h3>Dependencies</h3>
-                    <p>Dependencies are tables that this query uses.</p>
-                </div>
-                <LemonTable
-                    columns={[
-                        {
-                            key: 'Name',
-                            title: 'Name',
-                            render: (_, { name }) => name,
-                        },
-                        {
-                            key: 'Type',
-                            title: 'Type',
-                            render: (_, { type }) => type,
-                        },
-                        {
-                            key: 'Status',
-                            title: 'Status',
-                            render: (_, { type, status }) => {
-                                if (type === 'source') {
-                                    return (
-                                        <Tooltip title="This is a source table, so it doesn't have a status">
-                                            <span className="text-secondary">N/A</span>
-                                        </Tooltip>
-                                    )
-                                }
-                                return status
-                            },
-                        },
-                        {
-                            key: 'Last run at',
-                            title: 'Last run at',
-                            render: (_, { type, last_run_at }) => {
-                                if (type === 'source') {
-                                    return (
-                                        <Tooltip title="This is a source table, so it is never run">
-                                            <span className="text-secondary">N/A</span>
-                                        </Tooltip>
-                                    )
-                                }
-                                return humanFriendlyDetailedTime(last_run_at)
-                            },
-                        },
-                    ]}
-                    dataSource={sourceTableItems}
-                />
-                {upstream && (
+                {!isLineageDependencyViewEnabled && (
+                    <>
+                        <div>
+                            <h3>Dependencies</h3>
+                            <p>Dependencies are tables that this query uses.</p>
+                        </div>
+                        <LemonTable
+                            columns={[
+                                {
+                                    key: 'Name',
+                                    title: 'Name',
+                                    render: (_, { name }) => name,
+                                },
+                                {
+                                    key: 'Type',
+                                    title: 'Type',
+                                    render: (_, { type }) => type,
+                                },
+                                {
+                                    key: 'Status',
+                                    title: 'Status',
+                                    render: (_, { type, status }) => {
+                                        if (type === 'source') {
+                                            return (
+                                                <Tooltip title="This is a source table, so it doesn't have a status">
+                                                    <span className="text-secondary">N/A</span>
+                                                </Tooltip>
+                                            )
+                                        }
+                                        return status
+                                    },
+                                },
+                                {
+                                    key: 'Last run at',
+                                    title: 'Last run at',
+                                    render: (_, { type, last_run_at }) => {
+                                        if (type === 'source') {
+                                            return (
+                                                <Tooltip title="This is a source table, so it is never run">
+                                                    <span className="text-secondary">N/A</span>
+                                                </Tooltip>
+                                            )
+                                        }
+                                        return humanFriendlyDetailedTime(last_run_at)
+                                    },
+                                },
+                            ]}
+                            dataSource={sourceTableItems}
+                        />
+                    </>
+                )}
+
+                {upstream && isLineageDependencyViewEnabled && (
                     <>
                         <div>
                             <h3>Upstream Dependencies</h3>
