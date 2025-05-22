@@ -1,8 +1,10 @@
+from collections import namedtuple
 import datetime
 from collections.abc import Generator
 import os
 from pathlib import Path
 from collections.abc import Sequence
+from _pytest.terminal import TerminalReporter
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from braintrust import Eval, init_logger
 from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
@@ -60,7 +62,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
             matrix = HedgeboxMatrix(
                 seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
                 days_past=120,
-                days_future=30,
+                days_future=0,
                 n_clusters=500,
                 group_type_index_offset=0,
             )
@@ -98,11 +100,58 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
     with django_db_blocker.unblock():
         core_memory, _ = CoreMemory.objects.get_or_create(
             team=demo_org_team_user[1],
-            text=initial_memory,
-            initial_text=initial_memory,
-            scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
+            defaults={
+                "text": initial_memory,
+                "initial_text": initial_memory,
+                "scraping_status": CoreMemory.ScrapingStatus.COMPLETED,
+            },
         )
     yield core_memory
+
+
+_node_id_to_results_url_map: dict[str, str] = {}
+"""Map of test nodeid (file + test name) to Braintrust results URL."""
+
+
+@pytest.fixture(autouse=True)
+def capture_stdout(request, capsys):
+    yield
+    captured = capsys.readouterr()
+    if "See results for " in captured.out:
+        # Get only the line with the results link. The output we are extracting from is something like this:
+        # [...]
+        # 0.00$ (-00.02%) 'estimated_cost'        (4 improvements, 3 regressions)
+        # See results for braintrust-more-evals-1747934384 at https://www.braintrust.dev/app/PostHog/p/max-ai-memory/experiments/braintrust-more-evals-1747934384
+        # Experiment braintrust-more-evals-1747934384 is running at https://www.braintrust.dev/app/PostHog/p/max-ai-memory/experiments/braintrust-more-evals-1747934384
+        # [...]
+        results_url = next(line for line in captured.out.split("\n") if "See results for " in line).split(" at ")[1]
+        _node_id_to_results_url_map[request.node.nodeid] = results_url
+
+
+class BraintrustURLReporter(TerminalReporter):  # type: ignore
+    """
+    Our reporter adds one feature to the default one: for each passed eval_ test, it adds a link to the Braintrust results.
+    By default, passed tests don't get any short summary, but we can override that - which is what we do here.
+    """
+
+    # No idea what type report.longrepr or report.longrrepr.reprcrash _should_ be, but this works
+    DummyLongRepr = namedtuple("DummyLongRepr", ["reprcrash"])
+    DummyReprCrash = namedtuple("DummyReprCrash", ["message"])
+
+    def short_test_summary(self):
+        for report in self.stats.get("passed", []):
+            report.longrepr = self.DummyLongRepr(
+                reprcrash=self.DummyReprCrash(message=_node_id_to_results_url_map[report.nodeid])
+            )
+        super().short_test_summary()
+
+
+@pytest.mark.trylast
+def pytest_configure(config):
+    vanilla_reporter = config.pluginmanager.getplugin("terminalreporter")
+    braintrust_url_reporter = BraintrustURLReporter(config)
+    config.pluginmanager.unregister(vanilla_reporter)
+    config.pluginmanager.register(braintrust_url_reporter, "terminalreporter")
 
 
 # TODO: Remove below `pytest_collection_modifyitems` with `skipif` injection once deepeval is refactored away,
