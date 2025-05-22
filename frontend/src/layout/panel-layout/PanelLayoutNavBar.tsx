@@ -445,7 +445,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
                                     <div
-                                        className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
+                                        className={cn(
+                                            'flex flex-col gap-px h-full',
+                                            !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
+                                        )}
                                     >
                                         <PinnedFolder />
                                     </div>

@@ -5,7 +5,7 @@ import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -44,6 +44,7 @@ export interface ProjectTreeProps {
     root?: string
     onlyTree?: boolean
     searchPlaceholder?: string
+    treeSize?: LemonTreeSize
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -55,6 +56,7 @@ export function ProjectTree({
     root,
     onlyTree = false,
     searchPlaceholder,
+    treeSize = 'default',
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
@@ -139,7 +141,7 @@ export function ProjectTree({
 
         return (
             <>
-                {item.record?.path && !item.disableSelect ? (
+                {item.record?.path && !item.disableSelect && !onlyTree ? (
                     <>
                         <MenuItem
                             asChild
@@ -214,7 +216,7 @@ export function ProjectTree({
                             <MenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
                                     New...
-                                    <IconChevronRight className="ml-auto h-4 w-4" />
+                                    <IconChevronRight className="ml-auto size-3" />
                                 </ButtonPrimitive>
                             </MenuSubTrigger>
                             <MenuSubContent>
@@ -240,7 +242,7 @@ export function ProjectTree({
                                                         {treeItem.name ||
                                                             treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
                                                         ...
-                                                        <IconChevronRight className="ml-auto h-4 w-4" />
+                                                        <IconChevronRight className="ml-auto size-3" />
                                                     </ButtonPrimitive>
                                                 </MenuSubTrigger>
                                                 <MenuSubContent>
@@ -411,6 +413,7 @@ export function ProjectTree({
                 }
                 return window.location.href.endsWith(item.record?.href)
             }}
+            size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
@@ -622,10 +625,25 @@ export function ProjectTree({
             }}
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
-
+                const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
+                if (root === 'games://') {
+                    return <>Play {nameNode}</>
+                }
+                if (root === 'products://') {
+                    return <>View {nameNode}</>
+                }
+                if (root === 'data-management://') {
+                    return <>View {nameNode}</>
+                }
+                if (root === 'new://') {
+                    if (item.children) {
+                        return <>View all</>
+                    }
+                    return <>Create a new {nameNode}</>
+                }
                 return projectTreeMode === 'tree' ? (
                     <>
-                        Name: <span className="font-semibold">{item.displayName}</span> <br />
+                        Name: {nameNode} <br />
                         Created by:{' '}
                         <ProfilePicture
                             user={user || { first_name: 'PostHog' }}
