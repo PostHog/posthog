@@ -17,6 +17,7 @@ import {
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxLogic } from './maxLogic'
+import { maxQuestionSuggestionsLogic } from './maxQuestionSuggestionsLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -354,6 +355,22 @@ export const ChatHistoryLoading: StoryFn = () => {
     return <Template sidePanel />
 }
 ChatHistoryLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithOpenedSuggestions: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxQuestionSuggestionsLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(3)
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestions.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
