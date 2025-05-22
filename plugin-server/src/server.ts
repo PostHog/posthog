@@ -329,16 +329,21 @@ export class PluginServer {
             job.cancel()
         })
 
+        logger.info('💤', ' Shutting down services...')
         await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
 
         if (this.hub) {
+            logger.info('💤', ' Shutting down plugins...')
             // Wait *up to* 5 seconds to shut down VMs.
             await Promise.race([teardownPlugins(this.hub), delay(5000)])
 
+            logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
             await closeHub(this.hub)
         }
+
+        logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
     }
