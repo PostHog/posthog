@@ -263,7 +263,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
 
-            self.assertIn(f"mat_pp_team_id", insert_statements[0])
+            self.assertIn(f"JSONExtractRaw(person.properties, 'team_id')", insert_statements[0])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
