@@ -182,7 +182,12 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
         const controlRate = conversionRateForVariant(result, 'control')
         delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
         const variantData = result.variants.find((v: any) => v.key === variant.key)
-        hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
+        if (!variantData) {
+            hasEnoughData = false
+        } else {
+            const total_exposures = variantData.failure_count + variantData.success_count
+            hasEnoughData = hasEnoughDataForResults(total_exposures, variantData.success_count)
+        }
     }
 
     // Calculate positioning
@@ -299,7 +304,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 /* Show "Not enough data" text when hasEnoughData is false */
                 <>
                     {/* Move foreignObject for variant tag to left of 0 point */}
-                    <foreignObject x={valueToX(0) - 170} y={y + barHeight / 2 - 10} width="90" height="16">
+                    <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
                         <VariantTag
                             className="justify-end mt-0.5"
                             experimentId={experimentId as ExperimentIdType}
@@ -309,6 +314,16 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         />
                     </foreignObject>
 
+                    {/* First draw a solid background to cover grid lines */}
+                    <rect
+                        x={valueToX(0) - 50}
+                        y={y + barHeight / 2 - 8}
+                        width="100"
+                        height="16"
+                        rx="3"
+                        ry="3"
+                        fill="var(--bg-light)"
+                    />
                     {/* Add grey background rectangle for the text */}
                     <rect
                         x={valueToX(0) - 50}
@@ -318,7 +333,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         rx="3"
                         ry="3"
                         fill="var(--border-light)"
-                        opacity="1"
+                        strokeWidth="0"
                     />
                     {/* Center "Not enough data yet" text on the 0 point */}
                     <text
@@ -352,13 +367,19 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight: `${chartHeight}px` }} // Dynamic height based on variant count
             >
-                {/* Vertical grid lines */}
-                <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                {/* Create a group for the background elements */}
+                <g className="grid-lines-layer">
+                    {/* Vertical grid lines */}
+                    <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                </g>
 
-                {/* Render variant bars */}
-                {variants.map((variant, index) => (
-                    <VariantBar key={variant.key} variant={variant} index={index} />
-                ))}
+                {/* Create a group for the variant bars with higher priority */}
+                <g className="variant-bars-layer">
+                    {/* Render variant bars */}
+                    {variants.map((variant, index) => (
+                        <VariantBar key={variant.key} variant={variant} index={index} />
+                    ))}
+                </g>
             </svg>
         </div>
     )
