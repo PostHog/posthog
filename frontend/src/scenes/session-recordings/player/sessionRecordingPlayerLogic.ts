@@ -1320,7 +1320,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 (async () => {
                     const blob = await toBlob(iframe)
                     if (blob) {
-                        const file = new File([blob], 'screenshot.jpeg', { type: 'image/jpeg' })
+                        const file = new File([blob], `${props.sessionRecordingId}-screenshot.jpeg`, {
+                            type: 'image/jpeg',
+                        })
                         downloadFile(file)
                     } else {
                         throw new Error('Screenshot blob could not be created.')
