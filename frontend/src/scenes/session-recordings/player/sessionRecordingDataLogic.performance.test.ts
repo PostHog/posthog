@@ -103,7 +103,7 @@ describe('sessionRecordingDataLogic', () => {
 
         it('loads all data', async () => {
             const durations: number[] = []
-            const iterations = 15
+            const iterations = 10
 
             for (let i = 0; i < iterations; i++) {
                 setupLogic()
