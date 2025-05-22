@@ -304,6 +304,7 @@ export interface HogQLQueryModifiers {
     customChannelTypeRules?: CustomChannelRule[]
     usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
+    formatCsvAllowDoubleQuotes?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
