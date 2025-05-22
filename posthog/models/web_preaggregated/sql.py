@@ -352,14 +352,14 @@ def WEB_BOUNCES_INSERT_SQL(
         LEFT JOIN
         (
             SELECT
-                path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS entry_path,
+                path(coalesce(argMinMerge(raw_sessions.entry_url), '')) AS entry_path,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL,
+                if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
                     NOT(or(
-                        ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0),
-                        ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0),
-                        -- This can be configured so we need to de-opt-the query if it is different
-                        greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))), 10)
+                        ifNull(greater(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 1), 0),
+                        greaterOrEquals(dateDiff('second',
+                        min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')),
+                        max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))), 10)
                     ))
                 ) AS is_bounce,
                 min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')) AS start_timestamp,
