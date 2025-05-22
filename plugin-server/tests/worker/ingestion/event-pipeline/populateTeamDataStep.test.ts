@@ -1,3 +1,4 @@
+import { DB } from 'utils/db/db'
 import { TeamManager } from 'utils/team-manager'
 
 import { Hub, PipelineEvent, Team } from '../../../../src/types'
@@ -51,9 +52,17 @@ beforeEach(() => {
             return null
         }),
     } as unknown as TeamManager
+
+    const db = {
+        kafkaProducer: {
+            queueMessages: jest.fn(() => Promise.resolve()),
+        },
+    } as unknown as DB
+
     hub = {
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken('2:distinct_id_to_drop'),
         teamManager,
+        db,
     } as Hub
 })
 
@@ -127,5 +136,26 @@ describe('populateTeamDataStep()', () => {
         await expect(async () => {
             await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
         }).rejects.toThrowError('retry me')
+    })
+
+    describe('validates eventUuid', () => {
+        test('invalid uuid string returns an error', () => {
+            const event: PipelineEvent = {
+                ...pipelineEvent,
+                team_id: 2,
+                uuid: 'i_am_not_a_uuid',
+            }
+
+            expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "i_am_not_a_uuid"')
+        })
+        test('null value in eventUUID returns an error', () => {
+            const event = {
+                ...pipelineEvent,
+                team_id: 2,
+                uuid: null as any,
+            }
+
+            expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "null"')
+        })
     })
 })
