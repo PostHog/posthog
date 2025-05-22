@@ -1,8 +1,8 @@
-import { IconCheck, IconFilter, IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
+import { IconCdCase, IconCheck, IconDocument, IconFilter, IconPin, IconPinFilled, IconUser } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -23,6 +23,8 @@ import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
+import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
+import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
@@ -33,6 +35,12 @@ interface PanelLayoutPanelProps {
     clearSearch: () => void
     setSearchTerm: (searchTerm: string) => void
 }
+
+// Match with FileSystemViewSet
+const productTypesMapped: [string, string][] = Object.entries(getTreeFilterTypes()).map(([key, value]) => [
+    key,
+    value.name,
+])
 
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
@@ -172,12 +180,12 @@ export function PanelLayoutPanel({
     const {
         isLayoutPanelPinned,
         panelTreeRef,
-        projectTreeMode,
         isLayoutNavCollapsed,
         panelWidth: computedPanelWidth,
     } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const panelContents = (
         <nav
@@ -213,31 +221,41 @@ export function PanelLayoutPanel({
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/file-system colorful-icons">
                 <div className="flex gap-1 p-1 items-center justify-between">
-                    <LemonInput
-                        placeholder={searchPlaceholder}
-                        className="w-full"
-                        prefix={
-                            <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
-                                <IconSearch className="size-4" />
-                            </div>
-                        }
-                        autoFocus
-                        size="small"
-                        value={searchTerm}
-                        onChange={(value) => setSearchTerm(value)}
-                        suffix={
-                            searchTerm ? (
-                                <ButtonPrimitive
-                                    size="sm"
-                                    iconOnly
-                                    onClick={() => clearSearch()}
-                                    className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
-                                    tooltip="Clear search"
-                                >
-                                    <IconX className="size-4" />
-                                </ButtonPrimitive>
-                            ) : null
-                        }
+                    <SearchAutocomplete
+                        inputPlaceholder={searchPlaceholder}
+                        includeNegation
+                        searchData={[
+                            [
+                                {
+                                    value: 'user',
+                                    label: 'user',
+                                    hint: 'Search by user name',
+                                    icon: <IconUser />,
+                                },
+                                [{ value: 'me', label: 'Me', hint: 'My stuff', icon: <IconUser /> }],
+                                'enter a user, quotes are supported',
+                            ],
+                            [
+                                {
+                                    value: 'type',
+                                    label: 'type',
+                                    hint: 'Search by type',
+                                    icon: <IconCdCase />,
+                                },
+                                productTypesMapped.map(([value, label]) => ({ value, label })),
+                                'enter a type',
+                            ],
+                            [
+                                {
+                                    value: 'name',
+                                    label: 'name',
+                                    hint: 'Search by item name',
+                                    icon: <IconDocument />,
+                                },
+                                undefined,
+                                'enter a name, quotes are supported',
+                            ],
+                        ]}
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowDown') {
                                 e.preventDefault() // Prevent scrolling
@@ -248,6 +266,9 @@ export function PanelLayoutPanel({
                                 }
                             }
                         }}
+                        onClear={() => clearSearch()}
+                        onChange={(value) => setSearchTerm(value)}
+                        autoFocus={true}
                     />
                     {showFilterDropdown && <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />}
                 </div>

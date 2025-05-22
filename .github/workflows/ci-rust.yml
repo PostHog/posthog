@@ -174,7 +174,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test for links"
-                  ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }} 
+                  ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }}
                   echo "Cargo test for links completed"
 
     linting:
