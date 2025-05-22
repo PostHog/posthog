@@ -322,7 +322,7 @@ def property_definitions_hourly_schedule(context):
     Runs 5 minutes after each hour to process data from the previous hour.
     """
     # Calculate the previous hour in ISO format
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.now(datetime.timezone.utc)
     previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
     target_hour = previous_hour.isoformat()
 
