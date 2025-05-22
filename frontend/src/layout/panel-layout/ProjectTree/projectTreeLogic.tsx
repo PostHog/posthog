@@ -615,28 +615,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.fullFileSystem, s.searchTerm, (_, props) => props.root, (_, props) => props.includeRoot],
             (fullFileSystem, searchTerm, root, includeRoot): TreeDataItem[] => {
                 let firstFolders = fullFileSystem
-                const rootFolders = splitPath(root)
+                const rootFolders = root ? splitPath(root) : []
                 const rootWithProtocol =
-                    rootFolders.length > 0 &&
-                    rootFolders[0].endsWith(':') &&
-                    (rootFolders.length === 1 || rootFolders[1] === '')
+                    rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
 
                 if (rootWithProtocol) {
-                    const type = rootFolders[0]
+                    const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
-                    const firstfolder = fullFileSystem.find((item) => item.id == `${type}://`)
-                    if (firstfolder) {
+                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    if (firstFolder) {
                         if (ref) {
-                            const found = findInProjectTree(`project://${ref}`, firstfolder.children ?? [])
+                            const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
                             firstFolders = found?.children ?? []
                         } else {
-                            firstFolders = firstfolder.children ?? []
+                            firstFolders = firstFolder.children ?? []
                         }
                     } else {
                         firstFolders = []
                     }
-                } else if (root) {
-                    firstFolders = fullFileSystem.filter((item) => item.id.startsWith(root))
                 }
 
                 function addRoot(tree: TreeDataItem[]): TreeDataItem[] {
