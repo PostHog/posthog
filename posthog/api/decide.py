@@ -137,6 +137,9 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         else False
     )
 
+    response["chat_opt_in"] = True if team.chat_opt_in else False
+    response["chat_config"] = team.chat_config
+
     response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
     response["autocaptureExceptions"] = (
         {

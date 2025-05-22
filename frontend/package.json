@@ -82,6 +82,7 @@
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-user-interviews": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
+        "@posthog/products-chat": "workspace:*",
         "@posthog/rrweb": "0.0.13",
         "@posthog/rrweb-plugin-console-record": "0.0.13",
         "@posthog/rrweb-types": "0.0.13",

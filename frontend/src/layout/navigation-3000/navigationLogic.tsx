@@ -688,6 +688,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tag: 'alpha' as const,
                               }
                             : null,
+                        featureFlags[FEATURE_FLAGS.FEATURE_CHAT]
+                            ? {
+                                  identifier: Scene.Chat,
+                                  label: 'Chat',
+                                  icon: <IconChat />,
+                                  to: urls.chatList(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                     ].filter(isNotNil) as NavbarItem[],
                 ]
             },

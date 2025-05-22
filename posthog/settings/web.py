@@ -32,6 +32,7 @@ PRODUCTS_APPS = [
     "products.editor",
     "products.links",
     "products.revenue_analytics",
+    "products.chat",
     "products.user_interviews",
 ]
 

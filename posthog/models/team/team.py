@@ -321,6 +321,8 @@ class Team(UUIDClassicModel):
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
+    chat_opt_in = models.BooleanField(default=False)
+    chat_config = models.JSONField(null=True, blank=True)
 
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)

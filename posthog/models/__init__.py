@@ -96,6 +96,7 @@ from .web_experiment import WebExperiment
 
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.chat.backend.models import ChatMessage, ChatConversation
 
 __all__ = [
     "AlertConfiguration",
@@ -200,6 +201,8 @@ __all__ = [
     "ScheduledChange",
     "WebExperiment",
     "Comment",
+    "ChatMessage",
+    "ChatConversation",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

@@ -111,6 +111,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "chat_opt_in",
+            "chat_config",
         ]
         read_only_fields = fields
 
@@ -164,6 +166,8 @@ TEAM_CONFIG_FIELDS = (
     "default_data_theme",
     "revenue_analytics_config",
     "onboarding_tasks",
+    "chat_opt_in",
+    "chat_config",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)

@@ -49,6 +49,7 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "ChatConversation",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 

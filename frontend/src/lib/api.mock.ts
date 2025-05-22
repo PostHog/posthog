@@ -154,6 +154,11 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    chat_opt_in: true,
+    chat_config: {
+        brand_color: '#000000',
+        start_message: 'Hello, how can I help you today?',
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

@@ -4,6 +4,7 @@ import { urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { chatListLogic } from 'products/chat/frontend/scenes/chatListLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -353,7 +354,12 @@ export const supportLogic = kea<supportLogicType>([
             userLogic,
             ['hasAvailableFeature'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'setSidePanelOptions'],
+            chatListLogic,
+            ['createZendDeskTicket'],
+        ],
     })),
     actions(() => ({
         closeSupportForm: true,
@@ -544,6 +550,9 @@ export const supportLogic = kea<supportLogicType>([
                     },
                 },
             }
+
+            // create a zendesk chat
+            actions.createZendDeskTicket(subject, posthog.get_distinct_id(), payload.request.comment.body)
 
             try {
                 const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
