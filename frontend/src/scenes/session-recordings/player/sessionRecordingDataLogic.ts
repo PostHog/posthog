@@ -344,15 +344,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
                         if (source.source === 'realtime' && e.status === 404) {
-                            // Realtime source is not always available so a 404 is expected
+                            // Realtime source is not always available, so a 404 is expected
                             return []
                         }
                         throw e
                     })
 
-                    const transformed = await processEncodedResponse(response, props)
-
-                    return { snapshots: transformed ?? undefined, source }
+                    return { snapshots: (await processEncodedResponse(response, props)) ?? undefined, source }
                 },
             },
         ],
