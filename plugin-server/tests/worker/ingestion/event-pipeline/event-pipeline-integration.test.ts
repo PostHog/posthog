@@ -12,10 +12,7 @@ import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
-import {
-    processOnEventStep,
-    processWebhooksStep,
-} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -36,10 +33,7 @@ describe('Event Pipeline integration test', () => {
         const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
-        return Promise.all([
-            processOnEventStep(runner.hub, postIngestionEvent),
-            processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
-        ])
+        return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])
     }
 
     beforeEach(async () => {

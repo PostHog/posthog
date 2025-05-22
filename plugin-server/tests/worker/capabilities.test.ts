@@ -66,7 +66,6 @@ describe('capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     {
                         ingestionV2: true,
-                        processAsyncOnEventHandlers: true,
                     },
                     {}
                 )
@@ -89,46 +88,6 @@ describe('capabilities', () => {
                     {
                         methods: ['onEvent'],
                     }
-                )
-                expect(shouldSetupPlugin).toEqual(false)
-            })
-        })
-
-        describe('processAsyncOnEventHandlers', () => {
-            it.each(['onEvent'])(
-                'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
-                (method) => {
-                    const shouldSetupPlugin = shouldSetupPluginInServer(
-                        { processAsyncOnEventHandlers: true },
-                        { methods: [method] }
-                    )
-                    expect(shouldSetupPlugin).toEqual(true)
-                }
-            )
-
-            it('returns false if plugin has none of onEvent and the server has only processAsyncOnEventHandlers capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { processAsyncOnEventHandlers: true },
-                    { methods: [] }
-                )
-                expect(shouldSetupPlugin).toEqual(false)
-            })
-
-            it.each(['onEvent'])(
-                'onEvent returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
-                (method) => {
-                    const shouldSetupPlugin = shouldSetupPluginInServer(
-                        { processAsyncOnEventHandlers: true },
-                        { methods: [method] }
-                    )
-                    expect(shouldSetupPlugin).toEqual(true)
-                }
-            )
-
-            it('returns false if plugin has none of onEvent and the server has only processAsyncOnEventHandlers capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { processAsyncOnEventHandlers: true },
-                    { methods: [] }
                 )
                 expect(shouldSetupPlugin).toEqual(false)
             })
