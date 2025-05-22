@@ -79,7 +79,6 @@ describe('mergeIssues', () => {
             id: 'primaryId',
             assignee: { type: 'user', id: 400 },
             description: 'This is the original description',
-            earliest: '',
             name: 'TypeError',
             status: 'active',
             // earliest first_seen

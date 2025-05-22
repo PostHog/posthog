@@ -28,7 +28,7 @@ export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
     ...SEARCHABLE_EXCEPTION_PROPERTIES,
 ]
 
-const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
+const volumePeriods: 'volumeRange'[] = ['volumeRange']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
