@@ -35,7 +35,7 @@ class TestOtelInstrumentation(BaseTest):
         # if initialize_otel was called and set a global provider.
         from opentelemetry import trace
 
-        trace._TRACER_PROVIDER = None  # type: ignore
+        trace._TRACER_PROVIDER = None
 
         super().tearDown()
 
