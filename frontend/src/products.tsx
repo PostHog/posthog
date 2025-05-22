@@ -3,7 +3,9 @@
 // The imports are preserved between builds, so please update if any are missing or extra.
 
 import {
+    IconChat,
     IconDashboard,
+    IconExternal,
     IconGraph,
     IconMegaphone,
     IconMessage,
@@ -47,27 +49,38 @@ import {
 export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
+    Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
+    Links: () => import('../../products/links/frontend/LinksScene'),
+    Link: () => import('../../products/links/frontend/LinkScene'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
+    LLMObservabilityPlayground: () =>
+        import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
+    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
 }
 
 /** This const is auto-generated, as is the whole file */
 export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
+    '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
+    '/links': ['Links', 'links'],
+    '/link/:id': ['Link', 'link'],
     '/llm-observability': ['LLMObservability', 'llmObservability'],
     '/llm-observability/dashboard': ['LLMObservability', 'llmObservabilityDashboard'],
     '/llm-observability/generations': ['LLMObservability', 'llmObservabilityGenerations'],
     '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
     '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
     '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
+    '/llm-observability/playground': ['LLMObservability', 'llmObservabilityPlayground'],
     '/logs': ['Logs', 'logs'],
     '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
     '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
@@ -83,6 +96,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/user_interviews': ['UserInterviews', 'userInterviews'],
+    '/user_interviews/:id': ['UserInterview', 'userInterview'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -105,6 +120,9 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
+    Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
+    Links: { name: 'Links', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
+    Link: { name: 'Link', projectBased: true, defaultDocsPath: '/docs/link-tracking', activityScope: 'Link' },
     LLMObservability: {
         projectBased: true,
         name: 'LLM observability',
@@ -126,6 +144,13 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
+    LLMObservabilityPlayground: {
+        projectBased: true,
+        name: 'LLM playground',
+        activityScope: 'LLMObservability',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
     Logs: { projectBased: true, name: 'Logs', activityScope: 'Logs', layout: 'app-container' },
     MessagingCampaigns: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
@@ -137,6 +162,8 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
+    UserInterviews: { name: 'User interviews', projectBased: true, activityScope: 'UserInterview' },
+    UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -175,9 +202,12 @@ export const productUrls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+    game368hedgehogs: (): string => `/games/368hedgehogs`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
+    links: (): string => '/links',
+    link: (id: string): string => `/links/${id}`,
     llmObservabilityDashboard: (): string => '/llm-observability',
     llmObservabilityGenerations: (): string => '/llm-observability/generations',
     llmObservabilityTraces: (): string => '/llm-observability/traces',
@@ -193,6 +223,7 @@ export const productUrls = {
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     llmObservabilityUsers: (): string => '/llm-observability/users',
+    llmObservabilityPlayground: (): string => '/llm-observability/playground',
     logs: (): string => '/logs',
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
@@ -282,6 +313,8 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    userInterviews: (): string => '/user_interviews',
+    userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -298,9 +331,11 @@ export const fileSystemTypes = {
     'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
     'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
     insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
+    link: { icon: <IconExternal />, href: (ref: string) => urls.link(ref) },
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
     survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
+    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -323,12 +358,18 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     { path: `Early access feature`, type: 'early_access_feature', href: urls.earlyAccessFeature('new') },
     { path: `Experiment`, type: 'experiment', href: urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: urls.featureFlag('new') },
+    {
+        path: `Insight/Calendar Heatmap`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+    },
     { path: `Insight/Funnel`, type: 'insight', href: urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: urls.insightNew({ type: InsightType.LIFECYCLE }) },
     { path: `Insight/Retention`, type: 'insight', href: urls.insightNew({ type: InsightType.RETENTION }) },
     { path: `Insight/Stickiness`, type: 'insight', href: urls.insightNew({ type: InsightType.STICKINESS }) },
     { path: `Insight/Trends`, type: 'insight', href: urls.insightNew({ type: InsightType.TRENDS }) },
     { path: `Insight/User paths`, type: 'insight', href: urls.insightNew({ type: InsightType.PATHS }) },
+    { path: `Link`, type: 'link', href: urls.link('new'), flag: FEATURE_FLAGS.LINKS },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new') },
     { path: `Replay playlist`, type: 'session_recording_playlist', href: urls.replayPlaylist('new') },
     { path: `Survey`, type: 'survey', href: urls.survey('new') },
@@ -338,7 +379,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Broadcasts', href: urls.messagingBroadcasts(), type: 'hog_function/broadcast' },
     { path: 'Campaigns', href: urls.messagingCampaigns(), type: 'hog_function/campaign' },
-    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
+    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
     { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
     { path: `Experiments`, type: 'experiment', href: urls.experiments() },
     { path: `Feature flags`, type: 'feature_flag', href: urls.featureFlags() },
@@ -349,6 +390,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.llmObservabilityDashboard(),
         flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
     },
+    { path: 'Links', type: 'link', href: urls.links(), flag: FEATURE_FLAGS.LINKS },
     { path: 'Logs', iconType: 'live', href: urls.logs(), flag: FEATURE_FLAGS.LOGS },
     { path: 'Persons', iconType: 'cohort', href: urls.persons() },
     { path: 'Product analytics', type: 'insight', href: urls.insights() },
@@ -356,8 +398,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
+    { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
@@ -366,9 +412,11 @@ export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
     early_access_feature: { name: 'Early access features' },
     experiment: { name: 'Experiments' },
     feature_flag: { name: 'Feature flags' },
+    link: { name: 'Links', flag: FEATURE_FLAGS.LINKS },
     broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
     campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
     notebook: { name: 'Notebooks' },
     insight: { name: 'Insights' },
     session_recording_playlist: { name: 'Replay playlists' },
+    user_interview: { name: 'User interviews' },
 })

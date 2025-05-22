@@ -51,6 +51,9 @@ jobs:
                     - image: log-capture
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
+                    - image: links
+                      dockerfile: ./rust/Dockerfile
+                      project: c1bwj4j4qg
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -70,6 +73,7 @@ jobs:
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}
+            links_digest: ${{ steps.digest.outputs.links_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -197,8 +201,12 @@ jobs:
                               sha: '${{ needs.build.outputs.hook-migrator_digest }}'
                     - release: log-capture
                       values:
-                          image::
+                          image:
                               sha: '${{ needs.build.outputs.log-capture_digest }}'
+                    - release: links
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.links_digest }}'
         steps:
             - name: get deployer token
               id: deployer

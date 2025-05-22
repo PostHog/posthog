@@ -15,19 +15,17 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.database.schema.exchange_rate import (
-    revenue_expression_for_events,
-    revenue_where_expr_for_events,
+    revenue_comparison_and_value_exprs_for_events,
     convert_currency_call,
-    currency_expression_for_all_events,
+    currency_expression_for_events,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 
-# Keep in sync with `revenueAnalyticsLogic.ts`
 SOURCE_VIEW_SUFFIX = "charge_revenue_view"
-EVENTS_VIEW_SUFFIX = "events_revenue_view"
+EVENTS_VIEW_SUFFIX = "charge_events_revenue_view"
 STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
@@ -122,75 +120,66 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
         revenue_config = team.revenue_analytics_config
 
-        currency_aware_event_names = [event.eventName for event in revenue_config.events if event.currencyAwareDecimal]
+        queries: list[tuple[str, ast.SelectQuery]] = []
+        for event in revenue_config.events:
+            comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
+                revenue_config, event, do_currency_conversion=False
+            )
+            _, currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
+                revenue_config,
+                event,
+                amount_expr=ast.Field(chain=["currency_aware_amount"]),
+            )
 
-        query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
-                ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
-                ast.Alias(alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])),
-                ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
-                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(revenue_config)),
-                ast.Alias(
-                    alias="original_amount",
-                    expr=revenue_expression_for_events(revenue_config, do_currency_conversion=False),
-                ),
-                # Being zero-decimal implies we will NOT divide the original amount by 100
-                # We should only do that if we've tagged the event with `currencyAwareDecimal`
-                # Otherwise, we'll just assume it's a non-zero-decimal currency
-                # There's a small optimization here in case NONE of the events have `currencyAwareDecimal`
-                # in which case we can just return True for all rows
-                ast.Alias(
-                    alias="enable_currency_aware_divider",
-                    expr=ast.Constant(value=True)
-                    if not currency_aware_event_names
-                    else ast.Call(
-                        name="if",
-                        args=[
-                            ast.Call(
-                                name="in",
-                                args=[
-                                    ast.Field(chain=["event_name"]),
-                                    ast.Constant(value=currency_aware_event_names),
-                                ],
-                            ),
-                            is_zero_decimal_in_stripe(ast.Field(chain=["original_currency"])),
-                            ast.Constant(value=True),
-                        ],
+            query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
+                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                    ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
+                    ast.Alias(
+                        alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
-                ),
-                currency_aware_divider(),
-                currency_aware_amount(),
-                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
-                ast.Alias(
-                    alias="amount",
-                    expr=revenue_expression_for_events(
-                        revenue_config, amount_expr=ast.Field(chain=["currency_aware_amount"])
+                    ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
+                    ast.Alias(alias="original_currency", expr=currency_expression_for_events(revenue_config, event)),
+                    ast.Alias(alias="original_amount", expr=value_expr),
+                    # Being zero-decimal implies we will NOT divide the original amount by 100
+                    # We should only do that if we've tagged the event with `currencyAwareDecimal`
+                    # Otherwise, we'll just assume it's a non-zero-decimal currency
+                    ast.Alias(
+                        alias="enable_currency_aware_divider",
+                        expr=is_zero_decimal_in_stripe(ast.Field(chain=["original_currency"]))
+                        if event.currencyAwareDecimal
+                        else ast.Constant(value=True),
                     ),
+                    currency_aware_divider(),
+                    currency_aware_amount(),
+                    ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
+                    ast.Alias(alias="amount", expr=currency_aware_amount_expr),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=ast.And(
+                    exprs=[
+                        comparison_expr,
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                            right=ast.Constant(value=None),
+                        ),
+                    ]
                 ),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(
-                exprs=[
-                    revenue_where_expr_for_events(revenue_config),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq,
-                        left=ast.Field(chain=["amount"]),  # refers to the Alias above
-                        right=ast.Constant(value=None),
-                    ),
-                ]
-            ),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-        )
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            )
+
+            queries.append((event.eventName, query))
 
         return [
             RevenueAnalyticsChargeView(
-                id=EVENTS_VIEW_SUFFIX,
-                name=EVENTS_VIEW_SUFFIX,
+                id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
                 query=query.to_hogql(),
                 fields=FIELDS,
             )
+            for event_name, query in queries
         ]
 
     @staticmethod

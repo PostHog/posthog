@@ -13,6 +13,7 @@ import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fe
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
+import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -225,6 +226,15 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpLegacyOnEvent) {
+                serviceLoaders.push(async () => {
+                    await initPlugins()
+                    const consumer = new CdpLegacyEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
                     await initPlugins()
@@ -304,6 +314,8 @@ export class PluginServer {
             captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
+
+            void this.stop(error)
         })
 
         process.on('uncaughtException', async (error: Error) => {

@@ -15,6 +15,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -109,8 +110,15 @@ export const billingLogic = kea<billingLogicType>([
         setComputedDiscount: (discount: number) => ({ discount }),
         scrollToProduct: (productType: string) => ({ productType }),
     }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+    connect({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [
             userLogic,
             ['loadUser'],
@@ -123,7 +131,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    })),
+    }),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -406,22 +414,6 @@ export const billingLogic = kea<billingLogicType>([
         isUnlicensedDebug: [
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
-        ],
-        projectedTotalAmountUsdWithBillingLimits: [
-            (s) => [s.billing],
-            (billing: BillingType): number => {
-                if (!billing) {
-                    return 0
-                }
-                let projectedTotal = 0
-                for (const product of billing.products || []) {
-                    const billingLimit =
-                        billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
-                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
-                }
-                return projectedTotal
-            },
         ],
         supportPlans: [
             (s) => [s.billing],
@@ -792,7 +784,7 @@ export const billingLogic = kea<billingLogicType>([
         actions.loadBilling()
         actions.getInvoices()
     }),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -811,6 +803,16 @@ export const billingLogic = kea<billingLogicType>([
                     message: _search.billing_error,
                 })
             }
+
+            // Feature flag based redirect to same billing page but with new usage and spend dashboards accessible via tabs
+            if (
+                router.values.location.pathname === urls.organizationBilling() &&
+                values.featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+            ) {
+                router.actions.replace(urls.organizationBillingSection('overview'), router.values.searchParams)
+                return
+            }
+
             actions.setRedirectPath()
             actions.setIsOnboarding()
         },

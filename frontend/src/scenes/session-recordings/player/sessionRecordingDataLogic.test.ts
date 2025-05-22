@@ -280,20 +280,6 @@ describe('sessionRecordingDataLogic', () => {
                     sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
         })
-        it('clears the cache after unmounting', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-            expect(Object.keys(logic.cache)).toEqual(
-                expect.arrayContaining(['metaStartTime', 'snapshotsStartTime', 'eventsStartTime'])
-            )
-            expect(typeof logic.cache.metaStartTime).toBe('number')
-
-            logic.unmount()
-            expect(logic.cache.metaStartTime).toBeNull()
-            expect(logic.cache.snapshotsStartTime).toBeNull()
-            expect(logic.cache.eventsStartTime).toBeNull()
-        })
     })
 
     describe('deduplicateSnapshots', () => {
@@ -616,7 +602,7 @@ describe('patchMetaEventIntoWebData', () => {
         expect(result[0]).toBe(snapshots[0])
     })
 
-    it('does not logs error twice for the same session', () => {
+    it('does not log error twice for the same session', () => {
         clearThrottle()
 
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined

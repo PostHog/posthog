@@ -27,7 +27,6 @@ import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import {
     ConversionRateInputType,
     EventConfig,
@@ -198,6 +197,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    USER_INTERVIEWS = 'user_interviews',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
@@ -211,6 +211,7 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MAX = 'max',
+    LINKS = 'links',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -1792,6 +1793,7 @@ export interface BillingProductV2Type {
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
+    projected_amount_usd_with_limit?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
@@ -1851,6 +1853,8 @@ export interface BillingType {
     current_total_amount_usd_after_discount?: string
     projected_total_amount_usd?: string
     projected_total_amount_usd_after_discount?: string
+    projected_total_amount_usd_with_limit?: string
+    projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
@@ -2331,6 +2335,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
+    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2544,6 +2549,11 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
+export interface CalendarHeatmapFilterType extends FilterType {
+    // Reserved for future filter properties
+    dummy?: string
+}
+
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 
 export interface RetentionEntity {
@@ -2598,6 +2608,7 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
+    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2610,6 +2621,7 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
+    | Partial<CalendarHeatmapFilterType>
 
 export interface EventsListQueryParams {
     event?: string
@@ -3073,6 +3085,12 @@ export interface SurveyAppearance {
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
     disabledButtonOpacity?: string
+    maxWidth?: string
+    textSubtleColor?: string
+    inputBackground?: string
+    boxPadding?: string
+    boxShadow?: string
+    borderRadius?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3104,6 +3122,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3116,6 +3135,7 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3559,12 +3579,31 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export interface UserInterviewType {
+    id: string
+    created_by: UserBasicType
+    created_at: string
+    transcript: string
+    summary: string
+    interviewee_emails: string[]
+}
+
 export enum ExperimentConclusion {
     Won = 'won',
     Lost = 'lost',
     Inconclusive = 'inconclusive',
     StoppedEarly = 'stopped_early',
     Invalid = 'invalid',
+}
+
+export interface ExperimentHoldoutType {
+    id: number | null
+    name: string
+    description: string | null
+    filters: Record<string, any>
+    created_by: UserBasicType | null
+    created_at: string | null
+    updated_at: string | null
 }
 
 export interface Experiment {
@@ -3610,7 +3649,7 @@ export interface Experiment {
     created_by: UserBasicType | null
     updated_at: string | null
     holdout_id?: number | null
-    holdout?: Holdout
+    holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
     }
@@ -3886,6 +3925,11 @@ export enum BaseMathType {
     UniqueSessions = 'unique_session',
     FirstTimeForUser = 'first_time_for_user',
     FirstMatchingEventForUser = 'first_matching_event_for_user',
+}
+
+export enum CalendarHeatmapMathType {
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
 }
 
 export enum PropertyMathType {
@@ -4247,13 +4291,6 @@ export interface OrganizationResourcePermissionType {
     created_by: UserBaseType | null
 }
 
-export interface RecordingReportLoadTimes {
-    metadata: number
-    snapshots: number
-    events: number
-    firstPaint: number
-}
-
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
 
 export type PromptButtonType = 'primary' | 'secondary'
@@ -4302,6 +4339,7 @@ export enum ActivityScope {
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    USER_INTERVIEW = 'UserInterview',
 }
 
 export type CommentType = {
@@ -4967,7 +5005,7 @@ export type BillingTableTierRow = {
     basePrice: string
     usage: string
     total: string
-    projectedTotal: string
+    projectedTotal: string | React.ReactNode
     subrows: ProductPricingTierSubrows
 }
 
@@ -5363,6 +5401,7 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    treeItemsGames?: FileSystemImport[]
     fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
@@ -5379,4 +5418,17 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
+}
+
+// Representation of a `Link` model in our backend
+export type LinkType = {
+    id: string
+    redirect_url: string
+    short_link_domain: string
+    short_code: string
+    description?: string
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
+    _create_in_folder?: string | null
 }
