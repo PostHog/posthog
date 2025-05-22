@@ -34,7 +34,7 @@ export function MoveToModal(): JSX.Element {
             <div className="w-192 max-w-full">
                 <Form logic={moveToLogic} formKey="form">
                     <LemonField name="folder">
-                        <FolderSelect className="h-[60vh] min-h-[200px]" />
+                        <FolderSelect root="project://" className="h-[60vh] min-h-[200px]" />
                     </LemonField>
                 </Form>
             </div>
