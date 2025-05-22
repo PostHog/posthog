@@ -1,6 +1,6 @@
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
+import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
