@@ -38,8 +38,8 @@ let hub: Hub
 beforeEach(() => {
     resetMetrics()
     const teamManager: TeamManager = {
-        getTeamByToken: jest.fn((token) => {
-            return token === teamTwoToken ? teamTwo : null
+        getTeamByToken: jest.fn(async (token) => {
+            return Promise.resolve(token === teamTwoToken ? teamTwo : null)
         }),
 
         getTeam: jest.fn((teamId) => {
@@ -139,23 +139,23 @@ describe('populateTeamDataStep()', () => {
     })
 
     describe('validates eventUuid', () => {
-        test('invalid uuid string returns an error', () => {
+        test('invalid uuid string returns an error', async () => {
             const event: PipelineEvent = {
                 ...pipelineEvent,
                 team_id: 2,
                 uuid: 'i_am_not_a_uuid',
             }
 
-            expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "i_am_not_a_uuid"')
+            await expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "i_am_not_a_uuid"')
         })
-        test('null value in eventUUID returns an error', () => {
+        test('null value in eventUUID returns an error', async () => {
             const event = {
                 ...pipelineEvent,
                 team_id: 2,
                 uuid: null as any,
             }
 
-            expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "null"')
+            await expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "null"')
         })
     })
 })
