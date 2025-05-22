@@ -49,19 +49,15 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
         suggestions: [
             {
                 label: 'Create a funnel of the Pirate Metrics (AARRR)',
-                content: 'Create a funnel of the Pirate Metrics (AARRR)',
             },
             {
                 label: 'What are the most popular pages or screens?',
-                content: 'What are the most popular pages or screens?',
             },
             {
                 label: 'What is the retention in the last two weeks?',
-                content: 'What is the retention in the last two weeks?',
             },
             {
                 label: 'What are the top referring domains?',
-                content: 'What are the top referring domains?',
             },
             {
                 label: 'Calculate a conversion rate for <events or features>',
@@ -84,7 +80,7 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
                 label: 'Help me set up an experiment',
             },
             {
-                label: 'What is the autocapture?',
+                label: 'Explain autocapture',
             },
             {
                 label: 'How can I capture an exception?',
@@ -97,32 +93,32 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
         icon: <IconPlug />,
         suggestions: [
             {
-                label: 'How can I set up session replay in <a framework or language>',
-                content: 'How can I set up session replay in ',
+                label: 'How can I set up the session replay in <a framework or language>',
+                content: 'How can I set up the session replay in ',
             },
             {
-                label: 'How can I set up feature flags in...',
-                content: 'How can I set up feature flags in ',
+                label: 'How can I set up the feature flags in...',
+                content: 'How can I set up the feature flags in ',
             },
             {
-                label: 'How can I set up experiments in...',
-                content: 'How can I set up experiments in ',
+                label: 'How can I set up the experiments in...',
+                content: 'How can I set up the experiments in ',
             },
             {
-                label: 'How can I set up data warehouse in...',
-                content: 'How can I set up data warehouse in ',
+                label: 'How can I set up the data warehouse in...',
+                content: 'How can I set up the data warehouse in ',
             },
             {
-                label: 'How can I set up error tracking in...',
-                content: 'How can I set up error tracking in ',
+                label: 'How can I set up the error tracking in...',
+                content: 'How can I set up the error tracking in ',
             },
             {
-                label: 'How can I set up LLM Observability in...',
-                content: 'How can I set up LLM Observability in',
+                label: 'How can I set up the LLM Observability in...',
+                content: 'How can I set up the LLM Observability in',
             },
             {
-                label: 'How can I set up product analytics in...',
-                content: 'How can I set up product analytics in',
+                label: 'How can I set up the product analytics in...',
+                content: 'How can I set up the product analytics in',
             },
         ],
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
@@ -132,8 +128,8 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
         icon: <IconRewindPlay />,
         suggestions: [
             {
-                label: 'Find recordings <description>',
-                content: 'Find recordings ',
+                label: 'Find recordings for <description>',
+                content: 'Find recordings for ',
             },
         ],
         url: productUrls.replay(),
