@@ -1415,6 +1415,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },
+            migrateExperiment: async () => {
+                const response: Experiment = await api.create(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/migrate_engine`
+                )
+                refreshTreeItem('experiment', response.id.toString())
+                router.actions.push(urls.experiment(response.id))
+                lemonToast.success('Experiment migrated successfully')
+
+                return response
+            },
         },
         exposureCohort: [
             null as CohortType | null,

@@ -99,12 +99,17 @@ export function ExperimentView(): JSX.Element {
     const { experiment, experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } =
         useValues(experimentLogic)
 
-    const { setTabKey } = useActions(experimentLogic)
+    const { setTabKey, migrateExperiment } = useActions(experimentLogic)
 
     return (
         <>
             <PageHeaderCustom />
-            <ExperimentMigrationAssistant experiment={experiment} />
+            <ExperimentMigrationAssistant
+                experiment={experiment}
+                onClick={() => {
+                    migrateExperiment()
+                }}
+            />
             <div className="deprecated-space-y-8 experiment-view">
                 {experimentLoading ? (
                     <LoadingState />

@@ -9,9 +9,13 @@ import { isLegacyExperiment } from '../utils'
 
 type ExperimentMigrationAssistantProps = {
     experiment?: Experiment | null
+    onClick: () => void
 }
 
-export const ExperimentMigrationAssistant = ({ experiment }: ExperimentMigrationAssistantProps): JSX.Element | null => {
+export const ExperimentMigrationAssistant = ({
+    experiment,
+    onClick,
+}: ExperimentMigrationAssistantProps): JSX.Element | null => {
     /**
      * Bail if it's not a legacy experiment
      */
@@ -49,7 +53,7 @@ export const ExperimentMigrationAssistant = ({ experiment }: ExperimentMigration
                         legacy experiment.
                     </p>
                     <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                        <LemonButton className="hidden @md:flex" type="primary" icon={<IconRocket />}>
+                        <LemonButton className="hidden @md:flex" type="primary" icon={<IconRocket />} onClick={onClick}>
                             Migrate!
                         </LemonButton>
                         <LemonButton
