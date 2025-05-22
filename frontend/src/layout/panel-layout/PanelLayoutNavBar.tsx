@@ -36,7 +36,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
-import { Shortcuts } from '~/layout/panel-layout/Shortcuts/Shortcuts'
+import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -191,7 +191,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             ? [
                   {
                       identifier: 'Products',
-                      id: 'Products',
+                      id: 'Tools',
                       icon: <IconCdCase />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -447,7 +447,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <div
                                         className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
                                     >
-                                        <Shortcuts />
+                                        <PinnedFolder />
                                     </div>
                                 ) : (
                                     <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
