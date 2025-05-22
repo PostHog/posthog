@@ -10899,6 +10899,9 @@
                 "debug": {
                     "type": "boolean"
                 },
+                "formatCsvAllowDoubleQuotes": {
+                    "type": "boolean"
+                },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"

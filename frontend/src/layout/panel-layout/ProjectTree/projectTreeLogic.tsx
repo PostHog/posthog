@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonTreeSelectMode, TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -53,8 +53,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     key((props) => props.key),
     connect(() => ({
         values: [
-            panelLayoutLogic,
-            ['projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
             projectTreeDataLogic,
@@ -73,7 +71,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         actions: [
             panelLayoutLogic,
-            ['setActivePanelIdentifier', 'setProjectTreeMode'],
+            ['setActivePanelIdentifier'],
             projectTreeDataLogic,
             [
                 'loadFolder',
@@ -130,6 +128,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setOnlyFolders: (onlyFolders: boolean) => ({ onlyFolders }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
+        setProjectTreeMode: (mode: TreeMode) => ({ mode }),
     }),
     loaders(({ actions, values }) => ({
         searchResults: [
@@ -420,6 +419,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             { persist: true },
             {
                 setTreeTableColumnSizes: (_, { sizes }) => sizes,
+            },
+        ],
+        projectTreeMode: [
+            'tree' as TreeMode,
+            {
+                setProjectTreeMode: (_, { mode }) => mode,
             },
         ],
     }),
