@@ -140,11 +140,11 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
             },
             {
                 label: 'How can I set up the LLM Observability in...',
-                content: 'How can I set up the LLM Observability in',
+                content: 'How can I set up the LLM Observability in ',
             },
             {
                 label: 'How can I set up the product analytics in...',
-                content: 'How can I set up the product analytics in',
+                content: 'How can I set up the product analytics in ',
             },
         ],
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
