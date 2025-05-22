@@ -210,26 +210,25 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             }}
             className={featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES] ? 'cursor-pointer' : ''}
         >
-            {/* Add variant name using VariantTag */}
-            <foreignObject
-                x={x1 - 8} // Keep same positioning as the text element
-                y={y + barHeight / 2 - 10}
-                width="90"
-                height="16"
-                transform="translate(-90, 0)" // Move left to accommodate tag width
-            >
-                <VariantTag
-                    className="justify-end mt-0.5"
-                    experimentId={experimentId as ExperimentIdType}
-                    variantKey={variant.key}
-                    fontSize={10}
-                    muted
-                />
-            </foreignObject>
-
-            {/* Conditional rendering based on shouldHideBar */}
+            {/* Conditional rendering based on hasEnoughData */}
             {hasEnoughData ? (
                 <>
+                    {/* Add variant name using VariantTag */}
+                    <foreignObject
+                        x={x1 - 8} // Keep same positioning as the text element
+                        y={y + barHeight / 2 - 10}
+                        width="90"
+                        height="16"
+                        transform="translate(-90, 0)" // Move left to accommodate tag width
+                    >
+                        <VariantTag
+                            className="justify-end mt-0.5"
+                            experimentId={experimentId as ExperimentIdType}
+                            variantKey={variant.key}
+                            fontSize={10}
+                            muted
+                        />
+                    </foreignObject>
                     {variant.key === 'control' ? (
                         <path
                             d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
@@ -298,16 +297,41 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 </>
             ) : (
                 /* Show "Not enough data" text when hasEnoughData is false */
-                <text
-                    x={valueToX(0)}
-                    y={y + barHeight / 2}
-                    fontSize="10"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fill="var(--muted)"
-                >
-                    Not enough data.
-                </text>
+                <>
+                    {/* Move foreignObject for variant tag to left of 0 point */}
+                    <foreignObject x={valueToX(0) - 170} y={y + barHeight / 2 - 10} width="90" height="16">
+                        <VariantTag
+                            className="justify-end mt-0.5"
+                            experimentId={experimentId as ExperimentIdType}
+                            variantKey={variant.key}
+                            fontSize={10}
+                            muted
+                        />
+                    </foreignObject>
+
+                    {/* Add grey background rectangle for the text */}
+                    <rect
+                        x={valueToX(0) - 50}
+                        y={y + barHeight / 2 - 8}
+                        width="100"
+                        height="16"
+                        rx="3"
+                        ry="3"
+                        fill="var(--border-light)"
+                        opacity="1"
+                    />
+                    {/* Center "Not enough data yet" text on the 0 point */}
+                    <text
+                        x={valueToX(0)}
+                        y={y + barHeight / 2}
+                        fontSize="10"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="var(--muted)"
+                    >
+                        Not enough data yet
+                    </text>
+                </>
             )}
         </g>
     )
