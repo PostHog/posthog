@@ -59,7 +59,6 @@ describe('CdpCyclotronWorkerSegment', () => {
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-        jest.spyOn(DateTime, 'now').mockReturnValue(fixedTime as DateTime<true>)
     })
 
     afterEach(async () => {
