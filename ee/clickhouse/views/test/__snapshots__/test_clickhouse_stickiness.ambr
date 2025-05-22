@@ -153,7 +153,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -161,7 +161,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -170,7 +170,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -201,7 +201,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -209,7 +209,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -218,7 +218,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -436,7 +436,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -444,7 +444,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -453,7 +453,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -506,7 +506,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -514,7 +514,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1.0
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -523,7 +523,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -565,7 +565,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(ceil(divide(dateDiff('hour', toStartOfHour(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), plus(toStartOfHour(assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), toIntervalHour(1))), 1))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalHour(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -573,7 +573,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalHour(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -582,7 +582,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfHour(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -718,7 +718,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -726,7 +726,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -735,7 +735,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))

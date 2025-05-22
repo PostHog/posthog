@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconPencil } from '@posthog/icons'
+import { IconArrowLeft, IconCopy, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
@@ -82,15 +82,26 @@ export function SharedMetrics(): JSX.Element {
             title: 'Actions',
             render: (_, sharedMetric) => {
                 return (
-                    <LemonButton
-                        className="max-w-72"
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconPencil />}
-                        onClick={() => {
-                            router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
-                        }}
-                    />
+                    <div className="flex gap-1">
+                        <LemonButton
+                            className="max-w-72"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconPencil />}
+                            onClick={() => {
+                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
+                            }}
+                        />
+                        <LemonButton
+                            className="max-w-72"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={() => {
+                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
+                            }}
+                        />
+                    </div>
                 )
             },
         },

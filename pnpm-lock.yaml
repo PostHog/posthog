@@ -593,6 +593,9 @@ importers:
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
+      '@posthog/products-links':
+        specifier: workspace:*
+        version: link:../products/links
       '@posthog/products-llm-observability':
         specifier: workspace:*
         version: link:../products/llm_observability
@@ -794,6 +797,9 @@ importers:
       hls.js:
         specifier: ^1.5.15
         version: 1.5.15
+      html-to-image:
+        specifier: ^1.11.13
+        version: 1.11.13
       husky:
         specifier: ^7.0.4
         version: 7.0.4
@@ -864,8 +870,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.245.0
-        version: 1.245.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.245.2
+        version: 1.245.2(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -878,9 +884,6 @@ importers:
       protomaps-themes-base:
         specifier: 2.0.0-alpha.1
         version: 2.0.0-alpha.1
-      qrcode.react:
-        specifier: ^4.2.0
-        version: 4.2.0(react@18.2.0)
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1789,6 +1792,39 @@ importers:
       kea-router:
         specifier: '*'
         version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/links:
+    dependencies:
+      '@posthog/icons':
+        specifier: '0.14'
+        version: 0.14.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: '*'
+        version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      qrcode.react:
+        specifier: ^4.2.0
+        version: 4.2.0(react@18.2.0)
       react:
         specifier: '*'
         version: 18.2.0
@@ -10751,6 +10787,9 @@ packages:
     resolution: {integrity: sha512-ztqyC3kLto0e9WbNp0aeP+M3kTt+nbaIveGmUxAtZa+8iFgKLUOD4YKM5j+f3QD89bra7UeumolZHKuOXnTmeQ==}
     engines: {node: '>=8'}
 
+  html-to-image@1.11.13:
+    resolution: {integrity: sha512-cuOPoI7WApyhBElTTb9oqsawRvZ0rHhaHwghRLlTuffoD1B2aDemlCruLeZrUIIdvG7gs9xeELEPm6PhuASqrg==}
+
   html-to-react@1.5.0:
     resolution: {integrity: sha512-tjihXBgaJZRRYzmkrJZ/Qf9jFayilFYcb+sJxXXE2BVLk2XsNrGeuNCVvhXmvREULZb9dz6NFTBC96DTR/lQCQ==}
 
@@ -13770,8 +13809,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.245.0:
-    resolution: {integrity: sha512-vrEyQ2ARC07kmgrcJY+2/ij6PfSiBb9IGnmaWxxikYrkHL4LEGNkJ637R1EvNDE6+IflQMixo/3Kd2IjXFYx+A==}
+  posthog-js@1.245.2:
+    resolution: {integrity: sha512-6N2CMksaTXolR4z6UmMgJt6NdDvfGMJu4gLrV9te855aKm6huLviIQ3AUY8XTsd64YqVhrGyIyk3Nnfm45OPgg==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -16025,8 +16064,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.263.0:
-    resolution: {integrity: sha512-dOpGPj8P6WkpR1lSRJqprPh8KzFTLdXN7TQAJWjPeSw+RwnIyGtiBRH80efV21S/gjBVT5UL7K1g12S3zTEL6w==}
+  unlayer-types@1.266.0:
+    resolution: {integrity: sha512-0o5P60todvhXUM2ubPxnH9GN3gCWYVC4Bkq9U7CxcgK6EE9ggm2OBXYeBrcUltCkfyJjsoqeJ0Tk8TLG2FcHhg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -28251,6 +28290,8 @@ snapshots:
 
   html-tags@3.3.1: {}
 
+  html-to-image@1.11.13: {}
+
   html-to-react@1.5.0:
     dependencies:
       domhandler: 5.0.3
@@ -32182,7 +32223,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.245.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.245.2(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -32690,7 +32731,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.263.0
+      unlayer-types: 1.266.0
 
   react-error-overlay@6.0.9: {}
 
@@ -34862,7 +34903,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.263.0: {}
+  unlayer-types@1.266.0: {}
 
   unpipe@1.0.0: {}
 

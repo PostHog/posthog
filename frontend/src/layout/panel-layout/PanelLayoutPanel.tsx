@@ -23,12 +23,17 @@ import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
+import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
+import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
     children: React.ReactNode
     showFilterDropdown?: boolean
+    searchTerm: string
+    clearSearch: () => void
+    setSearchTerm: (searchTerm: string) => void
 }
 
 const panelLayoutPanelVariants = cva({
@@ -158,21 +163,23 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
 
 export function PanelLayoutPanel({
     searchPlaceholder,
+    searchTerm,
+    clearSearch,
+    setSearchTerm,
     panelActions,
     children,
     showFilterDropdown = false,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { clearSearch, setSearchTerm, toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,
-        searchTerm,
         panelTreeRef,
-        projectTreeMode,
         isLayoutNavCollapsed,
         panelWidth: computedPanelWidth,
     } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const panelContents = (
         <nav

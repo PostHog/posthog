@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import fetch from 'node-fetch'
+import { fetch } from 'undici'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
@@ -12,10 +12,7 @@ import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
-import {
-    processOnEventStep,
-    processWebhooksStep,
-} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -36,10 +33,7 @@ describe('Event Pipeline integration test', () => {
         const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
-        return Promise.all([
-            processOnEventStep(runner.hub, postIngestionEvent),
-            processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
-        ])
+        return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])
     }
 
     beforeEach(async () => {
@@ -164,12 +158,13 @@ describe('Event Pipeline integration test', () => {
             text: '[Test Action](https://example.com/project/2/action/69) was triggered by [abc](https://example.com/project/2/person/abc)',
         }
 
-        expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
-            agent: false,
+        // eslint-disable-next-line no-restricted-syntax
+        const details = JSON.parse(JSON.stringify((fetch as any).mock.calls))
+        expect(details[0][0]).toEqual('https://webhook.example.com/')
+        expect(details[0][1]).toMatchObject({
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',
-            timeout: 10000,
         })
     })
 

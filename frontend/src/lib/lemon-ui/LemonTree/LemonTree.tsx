@@ -184,6 +184,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     onDragEnd?: (dragEvent: DragEndEvent) => void
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
+    /** Whether to disable the scrollable shadows. */
+    disableScroll?: boolean
 }
 
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
@@ -660,6 +662,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeHeader,
             tableModeRow,
             size = 'default',
+            disableScroll = false,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1289,7 +1292,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
                     className="flex-1"
-                    innerClassName="relative overflow-x-auto"
+                    innerClassName={cn('relative overflow-x-auto', {
+                        'overflow-hidden': disableScroll,
+                    })}
                     styledScrollbars
                     style={
                         {
