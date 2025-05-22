@@ -8,6 +8,9 @@ from dags.common import JobOwners
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
+    DISTRIBUTED_WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_INSERT_SQL,
     WEB_OVERVIEW_METRICS_DAILY_SQL,
     DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL,
     WEB_STATS_DAILY_SQL,
@@ -64,15 +67,19 @@ def pre_aggregate_web_analytics_data(
 def web_analytics_preaggregated_tables(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
-    def create_tables(client: Client):
-        client.execute(WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_daily"))
-        client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
-        client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
-        client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
-
     def drop_tables(client: Client):
         client.execute("DROP TABLE IF EXISTS web_overview_daily SYNC")
         client.execute("DROP TABLE IF EXISTS web_stats_daily SYNC")
+        client.execute("DROP TABLE IF EXISTS web_bounces_daily SYNC")
+
+    def create_tables(client: Client):
+        client.execute(WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_daily"))
+        client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
+        client.execute(WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"))
+
+        client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
+        client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
+        client.execute(DISTRIBUTED_WEB_BOUNCES_DAILY_SQL())
 
     cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
@@ -96,6 +103,24 @@ def web_overview_daily(
         context=context,
         table_name="web_overview_daily",
         sql_generator=WEB_OVERVIEW_INSERT_SQL,
+    )
+
+
+@dagster.asset(
+    name="web_analytics_bounces_daily",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_preaggregated_tables"],
+    metadata={"table": "web_bounces_daily"},
+)
+def web_bounces_daily(
+    context: dagster.AssetExecutionContext,
+) -> None:
+    """
+    Daily bounce rate data for web analytics. Intended for internal use on other queries
+    """
+    return pre_aggregate_web_analytics_data(
+        context=context, table_name="web_bounces_daily", sql_generator=WEB_BOUNCES_INSERT_SQL
     )
 
 
