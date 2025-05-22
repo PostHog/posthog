@@ -144,7 +144,7 @@
         "image-blob-reduce": "^4.1.0",
         "kea": "^3.1.5",
         "kea-forms": "^3.2.0",
-        "kea-loaders": "^3.1.0",
+        "kea-loaders": "^3.1.1",
         "kea-localstorage": "^3.1.0",
         "kea-router": "^3.2.1",
         "kea-subscriptions": "^3.0.1",

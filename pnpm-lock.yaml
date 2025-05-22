@@ -816,8 +816,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.0(kea@3.1.5(react@18.2.0))
       kea-loaders:
-        specifier: ^3.1.0
-        version: 3.1.0(kea@3.1.5(react@18.2.0))
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-localstorage:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.5(react@18.2.0))
@@ -11691,8 +11691,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-loaders@3.1.0:
-    resolution: {integrity: sha512-Ng1SWC2ZQUaObV4UlgPzpVNqmveNt+r+e/sSWx3jT8qvKzPpjl5ZK3h+XSK76a6kyLhIr+22ksE2sq7vdqF5jA==}
+  kea-loaders@3.1.1:
+    resolution: {integrity: sha512-FZcOh5PSTIh5+Of5kZno7bXENmY4rCcRYnTB4e709Mbkc7KzriEZ6b/mIWvYx2vkDEgilIsvibUsGOADZ6wqPw==}
     peerDependencies:
       kea: '>= 3'
 
@@ -28835,7 +28835,7 @@ snapshots:
     dependencies:
       kea: 3.1.5(react@18.2.0)
 
-  kea-loaders@3.1.0(kea@3.1.5(react@18.2.0)):
+  kea-loaders@3.1.1(kea@3.1.5(react@18.2.0)):
     dependencies:
       kea: 3.1.5(react@18.2.0)
 
