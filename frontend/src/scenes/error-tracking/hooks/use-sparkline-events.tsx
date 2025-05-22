@@ -19,7 +19,7 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
                 radius: 6,
             })
         }
-        if (selectedEvent && !isFistOrLastEvent(firstSeenEvent, lastSeen, selectedEvent)) {
+        if (selectedEvent && !isFirstOrLastEvent(firstSeenEvent, lastSeen, selectedEvent)) {
             events.push({
                 id: 'custom',
                 date: new Date(selectedEvent.timestamp),
