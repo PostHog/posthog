@@ -1,6 +1,5 @@
 from typing import Any
-
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -8,6 +7,7 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_convert_legacy_metric import convert_legacy_metrics
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -517,3 +517,37 @@ class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+    # ******************************************
+    # /projects/:id/experiments/:id/migrate_engine
+    # ******************************************
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def migrate_engine(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        original_experiment = self.get_object()
+
+        try:
+            new_metrics = convert_legacy_metrics(original_experiment.metrics or [])
+            new_secondary_metrics = convert_legacy_metrics(original_experiment.metrics_secondary or [])
+
+            new_experiment = Experiment.objects.create(
+                team=original_experiment.team,
+                name=f"{original_experiment.name} (Migrated)",
+                description=original_experiment.description,
+                filters=original_experiment.filters,
+                parameters=original_experiment.parameters,
+                feature_flag=original_experiment.feature_flag,
+                exposure_cohort=original_experiment.exposure_cohort,
+                holdout=original_experiment.holdout,
+                type=original_experiment.type,
+                variants=original_experiment.variants,
+                exposure_criteria=original_experiment.exposure_criteria,
+                stats_config=original_experiment.stats_config,
+                created_by=request.user,
+                metrics=new_metrics,
+                metrics_secondary=new_secondary_metrics,
+            )
+
+            return Response(self.get_serializer(new_experiment).data)
+
+        except Exception as e:
+            return Response({"error": f"Failed to migrate experiment: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
