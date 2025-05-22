@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -11,7 +12,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -246,11 +247,21 @@ export const cohortsModel = kea<cohortsModelType>([
             actions.startExport(exportCommand)
         },
         deleteCohort: async ({ cohort }) => {
-            if (!cohort.id) {
-                return
-            }
-            await api.cohorts.update(cohort.id, { deleted: true, id: cohort.id, name: cohort.name })
-            deleteFromTree('cohort', String(cohort.id))
+            const cleanedCohort = cleanCohortForDelete(cohort)
+            await deleteWithUndo({
+                endpoint: api.cohorts.determineDeleteEndpoint(),
+                object: cleanedCohort,
+                callback: (undo) => {
+                    actions.loadCohorts()
+                    if (cohort.id && cohort.id !== 'new') {
+                        if (undo) {
+                            refreshTreeItem('cohort', String(cohort.id))
+                        } else {
+                            deleteFromTree('cohort', String(cohort.id))
+                        }
+                    }
+                },
+            })
         },
         setCohortFilters: async () => {
             if (!router.values.location.pathname.includes(urls.cohorts())) {
@@ -301,3 +312,11 @@ export const cohortsModel = kea<cohortsModelType>([
     }),
     permanentlyMount(),
 ])
+
+function cleanCohortForDelete(cohort: Partial<CohortType>): Pick<CohortType, 'id' | 'name' | 'description'> {
+    return {
+        id: cohort.id,
+        name: cohort.name,
+        description: cohort.description,
+    }
+}
