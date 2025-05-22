@@ -181,7 +181,7 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('runEventPipeline()', () => {
-        it('runs steps starting from populateTeamDataStep', async () => {
+        it('runs steps starting from cookielessServerHashStep', async () => {
             await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([

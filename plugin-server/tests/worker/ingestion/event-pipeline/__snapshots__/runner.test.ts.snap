@@ -3,23 +3,6 @@
 exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
 [
   [
-    "populateTeamDataStep",
-    [
-      {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00.000Z",
-        "properties": {},
-        "site_url": "http://localhost",
-        "team_id": null,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-        "token": "token1",
-        "uuid": "uuid1",
-      },
-    ],
-  ],
-  [
     "cookielessServerHashStep",
     [
       {
