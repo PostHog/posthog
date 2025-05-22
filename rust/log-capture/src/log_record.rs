@@ -20,7 +20,7 @@ pub struct LogRow {
     team_id: i32,
     trace_id: [u8; 16],
     span_id: [u8; 8],
-    trace_flags: u8,
+    trace_flags: u32,
     timestamp: u64,
     body: String,
     message: String,
@@ -102,7 +102,7 @@ impl LogRow {
         let span_id = extract_span_id(&record.span_id);
 
         // Trace flags
-        let trace_flags = record.flags as u8;
+        let trace_flags = record.flags;
 
         Ok(Self {
             // uuid: Uuid::now_v7(),
