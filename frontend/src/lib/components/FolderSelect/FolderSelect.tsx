@@ -18,16 +18,20 @@ export interface FolderSelectProps {
     onChange?: (folder: string) => void
     /** Class name for the component */
     className?: string
+    /** Root for folder */
+    root?: string
+    /** Include "products://" in the final path */
+    includeProtocol?: boolean
 }
 
 /** Input component for selecting a folder */
 let counter = 0
 
-export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
+export function FolderSelect({ value, onChange, root, className, includeProtocol }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true }
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root }
 
-    const { searchTerm, expandedSearchFolders, expandedFolders, projectTreeItems, treeTableKeys, editingItemId } =
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
     const {
         setSearchTerm,
@@ -43,7 +47,13 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
 
     useEffect(() => {
-        expandProjectFolder(value || '')
+        if (includeProtocol) {
+            if (value?.startsWith('project://')) {
+                expandProjectFolder(value.replace('project://', ''))
+            }
+        } else {
+            expandProjectFolder(value || '')
+        }
     }, [value])
 
     function getItemContextMenu(type: 'context' | 'dropdown'): (item: TreeDataItem) => ReactNode | undefined {
@@ -100,10 +110,12 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                     ref={treeRef}
                     selectMode="folder-only"
                     className="px-0 py-1"
-                    data={projectTreeItems}
+                    data={fullFileSystemFiltered}
                     mode="tree"
                     tableViewKeys={treeTableKeys}
-                    defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
+                    defaultSelectedFolderOrNodeId={
+                        value?.includes('://') ? value : value ? 'project://' + value : undefined
+                    }
                     isItemActive={(item) => item.record?.path === value}
                     isItemEditing={(item) => {
                         return editingItemId === item.id
@@ -119,9 +131,15 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                     checkedItemCount={0}
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
-                            setSelectedFolder(folder.record?.path)
-                            toggleFolderOpen(folder.id || '', isExpanded)
-                            onChange?.(folder.record?.path ?? '')
+                            if (includeProtocol) {
+                                setSelectedFolder(folder.id)
+                                toggleFolderOpen(folder.id, isExpanded)
+                                onChange?.(folder.id)
+                            } else {
+                                setSelectedFolder(folder.record?.path)
+                                toggleFolderOpen(folder.id || '', isExpanded)
+                                onChange?.(folder.record?.path ?? '')
+                            }
                         }
                     }}
                     renderItem={(item) => {

@@ -27,11 +27,10 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useRef } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -40,14 +39,28 @@ import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
-    sortMethod: ProjectTreeSortMethod
+    logicKey?: string // key override?
+    sortMethod?: ProjectTreeSortMethod // default: "folder"
+    root?: string
+    onlyTree?: boolean
+    searchPlaceholder?: string
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
+let counter = 0
 
-export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
+export function ProjectTree({
+    logicKey,
+    sortMethod,
+    root,
+    onlyTree,
+    searchPlaceholder,
+}: ProjectTreeProps): JSX.Element {
+    const [uniqueKey] = useState(() => `project-tree-${counter++}`)
+    const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
+    const { setLastNewFolder, deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const {
-        projectTreeItems,
+        fullFileSystemFiltered,
         treeTableKeys,
         lastViewedId,
         expandedFolders,
@@ -64,10 +77,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
-    } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
-    const { setLastNewFolder } = useActions(projectTreeDataLogic)
-
+    } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const {
         createFolder,
         rename,
@@ -90,9 +100,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setSelectMode,
         setSearchTerm,
         clearSearch,
-    } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const { openMoveToModal } = useActions(moveToLogic)
-    const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
         useActions(panelLayoutLogic)
@@ -104,8 +113,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
-        if (projectSortMethod !== sortMethod) {
-            setSortMethod(sortMethod)
+        if (projectSortMethod !== (sortMethod ?? 'folder')) {
+            setSortMethod(sortMethod ?? 'folder')
         }
     }, [sortMethod, projectSortMethod])
 
@@ -297,15 +306,27 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 ) : null}
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            item.record && addShortcutItem(item.record as FileSystemEntry)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
-                    </MenuItem>
+                    root === 'shortcuts://' ? (
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                item.record && deleteShortcut(item.record?.id)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                        </MenuItem>
+                    ) : (
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                item.record && addShortcutItem(item.record as FileSystemEntry)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
+                        </MenuItem>
+                    )
                 ) : null}
 
                 <MenuItem
@@ -353,7 +374,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, PROJECT_TREE_KEY)
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -363,7 +384,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, PROJECT_TREE_KEY)
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
@@ -373,13 +394,303 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         )
     }
 
+    const tree = (
+        <LemonTree
+            ref={treeRef}
+            contentRef={mainContentRef as RefObject<HTMLElement>}
+            className="px-0 py-1"
+            data={fullFileSystemFiltered}
+            mode={projectTreeMode as TreeMode}
+            selectMode={selectMode}
+            tableViewKeys={treeTableKeys}
+            defaultSelectedFolderOrNodeId={lastViewedId || undefined}
+            isItemActive={(item) => {
+                if (!item.record?.href) {
+                    return false
+                }
+                return window.location.href.endsWith(item.record?.href)
+            }}
+            onItemChecked={onItemChecked}
+            checkedItemCount={checkedItemCountNumeric}
+            onItemClick={(item) => {
+                if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
+                    return
+                }
+                if (item?.record?.href) {
+                    router.actions.push(
+                        typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
+                    )
+                }
+                if (!isLayoutPanelPinned || projectTreeMode === 'table') {
+                    clearActivePanelIdentifier()
+                    showLayoutPanel(false)
+                }
+
+                if (item?.record?.path) {
+                    setLastViewedId(item?.id || '')
+                }
+                if (item?.id.startsWith('project-load-more/')) {
+                    const path = item.id.split('/').slice(1).join('/')
+                    if (path) {
+                        loadFolder(path)
+                    }
+                }
+            }}
+            onFolderClick={(folder, isExpanded) => {
+                if (folder) {
+                    toggleFolderOpen(folder?.id || '', isExpanded)
+                }
+            }}
+            isItemEditing={(item) => {
+                return editingItemId === item.id
+            }}
+            onItemNameChange={(item, name) => {
+                if (item.name !== name) {
+                    rename(name, item.record as unknown as FileSystemEntry)
+                }
+                // Clear the editing item id when the name changes
+                setEditingItemId('')
+            }}
+            expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+            onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+            enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
+            onDragEnd={(dragEvent) => {
+                const itemToId = (item: FileSystemEntry): string =>
+                    item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
+                const oldId = dragEvent.active.id as string
+                const newId = dragEvent.over?.id
+                if (oldId === newId) {
+                    return false
+                }
+
+                const items = searchTerm && searchResults.results ? searchResults.results : viableItems
+                const oldItem = items.find((i) => itemToId(i) === oldId)
+                const newItem = items.find((i) => itemToId(i) === newId)
+                if (oldItem === newItem || !oldItem) {
+                    return false
+                }
+
+                const folder = newItem
+                    ? newItem.path || ''
+                    : newId && String(newId).startsWith('project://')
+                    ? String(newId).substring(10)
+                    : ''
+
+                if (checkedItems[oldId]) {
+                    moveCheckedItems(folder)
+                } else {
+                    const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
+                    if (isValidMove) {
+                        moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
+                    }
+                }
+            }}
+            isItemDraggable={(item) => {
+                return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
+            }}
+            isItemDroppable={(item) => {
+                const path = item.record?.path || ''
+
+                // disable dropping for these IDS
+                if (!item.id.startsWith('project://')) {
+                    return false
+                }
+
+                // hacky, if the item has a href, it should not be droppable
+                if (item.record?.href) {
+                    return false
+                }
+
+                if (path) {
+                    return true
+                }
+                return false
+            }}
+            itemContextMenu={(item) => {
+                if (item.id.startsWith('project-folder-empty/')) {
+                    return undefined
+                }
+                return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+            }}
+            itemSideAction={(item) => {
+                if (item.id.startsWith('project-folder-empty/')) {
+                    return undefined
+                }
+                return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+            }}
+            emptySpaceContextMenu={() => {
+                return (
+                    <ContextMenuGroup>
+                        <ContextMenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                createFolder('')
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                        </ContextMenuItem>
+                    </ContextMenuGroup>
+                )
+            }}
+            tableModeTotalWidth={treeTableTotalWidth}
+            tableModeHeader={() => {
+                return (
+                    <>
+                        {/* Headers */}
+                        {treeTableKeys?.headers.map((header, index) => (
+                            <ResizableElement
+                                key={header.key}
+                                defaultWidth={header.width || 0}
+                                onResize={(width) => {
+                                    setTreeTableColumnSizes([
+                                        ...treeTableColumnSizes.slice(0, index),
+                                        width,
+                                        ...treeTableColumnSizes.slice(index + 1),
+                                    ])
+                                }}
+                                className="absolute h-[30px] flex items-center"
+                                style={{
+                                    transform: `translateX(${header.offset || 0}px)`,
+                                }}
+                                aria-label={`Resize handle for column "${header.title}"`}
+                            >
+                                <ButtonPrimitive
+                                    key={header.key}
+                                    fullWidth
+                                    className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                    style={{
+                                        paddingLeft: index === 0 ? '35px' : undefined,
+                                    }}
+                                >
+                                    <span>{header.title}</span>
+                                </ButtonPrimitive>
+                            </ResizableElement>
+                        ))}
+                    </>
+                )
+            }}
+            tableModeRow={(item, firstColumnOffset) => {
+                return (
+                    <>
+                        {treeTableKeys?.headers.slice(0).map((header, index) => {
+                            const width = header.width || 0
+                            const offset = header.offset || 0
+                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+
+                            // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
+                            const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
+                            const offsetAdjusted = index === 0 ? offset : offset - 12
+
+                            return (
+                                <span
+                                    key={header.key}
+                                    className="text-left flex items-center h-[var(--button-height-base)]"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        // First we keep relative
+                                        position: index === 0 ? 'relative' : 'absolute',
+                                        transform: `translateX(${offsetAdjusted}px)`,
+                                        // First column we offset for the icons
+                                        width: `${widthAdjusted}px`,
+                                        paddingLeft: index !== 0 ? '6px' : undefined,
+                                    }}
+                                >
+                                    <Tooltip
+                                        title={
+                                            typeof header.tooltip === 'function'
+                                                ? header.tooltip(value)
+                                                : header.tooltip
+                                        }
+                                        placement="top-start"
+                                    >
+                                        <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
+                                            {header.formatComponent
+                                                ? header.formatComponent(value, item)
+                                                : header.formatString
+                                                ? header.formatString(value, item)
+                                                : value}
+                                        </span>
+                                    </Tooltip>
+                                </span>
+                            )
+                        })}
+                    </>
+                )
+            }}
+            renderItemTooltip={(item) => {
+                const user = item.record?.user as UserBasicType | undefined
+
+                return projectTreeMode === 'tree' ? (
+                    <>
+                        Name: <span className="font-semibold">{item.displayName}</span> <br />
+                        Created by:{' '}
+                        <ProfilePicture
+                            user={user || { first_name: 'PostHog' }}
+                            size="xs"
+                            showName
+                            className="font-semibold"
+                        />
+                        <br />
+                        Created at:{' '}
+                        <span className="font-semibold">
+                            {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                        </span>
+                    </>
+                ) : undefined
+            }}
+            renderItemIcon={(item) => {
+                return (
+                    <>
+                        {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
+                            <ProfilePicture
+                                user={item.record?.user as UserBasicType | undefined}
+                                size="xs"
+                                className="ml-[4px]"
+                            />
+                        )}
+                        <TreeNodeDisplayIcon
+                            item={item}
+                            expandedItemIds={expandedFolders}
+                            defaultNodeIcon={<IconFolder />}
+                        />
+                    </>
+                )
+            }}
+            renderItem={(item) => {
+                return (
+                    <span className="truncate">
+                        <span
+                            className={cn('truncate', {
+                                'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                            })}
+                        >
+                            {item.displayName}
+                        </span>
+                        {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
+                            <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                {dayjs(item.record?.created_at).fromNow()}
+                            </span>
+                        )}
+                    </span>
+                )
+            }}
+        />
+    )
+
+    if (onlyTree) {
+        return tree
+    }
+
     return (
         <PanelLayoutPanel
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
             clearSearch={clearSearch}
             showFilterDropdown={true}
-            searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
+            searchPlaceholder={
+                searchPlaceholder ?? (sortMethod === 'recent' ? 'Search recent items' : 'Search your project')
+            }
             panelActions={
                 <>
                     {sortMethod !== 'recent' ? (
@@ -435,295 +746,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
             </div>
 
-            <LemonTree
-                ref={treeRef}
-                contentRef={mainContentRef as RefObject<HTMLElement>}
-                className="px-0 py-1"
-                data={projectTreeItems}
-                mode={projectTreeMode as TreeMode}
-                selectMode={selectMode}
-                tableViewKeys={treeTableKeys}
-                defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-                isItemActive={(item) => {
-                    if (!item.record?.href) {
-                        return false
-                    }
-                    return window.location.href.endsWith(item.record?.href)
-                }}
-                onItemChecked={onItemChecked}
-                checkedItemCount={checkedItemCountNumeric}
-                onItemClick={(item) => {
-                    if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
-                        return
-                    }
-                    if (item?.record?.href) {
-                        router.actions.push(
-                            typeof item.record.href === 'function'
-                                ? item.record.href(item.record.ref)
-                                : item.record.href
-                        )
-                    }
-                    if (!isLayoutPanelPinned || projectTreeMode === 'table') {
-                        clearActivePanelIdentifier()
-                        showLayoutPanel(false)
-                    }
-
-                    if (item?.record?.path) {
-                        setLastViewedId(item?.id || '')
-                    }
-                    if (item?.id.startsWith('project-load-more/')) {
-                        const path = item.id.split('/').slice(1).join('/')
-                        if (path) {
-                            loadFolder(path)
-                        }
-                    }
-                }}
-                onFolderClick={(folder, isExpanded) => {
-                    if (folder) {
-                        toggleFolderOpen(folder?.id || '', isExpanded)
-                    }
-                }}
-                isItemEditing={(item) => {
-                    return editingItemId === item.id
-                }}
-                onItemNameChange={(item, name) => {
-                    if (item.name !== name) {
-                        rename(name, item.record as unknown as FileSystemEntry)
-                    }
-                    // Clear the editing item id when the name changes
-                    setEditingItemId('')
-                }}
-                expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
-                onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
-                enableDragAndDrop={sortMethod === 'folder'}
-                onDragEnd={(dragEvent) => {
-                    const itemToId = (item: FileSystemEntry): string =>
-                        item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
-                    const oldId = dragEvent.active.id as string
-                    const newId = dragEvent.over?.id
-                    if (oldId === newId) {
-                        return false
-                    }
-
-                    const items = searchTerm && searchResults.results ? searchResults.results : viableItems
-                    const oldItem = items.find((i) => itemToId(i) === oldId)
-                    const newItem = items.find((i) => itemToId(i) === newId)
-                    if (oldItem === newItem || !oldItem) {
-                        return false
-                    }
-
-                    const folder = newItem
-                        ? newItem.path || ''
-                        : newId && String(newId).startsWith('project-folder/')
-                        ? String(newId).substring(15)
-                        : ''
-
-                    if (checkedItems[oldId]) {
-                        moveCheckedItems(folder)
-                    } else {
-                        const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
-                        if (isValidMove) {
-                            moveItem(oldItem, newPath, false, PROJECT_TREE_KEY)
-                        }
-                    }
-                }}
-                isItemDraggable={(item) => {
-                    return (
-                        (item.id.startsWith('project/') || item.id.startsWith('project-folder/')) && item.record?.path
-                    )
-                }}
-                isItemDroppable={(item) => {
-                    const path = item.record?.path || ''
-
-                    // disable dropping for these IDS
-                    if (!item.id.startsWith('project-folder/')) {
-                        return false
-                    }
-
-                    // hacky, if the item has a href, it should not be droppable
-                    if (item.record?.href) {
-                        return false
-                    }
-
-                    if (path) {
-                        return true
-                    }
-                    return false
-                }}
-                itemContextMenu={(item) => {
-                    if (item.id.startsWith('project-folder-empty/')) {
-                        return undefined
-                    }
-                    return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
-                }}
-                itemSideAction={(item) => {
-                    if (item.id.startsWith('project-folder-empty/')) {
-                        return undefined
-                    }
-                    return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
-                }}
-                emptySpaceContextMenu={() => {
-                    return (
-                        <ContextMenuGroup>
-                            <ContextMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    createFolder('')
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                            </ContextMenuItem>
-                        </ContextMenuGroup>
-                    )
-                }}
-                tableModeTotalWidth={treeTableTotalWidth}
-                tableModeHeader={() => {
-                    return (
-                        <>
-                            {/* Headers */}
-                            {treeTableKeys?.headers.map((header, index) => (
-                                <ResizableElement
-                                    key={header.key}
-                                    defaultWidth={header.width || 0}
-                                    onResize={(width) => {
-                                        setTreeTableColumnSizes([
-                                            ...treeTableColumnSizes.slice(0, index),
-                                            width,
-                                            ...treeTableColumnSizes.slice(index + 1),
-                                        ])
-                                    }}
-                                    className="absolute h-[30px] flex items-center"
-                                    style={{
-                                        transform: `translateX(${header.offset || 0}px)`,
-                                    }}
-                                    aria-label={`Resize handle for column "${header.title}"`}
-                                >
-                                    <ButtonPrimitive
-                                        key={header.key}
-                                        fullWidth
-                                        className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
-                                        style={{
-                                            paddingLeft: index === 0 ? '35px' : undefined,
-                                        }}
-                                    >
-                                        <span>{header.title}</span>
-                                    </ButtonPrimitive>
-                                </ResizableElement>
-                            ))}
-                        </>
-                    )
-                }}
-                tableModeRow={(item, firstColumnOffset) => {
-                    return (
-                        <>
-                            {treeTableKeys?.headers.slice(0).map((header, index) => {
-                                const width = header.width || 0
-                                const offset = header.offset || 0
-                                const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
-
-                                // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
-                                const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
-                                const offsetAdjusted = index === 0 ? offset : offset - 12
-
-                                return (
-                                    <span
-                                        key={header.key}
-                                        className="text-left flex items-center h-[var(--button-height-base)]"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            // First we keep relative
-                                            position: index === 0 ? 'relative' : 'absolute',
-                                            transform: `translateX(${offsetAdjusted}px)`,
-                                            // First column we offset for the icons
-                                            width: `${widthAdjusted}px`,
-                                            paddingLeft: index !== 0 ? '6px' : undefined,
-                                        }}
-                                    >
-                                        <Tooltip
-                                            title={
-                                                typeof header.tooltip === 'function'
-                                                    ? header.tooltip(value)
-                                                    : header.tooltip
-                                            }
-                                            placement="top-start"
-                                        >
-                                            <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
-                                                {header.formatComponent
-                                                    ? header.formatComponent(value, item)
-                                                    : header.formatString
-                                                    ? header.formatString(value, item)
-                                                    : value}
-                                            </span>
-                                        </Tooltip>
-                                    </span>
-                                )
-                            })}
-                        </>
-                    )
-                }}
-                renderItemTooltip={(item) => {
-                    const user = item.record?.user as UserBasicType | undefined
-
-                    return projectTreeMode === 'tree' ? (
-                        <>
-                            Name: <span className="font-semibold">{item.displayName}</span> <br />
-                            Created by:{' '}
-                            <ProfilePicture
-                                user={user || { first_name: 'PostHog' }}
-                                size="xs"
-                                showName
-                                className="font-semibold"
-                            />
-                            <br />
-                            Created at:{' '}
-                            <span className="font-semibold">
-                                {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
-                            </span>
-                        </>
-                    ) : undefined
-                }}
-                renderItemIcon={(item) => {
-                    return (
-                        <>
-                            {sortMethod === 'recent' &&
-                                projectTreeMode === 'tree' &&
-                                item.type !== 'loading-indicator' && (
-                                    <ProfilePicture
-                                        user={item.record?.user as UserBasicType | undefined}
-                                        size="xs"
-                                        className="ml-[4px]"
-                                    />
-                                )}
-                            <TreeNodeDisplayIcon
-                                item={item}
-                                expandedItemIds={expandedFolders}
-                                defaultNodeIcon={<IconFolder />}
-                            />
-                        </>
-                    )
-                }}
-                renderItem={(item) => {
-                    return (
-                        <span className="truncate">
-                            <span
-                                className={cn('truncate', {
-                                    'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
-                                })}
-                            >
-                                {item.displayName}
-                            </span>
-                            {sortMethod === 'recent' &&
-                                projectTreeMode === 'tree' &&
-                                item.type !== 'loading-indicator' && (
-                                    <span className="text-tertiary text-xxs pt-[3px] ml-1">
-                                        {dayjs(item.record?.created_at).fromNow()}
-                                    </span>
-                                )}
-                        </span>
-                    )
-                }}
-            />
+            {tree}
         </PanelLayoutPanel>
     )
 }
