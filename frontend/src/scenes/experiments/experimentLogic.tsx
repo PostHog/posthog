@@ -76,6 +76,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { getDefaultMetricTitle } from './MetricsView/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
@@ -408,6 +409,10 @@ export const experimentLogic = kea<experimentLogicType>([
             sharedMetricIds,
             metadata,
         }),
+        duplicateMetric: (
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            isPrimary: boolean
+        ) => ({ metric, isPrimary }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
@@ -425,6 +430,24 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     return { ...state, ...experiment }
+                },
+                duplicateMetric: (state, { metric, isPrimary }) => {
+                    const name = metric.name
+                        ? `${metric.name} (copy)`
+                        : metric.kind === NodeKind.ExperimentMetric
+                        ? `${getDefaultMetricTitle(metric)} (copy)`
+                        : undefined
+
+                    const newMetric = { ...metric, id: undefined, name }
+                    const metricsKey = isPrimary ? 'metrics' : 'metrics_secondary'
+                    const metrics = [...state[metricsKey]]
+                    const originalIndex = metrics.findIndex((m) => m === metric)
+                    metrics.splice(originalIndex + 1, 0, newMetric)
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
                 },
                 addVariant: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
@@ -829,6 +852,13 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        duplicateMetric: ({ isPrimary }) => {
+            if (isPrimary) {
+                actions.loadMetricResults()
+            } else {
+                actions.loadSecondaryMetricResults()
+            }
+        },
         createExperiment: async ({ draft, folder }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
