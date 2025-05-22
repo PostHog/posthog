@@ -1,7 +1,6 @@
 import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,6 +17,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { lazyLoaders } from '~/lazyLoaders'
 import {
     BillingPlan,
     BillingPlanType,
@@ -226,7 +226,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -780,10 +780,6 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBilling()
-        actions.getInvoices()
-    }),
     urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
