@@ -7,7 +7,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -67,8 +67,8 @@ export function WebOverview(props: {
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
                     These results are using a sampling factor of {samplingRate.numerator}
-                    {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
-                    in beta.
+                    <span>{samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}</span>. Sampling
+                    is currently in beta.
                 </LemonBanner>
             ) : null}
         </>
@@ -86,7 +86,7 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
 }
 
 const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
 
     const label = labelFromKey(item.key)
     const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
