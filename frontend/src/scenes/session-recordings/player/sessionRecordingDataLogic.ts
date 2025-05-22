@@ -162,7 +162,10 @@ export const parseEncodedSnapshots = async (
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
+    // allows altering v1 polling interval in tests
     realTimePollingIntervalMilliseconds?: number
+    // allows disabling polling for new sources in tests
+    blobV2PollingDisabled?: boolean
 }
 
 async function processEncodedResponse(
@@ -310,10 +313,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
                         blob_v2,
                     })
+
                     if (!response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
+
                     if (anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
@@ -548,7 +553,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadSnapshotSourcesSuccess: () => {
-            // When we receive the list of sources we can kick off the loading chain
+            // When we receive the list of sources, we can kick off the loading chain
             actions.loadNextSnapshotSource()
         },
 
@@ -592,7 +597,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return actions.loadSnapshotsForSource(nextSourceToLoad)
             }
 
-            if (values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2)) {
+            if (
+                values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2) &&
+                !props.blobV2PollingDisabled
+            ) {
                 actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
             }
 

@@ -1,8 +1,8 @@
+import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
 import { api } from 'lib/api.mock'
-import {
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { join } from 'path'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
@@ -13,6 +13,13 @@ import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
 
+const pathForKeyZero = join(__dirname, './__mocks__/perf-snapshot-key0.jsonl')
+const pathForKeyOne = join(__dirname, './__mocks__/perf-snapshot-key1.jsonl')
+
+const readFileContents = (path: string): string => {
+    return readFileSync(path, 'utf-8')
+}
+
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
@@ -21,7 +28,6 @@ describe('sessionRecordingDataLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    console.log(req.url.searchParams)
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -30,39 +36,43 @@ describe('sessionRecordingDataLogic', () => {
                             return res(ctx.json([]))
                         }
                         return res(ctx.text(snapshotsAsJSONLines()))
+                    } else if (req.url.searchParams.get('source') === 'blob_v2') {
+                        const key = req.url.searchParams.get('blob_key')
+                        const contents =
+                            key === '0' ? readFileContents(pathForKeyZero) : readFileContents(pathForKeyOne)
+                        return res(ctx.text(contents))
                     }
 
                     // with no source requested should return sources
-                    console.log('returning sources')
                     return [
                         200,
                         {
                             sources: [
-                                    {
-                                        "source": "blob_v2",
-                                        "start_timestamp": "2025-05-14T15:37:16.454000Z",
-                                        "end_timestamp": "2025-05-14T15:37:18.379000Z",
-                                        "blob_key": "0"
-                                    },
-                                    {
-                                        "source": "blob",
-                                        "start_timestamp": "2025-05-14T15:37:16.454000Z",
-                                        "end_timestamp": "2025-05-14T15:37:18.379000Z",
-                                        "blob_key": "1747237036454-1747237038379"
-                                    },
-                                    {
-                                        "source": "blob_v2",
-                                        "start_timestamp": "2025-05-14T15:37:18.897000Z",
-                                        "end_timestamp": "2025-05-14T15:42:18.378000Z",
-                                        "blob_key": "1"
-                                    },
-                                    {
-                                        "source": "blob",
-                                        "start_timestamp": "2025-05-14T15:37:18.897000Z",
-                                        "end_timestamp": "2025-05-14T15:42:18.378000Z",
-                                        "blob_key": "1747237038897-1747237338378"
-                                    }
-                                ]
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2025-05-14T15:37:16.454000Z',
+                                    end_timestamp: '2025-05-14T15:37:18.379000Z',
+                                    blob_key: '0',
+                                },
+                                {
+                                    source: 'blob',
+                                    start_timestamp: '2025-05-14T15:37:16.454000Z',
+                                    end_timestamp: '2025-05-14T15:37:18.379000Z',
+                                    blob_key: '1747237036454-1747237038379',
+                                },
+                                {
+                                    source: 'blob_v2',
+                                    start_timestamp: '2025-05-14T15:37:18.897000Z',
+                                    end_timestamp: '2025-05-14T15:42:18.378000Z',
+                                    blob_key: '1',
+                                },
+                                {
+                                    source: 'blob',
+                                    start_timestamp: '2025-05-14T15:37:18.897000Z',
+                                    end_timestamp: '2025-05-14T15:42:18.378000Z',
+                                    blob_key: '1747237038897-1747237338378',
+                                },
+                            ],
                         },
                     ]
                 },
@@ -78,8 +88,7 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
         logic = sessionRecordingDataLogic({
             sessionRecordingId: '2',
-            // we don't want to wait for the default real-time polling interval in tests
-            realTimePollingIntervalMilliseconds: 10,
+            blobV2PollingDisabled: true,
         })
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
@@ -107,13 +116,11 @@ describe('sessionRecordingDataLogic', () => {
 
             const actual = logic.values.sessionPlayerData
             const snapshotData = actual.snapshotsByWindowId
-            expect(snapshotData).toBe({})
+            expect(Object.keys(snapshotData)).toHaveLength(1)
 
             const end = performance.now()
 
-            expect(end - start).toBe(0)
+            expect(end - start).toBeLessThan(400)
         })
-
     })
-
 })
