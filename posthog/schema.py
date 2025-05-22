@@ -1199,6 +1199,19 @@ class GoalLine(BaseModel):
     value: float
 
 
+class HedgehogColorOptions(StrEnum):
+    GREEN = "green"
+    RED = "red"
+    BLUE = "blue"
+    PURPLE = "purple"
+    DARK = "dark"
+    LIGHT = "light"
+    SEPIA = "sepia"
+    INVERT = "invert"
+    INVERT_HUE = "invert-hue"
+    GREYSCALE = "greyscale"
+
+
 class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1389,6 +1402,15 @@ class MatchedRecordingEvent(BaseModel):
         extra="forbid",
     )
     uuid: str
+
+
+class MinimalHedgehogConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accessories: list[str]
+    color: Optional[HedgehogColorOptions] = None
+    use_as_profile: bool
 
 
 class MultipleBreakdownType(StrEnum):
@@ -1921,6 +1943,20 @@ class TrendsFormulaNode(BaseModel):
     )
     custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
     formula: str
+
+
+class UserBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    email: str
+    first_name: str
+    hedgehog_config: Optional[MinimalHedgehogConfig] = None
+    id: float
+    is_email_verified: Optional[Any] = None
+    last_name: Optional[str] = None
+    uuid: str
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -2722,6 +2758,19 @@ class ExperimentExposureQueryResponse(BaseModel):
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
+
+
+class ExperimentHoldoutType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    description: Optional[str] = None
+    filters: dict[str, Any]
+    id: Optional[float] = None
+    name: str
+    updated_at: Optional[str] = None
 
 
 class ExperimentMetricBaseProperties(BaseModel):
@@ -3676,6 +3725,7 @@ class WebStatsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebVitalsItemAction(BaseModel):
@@ -5159,6 +5209,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
@@ -5319,6 +5370,34 @@ class Response4(BaseModel):
 
 
 class Response5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class Response6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5676,18 +5755,6 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
-
-
-class ExperimentExposureQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiment_id: Optional[int] = None
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentExposureQueryResponse] = None
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -6220,6 +6287,34 @@ class QueryResponseAlternative19(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative20(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
 
 
 class QueryResponseAlternative22(BaseModel):
@@ -6445,6 +6540,34 @@ class QueryResponseAlternative31(BaseModel):
 
 
 class QueryResponseAlternative32(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7932,6 +8055,24 @@ class ExperimentExposureCriteria(BaseModel):
     )
     exposure_config: Optional[ExperimentEventExposureConfig] = None
     filterTestAccounts: Optional[bool] = None
+
+
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end_date: Optional[str] = None
+    experiment_id: Optional[int] = None
+    experiment_name: str
+    exposure_criteria: Optional[ExperimentExposureCriteria] = None
+    feature_flag: dict[str, Any]
+    holdout: Optional[ExperimentHoldoutType] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentExposureQueryResponse] = None
+    start_date: Optional[str] = None
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -9632,6 +9773,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative17,
             QueryResponseAlternative18,
             QueryResponseAlternative19,
+            QueryResponseAlternative20,
             QueryResponseAlternative22,
             QueryResponseAlternative23,
             QueryResponseAlternative24,
@@ -9643,6 +9785,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative30,
             QueryResponseAlternative31,
             QueryResponseAlternative32,
+            QueryResponseAlternative33,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
@@ -9689,6 +9832,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative17,
         QueryResponseAlternative18,
         QueryResponseAlternative19,
+        QueryResponseAlternative20,
         QueryResponseAlternative22,
         QueryResponseAlternative23,
         QueryResponseAlternative24,
@@ -9700,6 +9844,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative30,
         QueryResponseAlternative31,
         QueryResponseAlternative32,
+        QueryResponseAlternative33,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
@@ -10298,6 +10443,7 @@ class DataTableNode(BaseModel):
             Response3,
             Response4,
             Response5,
+            Response6,
             Response8,
             Response9,
             Response10,
@@ -10502,6 +10648,7 @@ class QueryRequest(BaseModel):
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        HogQLASTQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,
@@ -10584,6 +10731,7 @@ class QuerySchemaRoot(
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
+            HogQLASTQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
@@ -10640,6 +10788,7 @@ class QuerySchemaRoot(
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        HogQLASTQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,

@@ -4,7 +4,10 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use clickhouse::Row;
 use opentelemetry_proto::tonic::{
-    common::v1::{any_value, AnyValue, InstrumentationScope, KeyValue},
+    common::v1::{
+        any_value::{self, Value},
+        AnyValue, InstrumentationScope,
+    },
     logs::v1::LogRecord,
     resource::v1::Resource,
 };
@@ -21,12 +24,13 @@ pub struct LogRow {
     timestamp: u64,
     body: String,
     message: String,
-    _attributes: String,
+    attributes: Vec<(String, String)>,
     severity_text: String,
     severity_number: i32,
-    _resource: String,
+    resource_attributes: Vec<(String, String)>,
     resource_id: String,
     instrumentation_scope: String,
+    service_name: String,
     event_name: String,
 }
 
@@ -71,18 +75,27 @@ impl LogRow {
         let resource_id = extract_resource_id(&resource);
         let resource_attributes = extract_resource_attributes(resource);
 
-        // Attributes as JSON
-        let mut attributes = attributes_to_json(record.attributes);
+        let mut attributes: Vec<(String, String)> = record
+            .attributes
+            .into_iter()
+            .map(|kv| {
+                (
+                    kv.key,
+                    any_value_to_string(kv.value.unwrap_or(AnyValue {
+                        value: Some(Value::StringValue("".to_string())),
+                    })),
+                )
+            })
+            .collect();
         attributes.extend(resource_attributes.clone());
 
-        // Get scope name or empty string
         let instrumentation_scope = match scope {
             Some(s) => format!("{}@{}", s.name, s.version),
             None => "".to_string(),
         };
 
-        // Extract event name if present
-        let event_name = extract_event_name(&attributes);
+        let event_name = extract(&attributes, "event.name");
+        let service_name = extract(&attributes, "service.name");
 
         // Trace/span IDs
         let trace_id = extract_trace_id(&record.trace_id);
@@ -90,7 +103,6 @@ impl LogRow {
 
         // Trace flags
         let trace_flags = record.flags as u8;
-        let _attributes = json!(attributes).to_string();
 
         Ok(Self {
             // uuid: Uuid::now_v7(),
@@ -101,23 +113,22 @@ impl LogRow {
             timestamp: record.time_unix_nano,
             body,
             message,
-            _attributes,
+            attributes,
             severity_text,
             severity_number,
-            _resource: json!(resource_attributes).to_string(),
+            resource_attributes,
             instrumentation_scope,
             event_name,
             resource_id,
+            service_name,
         })
     }
 }
 
-fn extract_event_name(attributes: &HashMap<String, JsonValue>) -> String {
-    for (key, val) in attributes.iter() {
-        if key == "event.name" {
-            if let JsonValue::String(s) = val {
-                return s.clone();
-            }
+fn extract(attributes: &[(String, String)], key: &str) -> String {
+    for (k, val) in attributes.iter() {
+        if k == key {
+            return val.to_string();
         }
     }
     "".to_string()
@@ -215,12 +226,23 @@ fn try_extract_message(body: &str) -> Option<String> {
     None
 }
 
-fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, JsonValue> {
+fn extract_resource_attributes(resource: Option<Resource>) -> Vec<(String, String)> {
     let Some(resource) = resource else {
-        return HashMap::new();
+        return Vec::new();
     };
 
-    attributes_to_json(resource.attributes)
+    resource
+        .attributes
+        .into_iter()
+        .map(|kv| {
+            (
+                kv.key,
+                any_value_to_string(kv.value.unwrap_or(AnyValue {
+                    value: Some(Value::StringValue("".to_string())),
+                })),
+            )
+        })
+        .collect()
 }
 
 fn extract_resource_id(resource: &Option<Resource>) -> String {
@@ -265,19 +287,6 @@ fn try_extract_severity(body: &str) -> Option<String> {
     None
 }
 
-fn attributes_to_json(attributes: Vec<KeyValue>) -> HashMap<String, JsonValue> {
-    let mut map = HashMap::new();
-
-    for attr in attributes.into_iter() {
-        if let Some(value) = attr.value {
-            let json_value = any_value_to_json(value);
-            map.insert(attr.key, json_value);
-        }
-    }
-
-    map
-}
-
 fn any_value_to_json(value: AnyValue) -> JsonValue {
     match value.value {
         Some(value_enum) => match value_enum {
@@ -307,4 +316,8 @@ fn any_value_to_json(value: AnyValue) -> JsonValue {
         },
         None => JsonValue::Null,
     }
+}
+
+fn any_value_to_string(value: AnyValue) -> String {
+    any_value_to_json(value).to_string()
 }
