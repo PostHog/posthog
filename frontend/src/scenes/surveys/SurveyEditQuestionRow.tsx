@@ -413,6 +413,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         ? survey.appearance?.submitButtonText ?? 'Submit'
                                         : question.buttonText
                                 }
+                                onChange={(val) => {
+                                    const newQuestions = [...survey.questions]
+                                    newQuestions[index] = { ...question, buttonText: val }
+                                    setSurveyValue('questions', newQuestions)
+                                }}
                             />
                         )}
                         {canSkipSubmitButton && (
