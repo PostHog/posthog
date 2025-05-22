@@ -1,6 +1,6 @@
 import './QuestionSuggestions.scss'
 
-import { IconBook, IconChevronLeft, IconGear, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
+import { IconBook, IconGear, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -22,15 +22,15 @@ export interface SuggestionItem {
     content?: string
 }
 export interface SuggestionGroup {
-    readonly label: string
-    readonly icon: JSX.Element
-    readonly suggestions: readonly SuggestionItem[]
-    readonly url?: string
-    readonly tooltip?: string
+    label: string
+    icon: JSX.Element
+    suggestions: SuggestionItem[]
+    url?: string
+    tooltip?: string
 }
 
 // Export the data and type it with SuggestionGroup
-export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
+export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
     {
         label: 'SQL',
         icon: <IconHogQL />,
@@ -64,7 +64,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'What are the top referring domains?',
             },
             {
-                label: 'Calculate a conversion rate for <a feature or events>',
+                label: 'Calculate a conversion rate for <events or features>',
                 content: 'Calculate a conversion rate for ',
             },
         ],
@@ -139,21 +139,18 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         url: productUrls.replay(),
         tooltip: 'Max can find session recordings for you.',
     },
-] as const // as const is good for type inference, but SuggestionGroup[] ensures structure
+] as const
 
 export function QuestionSuggestions(): JSX.Element {
-    const suggestionListRef = useRef<HTMLDivElement | null>(null)
+    const suggestionListRef = useRef<HTMLUListElement | null>(null)
 
     const { dataProcessingAccepted } = useValues(maxLogic)
-    const { askMax, setQuestion, focusInput } = useActions(maxLogic) // Changed submit to askMax
+    const { askMax, setQuestion, focusInput } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const logic = useMountedLogic(questionSuggestionsLogic)
     const { activeSuggestionGroup } = useValues(logic)
     const { setActiveSuggestionGroupLabel } = useActions(logic)
-
-    // Key for re-rendering suggestion list to help reset animations
-    const suggestionListKey = activeSuggestionGroup ? activeSuggestionGroup.label : 'categories'
 
     useClickOutside([suggestionListRef], () => {
         if (activeSuggestionGroup) {
@@ -163,130 +160,97 @@ export function QuestionSuggestions(): JSX.Element {
 
     return (
         <div className="flex flex-col items-center justify-center w-[min(48rem,100%)] gap-y-2">
-            <h3 className="w-full text-center text-xs font-medium mb-0 text-secondary">Ask Max about</h3>
-            <div ref={suggestionListRef}>
-                {!activeSuggestionGroup ? (
-                    <>
-                        <ul className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5">
-                            {QUESTION_SUGGESTIONS_DATA.map((group) => (
-                                <li key={group.label} className="shrink">
-                                    <LemonButton
-                                        onClick={() => {
-                                            // If it's a product-based skill, open the URL first
-                                            if (
-                                                group.url &&
-                                                !router.values.currentLocation.pathname.includes(group.url)
-                                            ) {
-                                                router.actions.push(group.url)
-                                            }
-
-                                            // If there's only one suggestion, we can just ask Max directly
-                                            if (group.suggestions.length <= 1) {
-                                                if (group.suggestions[0].content) {
-                                                    // Content requires to write something to continue
-                                                    setQuestion(group.suggestions[0].content)
-                                                    focusInput()
-                                                } else {
-                                                    // Otherwise, just launch the generation
-                                                    askMax(group.suggestions[0].label)
-                                                }
-                                            } else {
-                                                setActiveSuggestionGroupLabel(group.label)
-                                            }
-                                        }}
-                                        size="xsmall"
-                                        type="secondary"
-                                        icon={group.icon}
-                                        center
-                                        disabledReason={
-                                            !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
-                                        }
-                                        tooltip={group.tooltip}
-                                    >
-                                        {group.label}
-                                    </LemonButton>
-                                </li>
-                            ))}
-                            <li>
-                                <LemonButton
-                                    onClick={() =>
-                                        openSettingsPanel({ sectionId: 'environment-max', settingId: 'core-memory' })
-                                    }
-                                    size="xsmall"
-                                    type="secondary"
-                                    icon={<IconGear />}
-                                    tooltip="Edit Max's memory"
-                                />
-                            </li>
-                        </ul>
-                    </>
-                ) : (
-                    <div className="w-full flex flex-col items-center gap-y-2" key={suggestionListKey}>
-                        <div className="flex items-center justify-between w-full px-1 sm:px-2">
+            <h3 className="text-center text-xs font-medium mb-0 text-secondary">
+                {activeSuggestionGroup ? activeSuggestionGroup.label : 'Ask Max about'}
+            </h3>
+            {!activeSuggestionGroup ? (
+                <ul className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5">
+                    {QUESTION_SUGGESTIONS_DATA.map((group) => (
+                        <li key={group.label} className="shrink">
                             <LemonButton
-                                icon={<IconChevronLeft />}
-                                onClick={() => setActiveSuggestionGroupLabel(null)}
+                                onClick={() => {
+                                    // If it's a product-based skill, open the URL first
+                                    if (group.url && !router.values.currentLocation.pathname.includes(group.url)) {
+                                        router.actions.push(group.url)
+                                    }
+
+                                    // If there's only one suggestion, we can just ask Max directly
+                                    if (group.suggestions.length <= 1) {
+                                        if (group.suggestions[0].content) {
+                                            // Content requires to write something to continue
+                                            setQuestion(group.suggestions[0].content)
+                                            focusInput()
+                                        } else {
+                                            // Otherwise, just launch the generation
+                                            askMax(group.suggestions[0].label)
+                                        }
+                                    } else {
+                                        setActiveSuggestionGroupLabel(group.label)
+                                    }
+                                }}
+                                size="xsmall"
+                                type="secondary"
+                                icon={group.icon}
+                                center
+                                disabledReason={
+                                    !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
+                                }
+                                tooltip={group.tooltip}
+                            >
+                                {group.label}
+                            </LemonButton>
+                        </li>
+                    ))}
+                    <li>
+                        <LemonButton
+                            onClick={() =>
+                                openSettingsPanel({ sectionId: 'environment-max', settingId: 'core-memory' })
+                            }
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconGear />}
+                            tooltip="Edit Max's memory"
+                        />
+                    </li>
+                </ul>
+            ) : (
+                <ul className="flex flex-col gap-y-1.5" ref={suggestionListRef}>
+                    {activeSuggestionGroup.suggestions.map((suggestion, index) => (
+                        <li
+                            key={suggestion.label}
+                            className="QuestionSuggestion"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ '--index': index } as React.CSSProperties}
+                        >
+                            <LemonButton
+                                fullWidth
+                                onClick={() => {
+                                    if (suggestion.content) {
+                                        // Content requires to write something to continue
+                                        setQuestion(suggestion.content)
+                                        focusInput()
+                                    } else {
+                                        // Otherwise, just launch the generation
+                                        askMax(suggestion.label)
+                                    }
+
+                                    // Close suggestions after asking
+                                    setActiveSuggestionGroupLabel(null)
+                                }}
                                 size="small"
                                 type="tertiary"
+                                disabledReason={
+                                    !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
+                                }
+                                title={suggestion.label}
+                                className="text-left [&_span]:line-clamp-1"
                             >
-                                Back
+                                {suggestion.label}
                             </LemonButton>
-                            <h3 className="text-sm font-medium mb-0 text-primary text-center flex-1 truncate px-1">
-                                {activeSuggestionGroup.label}
-                            </h3>
-                            <div className="text-right min-w-[60px]">
-                                {' '}
-                                {/* Replaced inline style with Tailwind class */}
-                                {activeSuggestionGroup.url && (
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        to={activeSuggestionGroup.url}
-                                        targetBlank
-                                    >
-                                        Go to {activeSuggestionGroup.label}
-                                    </LemonButton>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-y-1.5 w-full items-stretch max-h-[200px] overflow-y-auto px-2">
-                            {activeSuggestionGroup.suggestions.map((suggestion, index) => (
-                                <div
-                                    key={suggestion.label}
-                                    className={`QuestionSuggestion fill-forwards delay-[${index * 40}ms]`}
-                                >
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => {
-                                            if (suggestion.content) {
-                                                // Content requires to write something to continue
-                                                setQuestion(suggestion.content)
-                                                focusInput()
-                                            } else {
-                                                // Otherwise, just launch the generation
-                                                askMax(suggestion.label)
-                                            }
-
-                                            // Close suggestions after asking
-                                            setActiveSuggestionGroupLabel(null)
-                                        }}
-                                        size="small"
-                                        type="tertiary"
-                                        disabledReason={
-                                            !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
-                                        }
-                                        title={suggestion.label}
-                                        className="justify-start text-left truncate"
-                                    >
-                                        <span className="truncate">{suggestion.label}</span>
-                                    </LemonButton>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
         </div>
     )
 }

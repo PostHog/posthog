@@ -1,14 +1,13 @@
 .QuestionSuggestion {
-    opacity: 1;
-    animation-name: QuestionSuggestion__slide-in-fade-down;
-    animation-duration: 0.3s;
-    animation-timing-function: ease-out;
+    opacity: 0;
+    animation: QuestionSuggestion__slide-in-fade-down 75ms ease-out forwards;
+    animation-delay: calc(var(--index) * 50ms);
 }
 
 @keyframes QuestionSuggestion__slide-in-fade-down {
     from {
         opacity: 0;
-        transform: translateY(-10px); /* Adjust as needed */
+        transform: translateY(-1.5rem);
     }
 
     to {
