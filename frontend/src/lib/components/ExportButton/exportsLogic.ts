@@ -2,23 +2,20 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { downloadBlob, TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
+import { CohortType, ExportContext, ExportedAssetType, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
-const POLL_DELAY_MS = 1000
-const MAX_PNG_POLL = 10
-const MAX_CSV_POLL = 300
+const POLL_DELAY_MS = 10000
 
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
@@ -74,51 +71,20 @@ export const exportsLogic = kea<exportsLogicType>([
 
             actions.createExport({ exportData })
         },
-        createExportSuccess: ({pollingExports}) => {
+        createExportSuccess: () => {
             actions.openSidePanel(SidePanelTab.Exports)
-            actions.loadExports()
             lemonToast.info('Export starting...')
-            actions.pollExportStatus(pollingExports[0])
-        }, 
-        pollExportStatus: async ({exportedAsset}, breakpoint) => {
-            // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
-            const poller = new Promise<string>(async (resolve, reject) => {
-                try {
-                    let attempts = 0
-
-                    const maxPoll = exportedAsset.export_format === ExporterFormat.CSV ? MAX_CSV_POLL : MAX_PNG_POLL
-
-                    while (attempts < maxPoll) {
-                        attempts++
-
-                        actions.loadExports()
-
-
-                        /*
-                        if (updatedAsset.has_content) {
-                            if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
-                                void downloadExportedAsset(updatedAsset)
-                            } else {
-                                actions.addFresh(updatedAsset)
-                            }
-                            trackingProperties.total_time_ms = performance.now() - startTime
-                            posthog.capture('export succeeded', trackingProperties)
-
-                            resolve('Export complete')
-                            return
-                        }
-                         */
-                        await delay(POLL_DELAY_MS)
-                    }
-                } catch (e: any) { /* empty */ }
-            })
-            await lemonToast.promise(poller, {
-                pending: 'Export starting...',
-                success: 'Export complete!',
-                error: 'Export failed!',
-            })
-         },
-
+            actions.loadExports()
+        },
+        loadExportsSuccess: async (_, breakpoint) => {
+            // Check if any exports haven't completed
+            const donePolling = exportsLogic.values.exports.every((asset) => asset.has_content || asset.exception)
+            if (!donePolling) {
+                await breakpoint(POLL_DELAY_MS)
+                actions.loadExports()
+                return
+            }
+        },
         createStaticCohort: async ({ query, name }) => {
             const toastId = 'toast-' + Math.random()
             try {
