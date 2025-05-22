@@ -4291,13 +4291,6 @@ export interface OrganizationResourcePermissionType {
     created_by: UserBaseType | null
 }
 
-export interface RecordingReportLoadTimes {
-    metadata: number
-    snapshots: number
-    events: number
-    firstPaint: number
-}
-
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
 
 export type PromptButtonType = 'primary' | 'secondary'
