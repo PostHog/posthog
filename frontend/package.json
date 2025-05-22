@@ -138,6 +138,7 @@
         "fuse.js": "^6.6.2",
         "heatmap.js": "^2.0.5",
         "hls.js": "^1.5.15",
+        "html-to-image": "^1.11.13",
         "husky": "^7.0.4",
         "image-blob-reduce": "^4.1.0",
         "kea": "^3.1.5",
