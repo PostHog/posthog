@@ -428,7 +428,7 @@ jobs:
                           '\n> [!CAUTION]',
                           '> ### Detected flapping snapshots',
                           '>',
-                          '> These snapshots have auto-updated more than once since the last developer commit:',
+                          '> These snapshots have auto-updated more than once since the last human commit:',
                           '>',
                           ...flaps.map(([browser, shardNumber, path]) => `> - \`${path.replace('frontend/__snapshots__/', '')}\` (${browser}, shard ${shardNumber})`),
                           '>',
