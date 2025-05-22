@@ -83,6 +83,11 @@ class TrendsQueryAndPlanAlignment(LLMClassifier):
             name="query_and_plan_alignment",
             prompt_template="""Evaluate if the generated trends query aligns with the query plan.
 
+Use knowledge of the TrendsQuery JSON schema, especially included descriptions:
+<trends_schema>
+{{trends_schema}}
+</trends_schema>
+
 <input_vs_output>
 
 Original user question:
@@ -101,11 +106,6 @@ Actual generated query that should be aligned with the plan:
 </output_query>
 
 </input_vs_output>
-
-Use knowledge of the TrendsQuery JSON schema, especially included descriptions:
-<trends_schema>
-{{trends_schema}}
-</trends_schema>
 
 How would you rate the alignment of the generated query with the plan? Choose one:
 - perfect: The generated query fully matches the plan.
@@ -218,8 +218,11 @@ Events:
                 expected=CallNodeOutput(
                     plan="""
 Events:
-- $pageview
+- All events
     - math operation: unique users
+
+Time period: last 30 days
+No interval
 """,
                     query=AssistantTrendsQuery(
                         dateRange={"date_from": "-30d", "date_to": None},
@@ -230,7 +233,7 @@ Events:
                         ),
                         series=[
                             AssistantTrendsEventsNode(
-                                event="$pageview",
+                                event=None,
                                 math="dau",  # "dau" name is a legacy misnomer, it actually just means "unique users"
                                 properties=None,
                             )

@@ -84,6 +84,11 @@ class FunnelQueryAndPlanAlignment(LLMClassifier):
             name="query_and_plan_alignment",
             prompt_template="""Evaluate if the generated funnel query aligns with the query plan.
 
+Use knowledge of the FunnelQuery JSON schema, especially included descriptions:
+<funnel_schema>
+{{funnel_schema}}
+</funnel_schema>
+
 <input_vs_output>
 
 Original user question:
@@ -102,11 +107,6 @@ Actual generated query that should be aligned with the plan:
 </output_query>
 
 </input_vs_output>
-
-Use knowledge of the FunnelQuery JSON schema, especially included descriptions:
-<funnel_schema>
-{{funnel_schema}}
-</funnel_schema>
 
 How would you rate the alignment of the generated query with the plan? Choose one:
 - perfect: The generated query fully matches the plan.
@@ -166,7 +166,10 @@ def call_node(demo_org_team_user):
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
             return {"plan": None, "query": None}
 
-        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+        return {
+            "plan": final_state.messages[-1].plan,
+            "query": final_state.messages[-1].answer,
+        }
 
     return callable
 

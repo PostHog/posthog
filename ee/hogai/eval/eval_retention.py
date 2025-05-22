@@ -78,6 +78,11 @@ class RetentionQueryAndPlanAlignment(LLMClassifier):
             name="query_and_plan_alignment",
             prompt_template="""Evaluate if the generated retention query aligns with the query plan.
 
+Use knowledge of the RetentionQuery JSON schema, especially included descriptions:
+<retention_schema>
+{{retention_schema}}
+</retention_schema>
+
 <input_vs_output>
 
 Original user question:
@@ -96,11 +101,6 @@ Actual generated query that should be aligned with the plan:
 </output_query>
 
 </input_vs_output>
-
-Use knowledge of the RetentionQuery JSON schema, especially included descriptions:
-<retention_schema>
-{{retention_schema}}
-</retention_schema>
 
 How would you rate the alignment of the generated query with the plan? Choose one:
 - perfect: The generated query fully matches the plan.

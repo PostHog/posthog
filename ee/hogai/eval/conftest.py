@@ -108,7 +108,7 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
     yield core_memory
 
 
-_node_id_to_results_url_map: dict[str, str] = {}
+_nodeid_to_results_url_map: dict[str, str] = {}
 """Map of test nodeid (file + test name) to Braintrust results URL."""
 
 
@@ -124,7 +124,7 @@ def capture_stdout(request, capsys):
         # Experiment braintrust-more-evals-1747934384 is running at https://www.braintrust.dev/app/PostHog/p/max-ai-memory/experiments/braintrust-more-evals-1747934384
         # [...]
         results_url = next(line for line in captured.out.split("\n") if "See results for " in line).split(" at ")[1]
-        _node_id_to_results_url_map[request.node.nodeid] = results_url
+        _nodeid_to_results_url_map[request.node.nodeid] = results_url
 
 
 class BraintrustURLReporter(TerminalReporter):  # type: ignore
@@ -140,7 +140,9 @@ class BraintrustURLReporter(TerminalReporter):  # type: ignore
     def short_test_summary(self):
         for report in self.stats.get("passed", []):
             report.longrepr = self.DummyLongRepr(
-                reprcrash=self.DummyReprCrash(message=_node_id_to_results_url_map[report.nodeid])
+                reprcrash=self.DummyReprCrash(
+                    message=_nodeid_to_results_url_map.get(report.nodeid, f"No Braintrust results for {report.nodeid}")
+                )
             )
         with mock.patch("_pytest.terminal.running_on_ci", return_value=True):
             # Make pytest think we're running in CI, because annoyingly _pytest.terminal._get_line_with_reprcrash_message

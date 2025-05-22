@@ -77,6 +77,11 @@ class SQLQueryAndPlanAlignment(LLMClassifier):
             name="query_and_plan_alignment",
             prompt_template="""Evaluate if the generated SQL query aligns with the query plan.
 
+Use knowledge of the HogQL Query schema, especially included descriptions:
+<hogql_schema>
+{{sql_schema}}
+</hogql_schema>
+
 <input_vs_output>
 
 Original user question:
@@ -95,11 +100,6 @@ Actual generated query that should be aligned with the plan:
 </output_query>
 
 </input_vs_output>
-
-Use knowledge of the HogQL Query schema, especially included descriptions:
-<hogql_schema>
-{{sql_schema}}
-</hogql_schema>
 
 How would you rate the alignment of the generated query with the plan? Choose one:
 - perfect: The generated query fully matches the plan.
