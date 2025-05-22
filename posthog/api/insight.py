@@ -270,7 +270,7 @@ class InsightBasicSerializer(
 
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
-        return self.parent._query_variables_mapping(value)
+        return self.parent._query_variables_mapping(value)  # type: ignore
 
     def to_internal_value(self, data):
         if data is not None and not isinstance(data, dict):

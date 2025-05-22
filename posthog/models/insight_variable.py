@@ -18,7 +18,4 @@ class InsightVariable(UUIDModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFi
     default_value = models.JSONField(null=True, blank=True)
     values = models.JSONField(null=True, blank=True)
 
-    __repr__ = sane_repr("id", "team_id", "code_name")
-
-    class Meta:
-        unique_together = ("team", "code_name")
+    __repr__ = sane_repr("id")

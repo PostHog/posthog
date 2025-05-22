@@ -1,1 +1,1 @@
-0736_alter_insightvariable_unique_together
+0735_rename_posthog_lin_short_l_33b439_idx_domain_short_code_idx_and_more
