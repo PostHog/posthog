@@ -1451,9 +1451,17 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
+                    const { experiment } = values
+
                     const query = {
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
+                        experiment_name: experiment.name,
+                        exposure_criteria: experiment.exposure_criteria,
+                        feature_flag: experiment.feature_flag,
+                        start_date: experiment.start_date,
+                        end_date: experiment.end_date,
+                        holdout: experiment.holdout,
                     }
                     return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
