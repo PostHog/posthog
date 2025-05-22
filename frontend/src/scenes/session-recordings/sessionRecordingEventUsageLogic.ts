@@ -11,7 +11,6 @@ import { userLogic } from 'scenes/userLogic'
 import {
     PropertyFilterType,
     RecordingDurationFilter,
-    RecordingReportLoadTimes,
     RecordingUniversalFilters,
     SessionPlayerData,
     SessionRecordingType,
@@ -30,18 +29,12 @@ export enum SessionRecordingFilterType {
 
 interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
-    snapshots_load_time: number // How long it took to load all snapshots
-    metadata_load_time: number // How long it took to load all metadata
-    events_load_time: number // How long it took to load all events
-    performance_events_load_time: number // How long it took to load all performance events
-    first_paint_load_time: number // How long it took to first contentful paint (time it takes for user to see first frame)
     duration: number // How long is the total recording (milliseconds)
     recording_id: string // Id of the session
     start_time?: number // Start timestamp of the session
     end_time?: number // End timestamp of the session
     loadedFromBlobStorage: boolean
     snapshot_source: 'web' | 'mobile' | 'unknown'
-    load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
 export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLogicType>([
@@ -52,11 +45,10 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
     actions({
         reportRecording: (
             playerData: SessionPlayerData,
-            durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
             metadata: SessionRecordingType | null,
             delay?: number
-        ) => ({ playerData, durations, type, delay, metadata }),
+        ) => ({ playerData, type, delay, metadata }),
         reportRecordingsListFetched: (
             loadTime: number,
             filters: RecordingUniversalFilters,
@@ -85,18 +77,13 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingOpenedFromRecentRecordingList: true,
     }),
     listeners(() => ({
-        reportRecording: ({ playerData, durations, type, metadata }) => {
+        reportRecording: ({ playerData, type, metadata }) => {
             const payload: Partial<RecordingViewedProps> = {
-                snapshots_load_time: durations.snapshots,
-                metadata_load_time: durations.metadata,
-                events_load_time: durations.events,
-                first_paint_load_time: durations.firstPaint,
                 duration: playerData.durationMs,
                 recording_id: playerData.sessionRecordingId,
                 start_time: playerData.start?.valueOf() ?? 0,
                 end_time: playerData.end?.valueOf() ?? 0,
-                load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
-                // older recordings did not store this and so "null" is equivalent to web
+                // older recordings did not store this, and so "null" is equivalent to web,
                 // but for reporting we want to distinguish between not loaded and no value to load
                 snapshot_source: metadata?.snapshot_source || 'unknown',
             }
