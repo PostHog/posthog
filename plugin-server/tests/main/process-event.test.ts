@@ -123,7 +123,9 @@ async function processEvent(
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
     await runner.runEventPipeline(pluginEvent, team)
 
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
+    await delayUntilEventIngested(async () => {
+        return await hub.db.fetchEvents()
+    }, ++processEventCounter)
 }
 
 // Simple client used to simulate sending events
