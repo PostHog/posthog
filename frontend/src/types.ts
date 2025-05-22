@@ -27,7 +27,6 @@ import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import {
     ConversionRateInputType,
     EventConfig,
@@ -3594,6 +3593,16 @@ export enum ExperimentConclusion {
     Invalid = 'invalid',
 }
 
+export interface ExperimentHoldoutType {
+    id: number | null
+    name: string
+    description: string | null
+    filters: Record<string, any>
+    created_by: UserBasicType | null
+    created_at: string | null
+    updated_at: string | null
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3637,7 +3646,7 @@ export interface Experiment {
     created_by: UserBasicType | null
     updated_at: string | null
     holdout_id?: number | null
-    holdout?: Holdout
+    holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
     }
