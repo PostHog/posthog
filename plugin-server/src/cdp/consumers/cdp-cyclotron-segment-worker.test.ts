@@ -63,8 +63,8 @@ describe('CdpCyclotronWorkerSegment', () => {
     })
 
     afterEach(async () => {
-        Settings.defaultZone = 'system'
         jest.setTimeout(10000)
+        Settings.defaultZone = 'system'
         await processor.stop()
         await closeHub(hub)
     })
