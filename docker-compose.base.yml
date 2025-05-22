@@ -144,6 +144,7 @@ services:
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment: &worker_env
+            OTEL_SDK_DISABLED: 'true'
             DISABLE_SECURE_SSL_REDIRECT: 'true'
             IS_BEHIND_PROXY: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -375,7 +376,7 @@ services:
         container_name: otel-collector-local
         command: [--config=/etc/otel-collector-config.yaml]
         volumes:
-            - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+            - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
         ports:
             - '4317:4317' # OTLP gRPC receiver (mapped to host)
             - '4318:4318' # OTLP HTTP receiver (mapped to host)
