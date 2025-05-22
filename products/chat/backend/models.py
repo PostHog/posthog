@@ -1,6 +1,5 @@
 from functools import cached_property
 from typing import TYPE_CHECKING
-import uuid
 
 from django.db import models
 from django.db.models import QuerySet
@@ -20,7 +19,7 @@ class ChatConversation(FileSystemSyncMixin, UUIDModel):
         # No need for the unique constraint since we removed conversation_id
         pass
 
-    person_uuid = models.UUIDField(default=uuid.uuid4)  # Add a default value for migration
+    person_uuid = models.UUIDField(null=True, blank=True)
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -31,15 +30,18 @@ class ChatConversation(FileSystemSyncMixin, UUIDModel):
 
     title = models.CharField(max_length=400, blank=True, null=True)
 
+    distinct_id = models.CharField(max_length=400)
+
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     # Which page/url the conversation started on - can be any string now
-    source_url = models.CharField(max_length=2000, blank=True, null=True)
+    source_url = models.CharField(max_length=1000, blank=True, null=True)
 
     # Unread message count
     unread_count = models.PositiveIntegerField(default=0)
+    unread_count_assistant = models.PositiveIntegerField(default=0)
 
     @cached_property
     def person(self) -> Person | None:

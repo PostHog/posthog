@@ -19,7 +19,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -43,7 +42,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
 class ChatConversationSerializer(serializers.ModelSerializer):
     messages = ChatMessageSerializer(many=True, read_only=True)
-    person_uuid = serializers.UUIDField()
+    distinct_id = serializers.CharField()
     person = PersonSerializer(read_only=True)
 
     class Meta:
@@ -53,6 +52,7 @@ class ChatConversationSerializer(serializers.ModelSerializer):
             "title",
             "person",
             "person_uuid",
+            "distinct_id",
             "created_at",
             "updated_at",
             "source_url",
@@ -93,39 +93,20 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def perform_create(self, serializer):
-        distinct_id = self.request.data["distinct_id"]  # serializer.validated_data.get("person_uuid")
+        distinct_id = self.request.data["distinct_id"]
         if not distinct_id:
             raise serializers.ValidationError("Distinct id UUID is required")
 
         persons = get_persons_by_distinct_ids(team_id=self.team.id, distinct_ids=[distinct_id])
-        if not persons.exists():
-            return cors_response(
-                self.request._request,
-                JsonResponse(
-                    {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
-        person = persons.first()
-
-        if not person:
-            return cors_response(
-                self.request._request,
-                JsonResponse(
-                    {"status": "error", "message": f"Person with distinct_id {distinct_id} could not be retrieved"},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
-
-        person_uuid = person.uuid
-
-        try:
-            Person.objects.get(uuid=person_uuid, team_id=self.team_id)
-        except Person.DoesNotExist:
-            raise serializers.ValidationError("Person not found")
+        if persons.exists():
+            person = persons.first()
+            person_uuid = person.uuid
+        else:
+            person_uuid = None
 
         serializer.save(
             team_id=self.team_id,
+            person_uuid=person_uuid,
         )
 
         log_activity(
@@ -310,28 +291,11 @@ def chat_endpoints(http_request: HttpResponse):
 
                 try:
                     persons = get_persons_by_distinct_ids(team_id=team.id, distinct_ids=[distinct_id])
-                    if not persons.exists():
-                        return cors_response(
-                            http_request,
-                            JsonResponse(
-                                {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
-                                status=status.HTTP_404_NOT_FOUND,
-                            ),
-                        )
-                    person = persons.first()
-                    if not person:
-                        return cors_response(
-                            http_request,
-                            JsonResponse(
-                                {
-                                    "status": "error",
-                                    "message": f"Person with distinct_id {distinct_id} could not be retrieved",
-                                },
-                                status=status.HTTP_404_NOT_FOUND,
-                            ),
-                        )
-
-                    person_uuid = person.uuid
+                    if persons.exists():
+                        person = persons.first()
+                        person_uuid = person.uuid
+                    else:
+                        person_uuid = None
                 except Exception as e:
                     return cors_response(
                         http_request,
@@ -347,6 +311,7 @@ def chat_endpoints(http_request: HttpResponse):
 
                 conversation = ChatConversation.objects.create(
                     team=team,
+                    distinct_id=distinct_id,
                     person_uuid=person_uuid,
                     title=title,
                     source_url=source_url,
@@ -365,6 +330,7 @@ def chat_endpoints(http_request: HttpResponse):
             elif action == "send_message":
                 conversation_id = data.get("conversation_id")
                 message = data.get("message")
+                distinct_id = data.get("distinct_id")
 
                 if not conversation_id or not message:
                     return cors_response(
@@ -375,8 +341,16 @@ def chat_endpoints(http_request: HttpResponse):
                         ),
                     )
 
+                if not distinct_id:
+                    return cors_response(
+                        http_request,
+                        JsonResponse(
+                            {"status": "error", "message": "Missing distinct_id"}, status=status.HTTP_400_BAD_REQUEST
+                        ),
+                    )
+
                 try:
-                    conversation = ChatConversation.objects.get(id=conversation_id, team=team)
+                    conversation = ChatConversation.objects.get(id=conversation_id, team=team, distinct_id=distinct_id)
                 except ChatConversation.DoesNotExist:
                     return cors_response(
                         http_request,
@@ -407,6 +381,7 @@ def chat_endpoints(http_request: HttpResponse):
             elif action == "get_messages":
                 conversation_id = data.get("conversation_id")
                 is_assistant = data.get("is_assistant")
+                distinct_id = data.get("distinct_id")
 
                 if not conversation_id:
                     return cors_response(
@@ -418,7 +393,7 @@ def chat_endpoints(http_request: HttpResponse):
                     )
 
                 try:
-                    conversation = ChatConversation.objects.get(id=conversation_id, team=team)
+                    conversation = ChatConversation.objects.get(id=conversation_id, team=team, distinct_id=distinct_id)
                 except ChatConversation.DoesNotExist:
                     return cors_response(
                         http_request,
@@ -465,7 +440,7 @@ def chat_endpoints(http_request: HttpResponse):
                                 "id": str(conversation.id),
                                 "created_at": conversation.created_at.isoformat(),
                                 "updated_at": conversation.updated_at.isoformat(),
-                                "person_uuid": str(conversation.person_uuid),
+                                "distinct_id": conversation.distinct_id,
                             },
                         }
                     ),
@@ -489,28 +464,7 @@ def chat_endpoints(http_request: HttpResponse):
         if not distinct_id:
             raise serializers.ValidationError("Distinct id UUID is required")
 
-        persons = get_persons_by_distinct_ids(team_id=team.id, distinct_ids=[distinct_id])
-        if not persons.exists():
-            return cors_response(
-                http_request,
-                JsonResponse(
-                    {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
-        person = persons.first()
-
-        if not person:
-            return cors_response(
-                http_request,
-                JsonResponse(
-                    {"status": "error", "message": f"Person with distinct_id {distinct_id} could not be retrieved"},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
-
-        person_uuid = person.uuid
-        conversations = ChatConversation.objects.filter(team=team, person_uuid=person_uuid).order_by("-updated_at")
+        conversations = ChatConversation.objects.filter(team=team, distinct_id=distinct_id).order_by("-updated_at")
         conversations_data = []
 
         for conversation in conversations[:20]:
@@ -535,7 +489,7 @@ def chat_endpoints(http_request: HttpResponse):
                     "created_at": conversation.created_at.isoformat(),
                     "updated_at": conversation.updated_at.isoformat(),
                     "unread_count": conversation.unread_count,
-                    "person_uuid": str(conversation.person_uuid),
+                    "distinct_id": conversation.distinct_id,
                     "messages": current_conv_messages_data,
                 }
             )
