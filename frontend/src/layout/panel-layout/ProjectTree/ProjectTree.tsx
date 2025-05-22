@@ -53,7 +53,7 @@ export function ProjectTree({
     logicKey,
     sortMethod,
     root,
-    onlyTree,
+    onlyTree = false,
     searchPlaceholder,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
