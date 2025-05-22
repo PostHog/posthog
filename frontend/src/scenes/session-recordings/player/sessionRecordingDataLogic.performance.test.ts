@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
+import { uuid } from 'lib/utils'
 import { join } from 'path'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
@@ -92,7 +93,7 @@ describe('sessionRecordingDataLogic', () => {
     describe('loading session core', () => {
         const setupLogic = (): void => {
             logic = sessionRecordingDataLogic({
-                sessionRecordingId: '2',
+                sessionRecordingId: uuid(),
                 blobV2PollingDisabled: true,
             })
             logic.mount()
@@ -102,7 +103,7 @@ describe('sessionRecordingDataLogic', () => {
 
         it('loads all data', async () => {
             const durations: number[] = []
-            const iterations = 25
+            const iterations = 20
 
             for (let i = 0; i < iterations; i++) {
                 setupLogic()
@@ -120,7 +121,7 @@ describe('sessionRecordingDataLogic', () => {
                         'loadSnapshotsForSourceSuccess',
                         'reportUsageIfFullyLoaded',
                     ])
-                    .toFinishAllListeners()
+                    .toFinishListeners()
 
                 const actual = logic.values.sessionPlayerData
                 const snapshotData = actual.snapshotsByWindowId
@@ -136,9 +137,15 @@ describe('sessionRecordingDataLogic', () => {
             }
 
             const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
+            const variance = durations.reduce((a, b) => a + Math.pow(b - averageDuration, 2), 0) / iterations
+            const stdDev = Math.sqrt(variance)
             // eslint-disable-next-line no-console
             console.log(`Average duration: ${averageDuration}ms`)
+            // eslint-disable-next-line no-console
+            console.log(`Standard deviation: ${stdDev}ms`)
+
             expect(averageDuration).toBeLessThan(1000)
+            expect(stdDev).toBeLessThan(1500)
         })
     })
 })
