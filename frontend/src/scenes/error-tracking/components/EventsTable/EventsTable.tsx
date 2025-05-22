@@ -31,7 +31,7 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
     }
 
     function renderUUID(record: ErrorEventType): JSX.Element {
-        // Click event is catch at the row level
+        // Click event is caught at the row level
         return <LemonCheckbox checked={isEventSelected(record)} />
     }
 
