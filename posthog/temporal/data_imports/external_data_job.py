@@ -177,7 +177,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         team_id=inputs.team_id,
     )
 
-    job.finished_at = dt.datetime.now(dt.timezone.utc)
+    job.finished_at = dt.datetime.now(dt.UTC)
     job.save()
 
     logger.info(
