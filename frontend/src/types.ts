@@ -639,6 +639,8 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    chat_opt_in?: boolean
+    chat_config?: { brand_color?: string; start_message?: string }
 }
 
 export interface ProductIntentType {
