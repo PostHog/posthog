@@ -55,7 +55,7 @@ export const mergeIssues = (
         volumePeriods.forEach((period) => {
             const volume = aggregations[period]
             if (volume) {
-                const mergingVolumes = mergingIssues
+                const mergingVolumes: number[][] = mergingIssues
                     .map((issue) => (issue.aggregations ? issue.aggregations[period] : undefined))
                     .filter((volume) => volume != undefined)
                 aggregations[period] = sumVolumes(...mergingVolumes, volume)
