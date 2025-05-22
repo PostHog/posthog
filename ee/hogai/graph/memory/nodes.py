@@ -414,7 +414,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []
