@@ -114,6 +114,7 @@ def web_overview_daily(
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
     metadata={"table": "web_bounces_daily"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_bounces_daily(
     context: dagster.AssetExecutionContext,
