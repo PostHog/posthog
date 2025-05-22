@@ -3,6 +3,8 @@ import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+
 import { experimentLogic } from '../experimentLogic'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
@@ -12,11 +14,13 @@ export const MetricHeader = ({
     metric,
     metricType,
     isPrimaryMetric,
+    onDuplicateMetricClick,
 }: {
     metricIndex: number
     metric: any
     metricType: any
     isPrimaryMetric: boolean
+    onDuplicateMetricClick: (metric: ExperimentMetric) => void
 }): JSX.Element => {
     /**
      * This is a bit overkill, since primary and secondary metric dialogs are
@@ -32,7 +36,6 @@ export const MetricHeader = ({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
-        duplicateMetric,
     } = useActions(experimentLogic)
 
     return (
@@ -69,7 +72,7 @@ export const MetricHeader = ({
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
                             onClick={() => {
-                                duplicateMetric(metric, isPrimaryMetric)
+                                onDuplicateMetricClick(metric)
                             }}
                         />
                     </div>
