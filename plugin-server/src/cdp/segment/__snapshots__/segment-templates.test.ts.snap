@@ -4546,7 +4546,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
     },
   ],
   "name": "Amplitude",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -9020,7 +9020,7 @@ exports[`segment templates template segment-canny matches expected result 1`] = 
     },
   ],
   "name": "Canny",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -10134,7 +10134,7 @@ exports[`segment templates template segment-drip matches expected result 1`] = `
     },
   ],
   "name": "Drip",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -11103,7 +11103,7 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
     },
   ],
   "name": "Fullstory Cloud Mode",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -15570,7 +15570,7 @@ exports[`segment templates template segment-launchdarkly matches expected result
     },
   ],
   "name": "LaunchDarkly",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -18841,7 +18841,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
     },
   ],
   "name": "Mixpanel",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
@@ -24895,7 +24895,7 @@ exports[`segment templates template segment-pipedrive matches expected result 1`
     },
   ],
   "name": "Pipedrive",
-  "status": "beta",
+  "status": "alpha",
   "type": "destination",
 }
 `;
