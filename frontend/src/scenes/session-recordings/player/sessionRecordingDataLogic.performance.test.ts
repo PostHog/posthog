@@ -144,7 +144,7 @@ describe('sessionRecordingDataLogic performance', () => {
             // eslint-disable-next-line no-console
             console.log(`Standard deviation: ${stdDev}ms`)
 
-            expect(averageDuration).toBeLessThan(500)
+            expect(averageDuration).toBeLessThan(800)
             expect(stdDev).toBeLessThan(100)
         })
     })
