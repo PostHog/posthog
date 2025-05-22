@@ -1,6 +1,7 @@
 import json
 from typing import TypedDict
 from ee.hogai.graph import InsightsAssistantGraph
+from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
@@ -16,12 +17,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from .scorers import TimeRangeRelevancy
-
-# Define an empty schema as placeholder
-RETENTION_SCHEMA = {
-    "description": "Retention query schema for PostHog",
-    "properties": {"retentionFilter": {"type": "object", "description": "Retention filter configuration"}},
-}
 
 
 class RetentionPlanCorrectness(LLMClassifier):

@@ -1,9 +1,7 @@
 import json
 from typing import TypedDict
 from ee.hogai.graph import InsightsAssistantGraph
-
-# Replace import with direct definition
-# from ee.hogai.graph.sql.toolkit import HOGQL_SCHEMA
+from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
@@ -18,12 +16,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from .scorers import TimeRangeRelevancy
-
-# Define an empty schema as placeholder
-HOGQL_SCHEMA = {
-    "description": "HogQL query schema for PostHog",
-    "properties": {"query": {"type": "string", "description": "SQL query using HogQL dialect"}},
-}
 
 
 class SQLPlanCorrectness(LLMClassifier):
@@ -106,7 +98,7 @@ Actual generated query that should be aligned with the plan:
 
 Use knowledge of the HogQL Query schema, especially included descriptions:
 <hogql_schema>
-{{hogql_schema}}
+{{sql_schema}}
 </hogql_schema>
 
 How would you rate the alignment of the generated query with the plan? Choose one:
@@ -126,7 +118,7 @@ How would you rate the alignment of the generated query with the plan? Choose on
                 "useless": 0.0,
             },
             model="gpt-4.1",
-            hogql_schema=json.dumps(HOGQL_SCHEMA),
+            sql_schema=json.dumps(SQL_SCHEMA),
             **kwargs,
         )
 
