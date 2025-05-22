@@ -107,6 +107,14 @@ class LogsQueryRunner(QueryRunner):
                 )
             )
 
+        if self.query.searchTerm:
+            exprs.append(
+                parse_expr(
+                    "body LIKE {searchTerm}",
+                    placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     @cached_property
