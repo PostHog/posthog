@@ -59,6 +59,27 @@ export const manualCosts: ModelRow[] = [
             completion_token: 0.000015,
         },
     },
+    {
+        model: 'claude-4',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
+        model: 'claude-opus-4',
+        cost: {
+            prompt_token: 0.000015,
+            completion_token: 0.000075,
+        },
+    },
+    {
+        model: 'claude-sonnet-4',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
     // google gen ai
     {
         model: 'gemini-2.0-flash',
