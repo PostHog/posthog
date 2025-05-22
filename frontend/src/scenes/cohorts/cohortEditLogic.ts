@@ -216,9 +216,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
-                        cohortsModel.actions.updateCohort(cohort)
-                        actions.checkIfFinishedCalculating(cohort)
-                        return processCohort(cohort)
+                        const processedCohort = processCohort(cohort)
+                        cohortsModel.actions.updateCohort(processedCohort)
+                        actions.checkIfFinishedCalculating(processedCohort)
+                        return processedCohort
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
 
