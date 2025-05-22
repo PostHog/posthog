@@ -9,7 +9,6 @@ import posthog from 'posthog-js'
 import { Chat as ChatConversation, ChatMessage } from 'products/chat/frontend/scenes/chatListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
-import { LinkType } from 'scenes/links/linkConfigurationLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -90,6 +89,7 @@ import {
     LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
+    LinkType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -2342,6 +2342,9 @@ const api = {
         },
         async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
             return await new ApiRequest().link(id).update({ data })
+        },
+        async delete(id: LinkType['id']): Promise<void> {
+            await new ApiRequest().link(id).delete()
         },
     },
 

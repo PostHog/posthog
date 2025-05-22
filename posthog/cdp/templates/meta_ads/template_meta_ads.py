@@ -28,6 +28,10 @@ if (not empty(inputs.testEventCode)) {
     body.test_event_code := inputs.testEventCode
 }
 
+if (not empty(inputs.eventSourceUrl)) {
+    body.data.1.event_source_url := inputs.eventSourceUrl
+}
+
 for (let key, value in inputs.userData) {
     if (not empty(value)) {
         body.data.1.user_data[key] := value
@@ -85,6 +89,15 @@ if (res.status >= 400) {
             "default": "{event.uuid}",
             "secret": False,
             "required": True,
+        },
+        {
+            "key": "eventSourceUrl",
+            "type": "string",
+            "label": "Event source URL",
+            "description": "The URL of the page where the event occurred.",
+            "default": "{event.properties.$current_url}",
+            "secret": False,
+            "required": False,
         },
         {
             "key": "eventTime",
@@ -152,6 +165,7 @@ if (res.status >= 400) {
                 "fn": "{sha256Hex(lower(person.properties.first_name))}",
                 "ln": "{sha256Hex(lower(person.properties.last_name))}",
                 "fbc": "{not empty(person.properties.fbclid ?? person.properties.$initial_fbclid) ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : ''}",
+                "client_user_agent": "{event.properties.$raw_user_agent}",
             },
             "secret": False,
             "required": True,
