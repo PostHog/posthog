@@ -120,7 +120,10 @@ describe('sessionRecordingDataLogic', () => {
 
             const end = performance.now()
 
-            expect(end - start).toBeLessThan(800)
+
+            const duration = end - start;
+            console.log('duration is ', duration)
+            expect(duration).toBeLessThan(400)
         })
     })
 })

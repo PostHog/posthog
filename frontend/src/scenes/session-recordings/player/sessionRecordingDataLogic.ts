@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -35,10 +35,9 @@ import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { stripChromeExtensionData } from './snapshot-processing/chrome-extension-stripping'
+import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionData, stripChromeExtensionDataFromNode } from './snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { decompressEvent } from './snapshot-processing/decompress'
-import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
 import {
     getHrefFromSnapshot,
     patchMetaEventIntoMobileData,
@@ -182,6 +181,117 @@ const getSourceKey = (source: SessionRecordingSnapshotSource): SourceKey => {
     // we only care about key when not realtime
     // and we'll always have a key when not realtime
     return `${source.source}-${source.blob_key || source.source}`
+}
+
+/*
+    cyrb53 (c) 2018 bryc (github.com/bryc)
+    License: Public domain. Attribution appreciated.
+    A fast and simple 53-bit string hash function with decent collision resistance.
+    Largely inspired by MurmurHash2/3, but with a focus on speed/simplicity.
+*/
+const cyrb53 = function (str: string, seed = 0): number {
+    let h1 = 0xdeadbeef ^ seed,
+        h2 = 0x41c6ce57 ^ seed
+    for (let i = 0, ch; i < str.length; i++) {
+        ch = str.charCodeAt(i)
+        h1 = Math.imul(h1 ^ ch, 2654435761)
+        h2 = Math.imul(h2 ^ ch, 1597334677)
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
+    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
+    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0)
+}
+
+export const deduplicateSnapshots = (snapshots: RecordingSnapshot[] | null): RecordingSnapshot[] => {
+    const seenHashes: Set<string> = new Set()
+
+    return (snapshots ?? [])
+        .filter((snapshot) => {
+            // For a multitude of reasons, there can be duplicate snapshots in the same recording.
+            // we have to stringify the snapshot to compare it to other snapshots.
+            // so we can filter by storing them all in a set
+
+            // we can see duplicates that only differ by delay - these still count as duplicates
+            // even though the delay would hide that
+            const { delay: _delay, ...delayFreeSnapshot } = snapshot
+            // we check each item multiple times as new snapshots come in
+            // so store the computer value on the object to save recalculating it so much
+            const key = (snapshot as any).seen || cyrb53(JSON.stringify(delayFreeSnapshot))
+                ; (snapshot as any).seen = key
+
+            if (seenHashes.has(key)) {
+                return false
+            }
+            seenHashes.add(key)
+            return true
+        })
+        .sort((a, b) => a.timestamp - b.timestamp)
+}
+
+
+function processAllSnapshots(
+    sources: SessionRecordingSnapshotSource[] | null,
+    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    sessionRecordingId: string
+): RecordingSnapshot[] {
+    if (!sources || !snapshotsBySource) {
+        return []
+    }
+
+    const seenHashes: Set<string> = new Set()
+    const result: RecordingSnapshot[] = []
+    const matchedExtensions = new Set<string>()
+
+    // First pass: collect all snapshots and deduplicate
+    for (const source of sources) {
+        const sourceKey = getSourceKey(source)
+        const sourceSnapshots = snapshotsBySource?.[sourceKey]?.snapshots || []
+
+        for (const snapshot of sourceSnapshots) {
+            const { delay: _delay, ...delayFreeSnapshot } = snapshot
+            const key = (snapshot as any).seen || cyrb53(JSON.stringify(delayFreeSnapshot))
+                ; (snapshot as any).seen = key
+
+            if (seenHashes.has(key)) {
+                continue
+            }
+            seenHashes.add(key)
+
+            // Process chrome extension data
+            if (snapshot.type === EventType.FullSnapshot) {
+                const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+                if (stripChromeExtensionDataFromNode(
+                    fullSnapshot.data.node,
+                    Object.keys(CHROME_EXTENSION_DENY_LIST),
+                    matchedExtensions
+                )) {
+                    // Add the custom event at the start of the result array
+                    result.unshift({
+                        type: EventType.Custom,
+                        data: {
+                            tag: 'chrome-extension-stripped',
+                            payload: {
+                                extensions: Array.from(matchedExtensions),
+                            },
+                        },
+                        timestamp: snapshot.timestamp,
+                        windowId: snapshot.windowId,
+                    })
+                }
+            }
+
+            result.push(snapshot)
+        }
+    }
+
+    // Sort by timestamp
+    result.sort((a, b) => a.timestamp - b.timestamp)
+
+    // Second pass: patch meta events on the sorted array
+    return patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId)
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -514,15 +624,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     return !values.sessionEventsData
                         ? values.sessionEventsData
                         : values.sessionEventsData.map((x) => {
-                              const event = existingEvents?.find((ee) => ee.id === x.id)
-                              return event
-                                  ? ({
-                                        ...x,
-                                        properties: event.properties,
-                                        fullyLoaded: event.fullyLoaded,
-                                    } as RecordingEventType)
-                                  : x
-                          })
+                            const event = existingEvents?.find((ee) => ee.id === x.id)
+                            return event
+                                ? ({
+                                    ...x,
+                                    properties: event.properties,
+                                    fullyLoaded: event.fullyLoaded,
+                                } as RecordingEventType)
+                                : x
+                        })
                 },
             },
         ],
@@ -884,19 +994,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshots: [
             (s, p) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp, p.sessionRecordingId],
             (sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId): RecordingSnapshot[] => {
-                const allSnapshots =
-                    sources?.flatMap((source) => {
-                        const sourceKey = getSourceKey(source)
-                        return snapshotsBySource?.[sourceKey]?.snapshots || []
-                    }) ?? []
-
-                return stripChromeExtensionData(
-                    patchMetaEventIntoWebData(
-                        deduplicateSnapshots(allSnapshots),
-                        viewportForTimestamp,
-                        sessionRecordingId
-                    )
-                )
+                return processAllSnapshots(sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId)
             },
         ],
 
@@ -1021,3 +1119,4 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
 ])
+

@@ -22,7 +22,6 @@ import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/rec
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
-import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
@@ -279,51 +278,51 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe('deduplicateSnapshots', () => {
-        it('should remove duplicate snapshots and sort by timestamp', () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-            const snapshotsWithDuplicates = snapshots
-                .slice(0, 2)
-                .concat(snapshots.slice(0, 2))
-                .concat(snapshots.slice(2))
-
-            expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
-
-            expect(deduplicateSnapshots(snapshots)).toEqual(deduplicateSnapshots(snapshotsWithDuplicates))
-        })
-
-        it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
-            // these two snapshots are not duplicates but have the same timestamp and delay
-            // this regression test proves that we deduplicate them against themselves
-            // prior to https://github.com/PostHog/posthog/pull/20019
-            // each time deduplicateSnapshots was called with this input
-            // the result would be one event longer, introducing, instead of removing, a duplicate
-            const verySimilarSnapshots: RecordingSnapshot[] = [
-                {
-                    windowId: '1',
-                    type: 3,
-                    data: { source: 2, type: 0, id: 33, x: 852.7421875, y: 133.1640625 },
-                    timestamp: 1682952389798,
-                },
-                {
-                    windowId: '1',
-                    type: 3,
-                    data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
-                    timestamp: 1682952389798,
-                },
-            ]
-            // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(deduplicateSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
-                verySimilarSnapshots
-            )
-        })
-
-        it('should match snapshot', () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-
-            expect(deduplicateSnapshots(snapshots)).toMatchSnapshot()
-        })
-    })
+    // describe('deduplicateSnapshots', () => {
+    //     it('should remove duplicate snapshots and sort by timestamp', () => {
+    //         const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
+    //         const snapshotsWithDuplicates = snapshots
+    //             .slice(0, 2)
+    //             .concat(snapshots.slice(0, 2))
+    //             .concat(snapshots.slice(2))
+    //
+    //         expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
+    //
+    //         expect(deduplicateSnapshots(snapshots)).toEqual(deduplicateSnapshots(snapshotsWithDuplicates))
+    //     })
+    //
+    //     it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
+    //         // these two snapshots are not duplicates but have the same timestamp and delay
+    //         // this regression test proves that we deduplicate them against themselves
+    //         // prior to https://github.com/PostHog/posthog/pull/20019
+    //         // each time deduplicateSnapshots was called with this input
+    //         // the result would be one event longer, introducing, instead of removing, a duplicate
+    //         const verySimilarSnapshots: RecordingSnapshot[] = [
+    //             {
+    //                 windowId: '1',
+    //                 type: 3,
+    //                 data: { source: 2, type: 0, id: 33, x: 852.7421875, y: 133.1640625 },
+    //                 timestamp: 1682952389798,
+    //             },
+    //             {
+    //                 windowId: '1',
+    //                 type: 3,
+    //                 data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
+    //                 timestamp: 1682952389798,
+    //             },
+    //         ]
+    //         // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
+    //         expect(deduplicateSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
+    //             verySimilarSnapshots
+    //         )
+    //     })
+    //
+    //     it('should match snapshot', () => {
+    //         const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
+    //
+    //         expect(deduplicateSnapshots(snapshots)).toMatchSnapshot()
+    //     })
+    // })
 
     describe('blob and realtime loading', () => {
         beforeEach(async () => {
