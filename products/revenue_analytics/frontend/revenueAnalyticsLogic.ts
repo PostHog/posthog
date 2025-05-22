@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { getDefaultInterval } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -75,12 +74,10 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
     connect(() => ({
         values: [
-            dataWarehouseSceneLogic,
-            ['dataWarehouseTablesBySourceType'],
             databaseTableListLogic,
-            ['database', 'managedViews'],
+            ['managedViews'],
             revenueEventsSettingsLogic,
-            ['baseCurrency', 'events as allEvents', 'dataWarehouseSources as allDataWarehouseSources'],
+            ['baseCurrency', 'events', 'dataWarehouseSources'],
         ],
         actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
     })),
@@ -156,6 +153,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ],
         ],
 
+        revenueEnabledEvents: [(s) => [s.events], (events) => events],
+        revenueEnabledDataWarehouseSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources) =>
+                dataWarehouseSources === null
+                    ? null
+                    : dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
+        ],
+
         disabledGrowthModeSelection: [(s) => [s.dateFilter], (dateFilter): boolean => dateFilter.interval !== 'month'],
 
         disabledTopCustomersModeSelection: [
@@ -163,19 +169,17 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (dateFilter): boolean => dateFilter.interval !== 'month',
         ],
 
-        hasRevenueEvents: [(s) => [s.allEvents], (allEvents): boolean => allEvents.length > 0],
+        hasRevenueEvents: [(s) => [s.revenueEnabledEvents], (events): boolean => events.length > 0],
 
         hasRevenueTables: [
-            (s) => [s.database, s.dataWarehouseTablesBySourceType],
-            (database, dataWarehouseTablesBySourceType): boolean | null => {
-                // Indicate loading state with `null` if we don't have a database yet
-                if (database === null) {
+            (s) => [s.revenueEnabledDataWarehouseSources],
+            (dataWarehouseSources): boolean | null => {
+                // Indicate loading state with `null` if we haven't loaded this yet
+                if (dataWarehouseSources === null) {
                     return null
                 }
 
-                // Eventually we'll want to look at our revenue views,
-                // but for now checking whether we have Stripe tables is enough
-                return Boolean(dataWarehouseTablesBySourceType['Stripe']?.length)
+                return Boolean(dataWarehouseSources.length)
             },
         ],
 
@@ -296,16 +300,16 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     listeners(({ actions, values }) => ({
         loadSourcesSuccess: ({ dataWarehouseSources }) => {
             actions.setRevenueSources({
-                events: values.allEvents,
+                events: values.events,
                 dataWarehouseSources: dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
             })
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.allEvents !== null && values.allDataWarehouseSources !== null) {
+        if (values.events !== null && values.dataWarehouseSources !== null) {
             actions.setRevenueSources({
-                events: values.allEvents,
-                dataWarehouseSources: values.allDataWarehouseSources.results.filter(
+                events: values.events,
+                dataWarehouseSources: values.dataWarehouseSources.results.filter(
                     (source) => source.revenue_analytics_enabled
                 ),
             })
