@@ -63,6 +63,7 @@ describe.each([
         processor['cyclotronJobQueue'] = {
             queueInvocations: jest.fn(),
             startAsProducer: jest.fn(() => Promise.resolve()),
+            stop: jest.fn(),
         } as unknown as jest.Mocked<CyclotronJobQueue>
 
         mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])

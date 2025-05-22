@@ -191,7 +191,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             ? [
                   {
                       identifier: 'Products',
-                      id: 'Tools',
+                      id: 'Products',
                       icon: <IconCdCase />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {

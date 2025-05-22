@@ -30,4 +30,11 @@ export const manifest: ProductManifest = {
             href: urls.createAction(),
         },
     ],
+    treeItemsDataManagement: [
+        {
+            path: 'Actions',
+            iconType: 'rocket',
+            href: urls.actions(),
+        },
+    ],
 }
