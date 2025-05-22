@@ -54,7 +54,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
         breakdown_field = self._get_breakdown_field()
-        order_by = self._get_order_by()
 
         query_str = f"""
         SELECT
@@ -69,7 +68,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ) as `context.columns.views`
         FROM web_stats_daily
         GROUP BY `context.columns.breakdown_value`
-        {order_by}
         """
 
         query = cast(ast.SelectQuery, parse_select(query_str))
@@ -77,6 +75,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         filters = self._get_filters()
         if filters:
             query.where = filters
+
+        query.order_by = [self._get_order_by()]
 
         return query
 
@@ -93,8 +93,9 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 column = "context.columns.views"
 
             if column:
-                return f"{column} {direction}"
-        return ""
+                return ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
+
+        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
 
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:

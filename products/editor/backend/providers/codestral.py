@@ -37,18 +37,29 @@ class CodestralProvider:
             raise ValueError("MISTRAL_API_KEY is not set in environment or settings")
         return api_key
 
-    def stream_fim_response(self, prompt: str, suffix: str, stop: list[str]) -> Generator[str, None, None]:
+    def stream_fim_response(
+        self,
+        prompt: str,
+        suffix: str,
+        stop: list[str],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> Generator[str, None, None]:
         """
         Generator function that yields SSE formatted data
         """
 
         try:
+            effective_temperature = temperature if temperature is not None else CodestralConfig.TEMPERATURE
+            effective_max_tokens = max_tokens if max_tokens is not None else CodestralConfig.MAX_TOKENS
+
             response = self.client.fim.stream(
                 model=self.model_id,
                 prompt=prompt,
                 suffix=suffix,
-                temperature=CodestralConfig.TEMPERATURE,
+                temperature=effective_temperature,
                 top_p=CodestralConfig.TOP_P,
+                max_tokens=effective_max_tokens,
                 stop=stop,
             )
             for chunk in response:
