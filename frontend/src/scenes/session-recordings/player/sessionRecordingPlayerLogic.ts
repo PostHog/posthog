@@ -1317,11 +1317,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             try {
-                const blob = await toBlob(iframe)
-                if (blob) {
-                    const file = new File([blob], 'screenshot.jpeg', { type: 'image/jpeg' })
-                    downloadFile(file)
-                }
+                await lemonToast.promise(
+                    (async () => {
+                        const blob = await toBlob(iframe)
+                        if (blob) {
+                            const file = new File([blob], 'screenshot.jpeg', { type: 'image/jpeg' })
+                            downloadFile(file)
+                        } else {
+                            throw new Error('Screenshot blob could not be created.')
+                        }
+                    })(),
+                    {
+                        success: 'Screenshot taken!',
+                        error: 'Failed to take screenshot',
+                        pending: 'Taking screenshot...',
+                    }
+                )
             } catch (e) {
                 lemonToast.error('Failed to take screenshot')
             }
