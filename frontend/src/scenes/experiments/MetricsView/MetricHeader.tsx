@@ -72,6 +72,9 @@ export const MetricHeader = ({
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
                             onClick={() => {
+                                if (metric.isSharedMetric) {
+                                    return
+                                }
                                 onDuplicateMetricClick(metric)
                             }}
                         />
