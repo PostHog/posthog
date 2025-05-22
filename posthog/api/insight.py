@@ -87,6 +87,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.models.insight_variable import InsightVariable
+from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -278,7 +279,7 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -602,28 +603,9 @@ class InsightSerializer(InsightBasicSerializer):
             and query.get("kind") == "DataVisualizationNode"
             and query.get("source", {}).get("variables")
         ):
-            # Keep the variables in an insight up to date based on variable code names that exist
-            current_variables = query["source"]["variables"]
-            insight_variables = list(self.context["insight_variables"])
-            final_variables = {}
-
-            # Create a lookup for insight variables by code_name for quick access
-            insight_variables_by_code_name = {var.code_name: var for var in insight_variables}
-
-            # For each variable in current_variables, update with data from insight_variables if code_name matches
-            for _, v in current_variables.items():
-                code_name = v.get("code_name")
-                if code_name in insight_variables_by_code_name:
-                    # Update the variable with corresponding data from insight_variables
-                    matched_var = insight_variables_by_code_name[code_name]
-                    # Add attributes from matched_var that can be serialized to JSON
-                    final_variables[str(matched_var.id)] = {
-                        "code_name": matched_var.code_name,
-                        "variableId": str(matched_var.id),
-                    }
-
-            # Replace the variables dict in the query
-            query["source"]["variables"] = final_variables
+            query["source"]["variables"] = self.map_stale_to_latest(
+                query["source"]["variables"], list(self.context["insight_variables"])
+            )
 
         return query
 
