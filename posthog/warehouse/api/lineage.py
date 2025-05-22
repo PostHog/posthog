@@ -1,4 +1,4 @@
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
@@ -10,20 +10,21 @@ import uuid
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated]
-    scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
+    scope_object = "INTERNAL"
+
+    def safely_get_queryset(self, queryset=None):
+        return super().safely_get_queryset(queryset).filter(team_id=self.team_id)
 
     @action(detail=False, methods=["GET"])
-    def get_upstream(self, request, parent_lookup_team_id=None):
-        team = request.user.team
+    def get_upstream(self, request, *args, **kwargs):
         model_id = request.query_params.get("model_id")
         model_type = request.query_params.get("type")
 
         if not model_id or not model_type:
             return Response({"error": "model_id and type are required"}, status=400)
 
-        query = Q(team=team)
+        query = Q(team_id=self.team_id)
         if model_type == "saved_query":
             query &= Q(saved_query_id=model_id)
         else:
@@ -41,20 +42,41 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             else:
                 components = path.path.split(".")
 
+            # greedy join components until we hit a UUID
+            new_components = []
+            current_group = []
+
+            for component in components:
+                try:
+                    uuid_obj = uuid.UUID(component)
+                    if current_group:
+                        new_components.append(".".join(current_group))
+                        current_group = []
+                    new_components.append(component)
+                except ValueError:
+                    current_group.append(component)
+
+            if current_group:
+                new_components.append(".".join(current_group))
+
+            components = new_components
+
             for i, component in enumerate(components):
                 node_id = component
                 if node_id not in seen_nodes:
                     seen_nodes.add(node_id)
+                    uuid_obj = None
                     try:
                         uuid_obj = uuid.UUID(component)
                         saved_query = DataWarehouseSavedQuery.objects.get(id=uuid_obj)
                         name = saved_query.name
                     except (ValueError, DataWarehouseSavedQuery.DoesNotExist):
                         name = component
+
                     dag["nodes"].append(
                         {
                             "id": node_id,
-                            "type": "view" if saved_query else "table",
+                            "type": "view" if uuid_obj else "table",
                             "name": name,
                             "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
                             "last_run_at": saved_query.last_run_at if saved_query else None,

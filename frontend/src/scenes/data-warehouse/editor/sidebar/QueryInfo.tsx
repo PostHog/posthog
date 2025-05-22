@@ -394,11 +394,15 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     render: (_, { name, last_run_at }) => (
                                         <div className="flex items-center gap-1">
                                             {name === editingView?.name && (
-                                                <Tooltip title="This is the currently viewed query">
+                                                <Tooltip placement="right" title="This is the currently viewed query">
                                                     <IconLightBulb className="text-warning" />
                                                 </Tooltip>
                                             )}
-                                            {last_run_at && <IconBolt className="text-warning" />}
+                                            {last_run_at && (
+                                                <Tooltip placement="right" title="This view is materialized">
+                                                    <IconBolt className="text-warning" />
+                                                </Tooltip>
+                                            )}
                                             {name}
                                         </div>
                                     ),
@@ -407,10 +411,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     key: 'type',
                                     title: 'Type',
                                     render: (_, { type, last_run_at }) => {
-                                        if (type === 'saved_query') {
-                                            return last_run_at ? 'Materialized View' : 'View'
+                                        if (type === 'view') {
+                                            return last_run_at ? 'Mat. View' : 'View'
                                         }
-                                        return 'External Table'
+                                        return 'Table'
                                     },
                                 },
                                 {

@@ -1156,11 +1156,14 @@ class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
-    public upstream(modelId: string, modelType: string): ApiRequest {
-        return this.environmentsDetail().addPathComponent('lineage').addPathComponent('get_upstream').withQueryString({
-            model_id: modelId,
-            type: modelType,
-        })
+    public upstream(modelId: string, modelType: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('lineage')
+            .addPathComponent('get_upstream')
+            .withQueryString({
+                model_id: modelId,
+                type: modelType,
+            })
     }
 
     // ActivityLog
