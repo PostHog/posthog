@@ -16,8 +16,8 @@ export const logsLogic = kea<logsLogicType>([
 
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
-        cancelInProgressLogs: (logsAbortController: AbortController) => ({ logsAbortController }),
-        cancelInProgressSparkline: (sparklineAbortController: AbortController) => ({ sparklineAbortController }),
+        cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
+        cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
         setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         setSparklineAbortController: (sparklineAbortController: AbortController | null) => ({
             sparklineAbortController,

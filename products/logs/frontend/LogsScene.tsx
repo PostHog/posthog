@@ -169,7 +169,7 @@ const Filters = (): JSX.Element => {
                         onClick={() => runQuery()}
                         loading={logsLoading}
                     >
-                        Run
+                        {logsLoading ? 'Loading...' : 'Search'}
                     </LemonButton>
                 </div>
             </div>

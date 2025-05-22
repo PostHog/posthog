@@ -55,7 +55,7 @@ class LogsQueryRunner(QueryRunner):
                     "severity_text": result[7],
                     "severity_number": result[8],
                     "level": result[9],
-                    "resource": result[10],
+                    "resource_attributes": result[10],
                     "instrumentation_scope": result[11],
                     "event_name": result[12],
                 }
@@ -77,7 +77,7 @@ class LogsQueryRunner(QueryRunner):
             severity_text,
             severity_number,
             level,
-            resource,
+            resource_attributes,
             instrumentation_scope,
             event_name
             FROM logs
