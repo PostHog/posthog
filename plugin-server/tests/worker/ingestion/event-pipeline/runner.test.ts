@@ -228,7 +228,6 @@ describe('EventPipelineRunner', () => {
         })
 
         it('drops disallowed events by *', async () => {
-            // TODO this test doesn't make sense any more
             const event = {
                 ...pluginEvent,
                 token: 'drop_token_all',
