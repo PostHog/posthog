@@ -169,7 +169,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 label: '.json',
                 status: 'default',
                 icon: <IconDownload />,
-                onClick: () => exportRecordingToFile(),
+                onClick: exportRecordingToFile,
                 tooltip: 'Export recording to a JSON file. This can be loaded later into PostHog for playback.',
             },
         ]
