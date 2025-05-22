@@ -38,6 +38,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -1909,3 +1910,53 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
         "streamed_exec": True,
     }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_row_tracking_incrementing(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.row_tracking (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.row_tracking (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.pipeline.decrement_rows") as mock_decrement_rows,
+        mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish_row_tracking,
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name="row_tracking",
+            table_name="postgres_row_tracking",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+        )
+
+    schema_id = inputs.external_data_schema_id
+
+    mock_decrement_rows.assert_called_once_with(team.id, schema_id, 1)
+    mock_finish_row_tracking.assert_called_once()
+
+    assert schema_id is not None
+    row_count_in_redis = get_rows(team.id, schema_id)
+
+    assert row_count_in_redis == 1
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_row_tracking", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 1
+    assert any(x == "id" for x in columns)
