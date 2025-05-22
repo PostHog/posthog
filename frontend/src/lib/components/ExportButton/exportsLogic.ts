@@ -74,34 +74,28 @@ export const exportsLogic = kea<exportsLogicType>([
 
             actions.createExport({ exportData })
         },
-        createExportSuccess: ({ pollingExports }) => {
+        createExportSuccess: ({pollingExports}) => {
             actions.openSidePanel(SidePanelTab.Exports)
             actions.loadExports()
+            lemonToast.info('Export starting...')
             actions.pollExportStatus(pollingExports[0])
-        },
-        pollExportStatus: async ({ exportedAsset }, breakpoint) => {
+        }, 
+        pollExportStatus: async ({exportedAsset}, breakpoint) => {
             // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
             const poller = new Promise<string>(async (resolve, reject) => {
-                const trackingProperties = {
-                    export_format: exportedAsset.export_format,
-                    dashboard: exportedAsset.dashboard,
-                    insight: exportedAsset.insight,
-                    export_context: exportedAsset.export_context,
-                    total_time_ms: 0,
-                }
-                const startTime = performance.now()
-
-                const maxPoll = exportedAsset.export_format === ExporterFormat.CSV ? MAX_CSV_POLL : MAX_PNG_POLL
-                let updatedAsset = exportedAsset
-
                 try {
                     let attempts = 0
+
+                    const maxPoll = exportedAsset.export_format === ExporterFormat.CSV ? MAX_CSV_POLL : MAX_PNG_POLL
 
                     while (attempts < maxPoll) {
                         attempts++
 
+                        actions.loadExports()
+
+
+                        /*
                         if (updatedAsset.has_content) {
-                            actions.loadExports()
                             if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
                                 void downloadExportedAsset(updatedAsset)
                             } else {
@@ -113,32 +107,18 @@ export const exportsLogic = kea<exportsLogicType>([
                             resolve('Export complete')
                             return
                         }
+                         */
                         await delay(POLL_DELAY_MS)
-
-                        // Keep polling for pure network errors, but not any HTTP errors
-                        // Example: `NetworkError when attempting to fetch resource`
-                        try {
-                            updatedAsset = await api.exports.get(exportedAsset.id)
-                            breakpoint()
-                        } catch (e: any) {
-                            if (e.name === 'NetworkError' || e.message?.message?.startsWith('NetworkError')) {
-                                continue
-                            }
-                            throw e
-                        }
                     }
-                } catch (e: any) {
-                    trackingProperties.total_time_ms = performance.now() - startTime
-                    posthog.capture('export failed', trackingProperties)
-                    reject(new Error(`Export failed: ${JSON.stringify(e.detail ?? e)}`))
-                }
+                } catch (e: any) { /* empty */ }
             })
             await lemonToast.promise(poller, {
                 pending: 'Export starting...',
                 success: 'Export complete!',
                 error: 'Export failed!',
             })
-        },
+         },
+
         createStaticCohort: async ({ query, name }) => {
             const toastId = 'toast-' + Math.random()
             try {
@@ -189,7 +169,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         export_context: exportData.export_context,
                         expires_after: dayjs().add(6, 'hour').toJSON(),
                     })
-                    return []
+                    return [exportData]
                 },
             },
         ],

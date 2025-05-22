@@ -67,7 +67,6 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     )
 
     try:
-        raise Exception("TEST FAIL")
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit)
             EXPORT_QUEUED_COUNTER.labels(type="csv").inc()

@@ -1,5 +1,4 @@
-import { IconDownload } from '@posthog/icons'
-import { IconWarning } from '@posthog/icons/dist/Icons'
+import { IconDownload, IconWarning } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'

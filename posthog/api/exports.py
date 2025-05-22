@@ -104,6 +104,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             send_feature_flag_events=False,
         )
         if True or blocking_exports:
+            import time
+
+            time.sleep(12)
             exporter.export_asset(instance.id)
         else:
             exporter.export_asset.delay(instance.id)
