@@ -60,13 +60,13 @@
                                                                                                                                                                                                                                                                                                                                                                                                                 FROM person_distinct_id_overrides
                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                 GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                                                                                                                                                                                                                                                              LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___rgInternal, person.id AS id
                                                                                                                                                                                                                                                                                                                                                                                                                 FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                 GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_9)s), person.version), plus(now64(6, %(hogql_val_10)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_9)s), person.version), plus(now64(6, %(hogql_val_10)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_11)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), now64(6, %(hogql_val_13)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_14)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___rgInternal, %(hogql_val_15)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                              HAVING 1
@@ -105,13 +105,13 @@
                                                                                                                                                                                                                                                                                                                                                                                                                 FROM person_distinct_id_overrides
                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                 GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                                                                                                                                                                                                                                                              LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___rgInternal, person.id AS id
                                                                                                                                                                                                                                                                                                                                                                                                                 FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                 GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_9)s), person.version), plus(now64(6, %(hogql_val_10)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_9)s), person.version), plus(now64(6, %(hogql_val_10)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_11)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), now64(6, %(hogql_val_13)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_14)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___rgInternal, %(hogql_val_15)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                              HAVING 1
@@ -213,8 +213,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -223,7 +222,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_00_poe_v2_and_materialized_columns_allowed_with_materialization.1
@@ -257,8 +257,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -267,7 +266,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_01_poe_v2_and_materialized_columns_allowed_without_materialization
@@ -295,8 +295,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -305,7 +304,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_01_poe_v2_and_materialized_columns_allowed_without_materialization.1
@@ -339,8 +339,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -349,7 +348,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_02_poe_v2_and_materialized_columns_off_with_materialization
@@ -377,8 +377,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -387,7 +386,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_02_poe_v2_and_materialized_columns_off_with_materialization.1
@@ -421,8 +421,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -431,7 +430,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_03_poe_v2_and_materialized_columns_off_without_materialization
@@ -459,8 +459,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -469,7 +468,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_03_poe_v2_and_materialized_columns_off_without_materialization.1
@@ -503,8 +503,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -513,7 +512,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_04_poe_off_and_materialized_columns_allowed_with_materialization
@@ -541,8 +541,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -551,7 +550,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_04_poe_off_and_materialized_columns_allowed_with_materialization.1
@@ -582,7 +582,7 @@
                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id_overrides
                                                                                                                                                                                                                                                                                                                                                                                   WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                                                                                                                                                                                                                                LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person.id AS id, nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
                                                                                                                                                                                                                                                                                                                                                                                   FROM person
@@ -591,7 +591,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1
@@ -600,8 +600,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -610,7 +609,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_05_poe_off_and_materialized_columns_allowed_without_materialization
@@ -638,8 +638,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -648,7 +647,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_05_poe_off_and_materialized_columns_allowed_without_materialization.1
@@ -679,7 +679,7 @@
                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id_overrides
                                                                                                                                                                                                                                                                                                                                                                                   WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                                                                                                                                                                                                                                LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person.id AS id, nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
                                                                                                                                                                                                                                                                                                                                                                                   FROM person
@@ -688,7 +688,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1
@@ -697,8 +697,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -707,7 +706,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_06_poe_off_and_materialized_columns_not_allowed_with_materialization
@@ -735,8 +735,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -745,7 +744,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_06_poe_off_and_materialized_columns_not_allowed_with_materialization.1
@@ -776,7 +776,7 @@
                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id_overrides
                                                                                                                                                                                                                                                                                                                                                                                   WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                                                                                                                                                                                                                                LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person.id AS id, nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
                                                                                                                                                                                                                                                                                                                                                                                   FROM person
@@ -785,7 +785,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1
@@ -794,8 +794,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -804,7 +803,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_07_poe_off_and_materialized_columns_not_allowed_without_materialization
@@ -832,8 +832,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -842,7 +841,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_07_poe_off_and_materialized_columns_not_allowed_without_materialization.1
@@ -873,7 +873,7 @@
                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id_overrides
                                                                                                                                                                                                                                                                                                                                                                                   WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                                                                                                                                                                                                                                LEFT JOIN
                                                                                                                                                                                                                                                                                                                                                                                  (SELECT person.id AS id, nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
                                                                                                                                                                                                                                                                                                                                                                                   FROM person
@@ -882,7 +882,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM person
                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY person.id
-                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(events__person.properties___email, 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                HAVING 1
@@ -891,8 +891,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -901,7 +900,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_allowed_with_materialization
@@ -929,8 +929,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -939,7 +938,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_allowed_with_materialization.1
@@ -973,8 +973,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -983,7 +982,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_allowed_without_materialization
@@ -1011,8 +1011,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1021,7 +1020,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_allowed_without_materialization.1
@@ -1055,8 +1055,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1065,7 +1064,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization
@@ -1093,8 +1093,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1103,7 +1102,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization.1
@@ -1137,8 +1137,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1147,7 +1146,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization
@@ -1175,8 +1175,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1185,7 +1184,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization.1
@@ -1219,8 +1219,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1229,7 +1228,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_00_poe_v2_and_materialized_columns_allowed_with_materialization
@@ -1260,8 +1260,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1270,7 +1269,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_01_poe_v2_and_materialized_columns_allowed_without_materialization
@@ -1301,8 +1301,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1311,7 +1310,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_02_poe_v2_and_materialized_columns_off_with_materialization
@@ -1342,8 +1342,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1352,7 +1351,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_03_poe_v2_and_materialized_columns_off_without_materialization
@@ -1383,8 +1383,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1393,7 +1392,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_04_poe_off_and_materialized_columns_allowed_with_materialization
@@ -1424,14 +1424,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1440,7 +1439,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_05_poe_off_and_materialized_columns_allowed_without_materialization
@@ -1471,14 +1471,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1487,7 +1486,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_06_poe_off_and_materialized_columns_not_allowed_with_materialization
@@ -1518,14 +1518,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1534,7 +1533,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_07_poe_off_and_materialized_columns_not_allowed_without_materialization
@@ -1565,14 +1565,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1581,7 +1580,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_08_poe_v1_and_materialized_columns_allowed_with_materialization
@@ -1612,14 +1612,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1628,7 +1627,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_09_poe_v1_and_materialized_columns_allowed_without_materialization
@@ -1659,14 +1659,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1675,7 +1674,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization
@@ -1706,14 +1706,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1722,7 +1721,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization
@@ -1753,14 +1753,13 @@
                                                                                                                                                                        FROM person_distinct_id_overrides
                                                                                                                                                                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1, allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1769,6 +1768,7 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
