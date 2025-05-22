@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
@@ -123,16 +122,15 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                 <div className="flex flex-row gap-0.5">
                     <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
                         <Tooltip title="Use the HTML from this point in the recording as the background for your heatmap data">
-                            <LemonButton
+                            <SettingsButton
                                 size="xsmall"
                                 icon={<IconHeatmap />}
                                 onClick={() => {
                                     setPause()
                                     openHeatmap()
                                 }}
-                            >
-                                View heatmap
-                            </LemonButton>
+                                label="View heatmap"
+                            />
                         </Tooltip>
                     </FlaggedFeature>
                     {noInspector ? null : <InspectDOM />}
