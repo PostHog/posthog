@@ -1,7 +1,9 @@
 import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -52,16 +54,28 @@ export function WebOverview(props: {
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
     const numSkeletons = props.query.conversionGoal ? 5 : 6
+
+    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const usedWebAnalyticsPreAggregatedTables =
+        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables
+
     return (
         <>
             <EvenlyDistributedRows
-                className="flex justify-center items-center flex-wrap w-full gap-2"
+                className={clsx('flex justify-center items-center flex-wrap w-full gap-2', {
+                    'border border-dashed border-success':
+                        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql,
+                })}
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
                     ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
-                          <WebOverviewItemCell key={item.key} item={item} />
+                          <WebOverviewItemCell
+                              key={item.key}
+                              item={item}
+                              usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
+                          />
                       )) || []}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
@@ -85,7 +99,13 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
     )
 }
 
-const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
+const WebOverviewItemCell = ({
+    item,
+    usedPreAggregatedTables,
+}: {
+    item: WebOverviewItem
+    usedPreAggregatedTables: boolean
+}): JSX.Element => {
     const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
 
     const label = labelFromKey(item.key)
@@ -125,7 +145,11 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
 
     return (
         <Tooltip title={tooltip}>
-            <div className={OVERVIEW_ITEM_CELL_CLASSES}>
+            <div
+                className={clsx(OVERVIEW_ITEM_CELL_CLASSES, {
+                    'border border-dotted border-success': usedPreAggregatedTables,
+                })}
+            >
                 <div className="flex flex-row w-full">
                     <div className="flex flex-row items-start justify-start flex-1">
                         {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
