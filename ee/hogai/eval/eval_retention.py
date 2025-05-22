@@ -332,6 +332,7 @@ Period: Day
             ),
             EvalCase(
                 input="weekly retention breakdown by browser for users who sign up and then make a purchase in the last 3 months",
+                # Tricky one, as AssistantRetentionQuery doesn't support `breakdownFilter` as of 2025-05-22!
                 expected=CallNodeOutput(
                     plan="""
 Returning event: signed_up

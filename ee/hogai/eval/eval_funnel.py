@@ -262,14 +262,10 @@ Sequence:
                             AssistantFunnelsEventsNode(
                                 event="$pageview",
                                 math=None,
-                                properties=None,
                             ),
                             AssistantFunnelsEventsNode(
                                 event="signed_up",
                                 math=None,
-                                properties=[
-                                    {"key": "name", "operator": "icontains", "type": "person", "value": "john"},
-                                ],
                             ),
                         ],
                     ),
@@ -351,13 +347,7 @@ Sequence:
                                 properties=[
                                     {
                                         "key": "$browser",
-                                        "value": "Chrome",
-                                        "operator": "exact",
-                                        "type": "event",
-                                    },
-                                    {
-                                        "key": "$browser",
-                                        "value": "Safari",
+                                        "value": ["Chrome", "Safari"],
                                         "operator": "exact",
                                         "type": "event",
                                     },

@@ -316,7 +316,7 @@ Events:
                         series=[
                             AssistantTrendsEventsNode(
                                 event="$pageview",
-                                math="dau",
+                                math="dau",  # "dau" name is a legacy misnomer, it actually just means "unique users"
                                 properties=None,
                             )
                         ],
