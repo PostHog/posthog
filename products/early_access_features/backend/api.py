@@ -79,7 +79,12 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             new_stage=stage,
         )
         if instance.stage != stage:
-            logger.info("[EARLY ACCESS FEATURE] Scheduling celery task to send events")
+            logger.info(
+                "[EARLY ACCESS FEATURE] Scheduling celery task to send events",
+                instance_id=instance.id,
+                previous_stage=instance.stage,
+                new_stage=stage,
+            )
 
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 

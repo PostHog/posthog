@@ -15,12 +15,16 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     feature_flag = instance.feature_flag
 
     logger.info(
-        f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {instance.name} from {from_stage} to {to_stage}",
+        f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature",
+        feature_id=feature_id,
+        from_stage=from_stage,
+        to_stage=to_stage,
     )
 
     if not feature_flag:
         logger.warning(
-            f"[CELERY][EARLY ACCESS FEATURE] Feature flag not found for feature {instance.name}",
+            f"[CELERY][EARLY ACCESS FEATURE] Feature flag not found for feature",
+            feature_id=feature_id,
         )
         return
 
@@ -29,13 +33,15 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     )
 
     logger.info(
-        f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature {instance.name}",
+        f"[CELERY][EARLY ACCESS FEATURE] Found {len(enrolled_persons)} persons enrolled in feature",
+        feature_id=feature_id,
     )
 
     for person in enrolled_persons:
         if len(person.distinct_ids) == 0:
             logger.warning(
-                f"[CELERY][EARLY ACCESS FEATURE] Person {person.id} has no distinct ids",
+                f"[CELERY][EARLY ACCESS FEATURE] Person has no distinct ids",
+                person_id=person.id,
             )
             continue
 
@@ -43,7 +49,10 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         email = person.properties.get("email", "")
 
         logger.info(
-            f"[CELERY][EARLY ACCESS FEATURE] Sending event for person {person.id} with distinct id {distinct_id}",
+            f"[CELERY][EARLY ACCESS FEATURE] Sending event for person",
+            person_id=person.id,
+            distinct_id=distinct_id,
+            email=email,
         )
 
         posthoganalytics.capture(
@@ -60,5 +69,8 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
         )
 
         logger.info(
-            f"[CELERY][EARLY ACCESS FEATURE] Sent event for person {person.id} with distinct id {distinct_id}",
+            f"[CELERY][EARLY ACCESS FEATURE] Sent event for person",
+            person_id=person.id,
+            distinct_id=distinct_id,
+            email=email,
         )
