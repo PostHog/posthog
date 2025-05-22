@@ -7,6 +7,7 @@ from django.conf import settings
 
 from dags.common import ClickhouseClusterResource
 from dags import (
+    ai_properties_materialization,
     backups,
     ch_examples,
     deletes,
@@ -58,6 +59,7 @@ defs = dagster.Definitions(
         web_preaggregated_internal.web_stats_daily,
     ],
     jobs=[
+        ai_properties_materialization.materialize_ai_properties,
         deletes.deletes_job,
         exchange_rate.daily_exchange_rates_job,
         exchange_rate.hourly_exchange_rates_job,
