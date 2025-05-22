@@ -13,9 +13,13 @@
 <!-- If there are frontend changes, please include screenshots. -->
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
-## Does this work well for both Cloud and self-hosted?
+## Did you write or update any docs for this change?
 
-<!-- Yes / no / it doesn't have an impact. -->
+<!-- Engineers are responsible for doing the first pass at documenting their features and/or code.  -->
+
+- [ ] I've added or updated the docs
+- [ ] I've reached out for help from the docs team
+- [ ] No docs needed for this change
 
 ## How did you test this code?
 
