@@ -656,6 +656,12 @@ export function getMathTypeWarning(
     return warning
 }
 
+/**
+ * **Needs to be used on all hardcoded queries.**
+ *
+ * Recursively adds the latest version for the respective kind to each node. This
+ * is necessary so that schema migrations don't run on hardcoded queries that
+ * are already the latest version. */
 export function getFreshQuery<T = any>(node: T): T {
     if (node === null || typeof node !== 'object') {
         return node
