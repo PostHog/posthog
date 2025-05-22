@@ -86,44 +86,59 @@ describe('sessionRecordingDataLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic({
-            sessionRecordingId: '2',
-            blobV2PollingDisabled: true,
-        })
-        logic.mount()
-        // Most of these tests assume the metadata is being loaded upfront which is the typical case
-        logic.actions.loadRecordingMeta()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'create')
     })
 
     describe('loading session core', () => {
-        it('loads all data', async () => {
-            const start = performance.now()
 
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
+        const setupLogic = () => {
+            logic = sessionRecordingDataLogic({
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
             })
-                .toDispatchActions([
-                    'loadSnapshots',
-                    'loadSnapshotSources',
-                    'loadRecordingMetaSuccess',
-                    'loadSnapshotSourcesSuccess',
-                    'loadSnapshotsForSourceSuccess',
-                    'reportUsageIfFullyLoaded',
-                ])
-                .toFinishAllListeners()
+            logic.mount()
+            // Most of these tests assume the metadata is being loaded upfront which is the typical case
+            logic.actions.loadRecordingMeta()
+        }
 
-            const actual = logic.values.sessionPlayerData
-            const snapshotData = actual.snapshotsByWindowId
-            expect(Object.keys(snapshotData)).toHaveLength(1)
+        it('loads all data', async () => {
+            const durations: number[] = []
+            const iterations = 10
 
-            const end = performance.now()
+            for (let i = 0; i < iterations; i++) {
+                setupLogic()
 
+                const start = performance.now()
 
-            const duration = end - start;
-            console.log('duration is ', duration)
-            expect(duration).toBeLessThan(400)
+                await expectLogic(logic, () => {
+                    logic.actions.loadSnapshots()
+                })
+                    .toDispatchActions([
+                        'loadSnapshots',
+                        'loadSnapshotSources',
+                        'loadRecordingMetaSuccess',
+                        'loadSnapshotSourcesSuccess',
+                        'loadSnapshotsForSourceSuccess',
+                        'reportUsageIfFullyLoaded',
+                    ])
+                    .toFinishAllListeners()
+
+                const actual = logic.values.sessionPlayerData
+                const snapshotData = actual.snapshotsByWindowId
+                expect(Object.keys(snapshotData)).toHaveLength(1)
+
+                const end = performance.now()
+                const duration = end - start
+                durations.push(duration)
+                console.log(`Iteration ${i + 1} duration: ${duration}ms`)
+
+                logic.unmount()
+            }
+
+            const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
+            console.log(`Average duration: ${averageDuration}ms`)
+            expect(averageDuration).toBeLessThan(400)
         })
     })
 })
