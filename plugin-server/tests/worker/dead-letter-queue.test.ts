@@ -2,13 +2,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { Hub, LogLevel } from '../../src/types'
+import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetTestDatabase } from '../helpers/sql'
+import { createOrganization, createTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/logger')
@@ -32,12 +32,12 @@ jest.mock('../../src/worker/ingestion/process-event', () => {
 
 const EVENT_UUID = new UUIDT().toString()
 
-function createEvent(): PluginEvent {
+function createEvent(team: Team): PluginEvent {
     return {
         distinct_id: 'my_id',
         ip: '127.0.0.1',
         site_url: 'http://localhost',
-        team_id: 2,
+        team_id: team.id,
         now: new Date().toISOString(),
         event: 'default event',
         properties: { key: 'value' },
@@ -60,7 +60,9 @@ describe('events dead letter queue', () => {
     })
 
     test('events get sent to dead letter queue on error', async () => {
-        const event = createEvent()
+        const orgId = await createOrganization(hub.db.postgres)
+        const team = await createTeam(hub.postgres, orgId)
+        const event = createEvent(team)
         const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'test', 'distinct_id')
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
@@ -68,7 +70,7 @@ describe('events dead letter queue', () => {
             null,
             [],
             personsStoreForDistinctId
-        ).runEventPipeline(event)
+        ).runEventPipeline(event, team)
         expect(ingestResponse1).toEqual({
             lastStep: 'prepareEventStep',
             error: 'database unavailable',

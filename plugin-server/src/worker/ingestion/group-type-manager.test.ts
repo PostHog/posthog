@@ -167,7 +167,7 @@ describe('GroupTypeManager()', () => {
         })
 
         it('handles raciness for when same group type has already been inserted for project', async () => {
-            const otherTeamId = await createTeam(hub.postgres, 2 as ProjectId)
+            const otherTeamId = (await createTeam(hub.postgres, 2 as ProjectId)).id
 
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({})
 

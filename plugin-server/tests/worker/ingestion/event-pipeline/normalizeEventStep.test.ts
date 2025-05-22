@@ -16,7 +16,7 @@ describe('normalizeEventStep()', () => {
         await resetTestDatabase()
         const hub = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
-        const teamId = await createTeam(hub.db.postgres, organizationId)
+        const teamId = (await createTeam(hub.db.postgres, organizationId)).id
         const uuid = new UUIDT().toString()
         const event = {
             distinct_id: 'my_id',
@@ -64,7 +64,7 @@ describe('normalizeEventStep()', () => {
         await resetTestDatabase()
         const hub = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
-        const teamId = await createTeam(hub.db.postgres, organizationId)
+        const teamId = (await createTeam(hub.db.postgres, organizationId)).id
         const uuid = new UUIDT().toString()
         const event = {
             distinct_id: '\u0000foo',
@@ -93,7 +93,7 @@ describe('normalizeEventStep()', () => {
         await resetTestDatabase()
         const hub = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
-        const teamId = await createTeam(hub.db.postgres, organizationId)
+        const teamId = (await createTeam(hub.db.postgres, organizationId)).id
         const uuid = new UUIDT().toString()
         const event = {
             distinct_id: 'my_id',

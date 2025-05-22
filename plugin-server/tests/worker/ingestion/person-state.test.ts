@@ -82,7 +82,7 @@ describe('PersonState.update()', () => {
     })
 
     beforeEach(async () => {
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        teamId = (await createTeam(hub.db.postgres, organizationId)).id
         mainTeam = (await getTeam(hub, teamId))!
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
@@ -176,8 +176,8 @@ describe('PersonState.update()', () => {
                 uuid: event_uuid,
             }).updateProperties()
 
-            const otherTeamId = await createTeam(hub.db.postgres, organizationId)
-            const otherTeam = (await getTeam(hub, otherTeamId))!
+            const otherTeam = await createTeam(hub.db.postgres, organizationId)
+            const otherTeamId = otherTeam.id
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personState(
                 {

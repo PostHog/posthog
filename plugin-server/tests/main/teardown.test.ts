@@ -4,7 +4,7 @@ import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PluginServer } from '../../src/server'
-import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode } from '../../src/types'
+import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode, Team } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
@@ -21,6 +21,10 @@ const defaultEvent: PluginEvent = {
     event: 'default event',
     properties: { key: 'value' },
 }
+
+const team = {
+    id: 2,
+} as Team
 
 describe('teardown', () => {
     beforeEach(async () => {
@@ -45,7 +49,8 @@ describe('teardown', () => {
             event.distinct_id
         )
         const result = await new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId).runEventPipeline(
-            event
+            event,
+            team
         )
         const resultEvent = result.args[0]
         return resultEvent

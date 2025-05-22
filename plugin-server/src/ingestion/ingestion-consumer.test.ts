@@ -9,7 +9,7 @@ import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/
 import { compileHog } from '~/src/cdp/templates/compiler'
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -18,6 +18,8 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
+import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/src/ingestion/cookieless/cookieless-manager'
+
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -83,6 +85,27 @@ describe('IngestionConsumer', () => {
         event: '$pageview',
         properties: {
             $current_url: 'http://localhost:8000',
+            ...(event?.properties || {}),
+        },
+        ...event,
+    })
+
+    const createCookielessEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
+        distinct_id: COOKIELESS_SENTINEL_VALUE,
+        uuid: new UUIDT().toString(),
+        token: team.api_token,
+        ip: '127.0.0.1',
+        site_url: 'us.posthog.com',
+        now: fixedTime.toISO()!,
+        event: '$pageview',
+        properties: {
+            $current_url: 'http://localhost:8000',
+            $host: 'localhost:8000',
+            $raw_user_agent: 'Chrome',
+            $session_id: null,
+            $device_id: null,
+            [COOKIELESS_MODE_FLAG_PROPERTY]: true,
+            ...(event?.properties || {}),
         },
         ...event,
     })
@@ -98,8 +121,7 @@ describe('IngestionConsumer', () => {
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = await createTeam(hub.db.postgres, team.organization_id)
     })
 
     afterEach(async () => {
@@ -128,6 +150,12 @@ describe('IngestionConsumer', () => {
 
         it('should process a standard event', async () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
+
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
+        it('should process a cookieless event', async () => {
+            await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
@@ -172,6 +200,48 @@ describe('IngestionConsumer', () => {
                 processed_at: fixedTime.toISO()!,
                 consumer_id: ingester['groupId'],
             })
+        })
+
+        it('should not blend person properties from 2 different cookieless users', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createCookielessEvent({
+                        ip: '1.2.3.4',
+                        properties: {
+                            $set: {
+                                a: 'a',
+                                ab: 'a',
+                            },
+                        },
+                    }),
+                    createCookielessEvent({
+                        ip: '5.6.7.8', // different IP address means different user
+                        properties: {
+                            $set: {
+                                b: 'b',
+                                ab: 'b',
+                            },
+                        },
+                    }),
+                ])
+            )
+            const messages = mockProducerObserver.getProducedKafkaMessages()
+            const eventsA = messages.filter(
+                (m) =>
+                    m.topic === 'clickhouse_events_json_test' &&
+                    m.value.person_properties &&
+                    parseJSON(m.value.person_properties as any)?.a
+            )
+            const eventsB = messages.filter(
+                (m) =>
+                    m.topic === 'clickhouse_events_json_test' &&
+                    m.value.person_properties &&
+                    parseJSON(m.value.person_properties as any)?.b
+            )
+            expect(eventsA[0].value.person_id).not.toEqual(eventsB[0].value.person_id)
+            expect(eventsA).toHaveLength(1)
+            expect(eventsB).toHaveLength(1)
+            expect(forSnapshot(messages)).toMatchSnapshot()
         })
 
         describe('overflow', () => {

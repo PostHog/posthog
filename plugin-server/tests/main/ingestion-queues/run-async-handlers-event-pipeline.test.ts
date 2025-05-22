@@ -98,7 +98,7 @@ describe('runAppsOnEventPipeline()', () => {
             `,
         })
 
-        const teamId = await createTeam(hub.postgres, organizationId)
+        const teamId = (await createTeam(hub.postgres, organizationId)).id
         await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 
@@ -151,7 +151,7 @@ describe('runAppsOnEventPipeline()', () => {
             `,
         })
 
-        const teamId = await createTeam(hub.postgres, organizationId)
+        const teamId = (await createTeam(hub.postgres, organizationId)).id
         await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 

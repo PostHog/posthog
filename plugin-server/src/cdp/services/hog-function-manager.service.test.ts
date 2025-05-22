@@ -27,8 +27,8 @@ describe('HogFunctionManager', () => {
 
         const team = await getTeam(hub, 2)
 
-        teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId1 = (await createTeam(hub.db.postgres, team!.organization_id)).id
+        teamId2 = (await createTeam(hub.db.postgres, team!.organization_id)).id
 
         hogFunctions = []
         integrations = []
@@ -302,8 +302,8 @@ describe('Hogfunction Manager - Execution Order', () => {
         manager = new HogFunctionManagerService(hub)
 
         const team = await getTeam(hub, 2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId = (await createTeam(hub.db.postgres, team!.organization_id)).id
+        teamId2 = (await createTeam(hub.db.postgres, team!.organization_id)).id
 
         hogFunctions = []
 
@@ -496,7 +496,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         manager = new HogFunctionManagerService(hub)
 
         const team = await getTeam(hub, 2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId = (await createTeam(hub.db.postgres, team!.organization_id)).id
 
         // Create an integration
         integration = await insertIntegration(hub.postgres, teamId, {
@@ -543,7 +543,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         // Update the integration in the database
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_integration 
+            `UPDATE posthog_integration
              SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
                  sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb)
              WHERE id = $2`,

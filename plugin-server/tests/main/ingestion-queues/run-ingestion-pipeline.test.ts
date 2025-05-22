@@ -50,7 +50,8 @@ describe('workerTasks.runEventPipeline()', () => {
         const errorMessage =
             'connection to server at "posthog-pgbouncer" (171.20.65.128), port 6543 failed: server closed the connection unexpectedly'
         const organizationId = await createOrganization(hub.postgres)
-        const teamId = await createTeam(hub.postgres, organizationId)
+        const team = await createTeam(hub.postgres, organizationId)
+        const teamId = team.id
 
         const pgQueryMock = jest.spyOn(Pool.prototype, 'query').mockImplementation(() => {
             return Promise.reject(new Error(errorMessage))
@@ -72,7 +73,7 @@ describe('workerTasks.runEventPipeline()', () => {
             event.distinct_id
         )
         await expect(
-            new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId).runEventPipeline(event)
+            new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId).runEventPipeline(event, team)
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
     })

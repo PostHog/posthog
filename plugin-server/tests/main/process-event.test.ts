@@ -121,7 +121,7 @@ async function processEvent(
 
     const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
-    await runner.runEventPipeline(pluginEvent)
+    await runner.runEventPipeline(pluginEvent, team)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
 }
@@ -186,7 +186,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         event.distinct_id
     )
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId)
-    await runner.runEventPipeline(event)
+    await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
@@ -1672,7 +1672,7 @@ describe('validates eventUuid', () => {
             pluginEvent.distinct_id
         )
         const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
-        const result = await runner.runEventPipeline(pluginEvent)
+        const result = await runner.runEventPipeline(pluginEvent, team)
 
         expect(result.error).toBeTruthy()
         expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
@@ -1696,7 +1696,7 @@ describe('validates eventUuid', () => {
             pluginEvent.distinct_id
         )
         const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForDistinctId)
-        const result = await runner.runEventPipeline(pluginEvent)
+        const result = await runner.runEventPipeline(pluginEvent, team)
 
         expect(result.error).toBeTruthy()
         expect(result.error).toEqual('Not a valid UUID: "null"')
