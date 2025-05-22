@@ -327,3 +327,32 @@ class TestTable(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "A table with this name already exists."
+
+    def test_update_table_name_to_existing_name(self):
+        table = DataWarehouseTable.objects.create(
+            name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+        DataWarehouseTable.objects.create(
+            name="test_table2", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {
+                "name": "test_table2",
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "A table with this name already exists."
+
+    def test_update_table_name(self):
+        table = DataWarehouseTable.objects.create(
+            name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {
+                "name": "test_table2",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["name"] == "test_table2"
