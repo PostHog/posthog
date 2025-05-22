@@ -26,7 +26,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
     ),
     "clickhouse_settings": Field(
         str,
-        default_value="max_execution_time=240, max_bytes_before_external_group_by=21474836480, distributed_aggregation_memory_efficient=1",
+        default_value="max_execution_time=600",
         description="ClickHouse execution settings",
     ),
 }
@@ -41,9 +41,9 @@ def pre_aggregate_web_analytics_data(
     team_ids = config.get("team_ids", [1, 2])
     clickhouse_settings = config["clickhouse_settings"]
 
-    # We'll be handling this year data for our tests.
+    # We'll be handling a fixed date range for our internal tests that gets the full history
     insert_query = sql_generator(
-        date_start="2025-01-01",
+        date_start="2020-01-01",
         date_end=datetime.now(UTC).strftime("%Y-%m-%d"),
         team_ids=team_ids,
         settings=clickhouse_settings,
@@ -60,6 +60,7 @@ def pre_aggregate_web_analytics_data(
     name="web_analytics_preaggregated_tables",
     group_name="web_analytics",
     description="Creates the tables needed for web analytics preaggregated data.",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_preaggregated_tables(
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -70,6 +71,11 @@ def web_analytics_preaggregated_tables(
         client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
         client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
 
+    def drop_tables(client: Client):
+        client.execute("DROP TABLE IF EXISTS web_overview_daily SYNC")
+        client.execute("DROP TABLE IF EXISTS web_stats_daily SYNC")
+
+    cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
     return True
 
@@ -80,6 +86,7 @@ def web_analytics_preaggregated_tables(
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
     metadata={"table": "web_overview_daily"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_overview_daily(
     context: dagster.AssetExecutionContext,
@@ -100,6 +107,7 @@ def web_overview_daily(
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
     metadata={"table": "web_stats_daily"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
     """
@@ -123,6 +131,7 @@ recreate_web_pre_aggregated_data_job = dagster.define_asset_job(
     cron_schedule="0 1 * * *",
     job=recreate_web_pre_aggregated_data_job,
     execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def recreate_web_analytics_preaggregated_internal_data_daily(context: dagster.ScheduleEvaluationContext):
     """

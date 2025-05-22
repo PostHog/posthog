@@ -355,11 +355,18 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         {
                             key: 'Status',
                             title: 'Status',
-                            render: (_, { type, status }) => {
+                            render: (_, { type, status, last_run_at }) => {
                                 if (type === 'source') {
                                     return (
                                         <Tooltip title="This is a source table, so it doesn't have a status">
                                             <span className="text-secondary">N/A</span>
+                                        </Tooltip>
+                                    )
+                                }
+                                if (last_run_at === 'never' && !status) {
+                                    return (
+                                        <Tooltip title="This is a view, so it's always available with the latest data">
+                                            <span className="text-secondary">Available</span>
                                         </Tooltip>
                                     )
                                 }
@@ -369,10 +376,17 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         {
                             key: 'Last run at',
                             title: 'Last run at',
-                            render: (_, { type, last_run_at }) => {
+                            render: (_, { type, last_run_at, status }) => {
                                 if (type === 'source') {
                                     return (
                                         <Tooltip title="This is a source table, so it is never run">
+                                            <span className="text-secondary">N/A</span>
+                                        </Tooltip>
+                                    )
+                                }
+                                if (last_run_at === 'never' && !status) {
+                                    return (
+                                        <Tooltip title="This is a view, so it is never run">
                                             <span className="text-secondary">N/A</span>
                                         </Tooltip>
                                     )
