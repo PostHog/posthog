@@ -432,7 +432,7 @@ jobs:
                           '>',
                           ...flaps.map(([browser, shardNumber, path]) => `> - \`${path.replace('frontend/__snapshots__/', '')}\` (${browser}, shard ${shardNumber})`),
                           '>',
-                          '> **The flippy flappies are deadly and must be fixed ASAP.** They\'re productivity killers.',
+                          '> **The flippy-flappies are deadly and must be fixed ASAP.** They\'re productivity killers.',
                           '> Run `pnpm storybook` locally and make the fix now.',
                           '> (Often, the cause is `ResizeObserver` being used instead of the better CSS container queries.)\n'
                         ].join('\n')
