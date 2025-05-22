@@ -93,9 +93,7 @@ class TestLineage(APIBaseTest):
             saved_query=final_query,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}&type=saved_query"
-        )
+        response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}")
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
@@ -116,7 +114,7 @@ class TestLineage(APIBaseTest):
         self.assertEqual(edges, expected_edges)
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={intermediate_query.id}&type=saved_query"
+            f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={intermediate_query.id}"
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()

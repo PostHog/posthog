@@ -43,16 +43,11 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"])
     def get_upstream(self, request, *args, **kwargs):
         model_id = request.query_params.get("model_id")
-        model_type = request.query_params.get("type")
 
-        if not model_id or not model_type:
-            return Response({"error": "model_id and type are required"}, status=400)
+        if not model_id:
+            return Response({"error": "model_id is required"}, status=400)
 
-        query = Q(team_id=self.team_id)
-        if model_type == "saved_query":
-            query &= Q(saved_query_id=model_id)
-        else:
-            query &= Q(table_id=model_id)
+        query = Q(team_id=self.team_id, saved_query_id=model_id)
 
         paths = DataWarehouseModelPath.objects.filter(query)
 

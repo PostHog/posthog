@@ -248,8 +248,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         upstream: [
             null as LineageGraph | null,
             {
-                loadUpstream: async (payload: { modelId: string; modelType: string }) => {
-                    const upstream = await api.upstream.get(payload.modelId, payload.modelType)
+                loadUpstream: async (payload: { modelId: string }) => {
+                    const upstream = await api.upstream.get(payload.modelId)
                     return upstream
                 },
             },

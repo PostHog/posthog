@@ -1156,13 +1156,12 @@ class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
-    public upstream(modelId: string, modelType: string, teamId?: TeamType['id']): ApiRequest {
+    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('lineage')
             .addPathComponent('get_upstream')
             .withQueryString({
                 model_id: modelId,
-                type: modelType,
             })
     }
 
@@ -3131,8 +3130,8 @@ const api = {
         },
     },
     upstream: {
-        async get(modelId: string, modelType: string): Promise<LineageGraph> {
-            return await new ApiRequest().upstream(modelId, modelType).get()
+        async get(modelId: string): Promise<LineageGraph> {
+            return await new ApiRequest().upstream(modelId).get()
         },
     },
     insightVariables: {
