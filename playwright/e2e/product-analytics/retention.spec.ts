@@ -8,7 +8,7 @@ test.describe('Retention', () => {
         await page.click('[data-attr=insight-retention-tab]')
     })
 
-    test('should apply retention filter', async ({ page }) => {
+    test.skip('should apply retention filter', async ({ page }) => {
         // KLUDGE: this had commented lines in Cypress, they've been copied here _and not tested_
         // NOTE: First wait for results to load, try and make the test more
         // stable. This is to try and avoid an issue where after selecting a

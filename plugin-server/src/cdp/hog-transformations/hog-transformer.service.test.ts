@@ -261,7 +261,7 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
 
-            await Promise.all(hogTransformer.promises)
+            await hogTransformer.promiseScheduler.waitForAll()
 
             const messages = mockProducerObserver.getProducedKafkaMessages()
             // Replace certain messages that have changeable values
@@ -1280,7 +1280,7 @@ describe('HogTransformer', () => {
             await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).not.toHaveBeenCalled()
-            expect(hogTransformer.promises.size).toBe(1)
+            expect(hogTransformer.promiseScheduler.promises.size).toBe(1)
 
             observeResultsSpy.mockRestore()
         })
@@ -1329,7 +1329,7 @@ describe('HogTransformer', () => {
             await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(observeResultsSpy).toHaveBeenCalled()
-            expect(hogTransformer.promises.size).toBe(2) // Both produceQueuedMessages and observeResults promises
+            expect(hogTransformer.promiseScheduler.promises.size).toBe(2) // Both produceQueuedMessages and observeResults promises
 
             observeResultsSpy.mockRestore()
         })

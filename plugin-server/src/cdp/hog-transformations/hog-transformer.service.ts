@@ -6,6 +6,7 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
@@ -58,7 +59,7 @@ export class HogTransformerService {
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
     private cachedStates: Record<string, HogWatcherState> = {}
-    public readonly promises: Set<Promise<any>> = new Set()
+    public readonly promiseScheduler: PromiseScheduler
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -68,6 +69,7 @@ export class HogTransformerService {
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.promiseScheduler = new PromiseScheduler()
     }
 
     public async start(): Promise<void> {
@@ -75,17 +77,11 @@ export class HogTransformerService {
     }
 
     public async stop(): Promise<void> {
-        await Promise.allSettled(this.promises)
+        await Promise.allSettled(this.promiseScheduler.promises)
         await this.hogFunctionManager.stop()
         await this.redis.useClient({ name: 'cleanup' }, async (client) => {
             await client.quit()
         })
-    }
-
-    private scheduleWork<T>(promise: Promise<T>): Promise<T> {
-        this.promises.add(promise)
-        void promise.finally(() => this.promises.delete(promise))
-        return promise
     }
 
     private async getTransformationFunctions() {
@@ -129,7 +125,7 @@ export class HogTransformerService {
 
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
 
-                void this.scheduleWork(
+                void this.promiseScheduler.schedule(
                     this.hogFunctionMonitoringService
                         .processInvocationResults(transformationResult.invocationResults)
                         .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
@@ -139,7 +135,7 @@ export class HogTransformerService {
 
                 if (shouldRunHogWatcher) {
                     const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
-                    void this.scheduleWork(
+                    void this.promiseScheduler.schedule(
                         this.hogWatcher
                             .observeResults(transformationResult.invocationResults)
                             .catch((error) => {

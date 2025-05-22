@@ -8,6 +8,7 @@ import planEnterprise from 'public/plan_enterprise.png'
 import planFree from 'public/plan_free.svg'
 import planPaid from 'public/plan_paid.svg'
 import planStartup from 'public/plan_startup.svg'
+import planTeams from 'public/plan_teams.png'
 import planYc from 'public/plan_yc.svg'
 
 import { BillingPlan, BillingProductV2Type, StartupProgramLabel } from '~/types'
@@ -21,8 +22,7 @@ import { PlanComparisonModal } from './PlanComparison'
 const PLAN_BADGES: Record<BillingPlan, string> = {
     [BillingPlan.Free]: planFree,
     [BillingPlan.Paid]: planPaid,
-    // TODO: Add teams badge once ready
-    [BillingPlan.Teams]: planPaid,
+    [BillingPlan.Teams]: planTeams,
     [BillingPlan.Enterprise]: planEnterprise,
 }
 
@@ -73,7 +73,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     },
     [BillingPlan.Teams]: {
         title: 'Good call!',
-        subtitle: "You're on the Ridiculously Cheap™ plan (with Teams).",
+        subtitle: "You're on the Teams plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <p>
