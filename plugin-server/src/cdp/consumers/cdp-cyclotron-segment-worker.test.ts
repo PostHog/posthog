@@ -10,7 +10,6 @@ import { createSegmentInvocation, insertHogFunction as _insertHogFunction } from
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { HogFunctionType } from '../types'
 import { CdpCyclotronWorkerSegment } from './cdp-cyclotron-segment-worker.consumer'
-jest.setTimeout(1000)
 
 describe('CdpCyclotronWorkerSegment', () => {
     let processor: CdpCyclotronWorkerSegment
@@ -62,7 +61,6 @@ describe('CdpCyclotronWorkerSegment', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
         await processor.stop()
         await closeHub(hub)
     })
@@ -703,7 +701,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                     finished: true,
                 },
             ])
-        })
+        }, 10000)
 
         it('should call the plugin perform method', async () => {
             jest.spyOn(amplitudeAction as any, 'perform')
@@ -1323,7 +1321,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                     finished: true,
                 },
             ])
-        })
+        }, 10000)
 
         it('works with multiple fetches', async () => {
             jest.spyOn(pipedriveAction as any, 'perform')
@@ -1599,6 +1597,6 @@ describe('CdpCyclotronWorkerSegment', () => {
                     finished: true,
                 },
             ])
-        })
+        }, 10000)
     })
 })
