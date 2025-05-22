@@ -85,11 +85,6 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
 export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
     ...getTreeItemsDataManagement(),
     {
-        path: 'Actions',
-        iconType: 'rocket',
-        href: urls.actions(),
-    },
-    {
         path: 'Event definitions',
         iconType: 'database',
         href: urls.eventDefinitions(),
@@ -103,11 +98,6 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
         path: 'Annotations',
         iconType: 'notification',
         href: urls.annotations(),
-    },
-    {
-        path: 'Cohorts',
-        type: 'cohort',
-        href: urls.cohorts(),
     },
     {
         path: 'Ingestion warnings',
