@@ -156,7 +156,11 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                             </LemonButton>
                         </Tooltip>
                     </FlaggedFeature>
-                    {noInspector ? null : <Screenshot />}
+                    {noInspector ? null : (
+                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.REPLAY_SCREENSHOT}>
+                            <Screenshot />
+                        </FlaggedFeature>
+                    )}
                     {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
