@@ -27,7 +27,6 @@ import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import {
     ConversionRateInputType,
     EventConfig,
@@ -1794,6 +1793,7 @@ export interface BillingProductV2Type {
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
+    projected_amount_usd_with_limit?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
@@ -1853,6 +1853,8 @@ export interface BillingType {
     current_total_amount_usd_after_discount?: string
     projected_total_amount_usd?: string
     projected_total_amount_usd_after_discount?: string
+    projected_total_amount_usd_with_limit?: string
+    projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
@@ -3594,6 +3596,16 @@ export enum ExperimentConclusion {
     Invalid = 'invalid',
 }
 
+export interface ExperimentHoldoutType {
+    id: number | null
+    name: string
+    description: string | null
+    filters: Record<string, any>
+    created_by: UserBasicType | null
+    created_at: string | null
+    updated_at: string | null
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3637,7 +3649,7 @@ export interface Experiment {
     created_by: UserBasicType | null
     updated_at: string | null
     holdout_id?: number | null
-    holdout?: Holdout
+    holdout?: ExperimentHoldoutType
     stats_config?: {
         version?: number
     }
@@ -4277,13 +4289,6 @@ export interface OrganizationResourcePermissionType {
     created_at: string
     updated_at: string
     created_by: UserBaseType | null
-}
-
-export interface RecordingReportLoadTimes {
-    metadata: number
-    snapshots: number
-    events: number
-    firstPaint: number
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
@@ -5000,7 +5005,7 @@ export type BillingTableTierRow = {
     basePrice: string
     usage: string
     total: string
-    projectedTotal: string
+    projectedTotal: string | React.ReactNode
     subrows: ProductPricingTierSubrows
 }
 

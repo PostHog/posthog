@@ -15,6 +15,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentHoldoutType,
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
@@ -190,6 +191,7 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -2193,6 +2195,13 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
     kind: NodeKind.ExperimentExposureQuery
     experiment_id?: integer
+    experiment_name: string
+    exposure_criteria?: ExperimentExposureCriteria
+    // Generic type as FeatureFlagBasicType is recursive and the schema:build breaks
+    feature_flag: Record<string, any>
+    start_date: string | null
+    end_date: string | null
+    holdout?: ExperimentHoldoutType
 }
 
 export interface ExperimentQueryResponse {

@@ -483,7 +483,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 viableItems.reduce(
                     (acc, item) => ({
                         ...acc,
-                        [item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id]: item,
+                        [item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id]: item,
                     }),
                     {} as Record<string, FileSystemEntry>
                 ),
@@ -683,5 +683,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     afterMount(({ actions }) => {
         actions.loadFolder('')
         actions.loadUnfiledItems()
+        actions.loadShortcuts()
     }),
 ])

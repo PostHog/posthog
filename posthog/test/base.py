@@ -28,6 +28,10 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
+from posthog.clickhouse.adhoc_events_deletion import (
+    ADHOC_EVENTS_DELETION_TABLE_SQL,
+    DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.materialized_columns import MaterializedColumn
@@ -1036,9 +1040,17 @@ def failhard_threadhook_context():
     """
 
     def raise_hook(args: threading.ExceptHookArgs):
-        if args.exc_value is not None:
-            exc = args.exc_type(args.exc_value).with_traceback(args.exc_traceback)
-            raise AssertionError from exc  # Must be an AssertionError to fail tests
+        """Capture exceptions from threads and raise them as AssertionError"""
+        exc = args.exc_value
+        if exc is None:
+            return
+
+        # Filter out expected Kafka table errors during test setup
+        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
+            return  # Silently ignore expected Kafka table errors
+
+        # For other exceptions, raise as AssertionError to fail tests
+        raise AssertionError from exc  # Must be an AssertionError to fail tests
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
@@ -1073,6 +1085,7 @@ def reset_clickhouse_database() -> None:
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1129,6 +1142,7 @@ def reset_clickhouse_database() -> None:
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
+            ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
 
