@@ -472,7 +472,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         }}
                                     >
                                         {/* Folder lines */}
-                                        {depth !== 0 && (
+                                        {depth !== 0 && size !== 'narrow' && (
                                             <div
                                                 className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
