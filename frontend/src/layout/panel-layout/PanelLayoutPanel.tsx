@@ -35,23 +35,10 @@ interface PanelLayoutPanelProps {
 }
 
 // Match with FileSystemViewSet
-// TODO: Get icons
-const productTypes = [
-    ['action', 'Actions'],
-    ['broadcast', 'Broadcasts'],
-    ['campaign', 'Campaigns'],
-    ['dashboard', 'Dashboards'],
-    ['destination', 'Destinations'],
-    ['early_access_feature', 'Early access features'],
-    ['experiment', 'Experiments'],
-    ['feature_flag', 'Feature flags'],
-    ['insight', 'Insights'],
-    ['notebook', 'Notebooks'],
-    ['session_recording_playlist', 'Replay playlists'],
-    ['site_app', 'Site apps'],
-    ['source', 'Sources'],
-    ['transformation', 'Transformations'],
-]
+const productTypesMapped: [string, string][] = Object.entries(getTreeFilterTypes()).map(([key, value]) => [
+    key,
+    value.name,
+])
 
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
@@ -253,7 +240,7 @@ export function PanelLayoutPanel({
                                     hint: 'Search by type',
                                     icon: <IconCdCase />,
                                 },
-                                productTypes.map(([value, label]) => ({ value, label })),
+                                productTypesMapped.map(([value, label]) => ({ value, label })),
                                 'enter a type',
                             ],
                             [
