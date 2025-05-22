@@ -2,13 +2,12 @@ from collections import namedtuple
 import datetime
 from collections.abc import Generator
 import os
-from pathlib import Path
 from collections.abc import Sequence
+from unittest import mock
 from _pytest.terminal import TerminalReporter
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from braintrust import Eval, init_logger
 from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
-from django.conf import settings
 import pytest
 from django.test import override_settings
 
@@ -143,28 +142,18 @@ class BraintrustURLReporter(TerminalReporter):  # type: ignore
             report.longrepr = self.DummyLongRepr(
                 reprcrash=self.DummyReprCrash(message=_node_id_to_results_url_map[report.nodeid])
             )
-        super().short_test_summary()
+        with mock.patch("_pytest.terminal.running_on_ci", return_value=True):
+            # Make pytest think we're running in CI, because annoyingly _pytest.terminal._get_line_with_reprcrash_message
+            # trims the short test summary (i.e. Braintrust URL) terminal width if it thinks we're not in CI
+            super().short_test_summary()
 
 
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
     if not str(config.rootdir).endswith("/ee/hogai/eval"):
-        return
-    # If running specifically evals, register a custom reporter that adds a link to the Braintrust results
+        return  # No-op if not running specifically evals
+    # Register a custom reporter that adds a link to the Braintrust results
     vanilla_reporter = config.pluginmanager.getplugin("terminalreporter")
     braintrust_url_reporter = BraintrustURLReporter(config)
     config.pluginmanager.unregister(vanilla_reporter)
     config.pluginmanager.register(braintrust_url_reporter, "terminalreporter")
-
-
-# TODO: Remove below `pytest_collection_modifyitems` with `skipif` injection once deepeval is refactored away,
-#       because newer braintrust-based structure uses a different prefix for test files (eval_*.py)
-
-
-def pytest_collection_modifyitems(items):
-    current_dir = Path(__file__).parent
-    for item in items:
-        if Path(item.fspath).is_relative_to(current_dir):
-            item.add_marker(
-                pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
-            )

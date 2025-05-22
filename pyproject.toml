@@ -147,7 +147,6 @@ dev = [
     "braintrust==0.1.1",
     "braintrust-langchain==0.0.2",
     "datamodel-code-generator==0.28.5",
-    "deepeval==2.6.*",
     "django-linear-migrations==2.16.*",
     "django-stubs==5.0.4",
     "djangorestframework-stubs~=3.14.5",
@@ -159,8 +158,6 @@ dev = [
     "mypy~=1.11.1",
     "mypy-baseline~=0.7.2",
     "mypy-extensions==1.0.0",
-    # ollama version constrained so that deepeval can be installed in dev
-    "ollama==0.4.7",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
