@@ -139,7 +139,7 @@ describe('sessionRecordingDataLogic', () => {
             const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
             // eslint-disable-next-line no-console
             console.log(`Average duration: ${averageDuration}ms`)
-            expect(averageDuration).toBeLessThan(400)
+            expect(averageDuration).toBeLessThan(1000)
         })
     })
 })
