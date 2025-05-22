@@ -76,6 +76,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_api = 'cdp-api',
+    cdp_legacy_on_event = 'cdp-legacy-on-event',
     functional_tests = 'functional-tests',
 }
 
@@ -108,6 +109,10 @@ export type CdpConfig = {
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
+
+    CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
+    CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
+    CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
 
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -184,6 +189,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+    CONSUMER_MAX_BACKGROUND_TASKS: number
 
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
@@ -316,8 +322,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
+
+    // New: switchover flag for v2 session recording metadata
+    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -331,6 +341,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
+    DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -388,6 +399,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
+    cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerFetch?: boolean

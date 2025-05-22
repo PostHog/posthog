@@ -86,10 +86,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                             <PropertyFilters
                                 editable={editable}
                                 propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
-                                    TaxonomicFilterGroupType.EventProperties,
-                                ]}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                 onChange={(properties: AnyPropertyFilter[]) =>
                                     updateLocalRule({ ...rule, filters: { ...rule.filters, values: properties } })
                                 }

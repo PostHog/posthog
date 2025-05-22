@@ -9,6 +9,7 @@ import {
     BaseMathType,
     BreakdownKeyType,
     BreakdownType,
+    CalendarHeatmapMathType,
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
@@ -80,6 +81,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    LogsQuery = 'LogsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -88,6 +90,7 @@ export enum NodeKind {
     InsightVizNode = 'InsightVizNode',
 
     TrendsQuery = 'TrendsQuery',
+    CalendarHeatmapQuery = 'CalendarHeatmapQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
@@ -105,7 +108,6 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    EventsHeatMapQuery = 'EventsHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -161,12 +163,13 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | EventsHeatMapQuery
 
 /**
  * @discriminator kind
@@ -187,6 +190,7 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -204,7 +208,6 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | EventsHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -219,6 +222,7 @@ export type QuerySchema =
 
     // Classic insights
     | TrendsQuery
+    | CalendarHeatmapQuery
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
@@ -228,6 +232,7 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+    | LogsQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -266,6 +271,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | LogsQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -566,6 +572,7 @@ export type MathType =
     | GroupMathType
     | HogQLMathType
     | ExperimentMetricMathType
+    | CalendarHeatmapMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -708,7 +715,6 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | EventsHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -738,7 +744,6 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | EventsHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -1011,6 +1016,11 @@ export type TrendsFilter = {
     goalLines?: GoalLine[]
 }
 
+export type CalendarHeatmapFilter = {
+    // Reserved for future filter properties
+    dummy?: string
+}
+
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'smoothingIntervals',
     'formula',
@@ -1065,6 +1075,29 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /**  Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: WebAnalyticsConversionGoal | null
+}
+
+export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
+
+export type CachedCalendarHeatmapQueryResponse = CachedQueryResponse<CalendarHeatmapResponse>
+
+export interface CalendarHeatmapQuery extends InsightsQueryBase<CalendarHeatmapResponse> {
+    kind: NodeKind.CalendarHeatmapQuery
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: AnyEntityNode[]
+    /** Properties specific to the trends insight */
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /**  Whether we should be comparing against a specific conversion goal */
     conversionGoal?: WebAnalyticsConversionGoal | null
 }
@@ -1442,7 +1475,7 @@ export type ClickhouseQueryProgress = {
     rows_read: integer
     estimated_rows_total: integer
     time_elapsed: integer
-    memory_usage: integer
+    active_cpu_time: integer
 }
 
 export type QueryStatus = {
@@ -1647,6 +1680,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<Web
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
+    usedPreAggregatedTables?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -1691,6 +1725,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    usedPreAggregatedTables?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -1938,6 +1973,45 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+    orderBy: 'latest' | 'earliest'
+    searchTerm?: string
+    resource?: string
+    severityLevels: LogSeverityLevel[]
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
+
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: string
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource: string
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface FileSystemCount {
     count: number
 }
@@ -1963,11 +2037,10 @@ export interface FileSystemEntry {
     _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
-    icon?: any // Setting as "any" to keep Python schema.py in check
+export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
+    iconType?: string
     flag?: string
-    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =
@@ -1977,6 +2050,7 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | CalendarHeatmapQuery
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string
@@ -2163,7 +2237,9 @@ export type InsightFilterProperty =
     | 'retentionFilter'
     | 'pathsFilter'
     | 'stickinessFilter'
+    | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
+
 export type InsightFilter =
     | TrendsFilter
     | FunnelsFilter
@@ -2171,6 +2247,7 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
+    | CalendarHeatmapFilter
 
 export type Day = integer
 
@@ -2364,9 +2441,16 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
 }
 
+export enum DatabaseSchemaManagedViewTableKind {
+    REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
+    REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
-    type: 'managed_view'
     query: HogQLQuery
+    type: 'managed_view'
+    kind: DatabaseSchemaManagedViewTableKind
+    source_id?: string
 }
 
 export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
@@ -2932,16 +3016,6 @@ export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURL
 
 export type HeatMapQuerySource = EventsNode
 
-export interface EventsHeatMapQuery extends WebAnalyticsQueryBase<EventsHeatMapQueryResponse> {
-    kind: NodeKind.EventsHeatMapQuery
-    source: HeatMapQuerySource
-}
-
-export interface EventsHeatMapQueryResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
-    hasMore?: boolean
-    limit?: integer
-}
-
 export interface EventsHeatMapDataResult {
     row: integer
     column: integer
@@ -2964,5 +3038,3 @@ export interface EventsHeatMapStructuredResult {
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
 }
-
-export type CachedEventsHeatMapQueryResponse = CachedQueryResponse<EventsHeatMapQueryResponse>

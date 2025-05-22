@@ -77,6 +77,9 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
+    // This is used to track the model that was used for the cost calculation
+    event.properties['$ai_model_cost_used'] = cost.model
+
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
 
@@ -136,20 +139,41 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
 }
 
 const findCostFromModel = (aiModel: string): ModelRow | undefined => {
-    // Check if the model is an exact match
-    let cost: ModelRow | undefined = costsByModel[aiModel.toLowerCase()]
-    // Check if the model is a variant of a known model
-    if (!cost) {
-        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+    const lowerAiModel = aiModel.toLowerCase()
+
+    // 1. Attempt exact match first
+    let cost: ModelRow | undefined = costsByModel[lowerAiModel]
+    if (cost) {
+        return cost
     }
-    // Check if the model is a variant of a known model
-    if (!cost) {
-        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+
+    // 2. Partial match: A known model's name is a substring of aiModel.
+    //    e.g., aiModel="gpt-4.1-mini-2025-04-14", known model="gpt-4.1-mini".
+    let bestSubMatch: ModelRow | undefined = undefined
+    let longestMatchLength = 0
+
+    for (const modelRow of Object.values(costsByModel)) {
+        const lowerKnownModelName = modelRow.model.toLowerCase()
+        if (lowerAiModel.includes(lowerKnownModelName)) {
+            if (lowerKnownModelName.length > longestMatchLength) {
+                longestMatchLength = lowerKnownModelName.length
+                bestSubMatch = modelRow
+            }
+        }
     }
-    if (!cost) {
-        logger.warn(`No cost found for model: ${aiModel}`)
+
+    if (bestSubMatch) {
+        return bestSubMatch
     }
-    return cost
+
+    // 3. Partial match: aiModel is a substring of a known model's name.
+    cost = Object.values(costsByModel).find((modelRow) => modelRow.model.toLowerCase().includes(lowerAiModel))
+    if (cost) {
+        return cost
+    }
+
+    logger.warn(`No cost found for model: ${aiModel}`)
+    return undefined
 }
 
 const requireSpecialCost = (aiModel: string): boolean => {

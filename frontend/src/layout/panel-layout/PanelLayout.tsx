@@ -4,12 +4,10 @@ import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
-import { ProductTree } from '~/layout/panel-layout/ProductTree/ProductTree'
-
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
-import { ProjectTree } from './ProjectTree/ProjectTree'
+import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
@@ -124,7 +122,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
         useActions(panelLayoutLogic)
-    useMountedLogic(projectTreeLogic)
+    useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     useEffect(() => {
         if (mainRef.current) {
@@ -151,9 +149,24 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 style={{ '--project-panel-width': `${panelWidth}px` } as React.CSSProperties}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'Project' && <ProjectTree sortMethod="folder" />}
-                    {activePanelIdentifier === 'Recent' && <ProjectTree sortMethod="recent" />}
-                    {activePanelIdentifier === 'Products' && <ProductTree />}
+                    {activePanelIdentifier === 'Project' && (
+                        <ProjectTree root="project://" sortMethod="folder" logicKey={PROJECT_TREE_KEY} />
+                    )}
+                    {activePanelIdentifier === 'Recent' && (
+                        <ProjectTree root="project://" sortMethod="recent" logicKey={PROJECT_TREE_KEY} />
+                    )}
+                    {activePanelIdentifier === 'Products' && (
+                        <ProjectTree root="products://" searchPlaceholder="Search products" />
+                    )}
+                    {activePanelIdentifier === 'Shortcuts' && (
+                        <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
+                    )}
+                    {activePanelIdentifier === 'Games' && (
+                        <ProjectTree root="games://" searchPlaceholder="Search games" />
+                    )}
+                    {activePanelIdentifier === 'Data management' && (
+                        <ProjectTree root="data-management://" searchPlaceholder="Search data management" />
+                    )}
                 </PanelLayoutNavBar>
             </div>
 

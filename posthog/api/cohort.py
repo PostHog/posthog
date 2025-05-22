@@ -96,6 +96,7 @@ class EventPropFilter(BaseModel, extra="forbid"):
 class HogQLFilter(BaseModel, extra="forbid"):
     type: Literal["hogql"]
     key: str
+    value: Any | None = None
 
 
 class BehavioralFilter(BaseModel, extra="forbid"):
@@ -156,10 +157,12 @@ PropertyFilter = Annotated[
     Field(discriminator="type"),
 ]
 
+FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+
 
 class Group(BaseModel, extra="forbid"):
     type: Literal["AND", "OR"]
-    values: list[Union[PropertyFilter, "Group"]]
+    values: list[FilterOrGroup]
 
 
 Group.model_rebuild()

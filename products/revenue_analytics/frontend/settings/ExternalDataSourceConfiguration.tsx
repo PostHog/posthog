@@ -5,7 +5,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineStage } from '~/types'
+import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
@@ -14,7 +14,7 @@ const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 export function ExternalDataSourceConfiguration({
     buttonRef,
 }: {
-    buttonRef: React.RefObject<HTMLButtonElement>
+    buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueEventsSettingsLogic)
     const { updateSource } = useActions(revenueEventsSettingsLogic)
@@ -47,7 +47,13 @@ export function ExternalDataSourceConfiguration({
                         title: 'Source',
                         render: (_, item: ExternalDataSource) => {
                             return (
-                                <Link to={urls.pipelineNode(PipelineStage.Source, item.id)}>
+                                <Link
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Source,
+                                        `managed-${item.id}`,
+                                        PipelineNodeTab.Schemas
+                                    )}
+                                >
                                     {item.prefix || item.source_type}
                                 </Link>
                             )

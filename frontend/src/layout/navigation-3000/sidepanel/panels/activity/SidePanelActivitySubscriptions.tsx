@@ -1,14 +1,14 @@
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 export function SidePanelActivitySubscriptions(): JSX.Element {
     return (
-        <div className="deprecated-space-y-4 ">
+        <div className="deprecated-space-y-4">
             <p>Get notified of your team's activity</p>
 
             <LinkedHogFunctions
                 logicKey="activity-log"
                 type="internal_destination"
-                subTemplateId="activity-log"
+                subTemplateIds={['activity-log']}
                 filters={{
                     events: [
                         {

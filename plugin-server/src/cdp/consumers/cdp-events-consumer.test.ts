@@ -161,7 +161,7 @@ describe.each([
             }
 
             it('should process events', async () => {
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(2)
                 expect(invocations).toMatchObject([
@@ -176,7 +176,7 @@ describe.each([
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
@@ -211,7 +211,7 @@ describe.each([
                 await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
                 await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
                 expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)

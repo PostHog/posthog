@@ -4,7 +4,7 @@ import { LemonTreeRef, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' // Add more identifiers here for more panels
+export type PanelLayoutNavIdentifier = 'Project' | 'Recent' | 'Products' | 'Games' | 'Shortcuts' | 'Data management'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
@@ -22,8 +22,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
         clearActivePanelIdentifier: true,
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        clearSearch: true,
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
@@ -82,13 +80,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',
-            },
-        ],
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-                clearSearch: () => '',
             },
         ],
         panelTreeRef: [

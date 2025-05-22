@@ -38,32 +38,31 @@ export enum ConversionRateInputType {
     AUTOMATIC = 'automatic',
 }
 
-const getKindField = (metric: ExperimentMetric): NodeKind => {
-    if (isExperimentFunnelMetric(metric)) {
-        return NodeKind.EventsNode
-    }
-
-    if (isExperimentMeanMetric(metric)) {
-        const { kind } = metric.source
-        // For most sources, we can return the kind directly
-        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
-            return kind
-        }
-    }
-
-    return NodeKind.EventsNode
-}
-
-const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
+// Creates the correct identifier properties for a series item based on metric type
+const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Record<string, any> => {
     if (isExperimentMeanMetric(metric)) {
         const { source } = metric
-        return source.kind === NodeKind.ExperimentDataWarehouseNode
-            ? source.table_name
-            : source.kind === NodeKind.EventsNode
-            ? source.event
-            : source.kind === NodeKind.ActionsNode
-            ? source.id
-            : null
+
+        if (source.kind === NodeKind.EventsNode) {
+            return {
+                kind: NodeKind.EventsNode,
+                event: source.event,
+            }
+        }
+
+        if (source.kind === NodeKind.ActionsNode) {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: source.id,
+            }
+        }
+
+        if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            return {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: source.table_name,
+            }
+        }
     }
 
     if (isExperimentFunnelMetric(metric)) {
@@ -73,24 +72,43 @@ const getEventField = (metric: ExperimentMetric): string | number | null | undef
          * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
          */
         const step = metric.series.at(-1)!
-        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
+
+        if (step.kind === NodeKind.EventsNode) {
+            return {
+                kind: NodeKind.EventsNode,
+                event: step.event,
+            }
+        }
+
+        if (step.kind === NodeKind.ActionsNode) {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: step.id,
+            }
+        }
     }
 
-    return null
+    throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
 }
 
-const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getTotalCountQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    eventConfig: EventConfig | null
+): TrendsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                kind: NodeKind.EventsNode,
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
                 math: BaseMathType.UniqueUsers,
             },
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: CountPerActorMathType.Average,
             },
         ],
@@ -104,23 +122,33 @@ const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): T
     } as TrendsQuery
 }
 
-const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getSumQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    eventConfig: EventConfig | null
+): TrendsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+    const mathProperty =
+        metric.metric_type === ExperimentMetricType.MEAN
+            ? {
+                  math_property: metric.source.math_property,
+                  math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+              }
+            : {}
+
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                kind: NodeKind.EventsNode,
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
                 math: BaseMathType.UniqueUsers,
             },
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: PropertyMathType.Sum,
-                math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-                ...(metric.metric_type === ExperimentMetricType.MEAN && {
-                    math_property: metric.source.math_property,
-                }),
+                ...mathProperty,
             },
         ],
         trendsFilter: {},
@@ -138,6 +166,8 @@ const getFunnelQuery = (
     eventConfig: EventConfig | null,
     experiment: Experiment
 ): FunnelsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
@@ -146,10 +176,7 @@ const getFunnelQuery = (
                 event: eventConfig?.event ?? '$pageview',
                 properties: eventConfig?.properties ?? [],
             },
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-            },
+            baseProps,
         ],
         funnelsFilter: {
             funnelVizType: FunnelVizType.Steps,
@@ -253,10 +280,14 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
                     metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? getTotalCountQuery(metric, values.experiment)
+                        ? getTotalCountQuery(
+                              metric,
+                              values.experiment,
+                              values.exposureEstimateConfig?.eventFilter ?? null
+                          )
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
-                        ? getSumQuery(metric, values.experiment)
+                        ? getSumQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
                         : getFunnelQuery(metric, values.exposureEstimateConfig?.eventFilter ?? null, values.experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
@@ -294,6 +325,13 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     })),
     listeners(({ actions, values }) => ({
         setMetricIndex: () => {
+            // When metric index changes, update exposure estimate config with the new metric
+            if (values.metric) {
+                actions.setExposureEstimateConfig({
+                    ...(values.exposureEstimateConfig ?? defaultExposureEstimateConfig),
+                    metric: values.metric,
+                })
+            }
             actions.loadMetricResult()
         },
         setExposureEstimateConfig: () => {
@@ -342,8 +380,19 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return null
                 }
 
+                // First check regular metrics
                 const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
-                return metricIndex >= 0 ? metricIndex : null
+                if (metricIndex >= 0) {
+                    return metricIndex
+                }
+
+                // If not found, check shared metrics
+                const primarySharedMetrics = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')
+                const sharedMetricIndex = primarySharedMetrics.findIndex((m) =>
+                    equal(m.query, exposureEstimateConfig.metric)
+                )
+
+                return sharedMetricIndex >= 0 ? experiment.metrics.length + sharedMetricIndex : null
             },
         ],
         metricIndex: [
@@ -408,7 +457,24 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         ],
         metric: [
             (s) => [s.metricIndex, s.experiment],
-            (metricIndex: number, experiment: Experiment) => experiment.metrics[metricIndex],
+            (metricIndex: number | null, experiment: Experiment): ExperimentMetric | null => {
+                if (metricIndex === null) {
+                    return null
+                }
+
+                // Check if the index is within the regular metrics array
+                if (metricIndex < experiment.metrics.length) {
+                    return experiment.metrics[metricIndex] as ExperimentMetric
+                }
+
+                // If not, check shared metrics with primary type
+                const sharedMetricIndex = metricIndex - experiment.metrics.length
+                const sharedMetric = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')[
+                    sharedMetricIndex
+                ]
+
+                return sharedMetric?.query as ExperimentMetric
+            },
         ],
         uniqueUsers: [
             (s) => [s.metricResult, s.exposureEstimateConfig],

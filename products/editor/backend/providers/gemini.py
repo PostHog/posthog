@@ -18,6 +18,8 @@ class GeminiConfig:
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
+        "gemini-2.5-pro-preview-03-25",
+        "gemini-2.5-flash-preview-04-17",
         "gemini-2.0-flash-001",
         "gemini-2.0-flash-lite-001",
         "gemini-1.5-flash",
@@ -43,7 +45,12 @@ class GeminiProvider:
         return api_key
 
     def stream_response(
-        self, system: str, messages: list[MessageParam], thinking: bool = False
+        self,
+        system: str,
+        messages: list[MessageParam],
+        thinking: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -51,13 +58,21 @@ class GeminiProvider:
         self.validate_model(self.model_id)
 
         try:
+            effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
+            effective_max_tokens = max_tokens  # May be None; Gemini API uses max_output_tokens
+
+            # Build config with conditionals
+            config_kwargs = {
+                "system_instruction": system,
+                "temperature": effective_temperature,
+            }
+            if effective_max_tokens is not None:
+                config_kwargs["max_output_tokens"] = effective_max_tokens
+
             response = self.client.models.generate_content_stream(
                 model=self.model_id,
                 contents=convert_anthropic_messages_to_gemini(messages),
-                config=GenerateContentConfig(
-                    system_instruction=system,
-                    temperature=GeminiConfig.TEMPERATURE,
-                ),
+                config=GenerateContentConfig(**config_kwargs),
             )
             for chunk in response:
                 if chunk.text:

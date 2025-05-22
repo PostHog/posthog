@@ -118,6 +118,31 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-24T00:00:00.000000Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-24T23:59:59.999999Z"))
 
+    def test_minute(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="-2M", date_to="-1M", explicitDate=False)
+
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.MINUTE, now=now)
+
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-24T23:58:00.000000Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-24T23:59:59.999999Z"))
+
+    def test_interval_count(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="-66M", date_to="-6M", explicitDate=False)
+
+        query_date_range = QueryDateRange(
+            team=self.team, date_range=date_range, interval=IntervalType.MINUTE, interval_count=10, now=now
+        )
+
+        self.assertEqual(query_date_range.all_values()[0], parser.isoparse("2021-08-24T22:54:00.000000Z"))
+        self.assertEqual(query_date_range.all_values()[1], parser.isoparse("2021-08-24T23:04:00.000000Z"))
+        self.assertEqual(query_date_range.all_values()[2], parser.isoparse("2021-08-24T23:14:00.000000Z"))
+        self.assertEqual(query_date_range.all_values()[3], parser.isoparse("2021-08-24T23:24:00.000000Z"))
+        self.assertEqual(query_date_range.all_values()[4], parser.isoparse("2021-08-24T23:34:00.000000Z"))
+        self.assertEqual(query_date_range.all_values()[5], parser.isoparse("2021-08-24T23:44:00.000000Z"))
+        self.assertEqual(query_date_range.all_values()[6], parser.isoparse("2021-08-24T23:54:00.000000Z"))
+
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):
     def setUp(self):

@@ -1,4 +1,3 @@
-import { IconHandMoney, IconPiggyBank } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -23,13 +22,13 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Revenue analytics',
-            icon: <IconPiggyBank />,
-            href: () => urls.revenueAnalytics(),
+            iconType: 'piggyBank',
+            href: urls.revenueAnalytics(),
         },
         {
             path: 'Revenue settings',
-            icon: <IconHandMoney />,
-            href: () => urls.revenueSettings(),
+            iconType: 'handMoney',
+            href: urls.revenueSettings(),
         },
     ],
 }

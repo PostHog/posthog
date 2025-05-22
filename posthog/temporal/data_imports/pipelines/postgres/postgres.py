@@ -34,6 +34,25 @@ class JsonAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class RangeAsStringLoader(Loader):
+    """Load PostgreSQL range types as their string representation.
+
+    We currently do not support range types. So, for now, the best we can do is
+    convert them to `str`. For example, instead of loading a
+    `psycopg.types.range.Range(4, 5, '[)')`, we will load `str` "[4,5)".
+
+    Keep in mind that a single range can have multiple possible string
+    representations. For example, `psycopg.types.range.Range(4, 5, '[]')` could
+    be represented as "[4,5]" or "[4,6)". We let `psycopg` figure which string
+    representation to use (from testing, it seems that the latter is preferred).
+    """
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8")
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -353,6 +372,12 @@ def postgres_source(
         ) as connection:
             connection.adapters.register_loader("json", JsonAsStringLoader)
             connection.adapters.register_loader("jsonb", JsonAsStringLoader)
+            connection.adapters.register_loader("int4range", RangeAsStringLoader)
+            connection.adapters.register_loader("int8range", RangeAsStringLoader)
+            connection.adapters.register_loader("numrange", RangeAsStringLoader)
+            connection.adapters.register_loader("tsrange", RangeAsStringLoader)
+            connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
+            connection.adapters.register_loader("daterange", RangeAsStringLoader)
 
             with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                 query = _build_query(
