@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useErrorTagRenderer } from 'scenes/error-tracking/hooks/use-error-tag-renderer'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import { DataTable, DataTableColumn } from '../DataTable/DataTable'
+import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
 import { eventsQueryLogic } from './eventsQueryLogic'
 import { eventsSourceLogic } from './eventsSourceLogic'
@@ -53,11 +53,11 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
     }
 
     return (
-        <DataTable<ErrorEventType> dataSource={dataSource} embedded onRowClick={toggleSelectedEvent}>
-            <DataTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
-            <DataTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
-            <DataTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
-            <DataTableColumn<ErrorEventType> align="right" cellRenderer={renderAttributes} />
-        </DataTable>
+        <DataSourceTable<ErrorEventType> dataSource={dataSource} embedded onRowClick={toggleSelectedEvent}>
+            <DataSourceTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
+            <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
+            <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
+            <DataSourceTableColumn<ErrorEventType> align="right" cellRenderer={renderAttributes} />
+        </DataSourceTable>
     )
 }

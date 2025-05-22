@@ -4,7 +4,7 @@ import { errorTrackingIssueEventsQuery } from 'scenes/error-tracking/queries'
 
 import { ErrorTrackingRelationalIssue, EventsQuery } from '~/queries/schema/schema-general'
 
-import { DataQueryLogic } from '../DataTable'
+import { DataQueryLogic } from '../DataSourceTable'
 import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
 import type { eventsQueryLogicType } from './eventsQueryLogicType'
 

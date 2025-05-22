@@ -2,9 +2,9 @@ import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { Children, isValidElement, MouseEvent, ReactElement, useCallback } from 'react'
 
-import { DataSourceLogic } from './types'
+import type { DataSourceLogic } from './types'
 
-export interface DataTableProps<T> {
+export interface DataSourceTableProps<T> {
     dataSource: BuiltLogic<DataSourceLogic<T>>
     className?: string
     children?: React.ReactNode
@@ -12,19 +12,19 @@ export interface DataTableProps<T> {
     onRowClick?: (item: T, evt: MouseEvent) => void
 }
 
-export function DataTable<T extends Record<string, any>>({
+export function DataSourceTable<T extends Record<string, any>>({
     dataSource,
     className,
     embedded = false,
     onRowClick,
     children,
-}: DataTableProps<T>): JSX.Element {
+}: DataSourceTableProps<T>): JSX.Element {
     const { items, itemsLoading } = useValues(dataSource)
 
     const columns = Children.toArray(children)
         .filter((child) => isValidElement(child))
         .map((child) => {
-            const props = (child as ReactElement).props as DataTableColumnProps<T>
+            const props = (child as ReactElement).props as DataSourceTableColumnProps<T>
             return {
                 title: props.title,
                 align: props.align,
@@ -55,12 +55,14 @@ export function DataTable<T extends Record<string, any>>({
             embedded={embedded}
             onRow={onRow}
             className={className}
-            footer={<DataTableFooter dataSource={dataSource} />}
+            footer={<DataSourceTableFooter dataSource={dataSource} />}
         />
     )
 }
 
-export function DataTableFooter<T extends Record<string, any>>({ dataSource }: DataTableProps<T>): JSX.Element {
+export function DataSourceTableFooter<T extends Record<string, any>>({
+    dataSource,
+}: Pick<DataSourceTableProps<T>, 'dataSource'>): JSX.Element {
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadNextData } = useActions(dataSource)
 
@@ -83,7 +85,7 @@ export function DataTableFooter<T extends Record<string, any>>({ dataSource }: D
     )
 }
 
-export interface DataTableColumnProps<T> {
+export interface DataSourceTableColumnProps<T> {
     title?: string
     align?: 'left' | 'right' | 'center'
     width?: string
@@ -91,7 +93,7 @@ export interface DataTableColumnProps<T> {
 }
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
-export function DataTableColumn<T>(_: DataTableColumnProps<T>): JSX.Element {
+export function DataSourceTableColumn<T>(_: DataSourceTableColumnProps<T>): JSX.Element {
     /* eslint-enable @typescript-eslint/no-unused-vars */
     return <></>
 }

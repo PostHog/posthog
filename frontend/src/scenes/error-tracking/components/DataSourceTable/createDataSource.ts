@@ -5,9 +5,9 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import { DataSourceLogic, DataSourceLogicProps } from './types'
+import type { DataSourceLogic, DataSourceLogicProps } from './types'
 
-// Alias kea function to prevent kea typegen issues
+// Alias kea function to prevent kea from generating types
 const buildKea = kea
 
 function defaultCreateKey<Props extends DataSourceLogicProps<DataNode>>({ queryKey }: Props): string {
