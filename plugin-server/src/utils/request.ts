@@ -13,6 +13,7 @@ import {
     RequestInit,
     Response,
 } from 'undici'
+export { Response } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
