@@ -8,7 +8,7 @@ import { PassThrough } from 'stream'
 import * as url from 'url'
 
 import { isTestEnv } from '../../utils/env-utils'
-import { legacyFetch } from '../../utils/fetch'
+import { legacyFetch } from '../../utils/request'
 import { writeToFile } from './extensions/test-utils'
 
 export const AVAILABLE_IMPORTS = {

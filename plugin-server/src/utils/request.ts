@@ -3,7 +3,16 @@ import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
 import { Counter } from 'prom-client'
-import { type HeadersInit, Agent, errors, request } from 'undici'
+import {
+    type HeadersInit,
+    Agent,
+    errors,
+    fetch as undiciFetch,
+    request,
+    RequestInfo,
+    RequestInit,
+    Response,
+} from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
@@ -193,4 +202,25 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         json: async () => parseJSON(await result.body.text()),
         text: async () => await result.body.text(),
     }
+}
+
+// Legacy fetch implementation that exposes the entire fetch implementation
+export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
+    let parsed: URL
+    try {
+        parsed = typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url)
+    } catch {
+        throw new Error('Invalid URL')
+    }
+
+    if (!parsed.hostname || !(parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
+        throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
+    }
+
+    // options.timeoutMs = options.timeoutMs ?? defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+
+    const requestOptions = options ?? {}
+    requestOptions.dispatcher = sharedSecureAgent
+
+    return undiciFetch(parsed.toString(), requestOptions)
 }

@@ -7,8 +7,8 @@ import {
     convertToPostHogEvent,
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
-import { legacyFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
+import { legacyFetch } from '../../utils/request'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
