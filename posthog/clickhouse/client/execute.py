@@ -24,7 +24,7 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
-from posthog.settings import TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -162,7 +162,11 @@ def sync_execute(
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
     query_id = validated_client_query_id()
-    core_settings = {**default_settings(), **(settings or {})}
+    core_settings = {
+        **default_settings(),
+        **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
+        **(settings or {}),
+    }
     tags["query_settings"] = core_settings
     query_type = tags.get("query_type", "Other")
     if ch_user == ClickHouseUser.DEFAULT:

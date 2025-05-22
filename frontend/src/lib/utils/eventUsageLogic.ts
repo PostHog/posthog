@@ -53,6 +53,7 @@ import {
     Resource,
     type SDK,
     Survey,
+    SurveyQuestionType,
 } from '~/types'
 
 import type { eventUsageLogicType } from './eventUsageLogicType'
@@ -1116,6 +1117,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_branching_logic: survey.questions.some(
                     (question) => question.branching && Object.keys(question.branching).length > 0
                 ),
+                has_partial_responses: survey.enable_partial_responses,
+                skipping_submit_button: survey.questions.some((question) => {
+                    if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return question.skipSubmitButton
+                    }
+                    return false
+                }),
             })
         },
         reportSurveyViewed: ({ survey }) => {
@@ -1155,6 +1166,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_branching_logic: survey.questions.some(
                     (question) => question.branching && Object.keys(question.branching).length > 0
                 ),
+                has_partial_responses: survey.enable_partial_responses,
+                skipping_submit_button: survey.questions.some((question) => {
+                    if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return question.skipSubmitButton
+                    }
+                    return false
+                }),
             })
         },
         reportSurveyTemplateClicked: ({ template }) => {

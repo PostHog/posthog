@@ -78,6 +78,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
+                                <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                                    Have any questions or feedback?
+                                </LemonButton>
                                 <More
                                     overlay={
                                         <>
