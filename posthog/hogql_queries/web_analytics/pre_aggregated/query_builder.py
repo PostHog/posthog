@@ -30,10 +30,28 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     # We can probably use the hogql general filters somehow but it was not working by default and it was a lot of moving parts to debug at once so
     # TODO: come back to this later to make sure we're not overcomplicating things
     def _get_filters(self):
-        if not self.runner.query.properties:
-            return None
+        current_date_expr = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=[self.table_name, "day_bucket"]),
+                    right=ast.Constant(
+                        value=(
+                            self.runner.query_compare_to_date_range.date_from()
+                            if self.runner.query_compare_to_date_range
+                            else self.runner.query_date_range.date_from()
+                        )
+                    ),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=[self.table_name, "day_bucket"]),
+                    right=ast.Constant(value=self.runner.query_date_range.date_to()),
+                ),
+            ]
+        )
 
-        filter_parts = []
+        filter_parts = [current_date_expr]
 
         for posthog_field, table_field in self.supported_props_filters.items():
             for prop in self.runner.query.properties:
