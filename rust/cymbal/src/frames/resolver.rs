@@ -1,4 +1,3 @@
-use core::todo;
 use std::time::Duration;
 
 use moka::sync::{Cache, CacheBuilder};
@@ -59,8 +58,6 @@ impl Resolver {
         } else {
             None
         };
-
-        todo!("Add release information onto the frame here");
 
         let record = ErrorTrackingStackFrame::new(
             frame.frame_id(),
