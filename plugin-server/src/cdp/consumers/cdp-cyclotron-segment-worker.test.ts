@@ -1,4 +1,4 @@
-import { DateTime, Settings } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { fetch, FetchResponse } from '~/src/utils/request'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -57,14 +57,13 @@ describe('CdpCyclotronWorkerSegment', () => {
             Promise.resolve()
         )
 
-        Settings.defaultZone = 'UTC'
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+        jest.spyOn(DateTime, 'now').mockReturnValue(fixedTime as DateTime<true>)
     })
 
     afterEach(async () => {
         jest.setTimeout(10000)
-        Settings.defaultZone = 'system'
         await processor.stop()
         await closeHub(hub)
     })
