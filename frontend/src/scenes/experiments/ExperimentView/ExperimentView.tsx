@@ -21,6 +21,7 @@ import {
 } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
+import { ExperimentMigrationAssistant } from './ExperimentMigrationAssistant'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
@@ -95,13 +96,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experiment, experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } =
+        useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
     return (
         <>
             <PageHeaderCustom />
+            <ExperimentMigrationAssistant experiment={experiment} />
             <div className="deprecated-space-y-8 experiment-view">
                 {experimentLoading ? (
                     <LoadingState />
