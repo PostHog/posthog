@@ -46,9 +46,8 @@ describe('hooks', () => {
 
             expect(fetch).toHaveBeenCalledTimes(1)
 
-            // @ts-expect-error mock exists because we mock it ourselves
-            expect(fetch.mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
-            expect(fetch.mock.calls[0][1].body).toMatchInlineSnapshot(`
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
                 "{
                     "hook": {
                         "id": "id",
@@ -87,9 +86,8 @@ describe('hooks', () => {
             )
             expect(fetch).toHaveBeenCalledTimes(1)
 
-            // @ts-expect-error mock exists because we mock it ourselves
-            expect(fetch.mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
-            expect(fetch.mock.calls[0][1].body).toMatchInlineSnapshot(`
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
                 "{
                     "hook": {
                         "id": "id",
