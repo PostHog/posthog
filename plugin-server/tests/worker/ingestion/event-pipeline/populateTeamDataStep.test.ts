@@ -1,4 +1,6 @@
-import { PipelineEvent, Team } from '../../../../src/types'
+import { TeamManager } from 'utils/team-manager'
+
+import { Hub, PipelineEvent, Team } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
@@ -30,35 +32,34 @@ const teamTwo: Team = {
 
 const teamTwoToken = 'token'
 
-let runner: any
+let hub: Hub
 
 beforeEach(() => {
     resetMetrics()
-    runner = {
-        hub: {
-            eventsToSkipPersonsProcessingByToken: createEventsToDropByToken('2:distinct_id_to_drop'),
-            teamManager: {
-                getTeamByToken: jest.fn((token) => {
-                    return token === teamTwoToken ? teamTwo : null
-                }),
+    const teamManager: TeamManager = {
+        getTeamByToken: jest.fn((token) => {
+            return token === teamTwoToken ? teamTwo : null
+        }),
 
-                getTeam: jest.fn((teamId) => {
-                    if (teamId === 2) {
-                        return teamTwo
-                    }
-                    if (teamId === 3) {
-                        return { ...teamTwo, person_processing_opt_out: true }
-                    }
-                    return null
-                }),
-            },
-        },
-    }
+        getTeam: jest.fn((teamId) => {
+            if (teamId === 2) {
+                return teamTwo
+            }
+            if (teamId === 3) {
+                return { ...teamTwo, person_processing_opt_out: true }
+            }
+            return null
+        }),
+    } as unknown as TeamManager
+    hub = {
+        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken('2:distinct_id_to_drop'),
+        teamManager,
+    } as Hub
 })
 
 describe('populateTeamDataStep()', () => {
     it('event with no token is not processed and the step returns null', async () => {
-        const response = await populateTeamDataStep(runner, { ...pipelineEvent })
+        const response = await populateTeamDataStep(hub, { ...pipelineEvent })
         expect(response).toEqual(null)
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
@@ -72,7 +73,7 @@ describe('populateTeamDataStep()', () => {
     })
 
     it('event with an invalid token is not processed and the step returns null', async () => {
-        const response = await populateTeamDataStep(runner, { ...pipelineEvent, token: 'unknown' })
+        const response = await populateTeamDataStep(hub, { ...pipelineEvent, token: 'unknown' })
         expect(response).toEqual(null)
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
@@ -86,7 +87,7 @@ describe('populateTeamDataStep()', () => {
     })
 
     it('event with a valid token gets assigned a team_id keeps its ip', async () => {
-        const response = await populateTeamDataStep(runner, { ...pipelineEvent, token: teamTwoToken })
+        const response = await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
 
         expect(response?.eventWithTeam).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
@@ -95,8 +96,8 @@ describe('populateTeamDataStep()', () => {
     it('event with a valid token for a team with anonymize_ips=true keeps its ip', async () => {
         // NOTE: The IP is intentionally kept in `populateTeamDataStep` so that it is still
         // available for plugins. It is later removed by `prepareEventStep`.
-        jest.mocked(runner.hub.teamManager.getTeamByToken).mockReturnValue({ ...teamTwo, anonymize_ips: true })
-        const response = await populateTeamDataStep(runner, { ...pipelineEvent, token: teamTwoToken })
+        jest.mocked(hub.teamManager.getTeamByToken).mockResolvedValue({ ...teamTwo, anonymize_ips: true })
+        const response = await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
 
         expect(response?.eventWithTeam).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
@@ -104,27 +105,27 @@ describe('populateTeamDataStep()', () => {
 
     it('event with a team_id value is returned unchanged', async () => {
         const input = { ...pipelineEvent, team_id: 2 }
-        const response = await populateTeamDataStep(runner, input)
+        const response = await populateTeamDataStep(hub, input)
         expect(response?.eventWithTeam).toEqual(input)
     })
 
     it('event with a team_id whose team is opted-out from person processing', async () => {
         const input = { ...pipelineEvent, team_id: 3 }
-        const response = await populateTeamDataStep(runner, input)
+        const response = await populateTeamDataStep(hub, input)
         expect(response?.team.person_processing_opt_out).toBe(true)
         expect(response?.eventWithTeam.properties?.$process_person_profile).toBe(false)
     })
 
     it('event that is in the skip list', async () => {
         const input = { ...pipelineEvent, team_id: 2, distinct_id: 'distinct_id_to_drop' }
-        const response = await populateTeamDataStep(runner, input)
+        const response = await populateTeamDataStep(hub, input)
         expect(response?.eventWithTeam.properties?.$process_person_profile).toBe(false)
     })
 
     it('PG errors are propagated up to trigger retries', async () => {
-        jest.mocked(runner.hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
+        jest.mocked(hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
         await expect(async () => {
-            await populateTeamDataStep(runner, { ...pipelineEvent, token: teamTwoToken })
+            await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
         }).rejects.toThrowError('retry me')
     })
 })
