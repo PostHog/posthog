@@ -9,6 +9,30 @@ from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSave
 import uuid
 
 
+def join_components_greedily(components):
+    """
+    Greedily joins components until hitting a UUID.
+    Returns a list where UUIDs are separate items and non-UUID components are joined.
+    """
+    new_components = []
+    current_group = []
+
+    for component in components:
+        try:
+            uuid.UUID(component)
+            if current_group:
+                new_components.append(".".join(current_group))
+                current_group = []
+            new_components.append(component)
+        except ValueError:
+            current_group.append(component)
+
+    if current_group:
+        new_components.append(".".join(current_group))
+
+    return new_components
+
+
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     scope_object = "INTERNAL"
@@ -42,30 +66,14 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             else:
                 components = path.path.split(".")
 
-            # greedy join components until we hit a UUID
-            new_components = []
-            current_group = []
-
-            for component in components:
-                try:
-                    uuid_obj = uuid.UUID(component)
-                    if current_group:
-                        new_components.append(".".join(current_group))
-                        current_group = []
-                    new_components.append(component)
-                except ValueError:
-                    current_group.append(component)
-
-            if current_group:
-                new_components.append(".".join(current_group))
-
-            components = new_components
+            components = join_components_greedily(components)
 
             for i, component in enumerate(components):
                 node_id = component
                 if node_id not in seen_nodes:
                     seen_nodes.add(node_id)
                     uuid_obj = None
+                    saved_query = None
                     try:
                         uuid_obj = uuid.UUID(component)
                         saved_query = DataWarehouseSavedQuery.objects.get(id=uuid_obj)
