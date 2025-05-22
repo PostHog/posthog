@@ -1,35 +1,35 @@
 import dataclasses
-from typing import Optional, Union, cast, ClassVar
+from typing import ClassVar, Optional, Union, cast
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import replace_placeholders, find_placeholders
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import (
     prepare_ast_for_printing,
     print_ast,
     print_prepared_ast,
 )
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
-from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.clickhouse.client import sync_execute
 from posthog.schema import (
-    HogQLQueryResponse,
+    HogLanguage,
     HogQLFilters,
-    HogQLQueryModifiers,
     HogQLMetadata,
     HogQLMetadataResponse,
-    HogLanguage,
+    HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -178,8 +178,8 @@ class HogQLQueryExecutor:
         ):
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
 
-        if self.query_modifiers.csvAllowDoubleQuotes is not None:
-            settings.format_csv_allow_double_quotes = self.query_modifiers.csvAllowDoubleQuotes
+        if self.query_modifiers.formatCsvAllowDoubleQuotes is not None:
+            settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes
 
         try:
             self.clickhouse_context = dataclasses.replace(
