@@ -53,8 +53,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     key((props) => props.key),
     connect(() => ({
         values: [
-            panelLayoutLogic,
-            ['projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
             projectTreeDataLogic,
@@ -73,7 +71,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         actions: [
             panelLayoutLogic,
-            ['setActivePanelIdentifier', 'setProjectTreeMode'],
+            ['setActivePanelIdentifier'],
             projectTreeDataLogic,
             [
                 'loadFolder',
