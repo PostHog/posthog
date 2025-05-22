@@ -5,9 +5,8 @@ from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
-from braintrust import EvalCase, Score
+from braintrust import EvalCase
 from autoevals.llm import LLMClassifier
-from braintrust_core.score import Scorer
 from datetime import datetime
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
@@ -21,6 +20,7 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
+from .scorers import TimeRangeRelevancy
 
 
 class TrendsPlanCorrectness(LLMClassifier):
@@ -129,95 +129,6 @@ How would you rate the alignment of the generated query with the plan? Choose on
         )
 
 
-class TimeIntervalCorrectness(Scorer):
-    """Evaluate if the time interval in the trends query is correct."""
-
-    def _name(self):
-        return "time_interval_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "interval"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No trends query or interval"})
-
-        interval = query.interval
-        if not interval:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "interval is None"})
-
-        # Check for specific time intervals in the query description
-        if "last five years" in query_description.lower() and interval != "month":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'last five years', expected interval 'month', got '{interval}'"},
-            )
-        elif "last 80 days" in query_description.lower() and interval != "week":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'last 80 days', expected interval 'week', got '{interval}'"},
-            )
-        elif "last four weeks" in query_description.lower() and interval != "week":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'last four weeks', expected interval 'week', got '{interval}'"},
-            )
-        elif "last 15 days" in query_description.lower() and interval != "day":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'last 15 days', expected interval 'day', got '{interval}'"},
-            )
-        elif "last 12 hours" in query_description.lower() and interval != "hour":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'last 12 hours', expected interval 'hour', got '{interval}'"},
-            )
-
-        # Default score if no specific interval-related checks from input_query trigger a failure.
-        return Score(name=self._name(), score=1.0)
-
-
-class DateCorrectness(Scorer):
-    """Evaluate if the date range in the trends query is correct."""
-
-    def _name(self):
-        return "date_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "dateRange"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No trends query or dateRange"})
-
-        date_range = query.dateRange
-        if not date_range:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "dateRange is None"})
-
-        # Specific check for "this January"
-        if "this January" in query_description.lower():
-            year = str(datetime.now().year)
-            if not (
-                (date_range.date_from and year in date_range.date_from)
-                or (date_range.date_to and year in date_range.date_to)
-            ):
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={
-                        "reason": f"For 'this January', expected year {year} not in {date_range.date_from} or {date_range.date_to}"
-                    },
-                )
-            return Score(name=self._name(), score=1.0)
-
-        return Score(name=self._name(), score=1.0)
-
-
 class CallNodeOutput(TypedDict):
     plan: str | None
     query: AssistantTrendsQuery | None
@@ -254,7 +165,13 @@ def call_node(demo_org_team_user):
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
             return {"plan": None, "query": None}
 
-        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+        # Ensure the answer is of the expected type for Trends eval
+        answer = final_state.messages[-1].answer
+        if not isinstance(answer, AssistantTrendsQuery):
+            # This case should ideally not happen if the graph is configured correctly for Trends
+            return {"plan": final_state.messages[-1].plan, "query": None}
+
+        return {"plan": final_state.messages[-1].plan, "query": answer}
 
     return callable
 
@@ -267,8 +184,7 @@ def eval_trends(call_node):
         scores=[
             TrendsPlanCorrectness(),
             TrendsQueryAndPlanAlignment(),
-            TimeIntervalCorrectness(),
-            DateCorrectness(),
+            TimeRangeRelevancy(query_type="Trends"),
         ],
         data=[
             EvalCase(
@@ -308,9 +224,8 @@ Events:
                     query=AssistantTrendsQuery(
                         dateRange={"date_from": "-30d", "date_to": None},
                         filterTestAccounts=True,
-                        interval="day",
                         trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
+                            display="BoldNumber",
                             showLegend=True,
                         ),
                         series=[

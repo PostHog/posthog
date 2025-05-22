@@ -1,6 +1,7 @@
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from langchain_core.messages import AIMessage as LangchainAIMessage
+from autoevals.llm import LLMClassifier
 
 from braintrust import Score
 from posthog.schema import AssistantMessage, AssistantToolCall
@@ -42,3 +43,65 @@ class ToolRelevance(ScorerWithPartial):
                         elif tool_call.args.get(arg_name) == expected_arg_value:
                             score += score_per_arg
         return Score(name=self._name(), score=score)
+
+
+class TimeRangeRelevancy(LLMClassifier):
+    """Evaluate if the generated query's time range, interval, or period correctly answers the user's question."""
+
+    def __init__(self, query_type: str, **kwargs):
+        prompt_template = f"""You will be given an original user question and the generated query (or query components) to answer that question.
+Your goal is to determine if the time range, interval, or period in the generated query is relevant and correct based on the user's question.
+
+User question:
+<user_question>
+{{{{input}}}}
+</user_question>
+
+Generated {query_type} query components:
+<output_query>
+{{{{output.query}}}}
+</output_query>
+
+Evaluation criteria:
+1. Explicit Time Mentions: If the user's question explicitly mentions a time range (e.g., "last 7 days", "this month", "January 2023", "before 2024-01-01"), the query MUST reflect this.
+    - For "last X days/weeks/months": Check if the query uses a relative date range (e.g., -Xd, -Xw, -Xm or `now() - interval 'X day/week/month'`).
+    - For "this month/year": Check if the query filters for the current month/year (e.g., `date_trunc('month', timestamp) = date_trunc('month', now())`).
+    - For specific dates or months (e.g., "January 2023", "this January"): Check if the query filters for the exact date or month and year.
+2. Implicit Time Context: If the user's question implies a time context without being explicit (e.g., "recent activity", "trends over time"), the query should use a reasonable default time range (e.g., last 30 days, last 7 days) or an appropriate interval/period.
+3. Interval/Period Correctness (for Trends, Retention, SQL):
+    - Trends: If the question implies a specific granularity (e.g., "daily pageviews for the last 80 days" implies 'week' or 'day' interval, "pageviews over last five years" implies 'month' interval), the `interval` field in the query should match.
+    - Retention: If the question implies a cohort period (e.g., "daily retention", "weekly cohort"), the `period` field should match (e.g., "Day", "Week").
+    - SQL: If the question implies aggregation over time periods (e.g. "average session duration by day of week"), check for appropriate time functions like `dayOfWeek` or `toStartOfWeek`.
+4. No Time Mention: If the user's question has no discernible time component, the query can use a default time range, or no time filter if not applicable, and should not be penalized.
+5. Excessive or Missing Time Filters: Penalize if the query includes time filters that contradict the user's question or omits them when clearly needed. For SQL, check if `timestamp` or relevant date fields are used in WHERE clauses for filtering.
+
+Query type specific considerations for `output.query`:
+- SQL: `output.query` is an AssistantHogQLQuery object. The actual SQL string is in `output.query.query`.
+- Trends: `output.query` is an AssistantTrendsQuery object. Check `output.query.dateRange` and `output.query.interval`.
+- Funnels: `output.query` is an AssistantFunnelsQuery object. Check `output.query.dateRange`. Funnels do not have an interval.
+- Retention: `output.query` is an AssistantRetentionQuery object. Check `output.query.dateRange` and `output.query.retentionFilter.period`.
+
+How would you rate the time range relevancy of the generated query? Choose one:
+- perfect: The time range, interval, and/or period in the query perfectly match the user's question or a sensible default if unspecified.
+- near_perfect: The query's time components mostly match the user's question with at most one immaterial detail missed or slightly off.
+- slightly_off: The query's time components have minor discrepancies that might slightly alter the insight but generally align with the question.
+- somewhat_misaligned: The query's time components have some correct elements but miss key aspects of the question's time requirements or use inappropriate defaults.
+- strongly_misaligned: The query's time components do not match the question's time requirements at all.
+- not_applicable: The user's question has no time component, and the query correctly omits time filters or uses a broad default that doesn't interfere.
+- useless: The query's time components are incomprehensible or completely wrong.
+"""
+        super().__init__(
+            name="time_range_relevancy",
+            prompt_template=prompt_template,
+            choice_scores={
+                "perfect": 1.0,
+                "near_perfect": 0.9,
+                "slightly_off": 0.75,
+                "somewhat_misaligned": 0.5,
+                "strongly_misaligned": 0.25,
+                "not_applicable": 1.0,
+                "useless": 0.0,
+            },
+            model="gpt-4.1",
+            **kwargs,
+        )

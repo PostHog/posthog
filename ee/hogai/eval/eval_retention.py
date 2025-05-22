@@ -4,9 +4,8 @@ from ee.hogai.graph import InsightsAssistantGraph
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
-from braintrust import EvalCase, Score
+from braintrust import EvalCase
 from autoevals.llm import LLMClassifier
-from braintrust_core.score import Scorer
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import (
@@ -16,6 +15,7 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
+from .scorers import TimeRangeRelevancy
 
 # Define an empty schema as placeholder
 RETENTION_SCHEMA = {
@@ -129,78 +129,6 @@ How would you rate the alignment of the generated query with the plan? Choose on
         )
 
 
-class PeriodCorrectness(Scorer):
-    """Evaluate if the period in the retention query is correct."""
-
-    def _name(self):
-        return "period_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "retentionFilter") or not hasattr(query.retentionFilter, "period"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No retention query or period"})
-
-        period = query.retentionFilter.period
-        if not period:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "period is None"})
-
-        # Check for specific period requirements in the query description
-        if "daily" in query_description.lower() and period != "Day":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'daily' retention, expected period 'Day', got '{period}'"},
-            )
-        elif "weekly" in query_description.lower() and period != "Week":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'weekly' retention, expected period 'Week', got '{period}'"},
-            )
-        elif "monthly" in query_description.lower() and period != "Month":
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={"reason": f"For 'monthly' retention, expected period 'Month', got '{period}'"},
-            )
-
-        # Default score if no specific period-related checks from input_query trigger a failure.
-        return Score(name=self._name(), score=1.0)
-
-
-class DateCorrectness(Scorer):
-    """Evaluate if the date range in the retention query is correct."""
-
-    def _name(self):
-        return "date_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "dateRange"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No retention query or dateRange"})
-
-        date_range = query.dateRange
-        if not date_range:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "dateRange is None"})
-
-        # Specific check for "last 3 months"
-        if "last 3 months" in query_description.lower():
-            if date_range.date_from != "-3m":
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={"reason": f"For 'last 3 months', expected date_from '-3m', got '{date_range.date_from}'"},
-                )
-            return Score(name=self._name(), score=1.0)
-
-        # Default score if no specific date-related checks from input_query trigger a success or failure.
-        return Score(name=self._name(), score=1.0)
-
-
 class CallNodeOutput(TypedDict):
     plan: str | None
     query: AssistantRetentionQuery | None
@@ -237,7 +165,13 @@ def call_node(demo_org_team_user):
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
             return {"plan": None, "query": None}
 
-        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+        # Ensure the answer is of the expected type for Retention eval
+        answer = final_state.messages[-1].answer
+        if not isinstance(answer, AssistantRetentionQuery):
+            # This case should ideally not happen if the graph is configured correctly for Retention
+            return {"plan": final_state.messages[-1].plan, "query": None}
+
+        return {"plan": final_state.messages[-1].plan, "query": answer}
 
     return callable
 
@@ -250,8 +184,7 @@ def eval_retention(call_node):
         scores=[
             RetentionPlanCorrectness(),
             RetentionQueryAndPlanAlignment(),
-            PeriodCorrectness(),
-            DateCorrectness(),
+            TimeRangeRelevancy(query_type="Retention"),
         ],
         data=[
             EvalCase(

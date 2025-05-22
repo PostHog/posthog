@@ -10,7 +10,6 @@ import pytest
 from braintrust import EvalCase, Score
 from autoevals.llm import LLMClassifier
 from braintrust_core.score import Scorer
-from datetime import datetime
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import (
@@ -18,6 +17,7 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
+from .scorers import TimeRangeRelevancy
 
 # Define an empty schema as placeholder
 HOGQL_SCHEMA = {
@@ -160,76 +160,6 @@ class SQLSyntaxCorrectness(Scorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": f"SQL syntax error: {str(e)}"})
 
 
-class TimeFilterCorrectness(Scorer):
-    """Evaluate if the time filter in the SQL query is correct."""
-
-    def _name(self):
-        return "time_filter_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "query") or not query.query:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No SQL query"})
-
-        sql_query = query.query.lower()
-
-        # Check for specific time filters in the query description
-        if "last 7 days" in query_description.lower():
-            if (
-                "timestamp >= now() - interval 7 day" not in sql_query
-                and "timestamp >= now() - interval '7 days'" not in sql_query
-            ):
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={"reason": f"For 'last 7 days', expected time filter not found in query"},
-                )
-        elif "this month" in query_description.lower():
-            if (
-                "date_trunc('month', timestamp) = date_trunc('month', now())" not in sql_query
-                and "toStartOfMonth(timestamp) = toStartOfMonth(now())" not in sql_query
-            ):
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={"reason": f"For 'this month', expected time filter not found in query"},
-                )
-
-        # Default score if no specific time filter checks from input_query trigger a failure.
-        return Score(name=self._name(), score=1.0)
-
-
-class DateCorrectness(Scorer):
-    """Evaluate if the date range in the SQL query is correct."""
-
-    def _name(self):
-        return "date_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "query") or not query.query:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No SQL query"})
-
-        sql_query = query.query.lower()
-
-        # Check for specific date requirements in the query description
-        if "this January" in query_description.lower():
-            year = str(datetime.now().year)
-            if not ((f"timestamp >= '{year}-01-01'" in sql_query) or (f"timestamp <= '{year}-01-31'" in sql_query)):
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={"reason": f"For 'this January', expected year {year} not in date filters"},
-                )
-            return Score(name=self._name(), score=1.0)
-
-        return Score(name=self._name(), score=1.0)
-
-
 class CallNodeOutput(TypedDict):
     plan: str | None
     query: AssistantHogQLQuery | None
@@ -266,7 +196,13 @@ def call_node(demo_org_team_user):
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
             return {"plan": None, "query": None}
 
-        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+        # Ensure the answer is of the expected type for SQL eval
+        answer = final_state.messages[-1].answer
+        if not isinstance(answer, AssistantHogQLQuery):
+            # This case should ideally not happen if the graph is configured correctly for SQL
+            return {"plan": final_state.messages[-1].plan, "query": None}
+
+        return {"plan": final_state.messages[-1].plan, "query": answer}
 
     return callable
 
@@ -280,8 +216,7 @@ def eval_sql(call_node):
             SQLPlanCorrectness(),
             SQLQueryAndPlanAlignment(),
             SQLSyntaxCorrectness(),
-            TimeFilterCorrectness(),
-            DateCorrectness(),
+            TimeRangeRelevancy(query_type="SQL"),
         ],
         data=[
             EvalCase(

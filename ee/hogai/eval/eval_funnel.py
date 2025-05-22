@@ -5,9 +5,8 @@ from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
-from braintrust import EvalCase, Score
+from braintrust import EvalCase
 from autoevals.llm import LLMClassifier
-from braintrust_core.score import Scorer
 from datetime import datetime
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
@@ -22,6 +21,7 @@ from posthog.schema import (
     AssistantFunnelsFilter,
     AssistantFunnelsExclusionEventsNode,
 )
+from .scorers import TimeRangeRelevancy
 
 
 class FunnelPlanCorrectness(LLMClassifier):
@@ -130,58 +130,6 @@ How would you rate the alignment of the generated query with the plan? Choose on
         )
 
 
-class DateCorrectness(Scorer):
-    """Evaluate if the date range in the funnel query is correct."""
-
-    def _name(self):
-        return "date_correctness"
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        query_description = kwargs.get("input", {})
-
-        if not query or not hasattr(query, "dateRange"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No funnel query or dateRange"})
-
-        date_range = query.dateRange
-        if not date_range:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "dateRange is None"})
-
-        # Specific check for "this January"
-        if "this January" in query_description.lower():
-            year = str(datetime.now().year)
-            if not (
-                (date_range.date_from and year in date_range.date_from)
-                or (date_range.date_to and year in date_range.date_to)
-            ):
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={
-                        "reason": f"For 'this January', expected year {year} not in {date_range.date_from} or {date_range.date_to}"
-                    },
-                )
-            return Score(name=self._name(), score=1.0)
-
-        # Specific check for "before 2024-01-01"
-        if "before 2024-01-01" in query_description.lower():
-            # Assuming generator uses date_to for 'before'
-            if date_range.date_to == "2024-01-01":
-                return Score(name=self._name(), score=1.0)
-            else:
-                return Score(
-                    name=self._name(),
-                    score=0.0,
-                    metadata={
-                        "reason": f"Expected date_to 2024-01-01 for 'before 2024-01-01' query, got {date_range.date_to}"
-                    },
-                )
-
-        # Default score if no specific date-related checks from input_query trigger a success or failure.
-        # This implies that for other queries, date handling is either correct or not specifically tested by this scorer.
-        return Score(name=self._name(), score=1.0)
-
-
 class CallNodeOutput(TypedDict):
     plan: str | None
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery | None
@@ -231,7 +179,7 @@ def eval_funnel(call_node):
         scores=[
             FunnelPlanCorrectness(),
             FunnelQueryAndPlanAlignment(),
-            DateCorrectness(),
+            TimeRangeRelevancy(query_type="Funnels"),
         ],
         data=[
             EvalCase(
