@@ -6,6 +6,7 @@ import { createContext, useContext, useState } from 'react'
 
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
 import { ChartEmptyState } from './ChartEmptyState'
@@ -126,7 +127,10 @@ function useChartDimensions(variants: any[]): ChartDimensions {
 }
 
 function hasEnoughDataForResults(variantExposureCount: number, variantMetricValue: number): boolean {
-    return variantExposureCount >= 50 && variantMetricValue > 10
+    return (
+        variantExposureCount >= EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS &&
+        variantMetricValue > EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS
+    )
 }
 
 // Individual variant bar component

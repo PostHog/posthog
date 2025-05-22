@@ -23,7 +23,7 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
-
+export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
 export const CONCLUSION_DISPLAY_CONFIG: Record<
     ExperimentConclusion,
     { title: string; description: string; color: string }
