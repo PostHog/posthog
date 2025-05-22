@@ -152,8 +152,6 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.sparkline({
                         query: {
-                            limit: 100,
-                            offset: values.logs.length,
                             orderBy: values.orderBy,
                             dateRange: values.dateRange,
                             searchTerm: values.searchTerm,
