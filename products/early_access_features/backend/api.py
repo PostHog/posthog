@@ -9,6 +9,8 @@ from rest_framework.request import Request
 from rest_framework import status
 from posthog.models.utils import uuid7
 
+from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
+
 from .models import EarlyAccessFeature
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -66,6 +68,9 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
+
+        if instance.stage != stage:
+            send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [

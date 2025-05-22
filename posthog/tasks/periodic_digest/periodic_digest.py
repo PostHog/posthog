@@ -38,10 +38,12 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass
-class periodicDigestReport:
+class PeriodicDigestReport:
     new_dashboards: list[dict[str, str]]
     new_event_definitions: list[dict[str, str]]
     new_playlists: list[dict[str, str]]
+    interesting_collections: list[dict[str, str]]
+    interesting_saved_filters: list[dict[str, str]]
     new_experiments_launched: list[dict[str, str]]
     new_experiments_completed: list[dict[str, str]]
     new_external_data_sources: list[dict[str, str]]
@@ -128,7 +130,7 @@ def convert_team_digest_items_to_dict(items: list[CountedPlaylist] | QuerySet) -
         return dict(grouped)
 
 
-def count_non_zero_digest_items(report: periodicDigestReport) -> int:
+def count_non_zero_digest_items(report: PeriodicDigestReport) -> int:
     return sum(1 for key in report.__dataclass_fields__ if len(getattr(report, key)) > 0)
 
 
@@ -154,8 +156,8 @@ def _get_all_digest_data(period_start: datetime, period_end: datetime) -> dict[s
     }
 
 
-def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> periodicDigestReport:
-    return periodicDigestReport(
+def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> PeriodicDigestReport:
+    return PeriodicDigestReport(
         new_dashboards=[
             {"name": dashboard.get("name"), "id": dashboard.get("id")}
             for dashboard in all_digest_data["teams_with_new_dashboards"].get(team.id, [])
@@ -168,10 +170,36 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             {
                 "name": playlist.name or playlist.derived_name or "Untitled",
                 "id": playlist.short_id,
+                "type": playlist.type,
                 "count": playlist.count,
                 "has_more_available": playlist.has_more_available,
+                "url_path": playlist.url_path,
             }
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
+        ],
+        interesting_collections=[
+            {
+                "name": playlist.name or playlist.derived_name or "Untitled",
+                "id": playlist.short_id,
+                "type": playlist.type,
+                "count": playlist.count,
+                "has_more_available": playlist.has_more_available,
+                "url_path": playlist.url_path,
+            }
+            for playlist in all_digest_data["teams_with_interesting_playlists"].get(team.id, [])
+            if playlist.type == "collection"
+        ],
+        interesting_saved_filters=[
+            {
+                "name": playlist.name or playlist.derived_name or "Untitled",
+                "id": playlist.short_id,
+                "type": playlist.type,
+                "count": playlist.count,
+                "has_more_available": playlist.has_more_available,
+                "url_path": playlist.url_path,
+            }
+            for playlist in all_digest_data["teams_with_interesting_playlists"].get(team.id, [])
+            if playlist.type == "filters"
         ],
         new_experiments_launched=[
             {

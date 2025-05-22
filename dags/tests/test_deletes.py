@@ -6,6 +6,8 @@ import pytest
 from clickhouse_driver import Client
 
 from dags.deletes import (
+    AdhocEventDeletesDictionary,
+    AdhocEventDeletesTable,
     deletes_job,
     PendingDeletesTable,
     PendingDeletesDictionary,
@@ -328,3 +330,86 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
 
     # clean up the reporting table
     cluster.map_all_hosts(report_table.drop).result()
+
+
+@pytest.mark.django_db
+def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
+    timestamp = (datetime.now() + timedelta(days=31)).replace(
+        microsecond=0
+    )  # we don't freeze time because we are namespaced by time
+    event_count = 10000
+    delete_count = 1000
+
+    events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp) for i in range(event_count)]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
+            VALUES
+            """,
+            events,
+        )
+
+    def get_by_team_and_uuid(table: str, client: Client) -> dict[tuple[int, UUID], int]:
+        result = client.execute(f"SELECT team_id, uuid, count(1) FROM {table} GROUP BY team_id, uuid")
+        if not isinstance(result, list):
+            return {}
+        return {(row[0], row[1]): row[2] for row in result}
+
+    # Insert some pending deletions
+    def insert_adhoc_event_deletes(client: Client) -> None:
+        deletes = [(events[i][0], events[i][2]) for i in range(delete_count)]
+
+        client.execute(
+            """INSERT INTO adhoc_events_deletion (team_id, uuid)
+            VALUES
+            """,
+            deletes,
+        )
+
+    def get_pending_deletes(client: Client) -> int:
+        result = client.execute(f"SELECT count() FROM adhoc_events_deletion FINAL")
+        if not isinstance(result, list):
+            return 0
+        return result[0][0]
+
+    def get_optimized_rows(client: Client) -> int:
+        result = client.execute(f"SELECT count() FROM adhoc_events_deletion WHERE is_deleted = 1")
+        if not isinstance(result, list):
+            return 0
+        return result[0][0]
+
+    cluster.any_host(insert_events).result()
+    cluster.any_host(insert_adhoc_event_deletes).result()
+
+    # Check preconditions
+    initial_events = cluster.any_host(partial(get_by_team_and_uuid, "writable_events")).result()
+    assert len(initial_events) == event_count  # All events present initially
+
+    pending_deletes = cluster.any_host(get_pending_deletes).result()
+    assert pending_deletes == delete_count
+
+    # Run the deletion job
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        resources={"cluster": cluster},
+    )
+
+    # Check postconditions
+    final_events = cluster.any_host(partial(get_by_team_and_uuid, "writable_events")).result()
+    assert len(final_events) == event_count - delete_count, f"expected events data was not deleted"
+
+    pending_deletes = cluster.any_host(get_pending_deletes).result()
+    assert pending_deletes == 0, "there are events pending to be deleted"
+
+    # Check that the events deletion table was optimized. We should have all rows marked as deleted.
+    total_rows = cluster.any_host(get_optimized_rows).result()
+    assert total_rows == delete_count, "Table was not optimized"
+
+    # Check that events for non-deleted teams were actually not deleted
+    assert all(
+        (event[0], event[2]) in final_events.keys() for event in events if event[0] not in range(delete_count)
+    ), f"There are non-requested deleted events that were deleted"
+    # Verify the temporary tables were cleaned up
+    deletes_dict = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+    assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())

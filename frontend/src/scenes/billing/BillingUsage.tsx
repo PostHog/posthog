@@ -4,6 +4,8 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -13,10 +15,15 @@ import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
+import { BillingNoAccess } from './BillingNoAccess'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 
 export function BillingUsage(): JSX.Element {
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
     const logic = billingUsageLogic({ dashboardItemId: 'usage' })
     const {
         series,
@@ -36,6 +43,10 @@ export function BillingUsage(): JSX.Element {
     const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleTeamBreakdown } =
         useActions(logic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+
+    if (restrictionReason) {
+        return <BillingNoAccess title="Usage" reason={restrictionReason} />
+    }
 
     return (
         <div className="space-y-4">

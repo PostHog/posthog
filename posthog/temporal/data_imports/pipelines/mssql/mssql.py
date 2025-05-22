@@ -140,7 +140,7 @@ class MSSQLColumn(Column):
                 arrow_type = pa.string()
             case "date":
                 arrow_type = pa.date32()
-            case "datetime" | "datetime2" | "smalldatetime":
+            case "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset":
                 arrow_type = pa.timestamp("us")
             case "time":
                 arrow_type = pa.time64("us")
@@ -346,6 +346,32 @@ def _get_table_stats(cursor: Cursor, schema: str, table_name: str) -> tuple[int,
     return total_rows, total_bytes
 
 
+def _get_rows_to_sync(
+    cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
+) -> int:
+    try:
+        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+        cursor.execute(query, inner_query_args)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
+
+
 def _get_partition_settings(
     cursor: Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> PartitionSettings | None:
@@ -397,8 +423,18 @@ def mssql_source(
         login_timeout=5,
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query, inner_query_args = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
             chunk_size = _get_table_chunk_size(
                 cursor,
                 schema,
@@ -463,4 +499,5 @@ def mssql_source(
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
+        rows_to_sync=rows_to_sync,
     )
