@@ -41,7 +41,7 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
     }, [firstSeen, firstSeenEvent, lastSeen, selectedEvent])
 }
 
-function isFistOrLastEvent(
+function isFirstOrLastEvent(
     firstSeenEvent: ErrorEventType | null,
     lastSeen: Dayjs | null,
     selectedEvent: ErrorEventType | null
