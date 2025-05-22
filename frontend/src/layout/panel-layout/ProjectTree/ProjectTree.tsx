@@ -139,7 +139,7 @@ export function ProjectTree({
 
         return (
             <>
-                {item.record?.path && !item.disableSelect ? (
+                {item.record?.path && !item.disableSelect && !onlyTree ? (
                     <>
                         <MenuItem
                             asChild
@@ -214,7 +214,7 @@ export function ProjectTree({
                             <MenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
                                     New...
-                                    <IconChevronRight className="ml-auto h-4 w-4" />
+                                    <IconChevronRight className="ml-auto size-3" />
                                 </ButtonPrimitive>
                             </MenuSubTrigger>
                             <MenuSubContent>
@@ -240,7 +240,7 @@ export function ProjectTree({
                                                         {treeItem.name ||
                                                             treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
                                                         ...
-                                                        <IconChevronRight className="ml-auto h-4 w-4" />
+                                                        <IconChevronRight className="ml-auto size-3" />
                                                     </ButtonPrimitive>
                                                 </MenuSubTrigger>
                                                 <MenuSubContent>
