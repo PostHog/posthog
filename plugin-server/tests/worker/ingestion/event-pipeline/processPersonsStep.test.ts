@@ -29,7 +29,7 @@ describe('processPersonsStep()', () => {
             eventsProcessor: new EventsProcessor(hub),
         }
         const organizationId = await createOrganization(runner.hub.db.postgres)
-        teamId = await createTeam(runner.hub.db.postgres, organizationId)
+        teamId = (await createTeam(runner.hub.db.postgres, organizationId)).id
         team = (await getTeam(runner.hub, teamId))!
         uuid = new UUIDT().toString()
 

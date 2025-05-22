@@ -12,7 +12,7 @@ import { getDomain } from 'tldts'
 
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { CookielessServerHashMode, Hub, PluginsServerConfig, Team } from '../../types'
+import { CookielessServerHashMode, Hub, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { now } from '../../utils/now'
@@ -319,6 +319,7 @@ export class CookielessManager {
             return undefined
         }
         const teamTimeZone = team.timezone
+        const teamId = team.id
 
         const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
@@ -364,15 +365,7 @@ export class CookielessManager {
             return undefined
         }
 
-        const {
-            userAgent,
-            ip,
-            host,
-            timezone: eventTimeZone,
-            timestampMs,
-            teamId,
-            hashExtra,
-        } = getProperties(event, timestamp)
+        const { userAgent, ip, host, timezone: eventTimeZone, timestampMs, hashExtra } = getProperties(event, timestamp)
         if (!userAgent || !ip || !host) {
             eventDroppedCounter
                 .labels({
@@ -534,11 +527,8 @@ export class CookielessManager {
     }
 }
 
-type IncomingEventWithTeam = { message: Message; event: PluginEvent; team: Team }
-type EventWithStatus = {
-    message: Message
-    event: PluginEvent
-    team: Team
+type IncomingEventWithTeam = { message: Message; event: PluginEvent; team: Team; token: string | undefined } // TODO share import
+type EventWithStatus = IncomingEventWithTeam & {
     // Store temporary processing state. Nest the passes to make type-checking easier
     firstPass?: {
         timestampMs: number
@@ -584,7 +574,7 @@ export class CookielessStateForBatch {
         this.hub = hub
     }
 
-    async doBatch(events: IncomingEventWithTeam[]): Promise<EventWithStatus[]> {
+    async doBatch(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
         if (this.hub.cookielessManager.config.disabled) {
             // cookieless is globally disabled, don't any processing just drop all cookieless events
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
@@ -608,13 +598,13 @@ export class CookielessStateForBatch {
         }
     }
 
-    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<EventWithStatus[]> {
+    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
         // do a first pass just to extract properties and compute the bash hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
-        for (const { event, team, message } of events) {
+        for (const { event, team, message, token } of events) {
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
-                eventsWithStatus.push({ event, team, message })
+                eventsWithStatus.push({ event, team, message, token })
                 continue
             }
 
@@ -683,6 +673,7 @@ export class CookielessStateForBatch {
                 event,
                 team,
                 message,
+                token,
                 firstPass: {
                     timestampMs,
                     eventTimeZone,
@@ -882,7 +873,7 @@ export class CookielessStateForBatch {
 }
 
 function getProperties(
-    event: PluginEvent,
+    event: PluginEvent | PipelineEvent,
     timestamp: string
 ): {
     userAgent: string | undefined
@@ -890,7 +881,6 @@ function getProperties(
     host: string | undefined
     timezone: string | undefined
     timestampMs: number
-    teamId: number
     hashExtra: string | undefined
 } {
     const userAgent = event.properties?.['$raw_user_agent']
@@ -899,9 +889,8 @@ function getProperties(
     const timezone = event.properties?.['$timezone']
     const hashExtra = event.properties?.[COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY]
     const timestampMs = DateTime.fromISO(timestamp).toMillis()
-    const teamId = event.team_id
 
-    return { userAgent, ip, host, timezone, timestampMs, teamId, hashExtra }
+    return { userAgent, ip, host, timezone, timestampMs, hashExtra }
 }
 
 export function isCalendarDateValid(yyyymmdd: string): boolean {

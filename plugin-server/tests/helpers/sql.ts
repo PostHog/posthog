@@ -15,7 +15,6 @@ import {
     RawOrganization,
     RawPerson,
     Team,
-    TeamId,
 } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
@@ -313,7 +312,7 @@ export async function createUserTeamAndOrganization(
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
-    const selectResult = await hub.db.postgres.query<Team>(
+    const selectResult = await hub.postgres.query<Team>(
         PostgresUse.COMMON_READ,
         'SELECT * FROM posthog_team ORDER BY id',
         undefined,
@@ -384,7 +383,7 @@ export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
     token?: string
-): Promise<TeamId> => {
+): Promise<Team> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
     let organizationId: string
@@ -438,7 +437,13 @@ export const createTeam = async (
         person_display_name_properties: [],
         access_control: false,
     })
-    return id
+    const hub: Partial<Hub> = { postgres: pg }
+    const team = await getTeam(hub as Hub, id)
+    if (!team) {
+        throw new Error(`new Team couldn't be loaded with id ${id}`)
+    }
+
+    return team
 }
 
 export const createUser = async (pg: PostgresRouter, distinctId: string) => {

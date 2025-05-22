@@ -9,7 +9,7 @@ import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/
 import { compileHog } from '~/src/cdp/templates/compiler'
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -19,6 +19,7 @@ import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/src/ingestion/cookieless/cookieless-manager'
+
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -120,8 +121,7 @@ describe('IngestionConsumer', () => {
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = await createTeam(hub.db.postgres, team.organization_id)
     })
 
     afterEach(async () => {

@@ -164,7 +164,7 @@ describe('CookielessManager', () => {
         }
 
         beforeEach(async () => {
-            teamId = await createTeam(hub.db.postgres, organizationId)
+            teamId = (await createTeam(hub.db.postgres, organizationId)).id
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
             event = deepFreeze({

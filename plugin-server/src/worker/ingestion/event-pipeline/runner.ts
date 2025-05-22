@@ -11,7 +11,6 @@ import { captureException } from '../../../utils/posthog'
 import { PersonsStoreForDistinctIdBatch } from '../persons/persons-store-for-distinct-id-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
-import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
@@ -25,7 +24,6 @@ import {
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
-import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
@@ -117,7 +115,7 @@ export class EventPipelineRunner {
         return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
     }
 
-    async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         this.originalEvent = event
 
         try {
@@ -130,14 +128,9 @@ export class EventPipelineRunner {
                     .inc()
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
-            let result: EventPipelineResult
-            // const { eventWithTeam, team } =
-            //     (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
-            if (eventWithTeam != null && team != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam, team)
-            } else {
-                result = this.registerLastStep('populateTeamDataStep', [event])
-            }
+
+            const result = await this.runEventPipelineSteps(event, team)
+
             eventProcessedAndIngestedCounter.inc()
             return result
         } catch (error) {
@@ -236,16 +229,16 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
-        if (postCookielessEvent == null) {
-            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
-        }
+        // const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
+        // if (postCookielessEvent == null) {
+        //     return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
+        // }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
 
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
         const { event: transformedEvent, scheduledPromises } = await this.runStep(
