@@ -146,8 +146,11 @@ class BraintrustURLReporter(TerminalReporter):  # type: ignore
         super().short_test_summary()
 
 
-@pytest.mark.trylast
+@pytest.hookimpl(trylast=True)
 def pytest_configure(config):
+    if not str(config.rootdir).endswith("/ee/hogai/eval"):
+        return
+    # If running specifically evals, register a custom reporter that adds a link to the Braintrust results
     vanilla_reporter = config.pluginmanager.getplugin("terminalreporter")
     braintrust_url_reporter = BraintrustURLReporter(config)
     config.pluginmanager.unregister(vanilla_reporter)
