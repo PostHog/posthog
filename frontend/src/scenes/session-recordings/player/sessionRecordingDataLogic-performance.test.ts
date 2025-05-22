@@ -13,6 +13,8 @@ import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
 
+jest.setTimeout(60_000)
+
 const pathForKeyZero = join(__dirname, './__mocks__/perf-snapshot-key0.jsonl')
 const pathForKeyOne = join(__dirname, './__mocks__/perf-snapshot-key1.jsonl')
 

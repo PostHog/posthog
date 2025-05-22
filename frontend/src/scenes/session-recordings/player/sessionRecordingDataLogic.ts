@@ -230,7 +230,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw e
                     })
 
-                    return { snapshots: await parseEncodedSnapshots(response, props.sessionRecordingId), source }
+                    const parsedSnapshots = await parseEncodedSnapshots(response, props.sessionRecordingId)
+                    return { snapshots: parsedSnapshots, source }
                 },
             },
         ],
