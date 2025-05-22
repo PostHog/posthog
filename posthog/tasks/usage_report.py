@@ -48,7 +48,8 @@ from posthog.utils import (
     get_instance_region,
     get_previous_day,
 )
-from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.models import BatchExport
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 
@@ -135,6 +136,13 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+
+    # Data Warehouse metadata
+    active_external_data_schemas_in_period: int
+
+    # Batch Exports metadata
+    active_batch_exports_in_period: int
+
     # Error Tracking
     issues_created_total: int
     symbol_sets_count: int
@@ -859,6 +867,26 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_external_data_schemas_in_period(begin: datetime, end: datetime) -> list:
+    # get all external data schemas that are running or completed at run time
+    return list(
+        ExternalDataSchema.objects.filter(
+            status__in=[ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.COMPLETED]
+        )
+        .values("team_id")
+        .annotate(total=Count("id"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_active_batch_exports_in_period(begin: datetime, end: datetime) -> list:
+    # get all batch exports that are active or completed at run time
+    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
@@ -1200,6 +1228,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(
+            period_start, period_end
+        ),
+        "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(
+            period_start, period_end
+        ),
         "teams_with_exceptions_captured_in_period": get_teams_with_exceptions_captured_in_period(
             period_start, period_end
         ),
@@ -1286,6 +1320,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
+            team.id, 0
+        ),
+        active_batch_exports_in_period=all_data["teams_with_active_batch_exports_in_period"].get(team.id, 0),
         issues_created_total=all_data["teams_with_issues_created_total"].get(team.id, 0),
         symbol_sets_count=all_data["teams_with_symbol_sets_count"].get(team.id, 0),
         resolved_symbol_sets_count=all_data["teams_with_resolved_symbol_sets_count"].get(team.id, 0),
