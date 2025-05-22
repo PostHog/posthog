@@ -329,7 +329,7 @@ describe('EventPipelineRunner', () => {
 
                 jest.mocked(populateTeamDataStep).mockResolvedValue({
                     eventWithTeam: event,
-                    team: { id: 9, person_processing_opt_out: true } as any,
+                    team: { id: 9 } as any,
                     token,
                 })
 
