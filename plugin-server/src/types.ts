@@ -15,6 +15,7 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
 import { z } from 'zod'
 
@@ -1222,6 +1223,18 @@ export enum OrganizationMembershipLevel {
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
+}
+
+export interface IncomingEvent {
+    message: Message
+    event: PipelineEvent
+}
+
+export interface IncomingEventWithTeam {
+    message: Message
+    event: PluginEvent
+    team: Team
+    token: string | undefined
 }
 
 export type RedisPool = GenericPool<Redis>
