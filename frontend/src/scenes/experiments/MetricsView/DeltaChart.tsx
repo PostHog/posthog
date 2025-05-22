@@ -128,6 +128,10 @@ function useChartDimensions(variants: any[]): ChartDimensions {
     }
 }
 
+function hasEnoughDataForResults(variantExposureCount: number, variantMetricValue: number): boolean {
+    return variantExposureCount >= 50 && variantMetricValue > 10
+}
+
 // Individual variant bar component
 function VariantBar({ variant, index }: { variant: any; index: number }): JSX.Element {
     const {
@@ -153,6 +157,8 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
     let delta: number
+    let hasEnoughData: boolean
+
     if (metricType === InsightType.TRENDS) {
         const controlVariant = result.variants.find((v: any) => v.key === 'control')
         const variantData = result.variants.find((v: any) => v.key === variant.key)
@@ -164,15 +170,19 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             !controlVariant?.absolute_exposure
         ) {
             delta = 0
+            hasEnoughData = false
         } else {
             const controlMean = controlVariant.count / controlVariant.absolute_exposure
             const variantMean = variantData.count / variantData.absolute_exposure
             delta = (variantMean - controlMean) / controlMean
+            hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
         }
     } else {
         const variantRate = conversionRateForVariant(result, variant.key)
         const controlRate = conversionRateForVariant(result, 'control')
         delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+        const variantData = result.variants.find((v: any) => v.key === variant.key)
+        hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
     }
 
     // Calculate positioning
@@ -217,66 +227,88 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                 />
             </foreignObject>
 
-            {/* Violin plot */}
-            {variant.key === 'control' ? (
-                <path
-                    d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
-                    fill={colors.BAR_CONTROL}
-                    stroke={colors.BOUNDARY_LINES}
-                    strokeWidth={1}
-                    strokeDasharray="2,2"
-                />
-            ) : (
+            {/* Conditional rendering based on shouldHideBar */}
+            {hasEnoughData ? (
                 <>
-                    <defs>
-                        <linearGradient
-                            id={`gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'}`}
-                            x1="0"
-                            x2="1"
-                            y1="0"
-                            y2="0"
-                        >
-                            {lower < 0 && upper > 0 ? (
-                                <>
-                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_NEGATIVE}
-                                    />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_POSITIVE}
-                                    />
-                                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
-                                </>
-                            ) : (
-                                <stop
-                                    offset="100%"
-                                    stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
-                                />
-                            )}
-                        </linearGradient>
-                    </defs>
-                    <path
-                        d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
-                        fill={`url(#gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'})`}
-                    />
-                </>
-            )}
+                    {variant.key === 'control' ? (
+                        <path
+                            d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                            fill={colors.BAR_CONTROL}
+                            stroke={colors.BOUNDARY_LINES}
+                            strokeWidth={1}
+                            strokeDasharray="2,2"
+                        />
+                    ) : (
+                        <>
+                            <defs>
+                                <linearGradient
+                                    id={`gradient-${metricIndex}-${variant.key}-${
+                                        isSecondary ? 'secondary' : 'primary'
+                                    }`}
+                                    x1="0"
+                                    x2="1"
+                                    y1="0"
+                                    y2="0"
+                                >
+                                    {lower < 0 && upper > 0 ? (
+                                        <>
+                                            <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
+                                            <stop
+                                                offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                stopColor={colors.BAR_NEGATIVE}
+                                            />
+                                            <stop
+                                                offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                stopColor={colors.BAR_POSITIVE}
+                                            />
+                                            <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
+                                        </>
+                                    ) : (
+                                        <stop
+                                            offset="100%"
+                                            stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
+                                        />
+                                    )}
+                                </linearGradient>
+                            </defs>
+                            <path
+                                d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                                fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                    isSecondary ? 'secondary' : 'primary'
+                                })`}
+                            />
+                        </>
+                    )}
 
-            {/* Delta marker */}
-            <g transform={`translate(${deltaX}, 0)`}>
-                <line
-                    x1={0}
-                    y1={y}
-                    x2={0}
-                    y2={y + barHeight}
-                    stroke={variant.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT}
-                    strokeWidth={2}
-                    vectorEffect="non-scaling-stroke"
-                    shapeRendering="crispEdges"
-                />
-            </g>
+                    {/* Delta marker */}
+                    <g transform={`translate(${deltaX}, 0)`}>
+                        <line
+                            x1={0}
+                            y1={y}
+                            x2={0}
+                            y2={y + barHeight}
+                            stroke={
+                                variant.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT
+                            }
+                            strokeWidth={2}
+                            vectorEffect="non-scaling-stroke"
+                            shapeRendering="crispEdges"
+                        />
+                    </g>
+                </>
+            ) : (
+                /* Show "Not enough data" text when hasEnoughData is false */
+                <text
+                    x={valueToX(0)}
+                    y={y + barHeight / 2}
+                    fontSize="10"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="var(--muted)"
+                >
+                    Not enough data.
+                </text>
+            )}
         </g>
     )
 }
