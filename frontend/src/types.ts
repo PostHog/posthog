@@ -2336,6 +2336,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
+    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2549,6 +2550,11 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
+export interface CalendarHeatmapFilterType extends FilterType {
+    // Reserved for future filter properties
+    dummy?: string
+}
+
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 
 export interface RetentionEntity {
@@ -2603,6 +2609,7 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
+    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2615,6 +2622,7 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
+    | Partial<CalendarHeatmapFilterType>
 
 export interface EventsListQueryParams {
     event?: string
@@ -3078,6 +3086,12 @@ export interface SurveyAppearance {
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
     disabledButtonOpacity?: string
+    maxWidth?: string
+    textSubtleColor?: string
+    inputBackground?: string
+    boxPadding?: string
+    boxShadow?: string
+    borderRadius?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3109,6 +3123,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: number
     lowerBoundLabel: string
     upperBoundLabel: string
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3121,6 +3136,7 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     choices: string[]
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
+    skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
@@ -3900,6 +3916,11 @@ export enum BaseMathType {
     UniqueSessions = 'unique_session',
     FirstTimeForUser = 'first_time_for_user',
     FirstMatchingEventForUser = 'first_matching_event_for_user',
+}
+
+export enum CalendarHeatmapMathType {
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
 }
 
 export enum PropertyMathType {
@@ -5395,4 +5416,17 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
+}
+
+// Representation of a `Link` model in our backend
+export type LinkType = {
+    id: string
+    redirect_url: string
+    short_link_domain: string
+    short_code: string
+    description?: string
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
+    _create_in_folder?: string | null
 }

@@ -3,7 +3,6 @@ import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
-    SurveyAppearance,
     SurveyMatchType,
     SurveyPosition,
     SurveyQuestionDescriptionContentType,
@@ -36,7 +35,7 @@ export const SurveyMatchTypeLabels = {
 }
 
 export const defaultSurveyAppearance = {
-    fontFamily: 'system-ui' as SurveyAppearance['fontFamily'],
+    fontFamily: 'inherit',
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
     submitButtonTextColor: 'white',
@@ -51,7 +50,17 @@ export const defaultSurveyAppearance = {
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
-}
+    zIndex: '2147482647',
+    disabledButtonOpacity: '0.6',
+    maxWidth: '300px',
+    textSubtleColor: '#939393',
+    inputBackground: 'white',
+    boxPadding: '20px 24px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    borderRadius: '10px',
+    shuffleQuestions: false,
+    surveyPopupDelaySeconds: undefined,
+} as const
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
@@ -191,8 +200,7 @@ export const NEW_SURVEY: NewSurvey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
-    // Partial responses off by default while we're in the beta
-    enable_partial_responses: false,
+    enable_partial_responses: true,
 }
 
 export enum SurveyTemplateType {
@@ -349,8 +357,8 @@ export const errorTrackingSurvey: SurveyTemplate = {
 }
 
 export const WEB_SAFE_FONTS = [
-    { value: 'system-ui', label: 'system-ui (default)' },
-    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },
     { value: 'Tahoma', label: 'Tahoma' },
@@ -384,3 +392,5 @@ export const SURVEY_TYPE_LABEL_MAP = {
     [SurveyType.FullScreen]: 'Full Screen',
     [SurveyType.Email]: 'Email',
 }
+
+export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
