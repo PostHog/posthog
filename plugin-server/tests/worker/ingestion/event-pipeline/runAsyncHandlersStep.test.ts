@@ -30,7 +30,7 @@ describe('runAsyncHandlersStep()', () => {
         runner = {
             hub: {
                 capabilities: {
-                    processAsyncOnEventHandlers: true,
+                    cdpLegacyOnEvent: true,
                 },
                 actionMatcher: {
                     match: jest.fn().mockReturnValue(['action1', 'action2']),

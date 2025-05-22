@@ -1,15 +1,10 @@
-import { EachBatchPayload } from 'kafkajs'
-
-import { PostIngestionEvent, RawKafkaEvent } from '../../../types'
-import { convertToPostIngestionEvent } from '../../../utils/event'
+import { PostIngestionEvent } from '../../../types'
 import {
     processComposeWebhookStep,
     processOnEventStep,
 } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
-import { eventDroppedCounter } from '../metrics'
-import { eachBatchHandlerHelper } from './each-batch-webhooks'
 
 export async function handleOnEventPlugins(event: PostIngestionEvent, queue: KafkaJSIngestionConsumer): Promise<void> {
     await runInstrumentedFunction({
@@ -36,35 +31,4 @@ export async function handleComposeWebhookPlugins(
         }),
         teamId: event.teamId,
     })
-}
-
-export async function eachMessageAppsOnEventHandlers(
-    clickHouseEvent: RawKafkaEvent,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
-    const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
-    if (pluginConfigs) {
-        const event = convertToPostIngestionEvent(clickHouseEvent)
-        await Promise.all([handleOnEventPlugins(event, queue), handleComposeWebhookPlugins(event, queue)])
-    } else {
-        eventDroppedCounter
-            .labels({
-                event_type: 'onevent',
-                drop_cause: 'no_matching_plugin',
-            })
-            .inc()
-    }
-}
-
-export async function eachBatchAppsOnEventHandlers(
-    payload: EachBatchPayload,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
-    await eachBatchHandlerHelper(
-        payload,
-        (teamId) => queue.pluginsServer.pluginConfigsPerTeam.has(teamId),
-        (event) => eachMessageAppsOnEventHandlers(event, queue),
-        queue.pluginsServer.TASKS_PER_WORKER,
-        'on_event'
-    )
 }

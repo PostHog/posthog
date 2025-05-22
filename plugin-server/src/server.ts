@@ -22,10 +22,7 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
-import {
-    startAsyncOnEventHandlerConsumer,
-    startAsyncWebhooksHandlerConsumer,
-} from './main/ingestion-queues/on-event-handler-consumer'
+import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
@@ -136,15 +133,6 @@ export class PluginServer {
                     const consumer = new IngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
-                })
-            }
-
-            if (capabilities.processAsyncOnEventHandlers) {
-                serviceLoaders.push(async () => {
-                    await initPlugins()
-                    return startAsyncOnEventHandlerConsumer({
-                        hub: hub,
-                    })
                 })
             }
 
