@@ -22,7 +22,7 @@ const readFileContents = (path: string): string => {
     return readFileSync(path, 'utf-8')
 }
 
-describe('sessionRecordingDataLogic', () => {
+describe('sessionRecordingDataLogic performance', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
     beforeEach(() => {
@@ -92,9 +92,8 @@ describe('sessionRecordingDataLogic', () => {
         jest.spyOn(api, 'create')
     })
 
-    describe('loading session core', () => {
-
-        const setupLogic = () => {
+    describe('loading snapshots', () => {
+        const setupLogic = (): void => {
             logic = sessionRecordingDataLogic({
                 sessionRecordingId: '2',
                 blobV2PollingDisabled: true,
@@ -133,12 +132,12 @@ describe('sessionRecordingDataLogic', () => {
                 const end = performance.now()
                 const duration = end - start
                 durations.push(duration)
-                console.log(`Iteration ${i + 1} duration: ${duration}ms`)
 
                 logic.unmount()
             }
 
             const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
+            // eslint-disable-next-line no-console
             console.log(`Average duration: ${averageDuration}ms`)
             expect(averageDuration).toBeLessThan(400)
         })

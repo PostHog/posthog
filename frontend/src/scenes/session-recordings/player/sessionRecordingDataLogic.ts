@@ -9,6 +9,12 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import {
+    getSourceKey,
+    parseEncodedSnapshots,
+    processAllSnapshots,
+    SourceKey,
+} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -31,23 +37,14 @@ import {
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import {
-    getHrefFromSnapshot,
-    ViewportResolution,
-} from './snapshot-processing/patch-meta-event'
+import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import {
-    getSourceKey, parseEncodedSnapshots,
-    processAllSnapshots, processEncodedResponse,
-    SourceKey,
-} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
-
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -56,8 +53,6 @@ export interface SessionRecordingDataLogicProps {
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
 }
-
-
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
@@ -390,15 +385,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     return !values.sessionEventsData
                         ? values.sessionEventsData
                         : values.sessionEventsData.map((x) => {
-                            const event = existingEvents?.find((ee) => ee.id === x.id)
-                            return event
-                                ? ({
-                                    ...x,
-                                    properties: event.properties,
-                                    fullyLoaded: event.fullyLoaded,
-                                } as RecordingEventType)
-                                : x
-                        })
+                              const event = existingEvents?.find((ee) => ee.id === x.id)
+                              return event
+                                  ? ({
+                                        ...x,
+                                        properties: event.properties,
+                                        fullyLoaded: event.fullyLoaded,
+                                    } as RecordingEventType)
+                                  : x
+                          })
                 },
             },
         ],
@@ -563,9 +558,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.segments],
             (segments) =>
                 (timestamp: number): string | undefined => {
-                    return segments.find(
+                    cache.windowIdForTimestamp = cache.windowIdForTimestamp || {}
+                    if (cache.windowIdForTimestamp[timestamp]) {
+                        return cache.windowIdForTimestamp[timestamp]
+                    }
+                    const matchingWindowId = segments.find(
                         (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
                     )?.windowId
+
+                    cache.windowIdForTimestamp[timestamp] = matchingWindowId
+                    return matchingWindowId
                 },
         ],
         eventViewports: [
@@ -584,35 +586,46 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.eventViewports],
             (eventViewports) =>
                 (timestamp: number): ViewportResolution | undefined => {
-                    // we do this as a function because in most recordings we don't need the data so we don't need to run this every time
+                    // we do this as a function because in most recordings we don't need the data, so we don't need to run this every time
 
-                    // First try to find the first event after the timestamp that has viewport dimensions
+                    cache.viewportForTimestamp = cache.viewportForTimestamp || {}
+                    if (cache.viewportForTimestamp[timestamp]) {
+                        return cache.viewportForTimestamp[timestamp]
+                    }
+
+                    let result: ViewportResolution | undefined
+
+                    // First, try to find the first event after the timestamp that has viewport dimensions
                     const nextEvent = eventViewports
                         .filter((e) => dayjs(e.timestamp).isSameOrAfter(dayjs(timestamp)))
                         .sort((a, b) => dayjs(a.timestamp).valueOf() - dayjs(b.timestamp).valueOf())[0]
 
                     if (nextEvent) {
-                        return {
+                        result = {
                             width: nextEvent.width,
                             height: nextEvent.height,
                             href: nextEvent.href,
                         }
-                    }
+                    } else {
+                        // If no event after timestamp, find the closest event before it
+                        const previousEvent = eventViewports
+                            .filter((e) => dayjs(e.timestamp).isBefore(dayjs(timestamp)))
+                            .sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())[0] // Sort descending to get closest
 
-                    // If no event after timestamp, find the closest event before it
-                    const previousEvent = eventViewports
-                        .filter((e) => dayjs(e.timestamp).isBefore(dayjs(timestamp)))
-                        .sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())[0] // Sort descending to get closest
-
-                    if (previousEvent) {
-                        return {
-                            width: previousEvent.width,
-                            height: previousEvent.height,
-                            href: previousEvent.href,
+                        if (previousEvent) {
+                            result = {
+                                width: previousEvent.width,
+                                height: previousEvent.height,
+                                href: previousEvent.href,
+                            }
                         }
                     }
 
-                    return undefined
+                    if (result) {
+                        cache.viewportForTimestamp[timestamp] = result
+                    }
+
+                    return result
                 },
         ],
         sessionPlayerData: [
@@ -885,4 +898,3 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
 ])
-
