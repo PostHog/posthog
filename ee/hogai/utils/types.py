@@ -131,7 +131,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Optional[Sequence[AssistantMessageUnion]] = Field(default=None)
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
     """
