@@ -193,8 +193,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
+        logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        logger.info('💤', 'Stopping cyclotron job queue...')
+        await this.cyclotronJobQueue.stop()
+        logger.info('💤', 'Stopping consumer...')
         await super.stop()
+        logger.info('💤', 'Consumer stopped!')
     }
 
     public isHealthy() {
