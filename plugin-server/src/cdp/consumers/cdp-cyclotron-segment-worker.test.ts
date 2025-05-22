@@ -12,9 +12,6 @@ import { HogFunctionType } from '../types'
 import { CdpCyclotronWorkerSegment } from './cdp-cyclotron-segment-worker.consumer'
 jest.setTimeout(1000)
 
-/**
- * NOTE: The internal and normal events consumers are very similar so we can test them together
- */
 describe('CdpCyclotronWorkerSegment', () => {
     let processor: CdpCyclotronWorkerSegment
     let hub: Hub
