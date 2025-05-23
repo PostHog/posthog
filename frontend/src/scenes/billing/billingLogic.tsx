@@ -324,7 +324,7 @@ export const billingLogic = kea<billingLogicType>([
         billingError: [
             null as BillingError | null,
             {
-                getInvoices: async () => {
+                loadInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
