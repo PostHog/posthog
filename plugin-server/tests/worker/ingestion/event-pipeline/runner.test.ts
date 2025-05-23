@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
@@ -201,7 +202,7 @@ describe('EventPipelineRunner', () => {
                 'createEventStep',
                 'emitEventStep',
             ])
-            expect(runner.stepsWithArgs).toMatchSnapshot()
+            expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
         it('drops disallowed events', async () => {
@@ -460,8 +461,12 @@ describe('EventPipelineRunner', () => {
                     event: eventName,
                     team_id: 9,
                 }
+                const team9: Team = {
+                    ...team,
+                    id: 9,
+                }
 
-                await runner.runEventPipeline(event, team)
+                await runner.runEventPipeline(event, team9)
                 expect(runner.steps).toEqual([])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                 expect(
