@@ -65,37 +65,6 @@ const meta: Meta = {
 }
 export default meta
 
-export function RevenueAnalyticsDashboardOnboarding(): JSX.Element {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/external_data_sources/': () => {
-                return [
-                    200,
-                    {
-                        ...EMPTY_PAGINATED_RESPONSE,
-                        results: [{ ...externalDataSourceResponseMock, revenue_analytics_enabled: false }],
-                    },
-                ]
-            },
-        },
-        post: {
-            '/api/environments/:team_id/query/': (req) => {
-                const query = (req.body as any).query
-                const queryKind = query.kind
-
-                if (queryKind === 'DatabaseSchemaQuery') {
-                    return [200, { tables: {} }] // Empty schema, we don't care about this here
-                }
-            },
-        },
-    })
-
-    // Open the revenue analytics dashboard page
-    useEffect(() => router.actions.push(urls.revenueAnalytics()), [])
-
-    return <App />
-}
-
 export function RevenueAnalyticsDashboardTableView(): JSX.Element {
     const { setGrowthRateDisplayMode, setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
 
