@@ -577,7 +577,7 @@ export class IngestionConsumer {
                 continue
             }
             resolvedMessages.push({
-                event: result.eventWithTeam,
+                event: result.event,
                 team: result.team,
                 message,
                 token: result.token,

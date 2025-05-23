@@ -116,7 +116,7 @@ export class EventPipelineRunner {
         return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
     }
 
-    async runEventPipeline(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PipelineEvent, team: Team): Promise<EventPipelineResult> {
         this.originalEvent = event
 
         try {
@@ -130,7 +130,12 @@ export class EventPipelineRunner {
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
 
-            const result = await this.runEventPipelineSteps(event, team)
+            const pluginEvent: PluginEvent = {
+                ...event,
+                team_id: team.id,
+            }
+
+            const result = await this.runEventPipelineSteps(pluginEvent, team)
 
             eventProcessedAndIngestedCounter.inc()
             return result

@@ -1232,7 +1232,7 @@ export interface IncomingEvent {
 
 export interface IncomingEventWithTeam {
     message: Message
-    event: PluginEvent
+    event: PipelineEvent
     team: Team
     token: string | undefined
 }

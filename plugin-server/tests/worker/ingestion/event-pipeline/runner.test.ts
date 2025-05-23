@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
@@ -21,12 +22,10 @@ import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
-import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
@@ -52,12 +51,24 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     }
 }
 
-const token = 'token1'
-
 const team = {
     id: 2,
     person_processing_opt_out: false,
     api_token: 'token1',
+    project_id: 2 as ProjectId,
+    organization_id: '2',
+    uuid: v4(),
+    name: '2',
+    anonymize_ips: true,
+    slack_incoming_webhook: 'slack_incoming_webhook',
+    session_recording_opt_in: true,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
 } as Team
 
 const pipelineEvent: PipelineEvent = {
@@ -158,11 +169,6 @@ describe('EventPipelineRunner', () => {
         )
         runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore)
 
-        jest.mocked(populateTeamDataStep).mockResolvedValue({
-            eventWithTeam: pluginEvent,
-            team,
-            token,
-        })
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
 
@@ -326,14 +332,12 @@ describe('EventPipelineRunner', () => {
                     event: '$$client_ingestion_warning',
                     team_id: 9,
                 }
+                const team9: Team = {
+                    ...team,
+                    id: 9,
+                }
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: event,
-                    team: { id: 9 } as any,
-                    token,
-                })
-
-                await runner.runEventPipeline(event, team)
+                await runner.runEventPipeline(event, team9)
                 expect(runner.steps).toEqual([])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                 expect(
@@ -375,12 +379,6 @@ describe('EventPipelineRunner', () => {
                     heatmapEvent.distinct_id
                 )
                 runner = new TestEventPipelineRunner(hub, heatmapEvent, undefined, undefined, personsStore)
-
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: heatmapEvent,
-                    team,
-                    token,
-                })
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -424,12 +422,6 @@ describe('EventPipelineRunner', () => {
                 )
                 runner = new TestEventPipelineRunner(hub, exceptionEvent, undefined, undefined, personsStore)
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: exceptionEvent,
-                    team,
-                    token,
-                })
-
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
                     event: '$exception',
@@ -468,11 +460,6 @@ describe('EventPipelineRunner', () => {
                     event: eventName,
                     team_id: 9,
                 }
-                jest.mocked(populateTeamDataStep).mockResolvedValue({
-                    eventWithTeam: event,
-                    team: { id: 9 } as any,
-                    token,
-                })
 
                 await runner.runEventPipeline(event, team)
                 expect(runner.steps).toEqual([])

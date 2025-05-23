@@ -1,5 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { Hub, PipelineEvent, Team } from '../../../types'
 import { sanitizeString } from '../../../utils/db/utils'
@@ -10,7 +8,7 @@ import { tokenOrTeamPresentCounter } from './metrics'
 export async function populateTeamDataStep(
     hub: Hub,
     event: PipelineEvent
-): Promise<{ eventWithTeam: PluginEvent; team: Team; token: string | undefined } | null> {
+): Promise<{ event: PipelineEvent; team: Team; token: string | undefined } | null> {
     /**
      * Implements team_id resolution and applies the team's ingestion settings (dropping event.ip if requested).
      * Resolution can fail if PG is unavailable, leading to the consumer taking lag until retries succeed.
@@ -44,6 +42,7 @@ export async function populateTeamDataStep(
     } else if (event.token) {
         // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
         // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing
+        // TODO: do we still need this? we also sanitize this token in `normalizeEvent` which is called in `parseKafkaBatch`
         event.token = sanitizeString(event.token)
         team = await hub.teamManager.getTeamByToken(event.token)
     }
@@ -64,7 +63,13 @@ export async function populateTeamDataStep(
         await captureIngestionWarning(db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
             eventUuid: JSON.stringify(event.uuid),
         })
-        throw new Error(`Not a valid UUID: "${event.uuid}"`)
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
+            })
+            .inc()
+        return null
     }
 
     const skipPersonsProcessingForDistinctIds = hub.eventsToSkipPersonsProcessingByToken.get(event.token!)
@@ -84,10 +89,5 @@ export async function populateTeamDataStep(
         }
     }
 
-    const eventWithTeam: PluginEvent = {
-        ...event,
-        team_id: team.id,
-    }
-
-    return { eventWithTeam, team, token: event.token }
+    return { event, team, token: event.token }
 }

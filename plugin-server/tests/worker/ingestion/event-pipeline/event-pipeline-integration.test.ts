@@ -1,10 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { fetch } from 'undici'
+import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { CookielessServerHashMode, Hook, Hub, Team } from '../../../../src/types'
+import { CookielessServerHashMode, Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
@@ -22,9 +23,25 @@ import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/logger')
 
-const team = {
+const team: Team = {
     id: 2,
-} as Team
+    project_id: 2 as ProjectId,
+    organization_id: '2',
+    uuid: v4(),
+    name: '2',
+    anonymize_ips: true,
+    api_token: 'api_token',
+    slack_incoming_webhook: 'slack_incoming_webhook',
+    session_recording_opt_in: true,
+    person_processing_opt_out: null,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
+}
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub

@@ -95,10 +95,10 @@ describe('populateTeamDataStep()', () => {
         ])
     })
 
-    it('event with a valid token gets assigned a team_id keeps its ip', async () => {
+    it('event with a valid token keeps its ip', async () => {
         const response = await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
 
-        expect(response?.eventWithTeam).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
+        expect(response?.event).toEqual({ ...pipelineEvent, token: teamTwoToken, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 
@@ -108,27 +108,27 @@ describe('populateTeamDataStep()', () => {
         jest.mocked(hub.teamManager.getTeamByToken).mockResolvedValue({ ...teamTwo, anonymize_ips: true })
         const response = await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
 
-        expect(response?.eventWithTeam).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
+        expect(response?.event).toEqual({ ...pipelineEvent, token: teamTwoToken, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 
     it('event with a team_id value is returned unchanged', async () => {
         const input = { ...pipelineEvent, team_id: 2 }
         const response = await populateTeamDataStep(hub, input)
-        expect(response?.eventWithTeam).toEqual(input)
+        expect(response?.event).toEqual(input)
     })
 
     it('event with a team_id whose team is opted-out from person processing', async () => {
         const input = { ...pipelineEvent, team_id: 3 }
         const response = await populateTeamDataStep(hub, input)
         expect(response?.team.person_processing_opt_out).toBe(true)
-        expect(response?.eventWithTeam.properties?.$process_person_profile).toBe(false)
+        expect(response?.event.properties?.$process_person_profile).toBe(false)
     })
 
     it('event that is in the skip list', async () => {
         const input = { ...pipelineEvent, team_id: 2, distinct_id: 'distinct_id_to_drop' }
         const response = await populateTeamDataStep(hub, input)
-        expect(response?.eventWithTeam.properties?.$process_person_profile).toBe(false)
+        expect(response?.event.properties?.$process_person_profile).toBe(false)
     })
 
     it('PG errors are propagated up to trigger retries', async () => {
@@ -146,7 +146,7 @@ describe('populateTeamDataStep()', () => {
                 uuid: 'i_am_not_a_uuid',
             }
 
-            await expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "i_am_not_a_uuid"')
+            await expect(populateTeamDataStep(hub, event)).resolves.toEqual(null)
         })
         test('null value in eventUUID returns an error', async () => {
             const event = {
@@ -155,7 +155,7 @@ describe('populateTeamDataStep()', () => {
                 uuid: null as any,
             }
 
-            await expect(populateTeamDataStep(hub, event)).rejects.toThrow('Not a valid UUID: "null"')
+            await expect(populateTeamDataStep(hub, event)).resolves.toEqual(null)
         })
     })
 })
