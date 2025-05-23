@@ -68,6 +68,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         deleteGoal: (index: number) => ({ index }),
         updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
 
+        save: true,
         resetConfig: true,
     }),
     reducers(({ values }) => ({
@@ -301,6 +302,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             addGoal: updateCurrentTeam,
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
+            save: updateCurrentTeam,
         }
     }),
     loaders(({ values }) => ({
