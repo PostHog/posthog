@@ -10,9 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { parseEncodedSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import { deduplicateSnapshots } from '../player/snapshot-processing/deduplicate-snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
@@ -136,9 +135,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 return
             }
 
-            const snapshots = deduplicateSnapshots(
-                await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
-            )
+            const snapshots = values.sessionRecording.snapshots
 
             // Simulate a loaded source and sources so that nothing extra gets loaded
             dataLogic.actions.loadSnapshotsForSourceSuccess({

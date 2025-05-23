@@ -567,6 +567,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 s.recentTreeItems,
                 s.recentResultsLoading,
                 s.sortMethod,
+                s.onlyFolders,
                 s.getStaticTreeItems,
             ],
             (
@@ -578,6 +579,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 recentTreeItems,
                 recentResultsLoading,
                 sortMethod,
+                onlyFolders,
                 getStaticTreeItems
             ): TreeDataItem[] => {
                 const folderLoading = [
@@ -606,7 +608,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             ? folderLoading
                             : projectTree,
                     } as TreeDataItem,
-                    ...getStaticTreeItems(searchTerm),
+                    ...getStaticTreeItems(searchTerm, onlyFolders),
                 ]
                 return root
             },
