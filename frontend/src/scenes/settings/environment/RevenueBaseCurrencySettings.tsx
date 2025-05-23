@@ -6,7 +6,7 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 
 export function RevenueBaseCurrencySettings(): JSX.Element {
     const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
-    const { updateBaseCurrency, save } = useActions(revenueAnalyticsSettingsLogic)
+    const { updateBaseCurrency } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>
@@ -18,7 +18,6 @@ export function RevenueBaseCurrencySettings(): JSX.Element {
                 value={baseCurrency}
                 onChange={(currency) => {
                     updateBaseCurrency(currency as CurrencyCode)
-                    save()
                 }}
             />
         </div>

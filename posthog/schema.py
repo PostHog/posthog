@@ -1194,6 +1194,7 @@ class GoalLine(BaseModel):
         extra="forbid",
     )
     borderColor: Optional[str] = None
+    displayIfCrossed: Optional[bool] = None
     displayLabel: Optional[bool] = None
     label: str
     value: float
@@ -1753,6 +1754,15 @@ class RetentionPeriod(StrEnum):
 class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
+
+
+class RevenueAnalyticsGoal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    due_date: str
+    goal: float
+    name: str
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
@@ -7108,6 +7118,7 @@ class RevenueAnalyticsConfig(BaseModel):
     )
     base_currency: Optional[CurrencyCode] = CurrencyCode.USD
     events: Optional[list[RevenueAnalyticsEventItem]] = []
+    goals: Optional[list[RevenueAnalyticsGoal]] = []
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
