@@ -1,13 +1,15 @@
-import { IconBox, IconDocument, IconList } from '@posthog/icons'
+import { IconBox, IconBrackets, IconDocument, IconList } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
+import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { match } from 'ts-pattern'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
@@ -18,6 +20,7 @@ import { ToggleButtonPrimitive } from '../ToggleButton/ToggleButton'
 import { exceptionCardLogic } from './exceptionCardLogic'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from './Stacktrace/StacktraceGenericDisplay'
+import { StacktraceJsonDisplay } from './Stacktrace/StacktraceJsonDisplay'
 import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
 
 interface ExceptionCardContentProps {
@@ -101,8 +104,9 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
 }
 
 function ExceptionCardToggles(): JSX.Element {
-    const { showDetails, showAllFrames, showContext, showAsText } = useValues(exceptionCardLogic)
-    const { setShowDetails, setShowAllFrames, setShowContext, setShowAsText } = useActions(exceptionCardLogic)
+    const { showDetails, showAllFrames, showContext, showAsText, showAsJson } = useValues(exceptionCardLogic)
+    const { setShowDetails, setShowAllFrames, setShowContext, setShowAsText, setShowAsJson } =
+        useActions(exceptionCardLogic)
     return (
         <ButtonGroupPrimitive size="sm">
             <ToggleButtonPrimitive className="px-2" checked={showDetails} onCheckedChange={setShowDetails}>
@@ -120,6 +124,9 @@ function ExceptionCardToggles(): JSX.Element {
             </ToggleButtonPrimitive>
             <ToggleButtonPrimitive iconOnly checked={showAsText} onCheckedChange={setShowAsText} tooltip="Show as text">
                 <IconDocument />
+            </ToggleButtonPrimitive>
+            <ToggleButtonPrimitive iconOnly checked={showAsJson} onCheckedChange={setShowAsJson} tooltip="Show as json">
+                <IconBrackets />
             </ToggleButtonPrimitive>
             <ToggleButtonPrimitive
                 iconOnly
@@ -160,19 +167,20 @@ function StacktraceIssueDisplay({
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
 } & Omit<StacktraceBaseDisplayProps, 'renderLoading' | 'renderEmpty'>): JSX.Element {
-    const { showAsText } = useValues(exceptionCardLogic)
-    const Component = showAsText ? StacktraceTextDisplay : StacktraceGenericDisplay
-    return (
-        <Component
-            {...stacktraceDisplayProps}
-            renderLoading={(renderHeader) =>
-                renderHeader({
-                    type: issue?.name ?? undefined,
-                    value: issue?.description ?? undefined,
-                    loading: issueLoading,
-                })
-            }
-            renderEmpty={() => <StacktraceEmptyDisplay />}
-        />
-    )
+    const { showAsText, showAsJson } = useValues(exceptionCardLogic)
+    const componentProps = {
+        ...stacktraceDisplayProps,
+        renderLoading: (renderHeader: (props: ExceptionHeaderProps) => JSX.Element) =>
+            renderHeader({
+                type: issue?.name ?? undefined,
+                value: issue?.description ?? undefined,
+                loading: issueLoading,
+            }),
+        renderEmpty: () => <StacktraceEmptyDisplay />,
+    }
+    return match([showAsText, showAsJson])
+        .with([false, false], () => <StacktraceGenericDisplay {...componentProps} />)
+        .with([true, false], () => <StacktraceTextDisplay {...componentProps} />)
+        .with([false, true], () => <StacktraceJsonDisplay {...componentProps} />)
+        .otherwise(() => <></>)
 }
