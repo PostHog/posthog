@@ -263,7 +263,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
 
-            self.assertIn(f"e__person.properties___favorite_number", insert_statements[0])
+            # Assert that the cohort calculation uses the materialized column
+            # on the person table.
+            self.assertIn(f"person.pmat_favorite_number", insert_statements[0])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
