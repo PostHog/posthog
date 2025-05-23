@@ -8826,6 +8826,15 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     source_id: Optional[str] = None
     type: Literal["managed_view"] = "managed_view"
 
+    def description(self) -> Optional[str]:
+        if self.kind == DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE:
+            return "Useful for Revenue-related questions, contains charges for customers"
+        elif self.kind == DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER:
+            return "Useful for Revenue-related questions, contains the customers that have been charged"
+
+        # Unreachable
+        return None
+
 
 class DatabaseSchemaMaterializedViewTable(BaseModel):
     model_config = ConfigDict(
