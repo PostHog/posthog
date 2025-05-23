@@ -2,7 +2,6 @@ import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
 import {
-    AppMetric2Type,
     ClickHouseTimestamp,
     ElementPropertyFilter,
     EventPropertyFilter,
@@ -136,24 +135,46 @@ export type HogFunctionFilterGlobals = {
     }
 }
 
-export type HogFunctionLogEntrySource = 'system' | 'hog' | 'console'
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export type LogEntry = {
+export type MinimalLogEntry = {
     timestamp: DateTime
     level: LogEntryLevel
     message: string
 }
 
-export type HogFunctionInvocationLogEntry = LogEntry & {
+export type LogEntry = MinimalLogEntry & {
     team_id: number
     log_source: string // The kind of source (hog_function)
     log_source_id: string // The id of the hog function
     instance_id: string // The id of the specific invocation
 }
 
-export type HogFunctionLogEntrySerialized = Omit<HogFunctionInvocationLogEntry, 'timestamp'> & {
+export type LogEntrySerialized = Omit<LogEntry, 'timestamp'> & {
     timestamp: ClickHouseTimestamp
+}
+
+export type MinimalAppMetric = {
+    team_id: number
+    app_source_id: string
+    metric_kind: 'failure' | 'success' | 'other'
+    metric_name:
+        | 'succeeded'
+        | 'failed'
+        | 'filtered'
+        | 'disabled_temporarily'
+        | 'disabled_permanently'
+        | 'masked'
+        | 'filtering_failed'
+        | 'inputs_failed'
+        | 'fetch'
+    count: number
+}
+
+export type AppMetricType = MinimalAppMetric & {
+    timestamp: ClickHouseTimestamp
+    app_source: string
+    instance_id?: string
 }
 
 export interface HogFunctionTiming {
@@ -200,7 +221,7 @@ export type HogFunctionQueueParametersFetchResponse = {
     trace?: CyclotronFetchFailureInfo[]
     body?: string | null // Both results AND failures can have a body
     timings?: HogFunctionTiming[]
-    logs?: LogEntry[]
+    logs?: MinimalLogEntry[]
 }
 
 export type HogFunctionInvocationQueueParameters =
@@ -230,35 +251,16 @@ export type HogFunctionInvocation = {
     queueSource?: CyclotronJobQueueKind
 }
 
-export type HogFunctionAsyncFunctionRequest = {
-    name: string
-    args: any[]
-}
-
 // The result of an execution
 export type HogFunctionInvocationResult = {
     invocation: HogFunctionInvocation
     finished: boolean
     error?: any
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
-    logs: LogEntry[]
-    metrics?: HogFunctionAppMetric[]
+    logs: MinimalLogEntry[]
+    metrics?: MinimalAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
-}
-
-export type HogFunctionInvocationAsyncRequest = {
-    state: string // Serialized HogFunctionInvocation without the asyncFunctionRequest
-    teamId: number
-    hogFunctionId: HogFunctionType['id']
-    asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
-}
-
-export type HogHooksFetchResponse = {
-    state: string // Serialized HogFunctionInvocation
-    teamId: number
-    hogFunctionId: HogFunctionType['id']
-    asyncFunctionResponse: HogFunctionQueueParametersFetchResponse
 }
 
 export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
@@ -345,16 +347,6 @@ export type IntegrationType = {
     errors?: string
     created_at?: string
     created_by_id?: number
-}
-export type HogFunctionAppMetric = Pick<
-    AppMetric2Type,
-    'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'
->
-
-export type HogFunctionMessageToProduce = {
-    topic: string
-    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type
-    key: string
 }
 
 export type HogFunctionCapturedEvent = {

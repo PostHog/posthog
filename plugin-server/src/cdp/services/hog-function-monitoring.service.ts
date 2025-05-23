@@ -2,17 +2,12 @@ import { Counter } from 'prom-client'
 
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
+import { Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow } from '../../utils/utils'
-import {
-    HogFunctionAppMetric,
-    HogFunctionInvocationLogEntry,
-    HogFunctionInvocationResult,
-    HogFunctionMessageToProduce,
-} from '../types'
+import { AppMetricType, HogFunctionInvocationResult, LogEntry, LogEntrySerialized, MinimalAppMetric } from '../types'
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
@@ -22,8 +17,14 @@ const counterHogFunctionMetric = new Counter({
     labelNames: ['metric_kind', 'metric_name'],
 })
 
+export type HogFunctionMonitoringMessage = {
+    topic: string
+    value: LogEntrySerialized | AppMetricType
+    key: string
+}
+
 export class HogFunctionMonitoringService {
-    messagesToProduce: HogFunctionMessageToProduce[] = []
+    messagesToProduce: HogFunctionMonitoringMessage[] = []
 
     constructor(private hub: Hub) {}
 
@@ -56,8 +57,8 @@ export class HogFunctionMonitoringService {
         )
     }
 
-    produceAppMetric(metric: HogFunctionAppMetric) {
-        const appMetric: AppMetric2Type = {
+    produceAppMetric(metric: MinimalAppMetric) {
+        const appMetric: AppMetricType = {
             app_source: 'hog_function',
             ...metric,
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
@@ -72,11 +73,11 @@ export class HogFunctionMonitoringService {
         })
     }
 
-    produceAppMetrics(metrics: HogFunctionAppMetric[]) {
+    produceAppMetrics(metrics: MinimalAppMetric[]) {
         metrics.forEach((metric) => this.produceAppMetric(metric))
     }
 
-    produceLogs(logEntries: HogFunctionInvocationLogEntry[]) {
+    produceLogs(logEntries: LogEntry[]) {
         const logs = fixLogDeduplication(
             logEntries.map((logEntry) => ({
                 ...logEntry,

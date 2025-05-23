@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { insertHogFunction as _insertHogFunction } from './_tests/fixtures'
-import { HogFunctionInvocationGlobals, HogFunctionInvocationLogEntry } from './types'
+import { HogFunctionInvocationGlobals, LogEntry } from './types'
 import { convertToHogFunctionFilterGlobal, fixLogDeduplication, gzipObject, unGzipObject } from './utils'
 
 describe('Utils', () => {
@@ -24,7 +24,7 @@ describe('Utils', () => {
             level: 'info' as const,
         }
         const startTime = DateTime.fromMillis(1620000000000)
-        const example: HogFunctionInvocationLogEntry[] = [
+        const example: LogEntry[] = [
             {
                 ...commonProps,
                 timestamp: startTime.plus(2),

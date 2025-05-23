@@ -18,7 +18,7 @@ import {
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
-    LogEntry,
+    MinimalLogEntry,
 } from './types'
 import { cloneInvocation, convertToHogFunctionInvocationGlobals } from './utils'
 
@@ -163,7 +163,7 @@ export class CdpApi {
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
             let lastResponse: HogFunctionInvocationResult | null = null
-            let logs: LogEntry[] = []
+            let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
 

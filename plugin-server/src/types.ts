@@ -1278,23 +1278,3 @@ export interface HookPayload {
         }
     }
 }
-
-export type AppMetric2Type = {
-    team_id: number
-    timestamp: ClickHouseTimestamp
-    app_source: string
-    app_source_id: string
-    instance_id?: string
-    metric_kind: 'failure' | 'success' | 'other'
-    metric_name:
-        | 'succeeded'
-        | 'failed'
-        | 'filtered'
-        | 'disabled_temporarily'
-        | 'disabled_permanently'
-        | 'masked'
-        | 'filtering_failed'
-        | 'inputs_failed'
-        | 'fetch'
-    count: number
-}

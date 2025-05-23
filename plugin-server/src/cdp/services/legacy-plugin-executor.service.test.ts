@@ -16,12 +16,17 @@ import {
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType, LogEntry } from '../types'
+import {
+    HogFunctionInvocation,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    MinimalLogEntry,
+} from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 jest.setTimeout(1000)
 
-const getLogMessages = (logs: LogEntry[]) => {
+const getLogMessages = (logs: MinimalLogEntry[]) => {
     return logs.map((l) => {
         return l.message.replace(/\d+\.\d+ms/, 'REPLACED-TIME-ms')
     })

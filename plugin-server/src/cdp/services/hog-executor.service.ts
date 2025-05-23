@@ -11,16 +11,16 @@ import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronFetchFailureInfo,
-    HogFunctionAppMetric,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionInvocationLogEntry,
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
+    LogEntry,
+    MinimalAppMetric,
 } from '../types'
 import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
@@ -148,11 +148,11 @@ export class HogExecutorService {
         triggerGlobals: HogFunctionInvocationGlobals
     ): {
         invocations: HogFunctionInvocation[]
-        metrics: HogFunctionAppMetric[]
-        logs: HogFunctionInvocationLogEntry[]
+        metrics: MinimalAppMetric[]
+        logs: LogEntry[]
     } {
-        const metrics: HogFunctionAppMetric[] = []
-        const logs: HogFunctionInvocationLogEntry[] = []
+        const metrics: MinimalAppMetric[] = []
+        const logs: LogEntry[] = []
         const invocations: HogFunctionInvocation[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
