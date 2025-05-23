@@ -16,6 +16,7 @@ import {
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
+    HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
@@ -203,7 +204,7 @@ export function getPersonsEndpoint(query: PersonsNode): string {
 }
 
 export async function hogqlQuery(
-    queryString: string,
+    queryString: HogQLQueryString,
     values?: Record<string, any>,
     refresh?: RefreshType
 ): Promise<HogQLQueryResponse> {

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
@@ -48,9 +48,8 @@ type GroupedLogEntryRequest = {
 }
 
 const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<GroupedLogEntry[]> => {
-    const query: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `SELECT
+    const query = hogql`
+        SELECT
             instance_id,
             max(timestamp) AS latest_timestamp,
             min(timestamp) AS earliest_timestamp,
@@ -75,10 +74,9 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
             LIMIT ${LOG_VIEWER_LIMIT}
         )
         GROUP BY instance_id
-        ORDER BY latest_timestamp DESC`,
-    }
+        ORDER BY latest_timestamp DESC`
 
-    const response = await api.query(query, undefined, undefined, 'force_blocking', {
+    const response = await api.queryHogQL(query, undefined, 'force_blocking', undefined, {
         date_from: request.date_from ?? '-7d',
         date_to: request.date_to,
     })

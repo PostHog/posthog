@@ -4,7 +4,7 @@ import { beforeUnload } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
@@ -44,18 +44,14 @@ const loadClickhouseEvents = async (
     eventIds: string[],
     { date_from, date_to }: { date_from?: string; date_to?: string }
 ): Promise<any[]> => {
-    const query: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `
-            SELECT uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
-            FROM events
-            WHERE uuid in (${eventIds.map((x) => `'${x}'`).join(',')})
-            AND timestamp > {filters.dateRange.from}
-            AND timestamp < {filters.dateRange.to}
-        `,
-    }
+    const query = hogql`
+        SELECT uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
+        FROM events
+        WHERE uuid in (${eventIds.map((x) => `'${x}'`).join(',')})
+        AND timestamp > {filters.dateRange.from}
+        AND timestamp < {filters.dateRange.to}`
 
-    const response = await api.query(query, undefined, undefined, 'force_blocking', {
+    const response = await api.queryHogQL(query, undefined, 'force_blocking', undefined, {
         date_from: date_from,
         date_to: date_to,
     })

@@ -8,7 +8,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ProductKey, SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
@@ -177,28 +176,28 @@ export const sdksLogic = kea<sdksLogicType>([
             null as boolean | null,
             {
                 loadSnippetEvents: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT
-                                        max(timestamp) AS latest_timestamp,
-                                        concat(
-                                            concat({protocol}, '//'),
-                                            properties.$host
-                                        ) AS full_host,
-                                    FROM events
-                                    WHERE timestamp >= now() - INTERVAL 3 DAY
-                                    AND timestamp <= now()
-                                    AND properties.$lib = 'web'
-                                    AND properties.$host is not null
-                                    AND startsWith(properties.$current_url, {protocol})
-                                    GROUP BY full_host
-                                    ORDER BY latest_timestamp DESC
-                                    LIMIT 7`,
+                    const query = hogql`
+                        SELECT
+                            max(timestamp) AS latest_timestamp,
+                            concat(
+                                concat({protocol}, '//'),
+                                properties.$host
+                            ) AS full_host,
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 3 DAY
+                        AND timestamp <= now()
+                        AND properties.$lib = 'web'
+                        AND properties.$host is not null
+                        AND startsWith(properties.$current_url, {protocol})
+                        GROUP BY full_host
+                        ORDER BY latest_timestamp DESC
+                        LIMIT 7`
+
+                    const res = await api.queryHogQL(query, {
                         values: {
                             protocol: window.location.protocol,
                         },
-                    }
-                    const res = await api.query(query)
+                    })
                     const hasEvents = !!(res.results?.length ?? 0 > 0)
                     const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
                     if (hasEvents) {

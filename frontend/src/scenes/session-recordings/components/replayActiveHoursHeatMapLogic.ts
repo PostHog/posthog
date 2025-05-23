@@ -8,7 +8,6 @@ import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ReplayTabs } from '~/types'
 
@@ -98,10 +97,7 @@ export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicTy
                     GROUP BY hour_block
                     ORDER BY hour_block`
 
-                const qResponse = await api.query<HogQLQuery>({
-                    kind: NodeKind.HogQLQuery,
-                    query: q,
-                })
+                const qResponse = await api.queryHogQL(q)
 
                 // this gives an array of arrays
                 // we're loading hours 0-4, 4-8, 8-12, 12-16, 16-20, 20-24
