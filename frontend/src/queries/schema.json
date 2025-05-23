@@ -10884,6 +10884,9 @@
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
                 },
+                "convertToProjectTimezone": {
+                    "type": "boolean"
+                },
                 "customChannelTypeRules": {
                     "items": {
                         "$ref": "#/definitions/CustomChannelRule"
@@ -10952,9 +10955,6 @@
                     "type": "boolean"
                 },
                 "useWebAnalyticsPreAggregatedTables": {
-                    "type": "boolean"
-                },
-                "convertToProjectTimezone": {
                     "type": "boolean"
                 }
             },
