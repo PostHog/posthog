@@ -862,7 +862,9 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_storage_in_s3() -> list:
     return list(
-        DataWarehouseTable.objects.filter(~Q(deleted=True)).values("team_id").annotate(total=Sum("size_in_s3_mib"))
+        DataWarehouseTable.objects.filter(~Q(deleted=True), size_in_s3_mib__isnull=False)
+        .values("team_id")
+        .annotate(total=Sum("size_in_s3_mib"))
     )
 
 

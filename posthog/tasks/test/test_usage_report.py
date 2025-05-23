@@ -1676,6 +1676,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
             )
 
         DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=10, deleted=True)
+        DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
