@@ -433,7 +433,7 @@ type SharedMetric = ExperimentMetric & {
 const isSharedMetric = (metric: ExperimentMetric): metric is SharedMetric => {
     /**
      * the === true is to please the type checker. isSharedMetric is a boolean,
-     * but the type checker doesn't know that so it treat is as unknown.
+     * but the type checker doesn't know that so it treats it as unknown.
      */
     return 'isSharedMetric' in metric && metric.isSharedMetric === true
 }

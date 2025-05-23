@@ -542,7 +542,7 @@ class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 ).exists():
                     return Response({"detail": "Shared metric is not part of this experiment"}, status=400)
 
-                # Create a new saved metric based on he existing one
+                # Create a new saved metric based on the existing one
                 new_shared_metric = ExperimentSavedMetric.objects.create(
                     name=f"{shared_metric.name} (copy)",
                     description=shared_metric.description,
