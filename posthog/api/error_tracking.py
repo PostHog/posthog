@@ -338,7 +338,7 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
 class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingRelease
-        fields = ["id", "hash_id", "team_id", "created_at", "metadata"]
+        fields = ["id", "hash_id", "team_id", "created_at", "metadata", "name"]
         read_only_fields = ["team_id"]
 
 
