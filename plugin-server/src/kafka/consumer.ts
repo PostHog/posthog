@@ -267,7 +267,14 @@ export class KafkaConsumer {
 
         if (topicPartitionOffsets.length > 0) {
             logger.debug('📝', 'Storing offsets', { topicPartitionOffsets })
-            this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+            try {
+                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+            } catch (e) {
+                // NOTE: We don't throw here - this can happen if we were re-assigned partitions
+                // and the offsets are no longer valid whilst processing a batch
+                logger.error('📝', 'Failed to store offsets', { error: e })
+                captureException(e)
+            }
         }
     }
 
