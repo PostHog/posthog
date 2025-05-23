@@ -6,6 +6,7 @@ import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
     EventPropertyFilter,
+    HogQLPropertyFilter,
     PersonPropertyFilter,
     Team,
 } from '../types'
@@ -17,7 +18,7 @@ export interface HogFunctionFilterBase {
     id: string
     name?: string | null
     order?: number
-    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvent extends HogFunctionFilterBase {
@@ -206,7 +207,7 @@ export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
-export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin'] as const
+export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment'] as const
 export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_KINDS = ['postgres', 'kafka'] as const
