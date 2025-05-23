@@ -16,7 +16,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource, Region } from '~/types'
 
-import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
+import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
 
 const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsConfig => ({
     events: [],
@@ -26,8 +26,8 @@ const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsC
     base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
 })
 
-export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
-    path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
+export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
+    path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
     connect(() => ({
         values: [
             teamLogic,

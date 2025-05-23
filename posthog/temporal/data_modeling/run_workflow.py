@@ -432,6 +432,7 @@ async def materialize_model(
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
             error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
+            await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message)
             raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e

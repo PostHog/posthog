@@ -167,7 +167,6 @@ export const FEATURE_FLAGS = {
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_CUSTOM_FONTS: 'surveys-custom-fonts', // owner: #team-surveys
     SURVEYS_PARTIAL_RESPONSES: 'surveys-partial-responses', // owner: #team-surveys
-    SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay

@@ -806,3 +806,20 @@ class TestSavedQuery(APIBaseTest):
             )
 
             mock_delete_saved_query_schedule.assert_called_once_with(str(db_saved_query.id))
+
+    def test_create_with_existing_name(self):
+        DataWarehouseTable.objects.create(
+            team=self.team, name="some_event_table", format="Parquet", url_pattern="s3://bucket/path"
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "some_event_table",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "A table with this name already exists."

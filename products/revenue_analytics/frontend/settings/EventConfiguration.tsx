@@ -10,10 +10,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
-    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueEventsSettingsLogic)
+    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueAnalyticsSettingsLogic)
     const {
         addEvent,
         deleteEvent,
@@ -21,7 +21,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
         updateEventRevenueCurrencyProperty,
         updateEventCurrencyAwareDecimalProperty,
         save,
-    } = useActions(revenueEventsSettingsLogic)
+    } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>

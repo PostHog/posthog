@@ -19277,6 +19277,9 @@
                 "previous": {
                     "type": "number"
                 },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
+                },
                 "value": {
                     "type": "number"
                 }

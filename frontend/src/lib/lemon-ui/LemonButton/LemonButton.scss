@@ -360,6 +360,13 @@
     @include size-variables;
 }
 
+// Don't bleed background inside colored LemonBanners
+.LemonBanner--warning .LemonButton,
+.LemonBanner--success .LemonButton,
+.LemonBanner--error .LemonButton {
+    --lemon-button-bg-color: var(--bg-surface-primary);
+}
+
 .LemonButtonWithSideAction {
     position: relative;
     width: fit-content;

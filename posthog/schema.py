@@ -3650,6 +3650,7 @@ class WebOverviewItem(BaseModel):
     key: str
     kind: WebOverviewItemKind
     previous: Optional[float] = None
+    usedPreAggregatedTables: Optional[bool] = None
     value: Optional[float] = None
 
 

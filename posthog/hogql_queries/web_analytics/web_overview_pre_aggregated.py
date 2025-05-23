@@ -15,7 +15,7 @@ SUPPORTED_PROPERTIES = {
 
 class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebOverviewQueryRunner") -> None:
-        super().__init__(runner, supported_props_filters=SUPPORTED_PROPERTIES, table_name="web_overview_daily")
+        super().__init__(runner, supported_props_filters=SUPPORTED_PROPERTIES)
 
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
@@ -53,7 +53,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
         query = cast(ast.SelectQuery, parse_select(query_str))
 
-        filters = self._get_filters()
+        filters = self._get_filters(table_name="web_overview_daily")
         if filters:
             query.where = filters
 

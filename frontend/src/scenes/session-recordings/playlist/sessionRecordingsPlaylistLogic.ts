@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -437,7 +437,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
             },
         ],
-
+    })),
+    lazyLoaders(({ props }) => ({
         pinnedRecordings: [
             [] as SessionRecordingType[],
             {
@@ -896,6 +897,5 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions }) => {
         actions.loadSessionRecordings()
-        actions.loadPinnedRecordings()
     }),
 ])

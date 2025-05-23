@@ -1671,6 +1671,7 @@ export interface WebOverviewItem {
     kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
+    usedPreAggregatedTables?: boolean
 }
 
 export interface SamplingRate {

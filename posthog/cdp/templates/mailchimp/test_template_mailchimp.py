@@ -90,3 +90,19 @@ class TestTemplateMailchimp(BaseHogFunctionTemplateTest):
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+
+    def test_email_case_normalization(self):
+        # Test with lowercase email
+        self.run_function(
+            inputs=create_inputs(email="max@posthog.com"),
+        )
+        lowercase_url = self.get_mock_fetch_calls()[0][0]
+
+        # Test with mixed case email
+        self.run_function(
+            inputs=create_inputs(email="Max@Posthog.com"),
+        )
+        mixed_case_url = self.get_mock_fetch_calls()[0][0]
+
+        # Verify both URLs are identical since email is normalized to lowercase
+        assert lowercase_url == mixed_case_url

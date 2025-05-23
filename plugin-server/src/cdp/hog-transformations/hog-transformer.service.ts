@@ -226,11 +226,6 @@ export class HogTransformerService {
                     results.push(result)
 
                     if (result.error) {
-                        logger.error('⚠️', 'Error in transformation', {
-                            error: result.error,
-                            function_id: hogFunction.id,
-                            team_id: event.team_id,
-                        })
                         transformationsFailed.push(transformationIdentifier)
                         continue
                     }

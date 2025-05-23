@@ -42,12 +42,12 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
         }${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'}`
         if (canLoadNextData) {
-            result += '. Click to load more.'
+            result += nextDataLoading ? ' – loading more…' : ' – click to load more'
         } else if (hasMoreData) {
-            result += '. Reached the end of results.'
+            result += ' – reached the end of results'
         }
         return result
-    }, [query, dataLimit, numberOfRows, canLoadNextData, hasMoreData])
+    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData])
 
     // pagination component exists
     if (
@@ -87,7 +87,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
     return (
         <>
             <span>
-                Showing {showFirstPrefix ? 'first ' : ' '}
+                Showing {showFirstPrefix ? 'the first ' : ' '}
                 {isSingleEntry ? 'one' : resultCount} {isSingleEntry ? 'entry' : 'entries'}
             </span>
             {lastRefreshTimeUtc && (

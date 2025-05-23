@@ -170,12 +170,15 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             )
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
-    update_external_job_status(
+    job = update_external_job_status(
         job_id=job_id,
         status=inputs.status,
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
+
+    job.finished_at = dt.datetime.now(dt.UTC)
+    job.save()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

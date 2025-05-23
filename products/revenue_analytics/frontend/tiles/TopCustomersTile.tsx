@@ -17,7 +17,7 @@ import {
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
-import { revenueEventsSettingsLogic } from '../settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.TOP_CUSTOMERS
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -27,7 +27,7 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 }
 
 export const TopCustomersTile = (): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
 
     const { queries, topCustomersDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
     const { setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)

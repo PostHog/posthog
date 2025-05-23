@@ -295,13 +295,13 @@ def hourly_exchange_rates_in_clickhouse(
 daily_exchange_rates_job = dagster.define_asset_job(
     name="daily_exchange_rates_job",
     selection=[daily_exchange_rates.key, daily_exchange_rates_in_clickhouse.key],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value},
 )
 
 hourly_exchange_rates_job = dagster.define_asset_job(
     name="hourly_exchange_rates_job",
     selection=[hourly_exchange_rates.key, hourly_exchange_rates_in_clickhouse.key],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value},
 )
 
 

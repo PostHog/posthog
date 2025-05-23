@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -392,7 +393,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     }),
     selectors({
         savedItems: [
-            (s) => [s.folders, s.folderStates],
+            (s) => [s.folders],
             (folders): FileSystemEntry[] =>
                 Object.entries(folders).reduce((acc, [_, items]) => [...acc, ...items], [] as FileSystemEntry[]),
         ],
@@ -523,8 +524,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         getStaticTreeItems: [
             (s) => [s.featureFlags, s.shortcutData],
-            (featureFlags, shortcutData): ((searchTerm?: string) => TreeDataItem[]) => {
-                const convert = (imports: FileSystemImport[], root: string, searchTerm?: string): TreeDataItem[] =>
+            (featureFlags, shortcutData): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+                const convert = (
+                    imports: FileSystemImport[],
+                    root: string,
+                    searchTerm: string | undefined,
+                    onlyFolders: boolean
+                ): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
                         root,
                         imports: imports.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
@@ -533,12 +539,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         users: {},
                         foldersFirst: false,
                         searchTerm,
+                        disabledReason: onlyFolders
+                            ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
+                            : undefined,
                     })
-                return function getStaticItems(searchTerm?: string): TreeDataItem[] {
+                return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
                         ['data-management://', getDefaultTreeDataManagement()],
-                        ['games://', getDefaultTreeGames()],
+                        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+                            ? ([['games://', getDefaultTreeGames()]] as [string, FileSystemImport[]][])
+                            : ([] as [string, FileSystemImport[]][])),
                         ['new://', getDefaultTreeNew()],
                         ['shortcuts://', shortcutData],
                     ]
@@ -547,14 +558,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         name: id,
                         displayName: <>{formatUrlAsName(id)}</>,
                         record: { type: 'folder', path: '' },
-                        children: convert(files, id, searchTerm),
+                        children: convert(files, id, searchTerm, onlyFolders),
                     }))
                 }
             },
         ],
         treeItemsNew: [
             (s) => [s.getStaticTreeItems],
-            (getStaticTreeItems) => getStaticTreeItems().find((item) => item.id === 'new://')?.children ?? [],
+            (getStaticTreeItems) => getStaticTreeItems('', false).find((item) => item.id === 'new://')?.children ?? [],
         ],
     }),
     listeners(({ actions, values }) => ({

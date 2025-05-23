@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, Literal
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from django.db.models import QuerySet
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -17,6 +18,7 @@ from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentS
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.schema import ExperimentEventExposureConfig
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -50,6 +52,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "saved_metrics_ids",
             "filters",
             "archived",
+            "deleted",
             "created_by",
             "created_at",
             "updated_at",
@@ -314,6 +317,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "filters",
             "parameters",
             "archived",
+            "deleted",
             "secondary_metrics",
             "holdout",
             "exposure_criteria",
@@ -409,13 +413,18 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
-class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
         "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
     ).all()
     ordering = "-created_at"
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        """Override to filter out deleted experiments for both list and detail views."""
+        queryset = queryset.exclude(deleted=True)
+        return queryset
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation

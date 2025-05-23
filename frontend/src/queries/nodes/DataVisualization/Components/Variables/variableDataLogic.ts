@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { events, kea, path } from 'kea'
-import { loaders } from 'kea-loaders'
+import { kea, path } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { Variable } from '../../types'
@@ -8,7 +8,7 @@ import type { variableDataLogicType } from './variableDataLogicType'
 
 export const variableDataLogic = kea<variableDataLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableDataLogic']),
-    loaders(({ values }) => ({
+    lazyLoaders(({ values }) => ({
         variables: [
             [] as Variable[],
             {
@@ -27,10 +27,5 @@ export const variableDataLogic = kea<variableDataLogicType>([
                 },
             },
         ],
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.getVariables()
-        },
     })),
 ])

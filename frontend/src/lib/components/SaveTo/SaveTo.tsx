@@ -51,7 +51,7 @@ export function SaveToModal(): JSX.Element {
             <div className="w-192 max-w-full">
                 <Form logic={saveToLogic} formKey="form">
                     <LemonField name="folder">
-                        <FolderSelect className="h-[60vh] min-h-[200px]" />
+                        <FolderSelect root="project://" includeRoot className="h-[60vh] min-h-[200px]" />
                     </LemonField>
                 </Form>
             </div>

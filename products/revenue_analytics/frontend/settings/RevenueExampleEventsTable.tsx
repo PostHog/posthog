@@ -4,7 +4,7 @@ import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
 
 const queryContext: QueryContext = {
@@ -41,7 +41,7 @@ const queryContext: QueryContext = {
 }
 
 export function RevenueExampleEventsTable(): JSX.Element | null {
-    const { exampleEventsQuery } = useValues(revenueEventsSettingsLogic)
+    const { exampleEventsQuery } = useValues(revenueAnalyticsSettingsLogic)
 
     if (!exampleEventsQuery) {
         return null

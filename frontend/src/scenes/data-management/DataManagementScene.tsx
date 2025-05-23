@@ -10,7 +10,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { RevenueEventsSettings } from 'products/revenue_analytics/frontend/settings/RevenueEventsSettings'
+import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
@@ -113,7 +113,7 @@ const tabs: Record<
                 </LemonTag>
             </>
         ),
-        content: <RevenueEventsSettings />,
+        content: <RevenueAnalyticsSettings />,
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),

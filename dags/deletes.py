@@ -784,8 +784,9 @@ def deletes_job():
     delete_mutations = delete_team_data_from(GROUPS_TABLE)(load_dict, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
+    # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
+    # delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
+    # waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(load_dict, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)

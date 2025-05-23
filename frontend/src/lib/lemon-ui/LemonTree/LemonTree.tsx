@@ -30,6 +30,7 @@ import {
 } from './LemonTreeUtils'
 
 export type LemonTreeSelectMode = 'default' | 'multi' | 'folder-only'
+export type LemonTreeSize = 'default' | 'narrow'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -105,7 +106,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
-    /** The mode of the tree. */
+    /** The select mode of the tree. */
     selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
      * this takes precedence over showFolderActiveState, and selectedId state */
@@ -165,7 +166,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
      *
      * narrow: icon, no text, side action hidden
      */
-    size?: 'default' | 'narrow'
+    size?: LemonTreeSize
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -371,7 +372,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-disabled={!!item.disabledReason}
                             aria-haspopup={!!itemContextMenu?.(item)}
                             aria-roledescription="tree item"
-                            aria-rolemap={`item-${item.id}`}
                             aria-label={ariaLabel}
                             tooltip={
                                 isDragging || isEmptyFolder || mode === 'table' ? undefined : renderItemTooltip?.(item)
@@ -472,7 +472,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         }}
                                     >
                                         {/* Folder lines */}
-                                        {depth !== 0 && (
+                                        {depth !== 0 && size !== 'narrow' && (
                                             <div
                                                 className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
@@ -1292,9 +1292,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
                     className="flex-1"
-                    innerClassName={cn('relative overflow-x-auto', {
-                        'overflow-hidden': disableScroll,
-                    })}
+                    innerClassName="relative overflow-x-auto"
+                    disableScroll={disableScroll}
+                    hideShadows={disableScroll}
                     styledScrollbars
                     style={
                         {

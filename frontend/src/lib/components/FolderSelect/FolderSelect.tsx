@@ -22,14 +22,23 @@ export interface FolderSelectProps {
     root?: string
     /** Include "products://" in the final path */
     includeProtocol?: boolean
+    /** Include root item in the tree as a selectable item */
+    includeRoot?: boolean
 }
 
 /** Input component for selecting a folder */
 let counter = 0
 
-export function FolderSelect({ value, onChange, root, className, includeProtocol }: FolderSelectProps): JSX.Element {
+export function FolderSelect({
+    value,
+    onChange,
+    root,
+    className,
+    includeProtocol,
+    includeRoot,
+}: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root }
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
 
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))

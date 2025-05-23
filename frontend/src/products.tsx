@@ -109,13 +109,13 @@ export const productRedirects: Record<
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
     EarlyAccessFeatures: {
-        name: 'Early Access Features',
+        name: 'Early access features',
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
     EarlyAccessFeature: {
-        name: 'Early Access Features',
+        name: 'Early access feature',
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
