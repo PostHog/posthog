@@ -77,7 +77,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return query_str
 
     def _path_query(self) -> str:
-        previous_period_filter, current_period_filter = self.get_date_ranges()
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="p")
 
         query_str = f"""
         SELECT
@@ -90,16 +90,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 sumMergeIf(p.pageviews_count_state, {current_period_filter}),
                 sumMergeIf(p.pageviews_count_state, {previous_period_filter})
             ) as `context.columns.views`,
-            tuple(
-                sumMergeIf(bounces.bounces_count_state, {current_period_filter}),
-                sumMergeIf(bounces.bounces_count_state, {previous_period_filter})
-            ) as `context.columns.bounces`
+            any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
         FROM
             web_paths_daily p
-        LEFT JOIN web_bounces_daily bounces
-            ON p.pathname = bounces.entry_path
-                AND p.team_id = bounces.team_id
-                AND p.day_bucket = bounces.day_bucket
+        LEFT JOIN ({self._bounce_rate_query()}) bounces
+            ON p.pathname = bounces.`context.columns.breakdown_value`
         GROUP BY `context.columns.breakdown_value`
         """
 
@@ -115,7 +110,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             table_name = "web_bounces_daily"
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query_str = self._path_query()
-            table_name = "web_paths_daily"
+            table_name = "p"
         else:
             breakdown_field = self._get_breakdown_field()
             query_str = f"""

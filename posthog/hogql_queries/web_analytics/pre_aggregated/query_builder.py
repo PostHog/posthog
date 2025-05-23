@@ -1,4 +1,4 @@
-from typing import cast, Union
+from typing import Optional, cast, Union
 from datetime import datetime, UTC
 
 from posthog.hogql import ast
@@ -86,7 +86,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return None
 
-    def get_date_ranges(self) -> tuple[str, str]:
+    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[str, str]:
         current_date_from = self.runner.query_date_range.date_from_str
         current_date_to = self.runner.query_date_range.date_to_str
 
@@ -100,7 +100,9 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             previous_date_from = current_date_from
             previous_date_to = current_date_to
 
-        current_period_filter = f"day_bucket >= '{current_date_from}' AND day_bucket <= '{current_date_to}'"
-        previous_period_filter = f"day_bucket >= '{previous_date_from}' AND day_bucket <= '{previous_date_to}'"
+        field_name = f"{table_name}.day_bucket" if table_name else "day_bucket"
+
+        current_period_filter = f"{field_name} >= '{current_date_from}' AND {field_name} <= '{current_date_to}'"
+        previous_period_filter = f"{field_name} >= '{previous_date_from}' AND {field_name} <= '{previous_date_to}'"
 
         return (previous_period_filter, current_period_filter)
