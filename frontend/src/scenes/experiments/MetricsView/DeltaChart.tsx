@@ -141,7 +141,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
         colors,
         tooltip: { setTooltipData },
         credibleIntervalForVariant,
-        conversionRateForVariant,
         metricIndex,
         isSecondary,
         openVariantDeltaTimeseriesModal,
