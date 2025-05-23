@@ -1,4 +1,4 @@
-import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -79,9 +79,14 @@ export function Experiments(): JSX.Element {
                             <>
                                 {stringWithWBR(experiment.name, 17)}
                                 {showLegacyBadge && isLegacyExperiment(experiment) && (
-                                    <LemonTag type="warning" className="ml-1">
-                                        Legacy
-                                    </LemonTag>
+                                    <Tooltip
+                                        title="This experiment uses the legacy engine, so some features and improvements may be missing."
+                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
+                                    >
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    </Tooltip>
                                 )}
                             </>
                         }
