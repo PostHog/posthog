@@ -207,6 +207,9 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                             type="secondary"
                             onClick={() => {
                                 toggleExpanded()
+                                if (!(sampleGlobalsLoading && !fetchCancelled)) {
+                                    loadSampleGlobals()
+                                }
                                 // Add a small delay to allow the content to expand
                                 setTimeout(() => {
                                     testResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
