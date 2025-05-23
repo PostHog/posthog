@@ -135,8 +135,11 @@ function ActionsColumn({
 }
 
 // This is computed only once when component is loaded,
-// but this isn't a big deal because this is just here to present a nice placeholder for the user to edit
-const nextQuarterDate = dayjs().add(1, 'quarter')
+// but this isn't a big deal because this is just here to present
+// a nice placeholder for the user to edit
+//
+// NOTE: Some extra handling if we're in storybook to avoid flappy snapshots
+const nextQuarterDate = inStorybook() || inStorybookTestRunner() ? dayjs('2025-01-01') : dayjs().add(1, 'quarter')
 const nextQuarter = nextQuarterDate.quarter()
 const nextQuarterYear = nextQuarterDate.year()
 const EMPTY_GOAL = {
@@ -146,11 +149,8 @@ const EMPTY_GOAL = {
 }
 
 export function GoalsConfiguration(): JSX.Element {
-    const { revenueAnalyticsConfig, baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { revenueAnalyticsConfig, baseCurrency, goals } = useValues(revenueAnalyticsSettingsLogic)
     const actions = useActions(revenueAnalyticsSettingsLogic)
-
-    // Get goals from config, fallback to empty array
-    const goals = revenueAnalyticsConfig?.goals || []
 
     // It's not adding by default, but we want to show the form in storybook and test runner
     // so that they show up in the snapshots
@@ -348,6 +348,7 @@ export function GoalsConfiguration(): JSX.Element {
             <LemonTable<RevenueAnalyticsGoal>
                 columns={columns}
                 dataSource={dataSource}
+                loading={revenueAnalyticsConfig === null}
                 onRow={(_, index) => ({
                     className: index === goals.length && isAdding ? 'my-2' : '',
                 })}

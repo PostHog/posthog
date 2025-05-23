@@ -196,6 +196,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/file_system': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/file_system_shortcut/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/event_ingestion_restrictions/': [],
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

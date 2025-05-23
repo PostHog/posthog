@@ -195,10 +195,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
                 },
-                updateCurrentTeam: (_, { revenue_analytics_config }) => {
-                    // TODO: Check how to pass the preflight region here
-                    return revenue_analytics_config || createEmptyConfig(null)
-                },
             },
         ],
         savedRevenueAnalyticsConfig: [
@@ -307,16 +303,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             updateGoal: updateCurrentTeam,
         }
     }),
-    loaders(({ values, actions }) => ({
-        saveChanges: {
-            save: () => {
-                actions.updateCurrentTeam({
-                    revenue_analytics_config:
-                        values.revenueAnalyticsConfig || createEmptyConfig(values.preflight?.region),
-                })
-                return null
-            },
-        },
+    loaders(({ values }) => ({
         revenueAnalyticsConfig: {
             loadRevenueAnalyticsConfig: async () => {
                 if (values.currentTeam) {
