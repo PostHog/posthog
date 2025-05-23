@@ -1385,7 +1385,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        duplicateSharedMetric: async ({ sharedMetricId, metadata }: { sharedMetricId: number }) => {
+        duplicateSharedMetric: async ({
+            sharedMetricId,
+            metadata,
+        }: {
+            sharedMetricId: number
+            metadata: { type: 'primary' | 'secondary' }
+        }) => {
             await api.create(`api/projects/@current/experiments/${values.experimentId}/duplicate_shared_metric/`, {
                 shared_metric_id: sharedMetricId,
                 metadata,
