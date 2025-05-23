@@ -22,8 +22,8 @@ class PersistedFolderSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def update(self, instance: PersistedFolder, validated_data: dict[str, Any]) -> PersistedFolder:  # noqa: D401
-        instance.team_id = self.context["team_id"]
-        instance.user = self.context["request"].user
+        validated_data["team_id"] = self.context["team_id"]
+        validated_data["user"] = self.context["request"].user
         return super().update(instance, validated_data)
 
     def create(self, validated_data: dict[str, Any]) -> PersistedFolder:  # noqa: D401
