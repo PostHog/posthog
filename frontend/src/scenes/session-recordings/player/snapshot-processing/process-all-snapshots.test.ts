@@ -7,7 +7,14 @@ import { processAllSnapshots } from './process-all-snapshots'
 
 const alwaysOneGenerator = (): number => 1
 const alwaysTwoGenerator = (): number => 2
-const randomGenerator = (): number => Math.floor(Math.random() * 1000)
+const rotateIdsBetween = (start: number, end: number): (() => number) => {
+    let current = start
+    return () => {
+        const result = current
+        current = (current + 1) % end
+        return result
+    }
+}
 
 describe('processAllSnapshots throttling', () => {
     const createAdds = (nodeIdGenerator: () => number, repeats: number = 1): any[] => {
@@ -49,19 +56,26 @@ describe('processAllSnapshots throttling', () => {
             removes?: any[]
             texts?: any[]
             attributes?: any[]
-        } = {}
-    ): RecordingSnapshot => ({
-        type: EventType.IncrementalSnapshot,
-        timestamp,
-        windowId: '1',
-        data: {
-            source: IncrementalSource.Mutation,
-            adds: mutations.adds || [],
-            removes: mutations.removes || [],
-            texts: mutations.texts || [],
-            attributes: mutations.attributes || [],
-        },
-    })
+        } = {},
+        repeats: number = 1
+    ): RecordingSnapshot[] => {
+        const snapshots: RecordingSnapshot[] = []
+        for (let i = 0; i < repeats; i++) {
+            snapshots.push({
+                type: EventType.IncrementalSnapshot,
+                timestamp: timestamp + i,
+                windowId: '1',
+                data: {
+                    source: IncrementalSource.Mutation,
+                    adds: mutations.adds || [],
+                    removes: mutations.removes || [],
+                    texts: mutations.texts || [],
+                    attributes: mutations.attributes || [],
+                },
+            })
+        }
+        return snapshots
+    }
 
     const createFullSnapshot = (timestamp: number): RecordingSnapshot => ({
         type: EventType.FullSnapshot,
@@ -105,22 +119,22 @@ describe('processAllSnapshots throttling', () => {
         // Create a sequence of rapid mutations for the same node
         const snapshots: RecordingSnapshot[] = [
             createFullSnapshot(1000),
-            createIncrementalSnapshot(1001, {
+            ...createIncrementalSnapshot(1001, {
                 adds: createAdds(alwaysOneGenerator),
             }),
-            createIncrementalSnapshot(1002, {
+            ...createIncrementalSnapshot(1002, {
                 texts: createTexts(alwaysOneGenerator),
             }),
-            createIncrementalSnapshot(1003, {
+            ...createIncrementalSnapshot(1003, {
                 texts: createTexts(alwaysOneGenerator),
             }),
-            createIncrementalSnapshot(1004, {
+            ...createIncrementalSnapshot(1004, {
                 texts: createTexts(alwaysOneGenerator),
             }),
-            createIncrementalSnapshot(1005, {
+            ...createIncrementalSnapshot(1005, {
                 attributes: createAttributes(alwaysOneGenerator),
             }),
-            createIncrementalSnapshot(1006, {
+            ...createIncrementalSnapshot(1006, {
                 removes: createRemoves(alwaysOneGenerator),
             }),
         ]
@@ -140,123 +154,177 @@ describe('processAllSnapshots throttling', () => {
         expect(incrementalSnapshots[5].timestamp).toBe(1006)
     })
 
-    it('does not throttle adds when load is spread between nodes', () => {
-        // Create a sequence of rapid mutations for the same node
-        const snapshots: RecordingSnapshot[] = [
-            createFullSnapshot(1000),
-            createIncrementalSnapshot(1001, {
-                adds: createAdds(randomGenerator, 10_000),
-            }),
-        ]
+    describe('just repeated adds', () => {
+        it('does not throttle adds when low enough load is spread between nodes', () => {
+            // Create a sequence of rapid mutations for the same node
+            const snapshots: RecordingSnapshot[] = [
+                createFullSnapshot(1000),
+                ...createIncrementalSnapshot(1001, {
+                    adds: createAdds(rotateIdsBetween(0, 1000), 5_000),
+                }),
+            ]
 
-        const result = callProcessing(snapshots)
+            const result = callProcessing(snapshots)
 
-        // meta event is patched in
-        expect(result).toHaveLength(3)
-        const incrementalSnapshot = result.filter((s) => s.type === EventType.IncrementalSnapshot)
-        expect(incrementalSnapshot).toHaveLength(1)
+            // meta event is patched in
+            expect(result).toHaveLength(3)
+            const incrementalSnapshot = result.filter((s) => s.type === EventType.IncrementalSnapshot)
+            expect(incrementalSnapshot).toHaveLength(1)
 
-        expect(incrementalSnapshot[0].timestamp).toBe(1001)
-        expect((incrementalSnapshot[0].data as any).adds.length).toBe(10_000)
-    })
+            expect(incrementalSnapshot[0].timestamp).toBe(1001)
+            expect(
+                Array.from(new Set((incrementalSnapshot[0].data as any).adds.map((a: any) => a.node.id)))
+            ).toHaveLength(1000)
+            expect((incrementalSnapshot[0].data as any).adds.length).toBe(1_000)
+        })
 
-    it('does throttle adds when load is concentrated on one node', () => {
-        // Create a sequence of rapid mutations for the same node
-        const snapshots: RecordingSnapshot[] = [
-            createFullSnapshot(1000),
-            createIncrementalSnapshot(1001, {
-                adds: createAdds(alwaysOneGenerator, 10_000),
-            }),
-        ]
+        it('does throttle adds when high enough load is spread between nodes', () => {
+            // Create a sequence of rapid mutations for the same node
+            const snapshots: RecordingSnapshot[] = [
+                createFullSnapshot(1000),
+                ...createIncrementalSnapshot(1001, {
+                    adds: createAdds(rotateIdsBetween(0, 1000), 500_000),
+                }),
+            ]
 
-        const result = callProcessing(snapshots)
+            expect((snapshots[1].data as any).adds.length).toBe(500_000)
+            expect(Array.from(new Set((snapshots[1].data as any).adds.map((a: any) => a.node.id)))).toHaveLength(1000)
 
-        // meta event is patched in
-        expect(result).toHaveLength(3)
-        const incrementalSnapshot = result.filter((s) => s.type === EventType.IncrementalSnapshot)
-        expect(incrementalSnapshot).toHaveLength(1)
+            const result = callProcessing(snapshots)
 
-        expect(incrementalSnapshot[0].timestamp).toBe(1001)
-        expect((incrementalSnapshot[0].data as any).adds.length).toBe(1000)
-    })
+            // meta event is patched in
+            expect(result).toHaveLength(3)
+            const incrementalSnapshot = result.filter((s) => s.type === EventType.IncrementalSnapshot)
+            expect(incrementalSnapshot).toHaveLength(1)
 
-    it('processes mutations for multiple nodes without throttling', () => {
-        const snapshots: RecordingSnapshot[] = [
-            createFullSnapshot(1000),
-            // Node 1 mutations
-            createIncrementalSnapshot(1001, {
-                adds: createAdds(alwaysOneGenerator),
-            }),
-            createIncrementalSnapshot(1002, {
-                texts: createTexts(alwaysOneGenerator),
-            }),
-            // Node 2 mutations
-            createIncrementalSnapshot(1003, {
-                adds: createAdds(() => 2),
-            }),
-            createIncrementalSnapshot(1004, {
-                texts: createTexts(alwaysOneGenerator),
-            }),
-            // Rapid mutations for both nodes
-            createIncrementalSnapshot(1005, {
-                texts: createTexts(alwaysOneGenerator),
-            }),
-            createIncrementalSnapshot(1005, {
-                texts: createTexts(alwaysTwoGenerator),
-            }),
-            createIncrementalSnapshot(1006, {
-                attributes: createAttributes(alwaysOneGenerator),
-            }),
-            createIncrementalSnapshot(1006, {
-                attributes: createAttributes(alwaysTwoGenerator),
-            }),
-        ]
+            expect(incrementalSnapshot[0].timestamp).toBe(1001)
+            // still have at least one "add" for each node
+            expect(
+                Array.from(new Set((incrementalSnapshot[0].data as any).adds.map((a: any) => a.node.id)))
+            ).toHaveLength(1000)
+            expect((incrementalSnapshot[0].data as any).adds.length).toBe(1_000)
+        })
 
-        const result = callProcessing(snapshots)
+        it('does throttle adds when load is concentrated on one node', () => {
+            // Create a sequence of rapid mutations for the same node
+            const snapshots: RecordingSnapshot[] = [
+                createFullSnapshot(1000),
+                ...createIncrementalSnapshot(1001, {
+                    adds: createAdds(alwaysOneGenerator, 10_000),
+                }),
+            ]
 
-        // Verify all mutations are processed
-        expect(result.filter((s) => s.type === EventType.IncrementalSnapshot)).toHaveLength(8)
+            const result = callProcessing(snapshots)
 
-        // Verify order is preserved
-        const incrementalSnapshots = result.filter((s) => s.type === EventType.IncrementalSnapshot)
-        expect(incrementalSnapshots[0].timestamp).toBe(1001)
-        expect(incrementalSnapshots[1].timestamp).toBe(1002)
-        expect(incrementalSnapshots[2].timestamp).toBe(1003)
-        expect(incrementalSnapshots[3].timestamp).toBe(1004)
-        expect(incrementalSnapshots[4].timestamp).toBe(1005)
-        expect(incrementalSnapshots[5].timestamp).toBe(1005)
-        expect(incrementalSnapshots[6].timestamp).toBe(1006)
-        expect(incrementalSnapshots[7].timestamp).toBe(1006)
-    })
+            // meta event is patched in
+            expect(result).toHaveLength(3)
+            const incrementalSnapshot = result.filter((s) => s.type === EventType.IncrementalSnapshot)
+            expect(incrementalSnapshot).toHaveLength(1)
 
-    it('resets state on full snapshot', () => {
-        const snapshots: RecordingSnapshot[] = [
-            createFullSnapshot(1000),
-            createIncrementalSnapshot(1001, {
-                adds: createAdds(alwaysOneGenerator),
-            }),
-            createIncrementalSnapshot(1002, {
-                texts: createTexts(alwaysOneGenerator),
-            }),
-            createFullSnapshot(1003),
-            createIncrementalSnapshot(1004, {
-                adds: createAdds(alwaysOneGenerator),
-            }),
-            createIncrementalSnapshot(1005, {
-                texts: createTexts(alwaysOneGenerator),
-            }),
-        ]
+            expect(incrementalSnapshot[0].timestamp).toBe(1001)
+            expect((incrementalSnapshot[0].data as any).adds.length).toBe(1)
+        })
 
-        const result = callProcessing(snapshots)
+        it('throttles adds when spread across different snapshots', () => {
+            const snapshots: RecordingSnapshot[] = [
+                createFullSnapshot(1000),
+                ...createIncrementalSnapshot(
+                    1001,
+                    {
+                        adds: createAdds(alwaysOneGenerator),
+                    },
+                    10_000
+                ),
+            ]
+            expect(snapshots).toHaveLength(10_001)
+            expect(snapshots.filter((s) => s.type === EventType.IncrementalSnapshot)).toHaveLength(10_000)
 
-        // Verify all mutations are processed
-        expect(result.filter((s) => s.type === EventType.IncrementalSnapshot)).toHaveLength(4)
+            const result = callProcessing(snapshots)
 
-        // Verify order is preserved
-        const incrementalSnapshots = result.filter((s) => s.type === EventType.IncrementalSnapshot)
-        expect(incrementalSnapshots[0].timestamp).toBe(1001)
-        expect(incrementalSnapshots[1].timestamp).toBe(1002)
-        expect(incrementalSnapshots[2].timestamp).toBe(1004)
-        expect(incrementalSnapshots[3].timestamp).toBe(1005)
+            // meta event is patched in
+            expect(result).toHaveLength(1002)
+            const incrementalSnapshot = result.filter((s) => s.type === EventType.IncrementalSnapshot)
+            expect(incrementalSnapshot).toHaveLength(1000)
+        })
+
+        it('processes mutations for multiple nodes without throttling', () => {
+            const snapshots: RecordingSnapshot[] = [
+                createFullSnapshot(1000),
+                // Node 1 mutations
+                ...createIncrementalSnapshot(1001, {
+                    adds: createAdds(alwaysOneGenerator),
+                }),
+                ...createIncrementalSnapshot(1002, {
+                    texts: createTexts(alwaysOneGenerator),
+                }),
+                // Node 2 mutations
+                ...createIncrementalSnapshot(1003, {
+                    adds: createAdds(() => 2),
+                }),
+                ...createIncrementalSnapshot(1004, {
+                    texts: createTexts(alwaysOneGenerator),
+                }),
+                // Rapid mutations for both nodes
+                ...createIncrementalSnapshot(1005, {
+                    texts: createTexts(alwaysOneGenerator),
+                }),
+                ...createIncrementalSnapshot(1005, {
+                    texts: createTexts(alwaysTwoGenerator),
+                }),
+                ...createIncrementalSnapshot(1006, {
+                    attributes: createAttributes(alwaysOneGenerator),
+                }),
+                ...createIncrementalSnapshot(1006, {
+                    attributes: createAttributes(alwaysTwoGenerator),
+                }),
+            ]
+
+            const result = callProcessing(snapshots)
+
+            // Verify all mutations are processed
+            expect(result.filter((s) => s.type === EventType.IncrementalSnapshot)).toHaveLength(8)
+
+            // Verify order is preserved
+            const incrementalSnapshots = result.filter((s) => s.type === EventType.IncrementalSnapshot)
+            expect(incrementalSnapshots[0].timestamp).toBe(1001)
+            expect(incrementalSnapshots[1].timestamp).toBe(1002)
+            expect(incrementalSnapshots[2].timestamp).toBe(1003)
+            expect(incrementalSnapshots[3].timestamp).toBe(1004)
+            expect(incrementalSnapshots[4].timestamp).toBe(1005)
+            expect(incrementalSnapshots[5].timestamp).toBe(1005)
+            expect(incrementalSnapshots[6].timestamp).toBe(1006)
+            expect(incrementalSnapshots[7].timestamp).toBe(1006)
+        })
+
+        it('resets state on full snapshot', () => {
+            const snapshots: RecordingSnapshot[] = [
+                createFullSnapshot(1000),
+                ...createIncrementalSnapshot(1001, {
+                    adds: createAdds(alwaysOneGenerator),
+                }),
+                ...createIncrementalSnapshot(1002, {
+                    texts: createTexts(alwaysOneGenerator),
+                }),
+                createFullSnapshot(1003),
+                ...createIncrementalSnapshot(1004, {
+                    adds: createAdds(alwaysOneGenerator),
+                }),
+                ...createIncrementalSnapshot(1005, {
+                    texts: createTexts(alwaysOneGenerator),
+                }),
+            ]
+
+            const result = callProcessing(snapshots)
+
+            // Verify all mutations are processed
+            expect(result.filter((s) => s.type === EventType.IncrementalSnapshot)).toHaveLength(4)
+
+            // Verify order is preserved
+            const incrementalSnapshots = result.filter((s) => s.type === EventType.IncrementalSnapshot)
+            expect(incrementalSnapshots[0].timestamp).toBe(1001)
+            expect(incrementalSnapshots[1].timestamp).toBe(1002)
+            expect(incrementalSnapshots[2].timestamp).toBe(1004)
+            expect(incrementalSnapshots[3].timestamp).toBe(1005)
+        })
     })
 })

@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
+import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@posthog/rrweb-types'
 import { isObject } from 'lib/utils'
 import posthog from 'posthog-js'
 import {
@@ -25,12 +25,76 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
+const TOKEN_BUCKET_CONFIG = {
+    rate: 100, // tokens per second
+    capacity: 1000,
+    minTokensPerAdd: 1,
+    // Add a minimum time between adds to prevent burst flooding
+    minTimeBetweenAdds: 10, // 10ms between adds
+}
+
+interface NodeTokenBucket {
+    tokens: number
+    lastRefill: number
+    hasProcessedAdd: boolean
+    lastAddTime: number // Track when we last allowed an add
+}
+
+const nodeTokenBuckets = new Map<number, NodeTokenBucket>()
+
+function refillTokens(bucket: NodeTokenBucket, now: number): void {
+    const timePassed = now - bucket.lastRefill
+    const newTokens = Math.floor((timePassed * TOKEN_BUCKET_CONFIG.rate) / 1000)
+    bucket.tokens = Math.min(TOKEN_BUCKET_CONFIG.capacity, bucket.tokens + newTokens)
+    bucket.lastRefill = now
+}
+
+function canProcessAdd(nodeId: number, timestamp: number): boolean {
+    let bucket = nodeTokenBuckets.get(nodeId)
+
+    if (!bucket) {
+        bucket = {
+            tokens: TOKEN_BUCKET_CONFIG.capacity,
+            lastRefill: timestamp,
+            hasProcessedAdd: false,
+            lastAddTime: 0,
+        }
+        nodeTokenBuckets.set(nodeId, bucket)
+    }
+
+    refillTokens(bucket, timestamp)
+
+    // Always allow at least one add
+    if (!bucket.hasProcessedAdd) {
+        bucket.hasProcessedAdd = true
+        bucket.lastAddTime = timestamp
+        return true
+    }
+
+    // Enforce minimum time between adds
+    if (timestamp - bucket.lastAddTime < TOKEN_BUCKET_CONFIG.minTimeBetweenAdds) {
+        return false
+    }
+
+    // Check if we have enough tokens
+    if (bucket.tokens >= TOKEN_BUCKET_CONFIG.minTokensPerAdd) {
+        bucket.tokens -= TOKEN_BUCKET_CONFIG.minTokensPerAdd
+        bucket.lastAddTime = timestamp
+        return true
+    }
+
+    return false
+}
+
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
 ): RecordingSnapshot[] {
+    // Reset token buckets at the start of processing
+    nodeTokenBuckets.clear()
+
     if (!sources || !snapshotsBySource) {
         return []
     }
@@ -42,12 +106,8 @@ export function processAllSnapshots(
     let metaCount = 0
     let fullSnapshotCount = 0
 
-    // we loop over this data as little as possible,
-    // since it could be large and processed more than once,
-    // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
         const sourceKey = keyForSource(source)
-        // sorting is very cheap for already sorted lists
         const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
             (a, b) => a.timestamp - b.timestamp
         )
@@ -67,9 +127,10 @@ export function processAllSnapshots(
                 metaCount += 1
             }
 
-            // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
                 fullSnapshotCount += 1
+                // Reset token buckets on full snapshot
+                nodeTokenBuckets.clear()
 
                 const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
@@ -80,7 +141,6 @@ export function processAllSnapshots(
                         matchedExtensions
                     )
                 ) {
-                    // Add the custom event at the start of the result array
                     result.unshift({
                         type: EventType.Custom,
                         data: {
@@ -93,16 +153,40 @@ export function processAllSnapshots(
                         windowId: snapshot.windowId,
                     })
                 }
+            } else if (
+                snapshot.type === EventType.IncrementalSnapshot &&
+                snapshot.data?.source === IncrementalSource.Mutation
+            ) {
+                // Filter adds based on token bucket
+                const filteredData = {
+                    ...snapshot.data,
+                    adds: snapshot.data.adds.filter((add) => canProcessAdd(add.node.id, snapshot.timestamp)),
+                    removes: snapshot.data.removes,
+                    texts: snapshot.data.texts,
+                    attributes: snapshot.data.attributes,
+                }
+
+                // Only include snapshot if it has any mutations
+                if (
+                    filteredData.adds.length > 0 ||
+                    filteredData.removes.length > 0 ||
+                    filteredData.texts.length > 0 ||
+                    filteredData.attributes.length > 0
+                ) {
+                    result.push({
+                        ...snapshot,
+                        data: filteredData,
+                    })
+                }
+                continue
             }
 
             result.push(snapshot)
         }
     }
 
-    // sorting is very cheap for already sorted lists
     result.sort((a, b) => a.timestamp - b.timestamp)
 
-    // Optional second pass: patch meta-events on the sorted array
     const needToPatchMeta = fullSnapshotCount > 0 && fullSnapshotCount > metaCount
     return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
 }
