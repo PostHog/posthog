@@ -41,12 +41,13 @@ import { decompressEvent } from './snapshot-processing/decompress'
 import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
 import {
     getHrefFromSnapshot,
+    patchMetaEventIntoMobileData,
     patchMetaEventIntoWebData,
     ViewportResolution,
 } from './snapshot-processing/patch-meta-event'
-import { patchMetaEventIntoMobileData } from './snapshot-processing/patch-meta-event'
 import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
@@ -71,18 +72,15 @@ function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
  *
  * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean, sessionRecordingId: string): eventWithTime {
-    // we decompress first so that we could support partial compression on mobile in future
+function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
+    // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return withMobileTransformer
-        ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
-        : (currentEvent as eventWithTime)
+    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
 }
 
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
-    sessionId: string,
-    withMobileTransformer: boolean = true
+    sessionId: string
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
@@ -126,7 +124,7 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.flatMap((d: unknown) => {
-                const snap = coerceToEventWithTime(d, withMobileTransformer, sessionId)
+                const snap = coerceToEventWithTime(d, sessionId)
 
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
@@ -164,27 +162,17 @@ export const parseEncodedSnapshots = async (
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
+    // allows altering v1 polling interval in tests
     realTimePollingIntervalMilliseconds?: number
+    // allows disabling polling for new sources in tests
+    blobV2PollingDisabled?: boolean
 }
 
 async function processEncodedResponse(
     encodedResponse: (EncodedRecordingSnapshot | string)[],
-    props: SessionRecordingDataLogicProps,
-    featureFlags: FeatureFlagsSet
-): Promise<{ transformed: RecordingSnapshot[]; untransformed: RecordingSnapshot[] | null }> {
-    let untransformed: RecordingSnapshot[] | null = null
-
-    const transformed = await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId)
-
-    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_EXPORT_MOBILE_DATA]) {
-        untransformed = await parseEncodedSnapshots(
-            encodedResponse,
-            props.sessionRecordingId,
-            false // don't transform mobile data
-        )
-    }
-
-    return { transformed, untransformed }
+    props: SessionRecordingDataLogicProps
+): Promise<RecordingSnapshot[]> {
+    return await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId)
 }
 
 export type SourceKey = `${SnapshotSourceType}-${string}`
@@ -359,19 +347,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
                         if (source.source === 'realtime' && e.status === 404) {
-                            // Realtime source is not always available so a 404 is expected
+                            // Realtime source is not always available, so a 404 is expected
                             return []
                         }
                         throw e
                     })
 
-                    const { transformed, untransformed } = await processEncodedResponse(
-                        response,
-                        props,
-                        values.featureFlags
-                    )
-
-                    return { snapshots: transformed, untransformed_snapshots: untransformed ?? undefined, source }
+                    return { snapshots: await processEncodedResponse(response, props), source }
                 },
             },
         ],
@@ -613,7 +595,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return actions.loadSnapshotsForSource(nextSourceToLoad)
             }
 
-            if (values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2)) {
+            if (
+                values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2) &&
+                !props.blobV2PollingDisabled
+            ) {
                 actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
             }
 
@@ -913,19 +898,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
-        untransformedSnapshots: [
-            (s) => [s.snapshotSources, s.snapshotsBySource],
-            (sources, snapshotsBySource): RecordingSnapshot[] => {
-                const allSnapshots =
-                    sources?.flatMap((source) => {
-                        const sourceKey = getSourceKey(source)
-                        return snapshotsBySource?.[sourceKey]?.untransformed_snapshots || []
-                    }) ?? []
-
-                return deduplicateSnapshots(allSnapshots)
-            },
-        ],
-
         snapshotsByWindowId: [
             (s) => [s.snapshots],
             (snapshots): Record<string, eventWithTime[]> => {
@@ -1005,18 +977,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         createExportJSON: [
-            (s) => [s.sessionPlayerMetaData, s.snapshots, s.untransformedSnapshots],
-            (
-                sessionPlayerMetaData,
-                snapshots,
-                untransformedSnapshots
-            ): ((exportUntransformedMobileSnapshotData: boolean) => ExportedSessionRecordingFileV2) => {
-                return (exportUntransformedMobileSnapshotData: boolean) => ({
+            (s) => [s.sessionPlayerMetaData, s.snapshots],
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return () => ({
                     version: '2023-04-28',
                     data: {
                         id: sessionPlayerMetaData?.id ?? '',
                         person: sessionPlayerMetaData?.person,
-                        snapshots: exportUntransformedMobileSnapshotData ? untransformedSnapshots : snapshots,
+                        snapshots: snapshots,
                     },
                 })
             },
