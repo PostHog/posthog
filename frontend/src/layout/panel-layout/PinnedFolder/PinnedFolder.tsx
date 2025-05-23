@@ -32,7 +32,7 @@ export function PinnedFolder(): JSX.Element {
                     </ButtonPrimitive>
                 </div>
             )}
-            <div className="mt-[-0.25rem] h-full">
+            <div className="mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree />
             </div>
             {modalVisible ? (
