@@ -22,15 +22,19 @@ import {
     FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
+    HogQLQuery,
+    HogQLQueryResponse,
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NodeKind,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
+import { HogQLQueryString } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -3357,6 +3361,32 @@ const api = {
             ...options,
             data: {
                 query,
+                client_query_id: queryId,
+                refresh,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
+        })
+    },
+
+    async queryHogQL<T = any[]>(
+        query: HogQLQueryString,
+        queryParams?: Omit<HogQLQuery, 'kind' | 'query'>,
+        refresh?: RefreshType,
+        queryId?: string,
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null,
+        options?: ApiMethodOptions
+    ): Promise<HogQLQueryResponse<T>> {
+        const hogQLQuery: HogQLQuery = {
+            ...queryParams,
+            kind: NodeKind.HogQLQuery,
+            query,
+        }
+        return await new ApiRequest().query().create({
+            ...options,
+            data: {
+                query: hogQLQuery,
                 client_query_id: queryId,
                 refresh,
                 filters_override: filtersOverride,

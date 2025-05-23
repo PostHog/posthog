@@ -20,7 +20,6 @@ import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
@@ -97,20 +96,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                         return []
                     }
 
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT distinct properties.$current_url AS urls
-                                     FROM events
-                                     WHERE timestamp >= now() - INTERVAL 7 DAY
-                                       AND timestamp <= now()
-                                       AND properties.$current_url like '%${hogql.identifier(
-                                           values.browserSearchTerm
-                                       )}%'
-                                     ORDER BY timestamp DESC
-                                         limit 100`,
-                    }
+                    const query = hogql`
+                        SELECT distinct properties.$current_url AS urls
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 7 DAY
+                        AND timestamp <= now()
+                        AND properties.$current_url like '%${hogql.identifier(values.browserSearchTerm)}%'
+                        ORDER BY timestamp DESC
+                        LIMIT 100`
 
-                    const res = await api.query(query)
+                    const res = await api.queryHogQL(query)
 
                     return res.results?.map((x) => x[0]) as string[]
                 },
@@ -121,20 +116,18 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as { url: string; count: number }[] | null,
             {
                 loadTopUrls: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$current_url AS url, count() as count
-                                     FROM events
-                                     WHERE timestamp >= now() - INTERVAL 7 DAY
-                                       AND event in ('$pageview'
-                                         , '$autocapture')
-                                       AND timestamp <= now()
-                                     GROUP BY properties.$current_url
-                                     ORDER BY count DESC
-                                         LIMIT 10`,
-                    }
+                    const query = hogql`
+                        SELECT properties.$current_url AS url, count() as count
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 7 DAY
+                        AND event in ('$pageview'
+                            , '$autocapture')
+                        AND timestamp <= now()
+                        GROUP BY properties.$current_url
+                        ORDER BY count DESC
+                            LIMIT 10`
 
-                    const res = await api.query(query)
+                    const res = await api.queryHogQL(query)
 
                     return res.results?.map((x) => ({ url: x[0], count: x[1] })) as { url: string; count: number }[]
                 },
