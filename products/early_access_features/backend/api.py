@@ -73,8 +73,9 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
         logger.info(
-            f"[EARLY ACCESS FEATURE] Updating early access feature stage for feature {instance.name} from {instance.stage} to {stage}",
+            f"[EARLY ACCESS FEATURE] Updating early access feature stage for feature preview",
             instance_id=instance.id,
+            instance_name=instance.name,
             previous_stage=instance.stage,
             new_stage=stage,
         )
