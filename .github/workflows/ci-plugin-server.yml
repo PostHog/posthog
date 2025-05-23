@@ -100,7 +100,7 @@ jobs:
                   bin/turbo --filter=@posthog/plugin-server prepare
 
             - name: Check builds correctly
-              run: pnpm build
+              run: pnpm --filter=@posthog/plugin-server build
 
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
