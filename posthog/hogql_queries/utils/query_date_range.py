@@ -61,6 +61,15 @@ class QueryDateRange:
         self._now_without_timezone = now
         self._earliest_timestamp_fallback = earliest_timestamp_fallback
 
+        # Hour intervals have strange behaviour in clickhouse:
+        # From the docs:
+        # (*) hour intervals are special: the calculation is always performed relative to 00:00:00 (midnight) of the current day
+        # Keep 1 hour intervals the same just in case there's subtle changes (there shouldn't be)
+        # but for other counts switch to 60x minute intervals
+        if self._interval == IntervalType.HOUR and self._interval_count > 1:
+            self._interval = IntervalType.MINUTE
+            self._interval_count *= 60
+
         if not isinstance(self._interval, IntervalType):
             raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
         if self._interval == IntervalType.WEEK and self._interval_count > 1:
