@@ -377,12 +377,18 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         release = self.get_object()
 
         metadata = request.data.get("metadata")
-        hash_id = str(request.data.get("hash_id"))
+        hash_id = request.data.get("hash_id")
+        name = request.data.get("name")
 
         if metadata:
             release.metadata = metadata
 
+        if name:
+            name = str(name)
+            release.name = name
+
         if hash_id and hash_id != release.hash_id:
+            hash_id = str(hash_id)
             hash_id = self.validate_hash_id(hash_id, True)
             release.hash_id = hash_id
 
@@ -394,12 +400,15 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         metadata = request.data.get("metadata")
         hash_id = str(request.data.get("hash_id") or id)
         hash_id = self.validate_hash_id(hash_id, True)
+        name = request.data.get("name")
+
+        if not name:
+            raise ValidationError("Name is required")
+
+        name = str(name)
 
         release = ErrorTrackingRelease.objects.create(
-            id=id,
-            team=self.team,
-            hash_id=hash_id,
-            metadata=metadata,
+            id=id, team=self.team, hash_id=hash_id, metadata=metadata, name=name
         )
 
         serializer = ErrorTrackingReleaseSerializer(release)
