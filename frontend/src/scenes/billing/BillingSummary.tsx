@@ -64,9 +64,9 @@ export const BillingSummary = (): JSX.Element => {
                                 {billing.discount_amount_usd && (
                                     <div>
                                         <LemonLabel
-                                            info={`The total credits remaining in your account.${
+                                            info={`The total credits remaining in your account. ${
                                                 billing.amount_off_expires_at
-                                                    ? ' Your credits expire on ' +
+                                                    ? 'Your credits expire on ' +
                                                       billing.amount_off_expires_at.format('LL')
                                                     : ''
                                             }`}
