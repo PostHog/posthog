@@ -369,7 +369,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             # TODO: I assume there's a better way to do this?
             raise ValueError("Hash id length cannot exceed 128 bytes")
 
-        if new and len(ErrorTrackingRelease.objects.all().filter(team=self.team, hash_id=hash_id)) > 0:
+        if new and ErrorTrackingRelease.objects.filter(team=self.team, hash_id=hash_id).exists():
             raise ValueError(f"Hash id {hash_id} already in use")
 
         return hash_id
