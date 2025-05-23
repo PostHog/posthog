@@ -20,7 +20,7 @@ export function useErrorTagRenderer(): (evt: ErrorEventType | null) => JSX.Eleme
                 return <ErrorTag color="blue" label="First Seen" />
             }
             if (selectedEvent && selectedEvent.uuid == evt.uuid) {
-                return <ErrorTag color="yellow" label="Custom" />
+                return <ErrorTag color="yellow" label="Current" />
             }
             return <></>
         },

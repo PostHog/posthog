@@ -21,10 +21,10 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
         }
         if (selectedEvent && !isFirstOrLastEvent(firstSeenEvent, lastSeen, selectedEvent)) {
             events.push({
-                id: 'custom',
+                id: 'current',
                 date: new Date(selectedEvent.timestamp),
                 color: 'var(--brand-yellow)',
-                payload: 'Custom',
+                payload: 'Current',
                 radius: 6,
             })
         }
