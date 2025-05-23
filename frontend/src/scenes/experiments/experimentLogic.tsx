@@ -1447,7 +1447,11 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
-                    const { experiment } = values
+                    const { experiment, usesNewQueryRunner } = values
+
+                    if (!usesNewQueryRunner) {
+                        return
+                    }
 
                     const query = {
                         kind: NodeKind.ExperimentExposureQuery,
@@ -2182,18 +2186,18 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         compatibleSharedMetrics: [
-            (s) => [s.sharedMetrics, s.shouldUseExperimentMetrics],
-            (sharedMetrics: SharedMetric[], shouldUseExperimentMetrics: boolean): SharedMetric[] => {
+            (s) => [s.sharedMetrics, s.usesNewQueryRunner],
+            (sharedMetrics: SharedMetric[], usesNewQueryRunner: boolean): SharedMetric[] => {
                 if (!sharedMetrics) {
                     return []
                 }
-                if (shouldUseExperimentMetrics) {
+                if (usesNewQueryRunner) {
                     return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
                 }
                 return sharedMetrics.filter((metric) => metric.query.kind !== NodeKind.ExperimentMetric)
             },
         ],
-        shouldUseExperimentMetrics: [
+        usesNewQueryRunner: [
             (s) => [s.experiment, s.featureFlags],
             (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
                 const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
@@ -2212,10 +2216,10 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
-            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
+            (s) => [s.exposures, s.usesNewQueryRunner, s.experiment],
+            (exposures, usesNewQueryRunner, experiment): boolean => {
                 // Not relevant for old metrics
-                if (!shouldUseExperimentMetrics) {
+                if (!usesNewQueryRunner) {
                     return true
                 }
 
