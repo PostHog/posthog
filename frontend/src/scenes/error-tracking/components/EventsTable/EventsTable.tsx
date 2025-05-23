@@ -1,4 +1,3 @@
-import { LemonCheckbox } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
@@ -32,7 +31,11 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
 
     function renderUUID(record: ErrorEventType): JSX.Element {
         // Click event is caught at the row level
-        return <LemonCheckbox checked={isEventSelected(record)} />
+        return (
+            <div className="flex items-center">
+                <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} />
+            </div>
+        )
     }
 
     function renderPerson(record: ErrorEventType): JSX.Element {
