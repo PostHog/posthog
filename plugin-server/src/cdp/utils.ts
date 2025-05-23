@@ -15,7 +15,6 @@ import {
     CyclotronJobInvocationHogFunction,
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
@@ -348,14 +347,14 @@ export function createInvocation(
 /**
  * Clones an invocation, removing all queue related values
  */
-export function cloneInvocation(
-    invocation: CyclotronJobInvocation,
+export function cloneInvocation<T extends CyclotronJobInvocation>(
+    invocation: T,
     params: Pick<
         Partial<CyclotronJobInvocation>,
         'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
     > &
         Pick<CyclotronJobInvocation, 'queue'>
-): CyclotronJobInvocation {
+): T {
     return {
         ...invocation,
         queueMetadata: params.queueMetadata ?? undefined,

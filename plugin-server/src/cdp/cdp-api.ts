@@ -14,8 +14,10 @@ import { HogFunctionMonitoringService } from './services/hog-function-monitoring
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
     MinimalLogEntry,
@@ -162,7 +164,7 @@ export class CdpApi {
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let lastResponse: HogFunctionInvocationResult | null = null
+            let lastResponse: CyclotronJobInvocationResult | null = null
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
@@ -201,7 +203,7 @@ export class CdpApi {
 
                 for (const _invocation of invocations) {
                     let count = 0
-                    let invocation = _invocation
+                    let invocation: CyclotronJobInvocation = _invocation
                     invocation.id = invocationID
 
                     while (!lastResponse || !lastResponse.finished) {
@@ -210,7 +212,7 @@ export class CdpApi {
                         }
                         count += 1
 
-                        let response: HogFunctionInvocationResult
+                        let response: CyclotronJobInvocationResult
 
                         if (invocation.queue === 'fetch') {
                             if (mock_async_functions) {
@@ -244,7 +246,7 @@ export class CdpApi {
                                 response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
-                            response = this.hogExecutor.execute(invocation)
+                            response = this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
                         }
 
                         logs = logs.concat(response.logs)

@@ -355,40 +355,6 @@ export type HogFlow = {
     abort_action?: string
 }
 
-// TODO: Replace with CyclotronJobInvocationHogFunction
-export type HogFunctionInvocation = {
-    id: string
-    globals: HogFunctionInvocationGlobalsWithInputs
-    teamId: Team['id']
-    hogFunction: HogFunctionType
-    // The current vmstate (set if the invocation is paused)
-    vmState?: VMState
-    timings: HogFunctionTiming[]
-    // Params specific to the queueing system
-    queue: CyclotronJobQueueKind
-    queueParameters?: CyclotronInvocationQueueParameters | null
-    queuePriority: number
-    queueScheduledAt?: DateTime
-    queueMetadata?: Record<string, any> | null
-    queueSource?: CyclotronJobQueueSource
-}
-
-// The result of an execution
-export type HogFunctionInvocationResult = {
-    invocation: HogFunctionInvocation
-    finished: boolean
-    error?: any
-    logs: MinimalLogEntry[]
-    metrics?: MinimalAppMetric[]
-    capturedPostHogEvents?: HogFunctionCapturedEvent[]
-    execResult?: unknown
-}
-
-export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
-    // When serialized to kafka / cyclotron we only store the ID
-    hogFunctionId: HogFunctionType['id']
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
