@@ -4,8 +4,9 @@ import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
-    HogFunctionInvocationResult,
     HogFunctionTypeType,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -27,13 +28,41 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
     }
 
-    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
+        const loadedInvocations = await this.loadHogFunctions(invocations)
+        return await this.runManyWithHeartbeat(loadedInvocations, (item) => this.hogExecutor.execute(item))
+    }
+
+    // TODO: Move this to an abstract function??
+    private async loadHogFunctions(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<CyclotronJobInvocationHogFunction[]> {
+        const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
+
+        await Promise.all(
+            invocations.map(async (item) => {
+                const hogFunction = await this.hogFunctionManager.getHogFunction(item.functionId)
+                if (!hogFunction) {
+                    logger.error('⚠️', 'Error finding hog function', {
+                        id: item.functionId,
+                    })
+                    return null
+                }
+
+                loadedInvocations.push({
+                    ...item,
+                    state: item.state as CyclotronJobInvocationHogFunction['state'],
+                    hogFunction,
+                })
+            })
+        )
+
+        return loadedInvocations
     }
 
     public async processBatch(
         invocations: CyclotronJobInvocation[]
-    ): Promise<{ backgroundTask: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
+    ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
         if (!invocations.length) {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
@@ -67,14 +96,15 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return { backgroundTask, invocationResults }
     }
 
-    protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {
+    protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
         invocations.forEach((item) => {
+            // TODO: Move this to the fetch consumer?
             if (item.invocation.queue === 'fetch') {
                 // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
                 this.hogFunctionMonitoringService.produceAppMetric({
                     team_id: item.invocation.teamId,
-                    app_source_id: item.invocation.hogFunction.id,
+                    app_source_id: item.invocation.functionId,
                     metric_kind: 'other',
                     metric_name: 'fetch',
                     count: 1,

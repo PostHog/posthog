@@ -239,7 +239,7 @@ export type CyclotronJobInvocation = {
     id: string
     teamId: Team['id']
     functionId: string
-    state?: object | null
+    state: object | null
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
     // Optional parameters for that queue to use
@@ -266,7 +266,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
 }
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
-    state?: {
+    state: {
         globals: HogFunctionInvocationGlobalsWithInputs
         vmState?: VMState
         timings: HogFunctionTiming[]
