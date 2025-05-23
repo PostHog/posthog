@@ -1322,7 +1322,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             type: 'image/jpeg',
                         })
                         downloadFile(file)
+                        posthog.capture('session_recording_player_take_screenshot_success')
                     } else {
+                        posthog.capture('session_recording_player_take_screenshot_error')
                         throw new Error('Screenshot blob could not be created.')
                     }
                 })(),
