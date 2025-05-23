@@ -34,6 +34,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             severityLevels=query_data.get("severityLevels", []),
             orderBy=query_data.get("orderBy"),
             searchTerm=query_data.get("searchTerm", None),
+            filterGroup=query_data.get("filterGroup", None),
         )
         runner = LogsQueryRunner(query, self.team)
         try:
@@ -52,6 +53,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
             searchTerm=query_data.get("searchTerm", None),
+            filterGroup=query_data.get("filterGroup", None),
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
@@ -60,8 +62,6 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        return Response([{"name": "path", "propertyFilterType": "log"}])
-
         results = sync_execute(
             """
 SELECT
