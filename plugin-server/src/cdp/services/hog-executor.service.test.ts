@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { truth } from '~/tests/helpers/truth'
 
 import { formatInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { logger } from '../../../src/utils/logger'
@@ -12,8 +12,8 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tes
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
 
 const setupFetchResponse = (
-    invocation: HogFunctionInvocation,
-    options?: Partial<HogFunctionInvocation['queueParameters']>
+    invocation: CyclotronJobInvocationHogFunction,
+    options?: Partial<CyclotronJobInvocationHogFunction['queueParameters']>
 ): void => {
     invocation.queue = 'hog'
     invocation.queueParameters = {
@@ -130,7 +130,7 @@ describe('Hog Executor', () => {
                 invocation: {
                     id: expect.any(String),
                     teamId: 1,
-                    globals: invocation.globals,
+                    globals: invocation.state.globals,
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
                     queueParameters: expect.any(Object),
@@ -237,7 +237,7 @@ describe('Hog Executor', () => {
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeTruthy()
+            expect(result.invocation.state.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)
@@ -325,7 +325,7 @@ describe('Hog Executor', () => {
 
             expect(results.invocations).toHaveLength(1)
 
-            expect(results.invocations[0].globals.source).toEqual({
+            expect(results.invocations[0].state.globals.source).toEqual({
                 name: 'Hog Function',
                 url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${fn.id}/configuration/`,
             })
@@ -639,15 +639,17 @@ describe('Hog Executor', () => {
 
             const result = executor.buildHogFunctionInvocations([fn], pageviewGlobals)
             // First mapping has input overrides that should be applied
-            expect(result.invocations[0].globals.inputs.headers).toEqual({
+            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[0].globals.inputs.url).toMatchInlineSnapshot(`"https://example.com?q=$pageview"`)
+            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
+                `"https://example.com?q=$pageview"`
+            )
             // Second mapping has no input overrides
-            expect(result.invocations[1].globals.inputs.headers).toEqual({
+            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[1].globals.inputs.url).toMatchInlineSnapshot(
+            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
                 `"https://example.com/posthog-webhook"`
             )
         })
