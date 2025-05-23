@@ -393,7 +393,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     }),
     selectors({
         savedItems: [
-            (s) => [s.folders, s.folderStates],
+            (s) => [s.folders],
             (folders): FileSystemEntry[] =>
                 Object.entries(folders).reduce((acc, [_, items]) => [...acc, ...items], [] as FileSystemEntry[]),
         ],
@@ -565,7 +565,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         treeItemsNew: [
             (s) => [s.getStaticTreeItems],
-            (getStaticTreeItems) => getStaticTreeItems().find((item) => item.id === 'new://')?.children ?? [],
+            (getStaticTreeItems) => getStaticTreeItems('', false).find((item) => item.id === 'new://')?.children ?? [],
         ],
     }),
     listeners(({ actions, values }) => ({
