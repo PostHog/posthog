@@ -36,12 +36,15 @@ export function DataSourceTable<T extends Record<string, any>>({
 
     const onRow = useCallback(
         (record: T) => {
+            if (!onRowClick) {
+                return {}
+            }
             return {
                 // onClick handler adds style to row we don't want
-                onMouseDown: (event: MouseEvent) => {
-                    onRowClick?.(record, event)
+                onClick: (event: MouseEvent) => {
+                    onRowClick(record, event)
                 },
-                className: onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : '',
+                className: 'hover:bg-fill-highlight-50',
             }
         },
         [onRowClick]

@@ -1,9 +1,13 @@
+import { Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useErrorTagRenderer } from 'scenes/error-tracking/hooks/use-error-tag-renderer'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { cancelEvent } from 'scenes/error-tracking/utils'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 
 import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
@@ -39,9 +43,17 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
     }
 
     function renderPerson(record: ErrorEventType): JSX.Element {
+        const display = asDisplay(record.person)
         return (
             <div className="flex items-center">
-                <PersonDisplay person={record.person} withIcon />
+                <span onClick={cancelEvent}>
+                    <PersonDisplay person={record.person} noLink>
+                        <Link subtle className={clsx('flex items-center')}>
+                            <PersonIcon displayName={display} person={record.person} size="md" />
+                            <span className={clsx('ph-no-capture', 'truncate')}>{display}</span>
+                        </Link>
+                    </PersonDisplay>
+                </span>
             </div>
         )
     }
