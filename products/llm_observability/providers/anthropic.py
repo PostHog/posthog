@@ -1,9 +1,11 @@
 import json
 from collections.abc import Generator
 from django.conf import settings
-import anthropic
+import posthoganalytics
+from posthoganalytics.ai.anthropic import Anthropic
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,11 @@ class AnthropicConfig:
 
 class AnthropicProvider:
     def __init__(self, model_id: str):
-        self.client = anthropic.Anthropic(api_key=self.get_api_key())
+        posthog_client = posthoganalytics.default_client
+        if not posthog_client:
+            raise ValueError("PostHog client not found")
+
+        self.client = Anthropic(api_key=self.get_api_key(), posthog_client=posthog_client)
         self.validate_model(model_id)
         self.model_id = model_id
 
@@ -105,6 +111,10 @@ class AnthropicProvider:
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -128,6 +138,15 @@ class AnthropicProvider:
         else:
             system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": None})]
             formatted_messages = [MessageParam(content=msg["content"], role=msg["role"]) for msg in messages]
+
+        # Prepare PostHog tracking parameters
+        posthog_kwargs = {
+            "posthog_distinct_id": distinct_id,
+            "posthog_trace_id": trace_id or str(uuid.uuid4()),
+            "posthog_properties": {**(properties or {}), "ai_product": "playground"},
+            "posthog_groups": groups or {},
+        }
+
         try:
             if reasoning_on:
                 stream = self.client.messages.create(
@@ -140,6 +159,7 @@ class AnthropicProvider:
                     thinking=ThinkingConfigEnabledParam(
                         type="enabled", budget_tokens=AnthropicConfig.MAX_THINKING_TOKENS
                     ),
+                    **posthog_kwargs,
                 )
             else:
                 stream = self.client.messages.create(
@@ -149,14 +169,11 @@ class AnthropicProvider:
                     system=system_prompt,
                     stream=True,
                     temperature=effective_temperature,
+                    **posthog_kwargs,
                 )
-        except anthropic.APIError as e:
+        except Exception as e:
             logger.exception(f"Anthropic API error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Anthropic API error'})}\n\n"
-            return
-        except Exception as e:
-            logger.exception(f"Unexpected error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return
 
         for chunk in stream:

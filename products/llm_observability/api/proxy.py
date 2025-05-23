@@ -9,6 +9,7 @@ Endpoints:
 
 import json
 import posthoganalytics
+import uuid
 from rest_framework import viewsets
 from posthog.auth import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -137,6 +138,20 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if isinstance(provider, Response):  # Error response
                 return provider
 
+            # Generate tracking parameters for PostHog observability
+            trace_id = str(uuid.uuid4())
+            distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
+            properties = {
+                "ai_product": "playground",
+                "mode": mode,
+                "model": serializer.validated_data.get("model", ""),
+            }
+            groups = {}
+            if request.user and request.user.is_authenticated:
+                team_id = getattr(request.user, "team_id", None)
+                if team_id:
+                    groups["team"] = str(team_id)
+
             if mode == "completion" and hasattr(provider, "stream_response"):
                 messages = serializer.validated_data.get("messages")
                 if not self.validate_messages(messages):
@@ -149,6 +164,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             "thinking": serializer.validated_data.get("thinking", False),
                             "temperature": serializer.validated_data.get("temperature"),
                             "max_tokens": serializer.validated_data.get("max_tokens"),
+                            "distinct_id": distinct_id,
+                            "trace_id": trace_id,
+                            "properties": properties,
+                            "groups": groups,
                         }
                     ),
                     request,
@@ -162,6 +181,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             "stop": serializer.validated_data.get("stop"),
                             "temperature": serializer.validated_data.get("temperature"),
                             "max_tokens": serializer.validated_data.get("max_tokens"),
+                            "distinct_id": distinct_id,
+                            "trace_id": trace_id,
+                            "properties": properties,
+                            "groups": groups,
                         }
                     ),
                     request,

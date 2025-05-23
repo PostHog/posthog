@@ -1,7 +1,8 @@
 import json
 from collections.abc import Generator
 from django.conf import settings
-import openai
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from anthropic.types import MessageParam
 from openai.types import ReasoningEffort, CompletionUsage
 from openai.types.chat import (
@@ -9,6 +10,7 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
 )
 import logging
+import uuid
 from typing import Any
 
 from products.llm_observability.providers.formatters.openai_formatter import convert_to_openai_messages
@@ -47,7 +49,11 @@ class OpenAIConfig:
 
 class OpenAIProvider:
     def __init__(self, model_id: str):
-        self.client = openai.OpenAI(api_key=self.get_api_key())
+        posthog_client = posthoganalytics.default_client
+        if not posthog_client:
+            raise ValueError("PostHog client not found")
+
+        self.client = OpenAI(api_key=self.get_api_key(), posthog_client=posthog_client)
         self.validate_model(model_id)
         self.model_id = model_id
 
@@ -82,6 +88,10 @@ class OpenAIProvider:
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -93,6 +103,14 @@ class OpenAIProvider:
         else:
             reasoning_on = False
 
+        # Prepare PostHog tracking parameters
+        posthog_kwargs = {
+            "posthog_distinct_id": distinct_id,
+            "posthog_trace_id": trace_id or str(uuid.uuid4()),
+            "posthog_properties": {**(properties or {}), "ai_product": "playground"},
+            "posthog_groups": groups or {},
+        }
+
         try:
             effective_temperature = temperature if temperature is not None else OpenAIConfig.TEMPERATURE
 
@@ -101,6 +119,7 @@ class OpenAIProvider:
                     "stream": True,
                     "stream_options": {"include_usage": True},
                     "temperature": effective_temperature,
+                    **posthog_kwargs,
                 }
                 if max_tokens is not None:
                     common["max_tokens"] = max_tokens
@@ -143,11 +162,7 @@ class OpenAIProvider:
                 if chunk.usage:
                     yield from self.yield_usage(chunk.usage)
 
-        except openai.APIError as e:
+        except Exception as e:
             logger.exception(f"OpenAI API error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'OpenAI API error'})}\n\n"
-            return
-        except Exception as e:
-            logger.exception(f"Unexpected error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return

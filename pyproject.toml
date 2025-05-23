@@ -79,7 +79,7 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics>=3.24.1",
+    "posthoganalytics>=4.2.0",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
     "psycopg[binary]==3.2.4",
