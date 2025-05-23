@@ -32,11 +32,11 @@ from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 @config.config
 class PostgreSQLSourceConfig(config.Config):
     host: str
-    port: int
     user: str
     password: str
     database: str
     schema: str
+    port: int = config.value(converter=int)
     ssh_tunnel: SSHTunnelConfig | None = None
 
 

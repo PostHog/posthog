@@ -56,7 +56,7 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
 class SSHTunnelAuthConfig(config.Config):
     """Configuration for SSH tunnel authentication."""
 
-    type: Literal["password", "keypair"] = config.value(alias="ssh_tunnel_auth_type", prefix="")
+    type: Literal["password", "keypair"] | None = config.value(alias="ssh_tunnel_auth_type", prefix="")
     password: str | None = None
     passphrase: str | None = None
     private_key: str | None = None
@@ -65,9 +65,9 @@ class SSHTunnelAuthConfig(config.Config):
 
 @config.config
 class SSHTunnelConfig(config.Config):
-    host: str
-    port: int
+    host: str | None
     auth: SSHTunnelAuthConfig
+    port: int | None = config.value(converter=config.str_to_optional_int)
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
 
 
@@ -85,6 +85,16 @@ class SSHTunnel:
 
     @classmethod
     def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
+        # We should not be calling this if SSH tunneling is not enabled.
+        # Currently, we don't: The function is always guarded by an if check.
+        # However, this is not reliable: Anybody can forget the if and introduce
+        # a bug.
+        # TODO: Refactor this so that we don't need these assertions nor can we
+        # fail if somebody forgets an if check.
+        assert config.host
+        assert config.port
+        assert config.auth.type
+
         return cls(
             enabled=config.enabled,
             host=config.host,

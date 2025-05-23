@@ -110,10 +110,12 @@ def to_config(
         field_flat_key = _get_flat_key(field, prefixes or ())
         field_nested_key = _get_nested_key(field)
 
-        if field_nested_key in d:
+        if field_flat_key in d:
+            field_key = field_flat_key
+        elif field_nested_key in d:
             field_key = field_nested_key
         else:
-            field_key = field_flat_key
+            field_key = field.name
 
         if field_meta and field_meta.converter:
             convert = field_meta.converter
@@ -475,3 +477,13 @@ def str_to_bool(s: str | bool) -> bool:
         return s
 
     return s.lower() in {"true", "yes", "1"}
+
+
+def str_to_optional_int(s: str | int | None) -> int | None:
+    """A converter to return a str to optional int."""
+    if isinstance(s, int):
+        return s
+    elif s is None:
+        return None
+
+    return int(s)
