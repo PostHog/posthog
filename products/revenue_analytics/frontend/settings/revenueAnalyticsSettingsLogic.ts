@@ -1,6 +1,7 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -12,6 +13,7 @@ import {
     NodeKind,
     RevenueAnalyticsConfig,
     RevenueAnalyticsEventItem,
+    RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource, Region } from '~/types'
@@ -20,11 +22,16 @@ import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettin
 
 const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsConfig => ({
     events: [],
+    goals: [],
 
     // Region won't be always set because we might mount this before we mount preflightLogic
     // so we default to USD if we can't determine the region
     base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
 })
+
+const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] => {
+    return goals.sort((a, b) => dayjs(a.due_date).diff(dayjs(b.due_date)))
+}
 
 export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
@@ -56,6 +63,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             eventName,
             currencyAwareDecimal,
         }),
+
+        addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
+        deleteGoal: (index: number) => ({ index }),
+        updateGoal: (index: number, goal: RevenueAnalyticsGoal) => ({ index, goal }),
 
         resetConfig: true,
     }),
@@ -156,6 +167,31 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                         }),
                     }
                 },
+                addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    const goals = sortByDueDate([...state.goals, goal])
+                    return { ...state, goals }
+                },
+                deleteGoal: (state: RevenueAnalyticsConfig | null, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    const goals = sortByDueDate(state.goals.filter((_, i) => i !== index))
+
+                    return { ...state, goals }
+                },
+                updateGoal: (state: RevenueAnalyticsConfig | null, { index, goal }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    const goals = sortByDueDate(state.goals.map((item, i) => (i === index ? goal : item)))
+                    return { ...state, goals }
+                },
                 resetConfig: () => {
                     return values.savedRevenueAnalyticsConfig
                 },
@@ -183,6 +219,11 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 revenueAnalyticsConfig?.base_currency || CurrencyCode.USD,
         ],
 
+        goals: [
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.goals || [],
+        ],
+
         events: [
             (s) => [s.revenueAnalyticsConfig],
             (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.events || [],
@@ -193,7 +234,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 return !!config && !objectsEqual(config.events, savedConfig.events)
             },
         ],
-
         saveEventsDisabledReason: [
             (s) => [s.revenueAnalyticsConfig, s.changesMadeToEvents],
             (config, changesMade): string | null => {
@@ -252,6 +292,20 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 return query
             },
         ],
+    }),
+    listeners(({ actions, values }) => {
+        const updateCurrentTeam = (): void => {
+            if (values.revenueAnalyticsConfig) {
+                actions.updateCurrentTeam({ revenue_analytics_config: values.revenueAnalyticsConfig })
+            }
+        }
+
+        return {
+            updateBaseCurrency: updateCurrentTeam,
+            addGoal: updateCurrentTeam,
+            deleteGoal: updateCurrentTeam,
+            updateGoal: updateCurrentTeam,
+        }
     }),
     loaders(({ values, actions }) => ({
         saveChanges: {
