@@ -4272,7 +4272,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
-    # @snapshot_clickhouse_queries
+    @snapshot_clickhouse_queries
     def test_filter_users_from_excluded_cohort_no_events(self):
         """
         Test that sessions from users in a cohort marked as excluded in team test account filters are properly filtered out,
@@ -4330,10 +4330,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             ["internal_session", "actual_session"],
         )
-        # The assumption is that if the recording has no events - it would fail to identify what sessions to filter out
+        # The assumption is that if the recording has no events - it would still be able to identify what sessions to filter out
         self._assert_query_matches_session_ids(
             {
                 "filter_test_accounts": True,
             },
-            ["internal_session", "actual_session"],
+            ["actual_session"],
         )
