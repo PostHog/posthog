@@ -1334,7 +1334,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        assert mock_capture.call_args_list[1] == call(
+        assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
             "snapshots_api_called_with_personal_api_key",
             {
