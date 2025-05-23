@@ -623,21 +623,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source = request.GET.get("source")
         is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
-        event_properties = {
-            "team_id": self.team.pk,
-            "request_source": source,
-            "session_being_loaded": recording.session_id,
-        }
-
-        if request.headers.get("X-POSTHOG-SESSION-ID"):
-            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "v2 session recording snapshots viewed",
-            event_properties,
-        )
-
         if source:
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
@@ -665,15 +650,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 response = self._gather_session_recording_sources(recording, is_v2_enabled)
         elif source == "realtime":
             with timer("send_realtime_snapshots_to_client"):
-                response = self._send_realtime_snapshots_to_client(recording, request, event_properties)
+                response = self._send_realtime_snapshots_to_client(recording, request)
         elif source == "blob":
             with timer("stream_blob_to_client"):
-                response = self._stream_blob_to_client(recording, request, event_properties)
+                response = self._stream_blob_to_client(recording, request)
         elif source == "blob_v2":
             blob_key = request.GET.get("blob_key")
             if blob_key:
                 with timer("stream_blob_v2_to_client"):
-                    response = self._stream_blob_v2_to_client(recording, request, event_properties)
+                    response = self._stream_blob_v2_to_client(recording, request)
             else:
                 with timer("gather_session_recording_sources"):
                     response = self._gather_session_recording_sources(recording, is_v2_enabled)
@@ -846,9 +831,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         #     r.headers["Server-Timing"] = timings_header
         # return r
 
-    def _stream_blob_to_client(
-        self, recording: SessionRecording, request: request.Request, event_properties: dict
-    ) -> HttpResponse:
+    def _stream_blob_to_client(self, recording: SessionRecording, request: request.Request) -> HttpResponse:
         blob_key = request.GET.get("blob_key", "")
         self._validate_blob_key(blob_key)
 
@@ -867,14 +850,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
-
-        event_properties["source"] = "blob"
-        event_properties["blob_key"] = blob_key
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "session recording snapshots v2 loaded",
-            event_properties,
-        )
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
             # streams the file from S3 to the client
@@ -914,9 +889,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
-    def _stream_blob_v2_to_client(
-        self, recording: SessionRecording, request: request.Request, event_properties: dict
-    ) -> HttpResponse:
+    def _stream_blob_v2_to_client(self, recording: SessionRecording, request: request.Request) -> HttpResponse:
         """Stream a v2 session recording blob to the client.
 
         The blob_key is the block index in the metadata arrays.
@@ -929,14 +902,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             block_index = int(blob_key)
         except ValueError:
             raise exceptions.ValidationError("Blob key must be an integer")
-
-        event_properties["source"] = "blob_v2"
-        event_properties["blob_key"] = blob_key
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "session recording snapshots v2 loaded",
-            event_properties,
-        )
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
             blocks = list_blocks(recording)
@@ -970,7 +935,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             return response
 
     def _send_realtime_snapshots_to_client(
-        self, recording: SessionRecording, request: request.Request, event_properties: dict
+        self, recording: SessionRecording, request: request.Request
     ) -> HttpResponse | Response:
         version = request.GET.get("version", "og")
 
@@ -982,14 +947,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 )
                 or []
             )
-
-        event_properties["source"] = "realtime"
-        event_properties["snapshots_length"] = len(snapshot_lines)
-        posthoganalytics.capture(
-            self._distinct_id_from_request(request),
-            "session recording snapshots v2 loaded",
-            event_properties,
-        )
 
         if version == "og":
             # originally we returned a list of dictionaries

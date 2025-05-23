@@ -893,22 +893,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
 
         # default headers if the object store does nothing
-        headers = response.headers.__dict__
-        server_timing_headers = headers.pop("server-timing")
+        headers = response.headers.__dict__["_store"]
+        server_timing_headers = headers.pop("server-timing")[1]
         assert re.match(r"get_recording;dur=\d+\.\d+, stream_blob_to_client;dur=\d+\.\d+", server_timing_headers)
-        assert response.headers.__dict__ == {
-            "_store": {
-                "content-type": ("Content-Type", "application/json"),
-                "cache-control": ("Cache-Control", "max-age=3600"),
-                "content-disposition": ("Content-Disposition", "inline"),
-                "allow": ("Allow", "GET, HEAD, OPTIONS"),
-                "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
-                "content-length": ("Content-Length", "15"),
-                "vary": ("Vary", "Origin"),
-                "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
-                "referrer-policy": ("Referrer-Policy", "same-origin"),
-                "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
-            }
+        assert headers == {
+            "content-type": ("Content-Type", "application/json"),
+            "cache-control": ("Cache-Control", "max-age=3600"),
+            "content-disposition": ("Content-Disposition", "inline"),
+            "allow": ("Allow", "GET, HEAD, OPTIONS"),
+            "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
+            "content-length": ("Content-Length", "15"),
+            "vary": ("Vary", "Origin"),
+            "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
+            "referrer-policy": ("Referrer-Policy", "same-origin"),
+            "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
         }
 
     @patch(
