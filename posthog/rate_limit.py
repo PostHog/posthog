@@ -392,8 +392,3 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
-
-
-# Backwards compatibility aliases
-EditorProxyBurstRateThrottle = LLMProxyBurstRateThrottle
-EditorProxySustainedRateThrottle = LLMProxySustainedRateThrottle

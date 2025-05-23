@@ -141,12 +141,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
             # Generate tracking parameters for PostHog observability
             trace_id = str(uuid.uuid4())
             distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
-            properties = {
-                "ai_product": "playground",
-                "mode": mode,
-                "model": serializer.validated_data.get("model", ""),
-            }
-            groups = {}
+            properties = {"ai_product": "playground"}
+            groups = {}  # placeholder for groups, maybe we should add team_id here or something????
             if request.user and request.user.is_authenticated:
                 team_id = getattr(request.user, "team_id", None)
                 if team_id:
