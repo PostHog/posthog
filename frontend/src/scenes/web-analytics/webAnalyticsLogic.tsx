@@ -175,7 +175,7 @@ const loadPriorityMap: Record<TileId, number> = {
 // To enable a tile here, you must update the QueryRunner to support it
 // or make sure it can load in a decent time (which event-only tiles usually do).
 // We filter them here to enable a faster experience for the user as the
-// the tiles that don't support pre-aggregated tables take a longer time to load
+// tiles that don't support pre-aggregated tables take a longer time to load
 // and will effectively block other queries to load because of the concurrencyController
 export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
     TileId.OVERVIEW,
