@@ -21,13 +21,13 @@ export const AttributesFilter = (): JSX.Element => {
                 setFilterGroup(filterGroup)
             }}
         >
-            <NestedFilterGroup rootKey={rootKey} />
+            <NestedFilterGroup />
         </UniversalFilters>
     )
 }
 
-const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
-    const { rootKey: currentKey, filterGroup } = useValues(universalFiltersLogic)
+const NestedFilterGroup = (): JSX.Element => {
+    const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
     return (
@@ -35,7 +35,7 @@ const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <NestedFilterGroup rootKey={rootKey} />
+                        <NestedFilterGroup />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value

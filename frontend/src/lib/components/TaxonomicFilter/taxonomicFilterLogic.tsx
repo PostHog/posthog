@@ -409,8 +409,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             exclude_hidden: true,
                         }).url,
                         valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
-                        getName: (value: string) => value,
-                        getValue: (value: string) => value,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Log attributes',
                     },
                     {

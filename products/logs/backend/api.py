@@ -60,6 +60,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
+        return Response([{"name": "path", "propertyFilterType": "log"}])
+
         results = sync_execute(
             """
 SELECT
@@ -78,6 +80,11 @@ LIMIT 1000;
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
+        return Response(
+            [{"id": "one", "name": "one"}, {"id": "two", "name": "two"}, {"id": "three", "name": "three"}],
+            status=status.HTTP_200_OK,
+        )
+
         request.GET.get("value")
         results = sync_execute(
             """

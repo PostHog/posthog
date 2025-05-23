@@ -36,7 +36,7 @@ class LogsQueryRunner(QueryRunner):
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=HogQLFilters(dateRange=self.query.dateRange, properties=self.properties),
             # needed for CH cloud
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
@@ -64,7 +64,8 @@ class LogsQueryRunner(QueryRunner):
         return LogsQueryResponse(results=results, **self.paginator.response_params())
 
     def to_query(self) -> ast.SelectQuery:
-        query = parse_select("""
+        query = parse_select(
+            """
             SELECT
             uuid,
             trace_id,
@@ -80,7 +81,8 @@ class LogsQueryRunner(QueryRunner):
             instrumentation_scope,
             event_name
             FROM logs
-        """)
+        """
+        )
 
         if not isinstance(query, ast.SelectQuery):
             raise Exception("NO!")
@@ -116,6 +118,10 @@ class LogsQueryRunner(QueryRunner):
             )
 
         return ast.And(exprs=exprs)
+
+    @cached_property
+    def properties(self):
+        return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
