@@ -22,6 +22,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
+import products.links.backend.api as link
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -43,8 +44,6 @@ from . import (
     event_definition,
     exports,
     feature_flag,
-    file_system,
-    file_system_shortcut,
     hog,
     hog_function,
     hog_function_template,
@@ -53,7 +52,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    link,
     notebook,
     organization,
     organization_domain,
@@ -76,6 +74,7 @@ from . import (
     user_group,
     web_vitals,
 )
+from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -230,6 +229,13 @@ register_grandfathered_environment_nested_viewset(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
     "environment_file_system_shortcut",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"persisted_folder",
+    persisted_folder.PersistedFolderViewSet,
+    "environment_persisted_folder",
     ["team_id"],
 )
 

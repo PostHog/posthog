@@ -18,6 +18,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 import products
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -45,7 +46,7 @@ for module_info in pkgutil.iter_modules(products.__path__):
     except ModuleNotFoundError:
         pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
-RouteName = Literal["insights", "root", "end", "search_documentation"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding"]
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -318,5 +319,10 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            return "insights" if state.root_tool_insight_type else "search_documentation"
+            if state.root_tool_insight_type:
+                if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
+                    return "memory_onboarding"
+                return "insights"
+            else:
+                return "search_documentation"
         return "end"

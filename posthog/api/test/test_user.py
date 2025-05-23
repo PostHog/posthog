@@ -19,6 +19,8 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.test.base import APIBaseTest
 
 
@@ -908,6 +910,25 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/{user_with_org_memberships.uuid}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert User.objects.filter(uuid=user_with_org_memberships.uuid).exists()
+
+    def test_cannot_delete_own_user_account_with_personal_api_key(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Delete User Account Key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+
+        OrganizationMembership.objects.filter(user=self.user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=self.user).exists()
+
+        self.client.logout()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):

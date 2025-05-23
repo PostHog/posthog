@@ -1,12 +1,12 @@
 import { IconPlus } from '@posthog/icons'
 import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonTreeSelectMode, TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -19,6 +19,7 @@ import type { projectTreeLogicType } from './projectTreeLogicType'
 import {
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
+    formatUrlAsName,
     joinPath,
     sortFilesAndFolders,
     splitPath,
@@ -44,6 +45,8 @@ export interface ProjectTreeLogicProps {
     key: string
     defaultSortMethod?: ProjectTreeSortMethod
     defaultOnlyFolders?: boolean
+    root?: string
+    includeRoot?: boolean
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -52,8 +55,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     key((props) => props.key),
     connect(() => ({
         values: [
-            panelLayoutLogic,
-            ['projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
             projectTreeDataLogic,
@@ -67,11 +68,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'sortedItems',
                 'loadingPaths',
                 'lastNewFolder',
+                'getStaticTreeItems',
             ],
         ],
         actions: [
             panelLayoutLogic,
-            ['setActivePanelIdentifier', 'setProjectTreeMode'],
+            ['setActivePanelIdentifier'],
             projectTreeDataLogic,
             [
                 'loadFolder',
@@ -128,6 +130,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setOnlyFolders: (onlyFolders: boolean) => ({ onlyFolders }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
+        setProjectTreeMode: (mode: TreeMode) => ({ mode }),
     }),
     loaders(({ actions, values }) => ({
         searchResults: [
@@ -208,7 +211,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         searchTerm: [
             '',
             {
@@ -329,13 +332,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         expandedFolders: [
-            ['/'] as string[],
+            [props.root] as string[],
             {
                 setExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
         expandedSearchFolders: [
-            ['/', 'project-folder/Unfiled'] as string[],
+            ['/', 'project://Unfiled'] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
                 loadSearchResultsSuccess: (state, { searchResults: { results, lastCount } }) => {
@@ -344,13 +347,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             acc[folderId] = true
                             return acc
                         },
-                        { 'project-folder/Unfiled': true }
+                        { 'project://Unfiled': true }
                     )
 
                     for (const entry of results.slice(-lastCount)) {
                         const splits = splitPath(entry.path)
                         for (let i = 1; i < splits.length; i++) {
-                            folders['project-folder/' + joinPath(splits.slice(0, i))] = true
+                            folders['project://' + joinPath(splits.slice(0, i))] = true
                         }
                     }
                     return Object.keys(folders)
@@ -385,7 +388,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             '' as string,
             {
                 scrollToView: (_, { item }) =>
-                    item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`,
+                    item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`,
                 clearScrollTarget: () => '',
             },
         ],
@@ -420,7 +423,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setTreeTableColumnSizes: (_, { sizes }) => sizes,
             },
         ],
-    }),
+        projectTreeMode: [
+            'tree' as TreeMode,
+            {
+                setProjectTreeMode: (_, { mode }) => mode,
+            },
+        ],
+    })),
     selectors({
         projectTree: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
@@ -429,23 +438,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     imports: viableItems,
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     users,
                     disabledReason: onlyFolders
                         ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
                         : undefined,
                 })
-                if (onlyFolders) {
-                    return [
-                        {
-                            id: '/',
-                            name: '/',
-                            displayName: <>Project root</>,
-                            record: { type: 'folder', path: '' },
-                            children,
-                        },
-                    ]
-                }
                 return children
             },
         ],
@@ -456,7 +454,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     imports: recentResults.results,
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     disableFolderSelect: true,
                     recent: true,
                     users,
@@ -481,7 +479,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        searchedTreeItems: [
+        searchTreeItems: [
             (s) => [
                 s.searchResults,
                 s.searchResultsLoading,
@@ -504,7 +502,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     imports: searchResults.results,
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
@@ -534,25 +532,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             ),
                     })
                 }
-                if (onlyFolders) {
-                    return [
-                        {
-                            id: '/',
-                            name: '/',
-                            displayName: <>Project root</>,
-                            record: { type: 'folder', path: '' },
-                            children: results,
-                        },
-                    ]
-                }
                 return results
             },
         ],
         projectTreeItems: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
-            (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
+            (searchTerm, searchTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
-                    return searchedTreeItems
+                    return searchTreeItems
                 }
                 if (sortMethod === 'recent') {
                     return recentTreeItems
@@ -568,6 +555,134 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     ]
                 }
                 return projectTree
+            },
+        ],
+        fullFileSystem: [
+            (s) => [
+                s.searchTerm,
+                s.searchTreeItems,
+                s.searchResultsLoading,
+                s.projectTree,
+                s.loadingPaths,
+                s.recentTreeItems,
+                s.recentResultsLoading,
+                s.sortMethod,
+                s.onlyFolders,
+                s.getStaticTreeItems,
+            ],
+            (
+                searchTerm,
+                searchTreeItems,
+                searchResultsLoading,
+                projectTree,
+                loadingPaths,
+                recentTreeItems,
+                recentResultsLoading,
+                sortMethod,
+                onlyFolders,
+                getStaticTreeItems
+            ): TreeDataItem[] => {
+                const folderLoading = [
+                    {
+                        id: `folder-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        type: 'loading-indicator',
+                    },
+                ]
+                const root: TreeDataItem[] = [
+                    {
+                        id: 'project://',
+                        name: 'project://',
+                        displayName: <>Project</>,
+                        record: { type: 'folder', path: '' },
+                        children: searchTerm
+                            ? searchResultsLoading && searchTreeItems.length === 0
+                                ? folderLoading
+                                : searchTreeItems
+                            : sortMethod === 'recent'
+                            ? recentResultsLoading && recentTreeItems.length === 0
+                                ? folderLoading
+                                : recentTreeItems
+                            : loadingPaths[''] && projectTree.length === 0
+                            ? folderLoading
+                            : projectTree,
+                    } as TreeDataItem,
+                    ...getStaticTreeItems(searchTerm, onlyFolders),
+                ]
+                return root
+            },
+        ],
+        fullFileSystemFiltered: [
+            (s) => [s.fullFileSystem, s.searchTerm, (_, props) => props.root, (_, props) => props.includeRoot],
+            (fullFileSystem, searchTerm, root, includeRoot): TreeDataItem[] => {
+                let firstFolders = fullFileSystem
+                const rootFolders = root ? splitPath(root) : []
+                const rootWithProtocol =
+                    rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
+
+                if (rootWithProtocol) {
+                    const protocol = rootFolders[0] + '//'
+                    const ref = joinPath(rootFolders.slice(1))
+                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    if (firstFolder) {
+                        if (ref) {
+                            const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
+                            firstFolders = found?.children ?? []
+                        } else {
+                            firstFolders = firstFolder.children ?? []
+                        }
+                    } else {
+                        firstFolders = []
+                    }
+                }
+
+                function addRoot(tree: TreeDataItem[]): TreeDataItem[] {
+                    if (includeRoot) {
+                        return [
+                            {
+                                id: root,
+                                name: formatUrlAsName(root),
+                                displayName: <>{formatUrlAsName(root)}</>,
+                                record: {
+                                    type: 'folder',
+                                    path: rootWithProtocol ? joinPath(rootFolders.splice(2)) : root,
+                                },
+                                children: tree,
+                            },
+                        ] as TreeDataItem[]
+                    }
+                    return tree
+                }
+
+                // no client side filtering under project://
+                if (!searchTerm || root.startsWith('project://')) {
+                    return addRoot(firstFolders)
+                }
+                const term = searchTerm.toLowerCase()
+
+                const filterTree = (nodes: TreeDataItem[]): TreeDataItem[] =>
+                    nodes.reduce<TreeDataItem[]>((acc, node) => {
+                        // Do not do client side filtering under the project:// path if looking at the full tree
+                        if (node.id === 'project://') {
+                            acc.push(node)
+                            return acc
+                        }
+
+                        const children = node.children ? filterTree(node.children) : undefined
+                        const path =
+                            typeof node.record === 'object' && node.record && 'path' in node.record
+                                ? (node.record as { path?: string }).path ?? ''
+                                : ''
+                        const matches = path.toLowerCase().includes(term)
+
+                        if (matches || (children && children.length)) {
+                            acc.push({ ...node, children })
+                        }
+                        return acc
+                    }, [])
+
+                return addRoot(filterTree(firstFolders))
             },
         ],
         treeTableColumnOffsets: [
@@ -688,7 +803,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (folder === '') {
                 const rootItems = values.folders['']
                 if (rootItems.length < 5) {
-                    actions.toggleFolderOpen('project-folder/Unfiled', true)
+                    actions.toggleFolderOpen('project://Unfiled', true)
                 }
             }
             actions.checkSelectedFolders()
@@ -712,14 +827,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             let checkingFolder: string | null = null
             for (const item of values.sortedItems) {
                 if (checkingFolder === null) {
-                    if (item.type === 'folder' && checkedItems[`project-folder/${item.path}`]) {
+                    if (item.type === 'folder' && checkedItems[`project://${item.path}`]) {
                         checkingFolder = item.path
                     }
                 } else {
                     if (item.path.startsWith(checkingFolder + '/')) {
                         if (item.type === 'folder') {
-                            if (!checkedItems[`project-folder/${item.path}`]) {
-                                toCheck.push(`project-folder/${item.path}`)
+                            if (!checkedItems[`project://${item.path}`]) {
+                                toCheck.push(`project://${item.path}`)
                             }
                         } else {
                             if (!checkedItems[`project/${item.id}`]) {
@@ -728,7 +843,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         }
                     } else {
                         checkingFolder = null
-                        if (item.type === 'folder' && checkedItems[`project-folder/${item.path}`]) {
+                        if (item.type === 'folder' && checkedItems[`project://${item.path}`]) {
                             checkingFolder = item.path
                         }
                     }
@@ -753,16 +868,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const expandedSet = new Set(values.expandedFolders)
             const allFolders = splitPath(path).slice(0, -1)
             const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
-            const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project-folder/' + f))
+            const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project://' + f))
             for (const folder of nonExpandedFolders) {
                 if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
                     actions.loadFolder(folder)
                 }
             }
-            actions.setExpandedFolders([
-                ...values.expandedFolders,
-                ...nonExpandedFolders.map((f) => 'project-folder/' + f),
-            ])
+            actions.setExpandedFolders([...values.expandedFolders, ...nonExpandedFolders.map((f) => 'project://' + f)])
         },
         onItemChecked: ({ id, checked, shift }) => {
             const {
@@ -789,7 +901,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const checkedItems = { ...prevChecked }
 
             const itemKey = (item: FileSystemEntry): string =>
-                item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
 
             const markItem = (item: FileSystemEntry, value: boolean): void => {
                 checkedItems[itemKey(item)] = value
@@ -852,7 +964,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         skipInFolder = null
                     }
                 }
-                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                const itemId = item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
                     actions.moveItem(item, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true, key)
                     if (item.type === 'folder') {
@@ -872,7 +984,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         skipInFolder = null
                     }
                 }
-                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                const itemId = item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
                     actions.linkItem(
                         item.path,
@@ -897,7 +1009,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         skipInFolder = null
                     }
                 }
-                const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+                const itemId = item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
                     actions.deleteItem(item, key)
                     if (item.type === 'folder') {
@@ -929,7 +1041,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             // Always set the editing item ID after a short delay to ensure the folder is in the DOM
             if (editAfter) {
                 setTimeout(() => {
-                    actions.setEditingItemId(`project-folder/${folderName}`)
+                    actions.setEditingItemId(`project://${folderName}`)
                 }, 50)
             }
             callback?.(folderName)
@@ -955,8 +1067,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const folder = findInProjectTree(folderId, values.projectTree)
                 if (folder) {
                     actions.loadFolder(folder.record?.path)
-                } else if (folderId.startsWith('project-folder/')) {
-                    actions.loadFolder(folderId.slice('project-folder/'.length))
+                } else if (folderId.startsWith('project://')) {
+                    actions.loadFolder(folderId.slice('project://'.length))
                 }
             }
         },
@@ -1048,7 +1160,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
     })),
     afterMount(({ actions, values, props }) => {
-        actions.loadFolder('')
+        if (props.root) {
+            if (props.root.startsWith('project://')) {
+                actions.loadFolder(props.root.slice('project://'.length))
+            }
+        } else {
+            actions.loadFolder('')
+        }
         if (values.projectTreeRef) {
             actions.assureVisibility(values.projectTreeRef)
         }
@@ -1057,6 +1175,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }
         if (typeof props.defaultSortMethod !== 'undefined') {
             actions.setSortMethod(props.defaultSortMethod)
+        }
+    }),
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.root !== oldProps.root) {
+            const expandedFolders = values.expandedFolders.filter((f) => f !== oldProps.root)
+            if (props.root) {
+                expandedFolders.push(props.root)
+            }
+            actions.setExpandedFolders(expandedFolders)
+            if (props.root) {
+                actions.loadFolderIfNotLoaded(props.root)
+            }
         }
     }),
 ])

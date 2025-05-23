@@ -1,7 +1,7 @@
 import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -226,7 +226,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -324,7 +324,7 @@ export const billingLogic = kea<billingLogicType>([
         billingError: [
             null as BillingError | null,
             {
-                getInvoices: async () => {
+                loadInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
@@ -414,22 +414,6 @@ export const billingLogic = kea<billingLogicType>([
         isUnlicensedDebug: [
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
-        ],
-        projectedTotalAmountUsdWithBillingLimits: [
-            (s) => [s.billing],
-            (billing: BillingType): number => {
-                if (!billing) {
-                    return 0
-                }
-                let projectedTotal = 0
-                for (const product of billing.products || []) {
-                    const billingLimit =
-                        billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
-                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
-                }
-                return projectedTotal
-            },
         ],
         supportPlans: [
             (s) => [s.billing],
@@ -796,10 +780,6 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBilling()
-        actions.getInvoices()
-    }),
     urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {

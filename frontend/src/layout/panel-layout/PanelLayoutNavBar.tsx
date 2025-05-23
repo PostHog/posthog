@@ -10,7 +10,9 @@ import {
     IconNotebook,
     IconPeople,
     IconPineapple,
+    IconPlus,
     IconSearch,
+    IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -35,7 +37,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
-import { Shortcuts } from '~/layout/panel-layout/Shortcuts/Shortcuts'
+import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -203,26 +205,41 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                               ? 'Close products'
                               : 'Open products',
                   },
-              ]
-            : []),
-        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
-            ? [
                   {
-                      identifier: 'Games',
-                      id: 'Games',
-                      icon: <IconPineapple />,
+                      identifier: 'Shortcuts',
+                      id: 'Shortcuts',
+                      icon: <IconShortcut />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Games')
+                              handlePanelTriggerClick('Shortcuts')
                           }
                       },
                       showChevron: true,
-                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts'
+                              ? 'Close shortcuts'
+                              : 'Open shortcuts',
                   },
               ]
             : []),
         ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-            ? []
+            ? [
+                  {
+                      identifier: 'Data management',
+                      id: 'Data management',
+                      icon: <IconDatabase />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Data management')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Data management'
+                              ? 'Close data management'
+                              : 'Open data management',
+                  },
+              ]
             : [
                   {
                       identifier: 'Dashboards',
@@ -246,18 +263,34 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                       tooltip: 'Notebooks',
                       tooltipDocLink: 'https://posthog.com/docs/notebooks',
                   },
+                  {
+                      identifier: 'DataManagement',
+                      id: 'Data management',
+                      icon: <IconDatabase />,
+                      to: urls.eventDefinitions(),
+                      onClick: () => {
+                          handleStaticNavbarItemClick(urls.eventDefinitions(), true)
+                      },
+                      tooltip: 'Data management',
+                      tooltipDocLink: 'https://posthog.com/docs/data',
+                  },
               ]),
-        {
-            identifier: 'DataManagement',
-            id: 'Data management',
-            icon: <IconDatabase />,
-            to: urls.eventDefinitions(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.eventDefinitions(), true)
-            },
-            tooltip: 'Data management',
-            tooltipDocLink: 'https://posthog.com/docs/data',
-        },
+        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+            ? [
+                  {
+                      identifier: 'Games',
+                      id: 'Games',
+                      icon: <IconPineapple />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Games')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                  },
+              ]
+            : []),
         {
             identifier: 'PersonsManagement',
             id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
@@ -287,6 +320,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             tooltip: 'Activity',
             tooltipDocLink: 'https://posthog.com/docs/data/events',
+        },
+        {
+            identifier: 'New',
+            id: 'New',
+            icon: <IconPlus />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('New')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'New' ? 'Close new' : 'Open new',
         },
     ]
 
@@ -413,9 +458,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
                                     <div
-                                        className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
+                                        className={cn(
+                                            'flex flex-col gap-px h-full',
+                                            !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
+                                        )}
                                     >
-                                        <Shortcuts />
+                                        <PinnedFolder />
                                     </div>
                                 ) : (
                                     <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
