@@ -525,7 +525,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         getStaticTreeItems: [
             (s) => [s.featureFlags, s.shortcutData],
             (featureFlags, shortcutData): ((searchTerm?: string) => TreeDataItem[]) => {
-                const convert = (imports: FileSystemImport[], root: string, searchTerm?: string): TreeDataItem[] =>
+                const convert = (
+                    imports: FileSystemImport[],
+                    root: string,
+                    searchTerm: string | undefined,
+                    onlyFolders: boolean
+                ): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
                         root,
                         imports: imports.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
@@ -534,8 +539,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         users: {},
                         foldersFirst: false,
                         searchTerm,
+                        disabledReason: onlyFolders
+                            ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
+                            : undefined,
                     })
-                return function getStaticItems(searchTerm?: string): TreeDataItem[] {
+                return function getStaticItems(searchTerm?: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
                         ['data-management://', getDefaultTreeDataManagement()],
@@ -548,7 +556,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         name: id,
                         displayName: <>{formatUrlAsName(id)}</>,
                         record: { type: 'folder', path: '' },
-                        children: convert(files, id, searchTerm),
+                        children: convert(files, id, searchTerm, onlyFolders),
                     }))
                 }
             },
