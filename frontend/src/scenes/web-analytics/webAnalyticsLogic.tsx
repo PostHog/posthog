@@ -183,7 +183,7 @@ export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
     TileId.SOURCES,
     TileId.DEVICES,
 
-    // Not 100% supported yet but we fast enough that we can show them
+    // Not 100% supported yet but they are fast enough that we can show them
     TileId.GRAPHS,
     TileId.GEOGRAPHY,
 ]
