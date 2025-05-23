@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { downloadBlob, TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
@@ -128,13 +128,24 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: async ({ exportData }) => {
-                    void api.exports.create({
-                        export_format: exportData.export_format,
-                        dashboard: exportData.dashboard,
-                        insight: exportData.insight,
-                        export_context: exportData.export_context,
-                        expires_after: dayjs().add(6, 'hour').toJSON(),
-                    })
+                    void api.exports
+                        .create({
+                            export_format: exportData.export_format,
+                            dashboard: exportData.dashboard,
+                            insight: exportData.insight,
+                            export_context: exportData.export_context,
+                            expires_after: dayjs().add(6, 'hour').toJSON(),
+                        })
+                        .then((response) => {
+                            const currentExports = exportsLogic.values.exports
+                            const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
+                            exportsLogic.actions.loadExportsSuccess(updatedExports)
+                            // If this was a blocking export, we should download it now
+                            if (response && response.has_content) {
+                                void downloadExportedAsset(response)
+                            }
+                        })
+
                     return [exportData]
                 },
             },
