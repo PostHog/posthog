@@ -10,7 +10,8 @@ from braintrust import Eval, init_logger
 from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
 import pytest
 from django.test import override_settings
-
+from pathlib import Path
+from django.conf import settings
 from ee.models.assistant import CoreMemory
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
@@ -159,3 +160,16 @@ def pytest_configure(config):
     braintrust_url_reporter = BraintrustURLReporter(config)
     config.pluginmanager.unregister(vanilla_reporter)
     config.pluginmanager.register(braintrust_url_reporter, "terminalreporter")
+
+
+# TODO: Remove below `pytest_collection_modifyitems` with `skipif` injection once deepeval is refactored away,
+#       because newer braintrust-based structure uses a different prefix for test files (eval_*.py)
+
+
+def pytest_collection_modifyitems(items):
+    current_dir = Path(__file__).parent
+    for item in items:
+        if Path(item.fspath).is_relative_to(current_dir):
+            item.add_marker(
+                pytest.mark.skipif(not settings.IN_EVAL_TESTING, reason="Only runs for the assistant evaluation")
+            )
