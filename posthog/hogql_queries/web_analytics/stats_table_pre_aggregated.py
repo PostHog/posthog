@@ -39,6 +39,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.INITIAL_UTM_CONTENT,
         WebStatsBreakdown.COUNTRY,
         WebStatsBreakdown.INITIAL_PAGE,
+        WebStatsBreakdown.PAGE,
     ]
 
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
@@ -50,7 +51,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
 
-    def _bounce_rate_query(self) -> str:
+    def _bounce_rate_query(self, include_filters: bool = False) -> str:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
@@ -75,12 +76,41 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return query_str
 
+    def _path_query(self) -> str:
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="p")
+
+        query_str = f"""
+        SELECT
+            pathname as `context.columns.breakdown_value`,
+            tuple(
+                uniqMergeIf(p.persons_uniq_state, {current_period_filter}),
+                uniqMergeIf(p.persons_uniq_state, {previous_period_filter})
+            ) AS `context.columns.visitors`,
+            tuple(
+                sumMergeIf(p.pageviews_count_state, {current_period_filter}),
+                sumMergeIf(p.pageviews_count_state, {previous_period_filter})
+            ) as `context.columns.views`,
+            any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`,
+        FROM
+            web_paths_daily p
+        LEFT JOIN ({self._bounce_rate_query()}) bounces
+            ON p.pathname = bounces.`context.columns.breakdown_value`
+        GROUP BY `context.columns.breakdown_value`
+        """
+
+        return query_str
+
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
         query_str = ""
+        table_name = "web_stats_daily"
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query_str = self._bounce_rate_query()
+            table_name = "web_bounces_daily"
+        elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
+            query_str = self._path_query()
+            table_name = "p"
         else:
             breakdown_field = self._get_breakdown_field()
             query_str = f"""
@@ -100,7 +130,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         query = cast(ast.SelectQuery, parse_select(query_str))
 
-        filters = self._get_filters(table_name="web_stats_daily")
+        filters = self._get_filters(table_name=table_name)
         if filters:
             query.where = filters
 
