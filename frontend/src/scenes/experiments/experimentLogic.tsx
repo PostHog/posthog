@@ -414,6 +414,10 @@ export const experimentLogic = kea<experimentLogicType>([
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
         openCalculateRunningTimeModal: true,
         closeCalculateRunningTimeModal: true,
+        duplicateSharedMetric: (sharedMetricId: number, metadata: { ['type']: 'primary' | 'secondary' }) => ({
+            sharedMetricId,
+            metadata,
+        }),
     }),
     reducers({
         experiment: [
@@ -1380,6 +1384,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     logic.actions.loadFeatureFlag() // Access the loader through actions
                 }
             }
+        },
+        duplicateSharedMetric: async ({ sharedMetricId, metadata }: { sharedMetricId: number }) => {
+            await api.create(`api/projects/@current/experiments/${values.experimentId}/duplicate_shared_metric/`, {
+                shared_metric_id: sharedMetricId,
+                metadata,
+            })
+
+            actions.loadExperiment()
         },
     })),
     loaders(({ actions, props, values }) => ({
