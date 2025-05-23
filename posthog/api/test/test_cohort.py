@@ -186,7 +186,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
     def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
-        materialize("events", "favorite_number", table_column="person_properties")
+        materialize("person", "favorite_number", table_column="properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         _create_person(
@@ -263,10 +263,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
 
-            # TODO: Prior to switching to HogQL for cohort calculations, the cohort calculation would use the
-            # materialized column we created at the beginning of the test. But now it doesn't. Is that a breaking change?
-            # self.assertIn(f"mat_pp_favorite_number", insert_statements[0])
-            self.assertIn(f"JSONExtractRaw(person.properties, 'favorite_number')", insert_statements[0])
+            self.assertIn(f"e__person.properties___favorite_number", insert_statements[0])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
