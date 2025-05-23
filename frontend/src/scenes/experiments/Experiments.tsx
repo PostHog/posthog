@@ -177,8 +177,8 @@ export function Experiments(): JSX.Element {
                                             title: 'Delete this experiment?',
                                             content: (
                                                 <div className="text-sm text-secondary">
-                                                    This action cannot be undone. All experiment data will be
-                                                    permanently removed.
+                                                    Experiment with its settings will be deleted, but event data will be
+                                                    preserved.
                                                 </div>
                                             ),
                                             primaryButton: {
