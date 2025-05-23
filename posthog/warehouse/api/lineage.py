@@ -15,7 +15,7 @@ def join_components_greedily(components):
     Returns a list where UUIDs are separate items and non-UUID components are joined.
     """
     new_components = []
-    current_group = []
+    current_group: list[str] = []
 
     for component in components:
         try:
@@ -51,7 +51,7 @@ class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         paths = DataWarehouseModelPath.objects.filter(query)
 
-        dag = {"nodes": [], "edges": []}
+        dag: dict[str, list] = {"nodes": [], "edges": []}
 
         seen_nodes = set()
 
