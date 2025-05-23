@@ -305,6 +305,7 @@ export interface HogQLQueryModifiers {
     usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
+    convertToProjectTimezone?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
