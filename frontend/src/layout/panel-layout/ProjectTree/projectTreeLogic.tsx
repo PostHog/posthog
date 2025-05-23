@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonTreeSelectMode, TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -19,6 +19,7 @@ import type { projectTreeLogicType } from './projectTreeLogicType'
 import {
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
+    formatUrlAsName,
     joinPath,
     sortFilesAndFolders,
     splitPath,
@@ -45,6 +46,7 @@ export interface ProjectTreeLogicProps {
     defaultSortMethod?: ProjectTreeSortMethod
     defaultOnlyFolders?: boolean
     root?: string
+    includeRoot?: boolean
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -53,8 +55,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     key((props) => props.key),
     connect(() => ({
         values: [
-            panelLayoutLogic,
-            ['projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
             projectTreeDataLogic,
@@ -73,7 +73,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         actions: [
             panelLayoutLogic,
-            ['setActivePanelIdentifier', 'setProjectTreeMode'],
+            ['setActivePanelIdentifier'],
             projectTreeDataLogic,
             [
                 'loadFolder',
@@ -130,6 +130,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setOnlyFolders: (onlyFolders: boolean) => ({ onlyFolders }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
+        setProjectTreeMode: (mode: TreeMode) => ({ mode }),
     }),
     loaders(({ actions, values }) => ({
         searchResults: [
@@ -210,7 +211,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         searchTerm: [
             '',
             {
@@ -331,7 +332,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         expandedFolders: [
-            ['/'] as string[],
+            [props.root] as string[],
             {
                 setExpandedFolders: (_, { folderIds }) => folderIds,
             },
@@ -422,7 +423,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setTreeTableColumnSizes: (_, { sizes }) => sizes,
             },
         ],
-    }),
+        projectTreeMode: [
+            'tree' as TreeMode,
+            {
+                setProjectTreeMode: (_, { mode }) => mode,
+            },
+        ],
+    })),
     selectors({
         projectTree: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
@@ -605,36 +612,61 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         fullFileSystemFiltered: [
-            (s) => [s.fullFileSystem, (_, props) => props.root, s.searchTerm],
-            (fullFileSystem, root, searchTerm): TreeDataItem[] => {
+            (s) => [s.fullFileSystem, s.searchTerm, (_, props) => props.root, (_, props) => props.includeRoot],
+            (fullFileSystem, searchTerm, root, includeRoot): TreeDataItem[] => {
                 let firstFolders = fullFileSystem
+                const rootFolders = root ? splitPath(root) : []
+                const rootWithProtocol =
+                    rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
 
-                if (root?.includes('://')) {
-                    const parts = root.split('://')
-                    const type = parts[0]
-                    const ref = parts.slice(1).join('://')
-                    const firstfolder = fullFileSystem.find((item) => item.id == `${type}://`)
-                    if (firstfolder) {
+                if (rootWithProtocol) {
+                    const protocol = rootFolders[0] + '//'
+                    const ref = joinPath(rootFolders.slice(1))
+                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    if (firstFolder) {
                         if (ref) {
-                            const found = findInProjectTree(`project://${ref}`, firstfolder.children ?? [])
+                            const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
                             firstFolders = found?.children ?? []
                         } else {
-                            firstFolders = firstfolder.children ?? []
+                            firstFolders = firstFolder.children ?? []
                         }
                     } else {
                         firstFolders = []
                     }
-                } else if (root) {
-                    firstFolders = fullFileSystem.filter((item) => item.id.startsWith(root))
                 }
 
-                if (!searchTerm) {
-                    return firstFolders
+                function addRoot(tree: TreeDataItem[]): TreeDataItem[] {
+                    if (includeRoot) {
+                        return [
+                            {
+                                id: root,
+                                name: formatUrlAsName(root),
+                                displayName: <>{formatUrlAsName(root)}</>,
+                                record: {
+                                    type: 'folder',
+                                    path: rootWithProtocol ? joinPath(rootFolders.splice(2)) : root,
+                                },
+                                children: tree,
+                            },
+                        ] as TreeDataItem[]
+                    }
+                    return tree
+                }
+
+                // no client side filtering under project://
+                if (!searchTerm || root.startsWith('project://')) {
+                    return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()
 
                 const filterTree = (nodes: TreeDataItem[]): TreeDataItem[] =>
                     nodes.reduce<TreeDataItem[]>((acc, node) => {
+                        // Do not do client side filtering under the project:// path if looking at the full tree
+                        if (node.id === 'project://') {
+                            acc.push(node)
+                            return acc
+                        }
+
                         const children = node.children ? filterTree(node.children) : undefined
                         const path =
                             typeof node.record === 'object' && node.record && 'path' in node.record
@@ -648,7 +680,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         return acc
                     }, [])
 
-                return filterTree(firstFolders)
+                return addRoot(filterTree(firstFolders))
             },
         ],
         treeTableColumnOffsets: [

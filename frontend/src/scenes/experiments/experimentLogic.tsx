@@ -68,11 +68,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import {
-    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    EXPERIMENT_MIN_METRIC_EVENTS_FOR_RESULTS,
-    MetricInsightId,
-} from './constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -1451,9 +1447,17 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
+                    const { experiment } = values
+
                     const query = {
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
+                        experiment_name: experiment.name,
+                        exposure_criteria: experiment.exposure_criteria,
+                        feature_flag: experiment.feature_flag,
+                        start_date: experiment.start_date,
+                        end_date: experiment.end_date,
+                        holdout: experiment.holdout,
                     }
                     return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
@@ -1902,7 +1906,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         // NOTE: Unfortunately, there does not seem to be a better way at the moment to figure out which type it is.
                         // Something we can improve later when we replace the ExperimentVariantTrendsBaseStats with a new type / interface.
                         if (variantResults && 'success_count' in variantResults) {
-                            return variantResults.success_count
+                            return variantResults.success_count + variantResults.failure_count
                         } else if (variantResults && 'count' in variantResults) {
                             return variantResults.count
                         }
@@ -2207,15 +2211,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
             },
         ],
-        hasEnoughDataForResults: [
-            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment, s.metricResults, s.countDataForVariant],
-            (exposures, shouldUseExperimentMetrics, experiment, metricResults, countDataForVariant): boolean => {
+        hasMinimumExposureForResults: [
+            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
+            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
                 // Not relevant for old metrics
                 if (!shouldUseExperimentMetrics) {
                     return true
                 }
 
-                // Check minimum exposures
                 if (!exposures || !exposures.total_exposures) {
                     return false
                 }
@@ -2225,19 +2228,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     const exposure = exposures.total_exposures[variant]
                     if (!exposure || exposure < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
                         return false
-                    }
-                }
-
-                // Check variant result counts - ensure each variant has more than 10 data points
-                if (metricResults && metricResults.length > 0) {
-                    const result = metricResults[0]
-                    if (result) {
-                        for (const variant of variantKeys) {
-                            const count = countDataForVariant(result, variant)
-                            if (!count || count < EXPERIMENT_MIN_METRIC_EVENTS_FOR_RESULTS) {
-                                return false
-                            }
-                        }
                     }
                 }
 

@@ -14,7 +14,8 @@ import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
 export interface SharedMetricLogicProps {
-    sharedMetricId?: string | number
+    sharedMetricId?: number | null
+    action: 'create' | 'update' | 'duplicate'
 }
 
 export interface SharedMetric {
@@ -38,11 +39,13 @@ export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
     props({} as SharedMetricLogicProps),
     path((key) => ['scenes', 'experiments', 'sharedMetricLogic', key]),
-    key((props) => props.sharedMetricId || 'new'),
+    key((props) => `${props.sharedMetricId ?? 'new'}-${props.action}`),
+
     connect(() => ({
         actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricCreated']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
+
     actions({
         setSharedMetric: (metric: Partial<SharedMetric>) => ({ metric }),
         createSharedMetric: true,
@@ -53,12 +56,13 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
     loaders(({ props, values }) => ({
         sharedMetric: {
             loadSharedMetric: async () => {
-                if (props.sharedMetricId && props.sharedMetricId !== 'new') {
-                    const response = await api.get(
-                        `api/projects/@current/experiment_saved_metrics/${props.sharedMetricId}`
-                    )
+                const { sharedMetricId } = props
+
+                if (sharedMetricId) {
+                    const response = await api.get(`api/projects/@current/experiment_saved_metrics/${sharedMetricId}`)
                     return response as SharedMetric
                 }
+
                 return {
                     ...values.newSharedMetric,
                 }
@@ -66,7 +70,19 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
+        /**
+         * we need to wait for the metric to load to check if we need to modify the name and id
+         */
+        loadSharedMetricSuccess: () => {
+            if (props.action === 'duplicate' && values.sharedMetric) {
+                actions.setSharedMetric({
+                    ...values.sharedMetric,
+                    name: `${values.sharedMetric.name} (Duplicate)`,
+                    id: undefined,
+                })
+            }
+        },
         createSharedMetric: async () => {
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
             if (response.id) {
@@ -114,7 +130,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             () => [(_, props) => props.sharedMetricId ?? 'new'],
             (sharedMetricId): string | number => sharedMetricId,
         ],
-        isNew: [(s) => [s.sharedMetricId], (sharedMetricId) => sharedMetricId === 'new'],
+        action: [() => [(_, props) => props.action], (action: 'create' | 'update' | 'duplicate') => action],
         newSharedMetric: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet) => ({
@@ -139,6 +155,13 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 if (parsedId !== 'new' && parsedId === values.sharedMetricId) {
                     actions.loadSharedMetric()
                 }
+            }
+        },
+        '/experiments/shared-metrics/:id/:action': ({ id }, _, __, currentLocation, previousLocation) => {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            if (id && didPathChange) {
+                actions.loadSharedMetric()
             }
         },
     })),
