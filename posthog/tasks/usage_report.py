@@ -162,6 +162,12 @@ class UsageReportCounters:
     elixir_events_count_in_period: int
 
 
+@dataclasses.dataclass
+class SeatBasedCounters:
+    # Max AI
+    max_ai_seats_count: int
+
+
 # Instance metadata to be included in overall report
 @dataclasses.dataclass
 class InstanceMetadata:
@@ -183,7 +189,7 @@ class InstanceMetadata:
 
 
 @dataclasses.dataclass
-class OrgReport(UsageReportCounters):
+class OrgReport(UsageReportCounters, SeatBasedCounters):
     date: str
     organization_id: str
     organization_name: str
@@ -1310,6 +1316,18 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     )
 
 
+def _get_seat_based_org_report(organization_id: str) -> SeatBasedCounters:
+    memberships = OrganizationMembership.objects.filter(
+        organization_id=organization_id,
+    )
+    max_ai_seats_count = memberships.filter(
+        enabled_seat_based_products__contains=[OrganizationMembership.SeatBasedProduct.MAX_AI],
+    ).count()
+    return SeatBasedCounters(
+        max_ai_seats_count=max_ai_seats_count,
+    )
+
+
 def _add_team_report_to_org_reports(
     org_reports: dict[str, OrgReport],
     team: Team,
@@ -1318,6 +1336,7 @@ def _add_team_report_to_org_reports(
 ) -> None:
     org_id = str(team.organization.id)
     if org_id not in org_reports:
+        seat_based_report = _get_seat_based_org_report(org_id)
         org_report = OrgReport(
             date=period_start.strftime("%Y-%m-%d"),
             organization_id=org_id,
@@ -1326,6 +1345,7 @@ def _add_team_report_to_org_reports(
             organization_user_count=get_org_user_count(org_id),
             team_count=1,
             teams={str(team.id): team_report},
+            **dataclasses.asdict(seat_based_report),
             **dataclasses.asdict(team_report),  # Clone the team report as the basis
         )
         org_reports[org_id] = org_report

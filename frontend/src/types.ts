@@ -438,6 +438,11 @@ export interface BaseMemberType {
     updated_at: string
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    enabled_seat_based_products: OrganizationMemberSeatBasedProduct[]
+}
+
+export enum OrganizationMemberSeatBasedProduct {
+    MAX_AI = 'max_ai',
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
@@ -481,6 +486,7 @@ export interface FusedTeamMemberType extends BaseMemberType {
     organization_level: OrganizationMembershipLevel
     /** Effective level of the user within the project. */
     level: OrganizationMembershipLevel
+    enabled_seat_based_products: OrganizationMemberSeatBasedProduct[]
 }
 
 export interface ListOrganizationMembersParams {

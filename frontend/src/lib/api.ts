@@ -1998,7 +1998,7 @@ const api = {
 
         async update(
             uuid: string,
-            data: Partial<Pick<OrganizationMemberType, 'level'>>
+            data: Partial<Pick<OrganizationMemberType, 'level' | 'enabled_seat_based_products'>>
         ): Promise<OrganizationMemberType> {
             return new ApiRequest().organizationMember(uuid).update({ data })
         },

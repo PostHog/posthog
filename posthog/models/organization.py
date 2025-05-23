@@ -260,6 +260,9 @@ class OrganizationMembership(UUIDModel):
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"
 
+    class SeatBasedProduct(models.TextChoices):
+        MAX_AI = "max_ai", "Max AI"
+
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -275,6 +278,9 @@ class OrganizationMembership(UUIDModel):
     level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    enabled_seat_based_products = ArrayField(
+        models.CharField(choices=SeatBasedProduct.choices, max_length=200), blank=True, default=list, null=True
+    )
 
     class Meta:
         constraints = [

@@ -314,11 +314,20 @@ class AIBurstRateThrottle(UserRateThrottle):
     rate = "10/minute"
 
 
-class AISustainedRateThrottle(UserRateThrottle):
+class AIFreeSustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
+    # Lower threshold for free users
     scope = "ai_sustained"
-    rate = "40/day"
+    rate = "20/day"
+
+
+class AIPaidSustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per user
+    # Higher threshold for paid users
+    scope = "ai_sustained"
+    rate = "100/day"
 
 
 class EditorProxyBurstRateThrottle(UserRateThrottle):

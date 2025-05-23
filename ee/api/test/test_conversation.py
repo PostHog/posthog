@@ -1,6 +1,7 @@
 import datetime
 import uuid
 from unittest.mock import patch
+from freezegun import freeze_time
 
 from django.utils import timezone
 from rest_framework import status
@@ -10,6 +11,7 @@ from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
+from posthog.models.organization import OrganizationMembership
 
 
 class TestConversation(APIBaseTest):
@@ -355,3 +357,33 @@ class TestConversation(APIBaseTest):
             # Second result should be the older conversation
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
+
+    def test_free_vs_paid_throttling(self):
+        base_time = timezone.now()
+
+        # Test free user throttling
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            # Should hit sustained limit (20/day)
+            for _ in range(21):
+                with freeze_time(base_time + datetime.timedelta(minutes=2 + _)):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {"content": "test query", "trace_id": str(uuid.uuid4())},
+                    )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Test paid user throttling
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            # Mock paid user
+            with patch.object(OrganizationMembership.objects, "get") as mock_get:
+                mock_membership = mock_get.return_value
+                mock_membership.enabled_seat_based_products = [OrganizationMembership.SeatBasedProduct.MAX_AI]
+
+                # Should hit sustained limit (100/day)
+                for _ in range(101):
+                    with freeze_time(base_time + datetime.timedelta(minutes=2 + _)):
+                        response = self.client.post(
+                            f"/api/environments/{self.team.id}/conversations/",
+                            {"content": "test query", "trace_id": str(uuid.uuid4())},
+                        )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

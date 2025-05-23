@@ -40,6 +40,7 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
+import { MaxBillingSettings } from './environment/MaxBillingSettings'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
@@ -430,6 +431,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+            {
+                id: 'max-billing',
+                title: 'Seats',
+                description: (
+                    <>
+                        Seats give you access to a higher number of Max AI requests you can make in a given day. Check
+                        the <Link to={urls.organizationBilling()}>billing page</Link> for more details.
+                    </>
+                ),
+                component: <MaxBillingSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
         ],

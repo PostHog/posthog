@@ -13,12 +13,12 @@ from rest_framework.viewsets import GenericViewSet
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.assistant import Assistant
 from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.utils.throttles import get_ai_throttles
 from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema import HumanMessage
 from posthog.utils import get_instance_region
@@ -61,7 +61,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
             get_instance_region() == "US" and self.team_id in (2, 87921)
         ):
-            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+            return get_ai_throttles(cast(User, self.request.user), self.team.organization)
         return super().get_throttles()
 
     def get_renderers(self):

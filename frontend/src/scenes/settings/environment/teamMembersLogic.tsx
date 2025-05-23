@@ -116,6 +116,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                                         level: member.effective_level,
                                         explicit_team_level: member.level,
                                         organization_level: member.parent_level,
+                                        enabled_seat_based_products: member.enabled_seat_based_products,
                                     } as FusedTeamMemberType)
                             )
                     )

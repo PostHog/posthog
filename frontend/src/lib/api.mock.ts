@@ -234,6 +234,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     is_2fa_enabled: false,
     has_social_auth: false,
     last_login: '2020-09-24T15:05:26.758796Z',
+    enabled_seat_based_products: [],
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
