@@ -155,7 +155,6 @@ event_property_group_definitions = {
             f"key LIKE '$ai_%'",
             lambda key: key.startswith("$ai_"),
             column_type_name="group",
-            hidden=True,
         ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
