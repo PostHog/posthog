@@ -119,7 +119,7 @@ export function VariantTooltip({
                                 if (!deltaResult) {
                                     return '—'
                                 }
-                                
+
                                 return (
                                     <span className={deltaResult.isPositive ? 'text-success' : 'text-danger'}>
                                         {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
