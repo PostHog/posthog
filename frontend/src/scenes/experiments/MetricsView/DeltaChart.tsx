@@ -11,6 +11,7 @@ import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, Tre
 import {
     calculateDelta,
     conversionRateForVariant,
+    countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
 } from '../experimentCalculations'
@@ -533,7 +534,6 @@ export function DeltaChart({
     const {
         experimentId,
         experiment,
-        countDataForVariant,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         featureFlags,

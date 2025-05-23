@@ -69,9 +69,7 @@ import {
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import {
     conversionRateForVariant,
-    countDataForVariant,
     expectedRunningTime,
-    getIndexForVariant,
     getSignificanceDetails,
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
@@ -1677,37 +1675,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 const runningTime = recommendedExposureForCountData(minimumDetectableEffect, trendCount)
                 return runningTime
             },
-        ],
-        getIndexForVariant: [
-            () => [],
-            () =>
-                (
-                    metricResult:
-                        | CachedExperimentQueryResponse
-                        | CachedExperimentTrendsQueryResponse
-                        | CachedExperimentFunnelsQueryResponse
-                        | null,
-                    variant: string,
-                    metricType: InsightType
-                ): number | null => {
-                    return getIndexForVariant(metricResult, variant, metricType)
-                },
-        ],
-        countDataForVariant: [
-            (s) => [s.experimentMathAggregationForTrends],
-            (experimentMathAggregationForTrends) =>
-                (
-                    metricResult:
-                        | CachedExperimentQueryResponse
-                        | CachedExperimentTrendsQueryResponse
-                        | CachedExperimentFunnelsQueryResponse
-                        | null,
-                    variant: string,
-                    type: 'primary' | 'secondary' = 'primary'
-                ): number | null => {
-                    const mathAggregation = type === 'primary' ? experimentMathAggregationForTrends() : undefined
-                    return countDataForVariant(metricResult, variant, type, mathAggregation)
-                },
         ],
         tabularExperimentResults: [
             (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getInsightType],

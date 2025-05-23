@@ -7,7 +7,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
-import { getHighestProbabilityVariant } from '../experimentCalculations'
+import { getHighestProbabilityVariant, getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
@@ -18,7 +18,7 @@ export function WinningVariantText({
     result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
-    const { getIndexForVariant, getInsightType, experiment } = useValues(experimentLogic)
+    const { getInsightType, experiment } = useValues(experimentLogic)
 
     const highestProbabilityVariant = getHighestProbabilityVariant(result)
     const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))

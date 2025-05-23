@@ -47,6 +47,7 @@ import {
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
@@ -64,9 +65,7 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, getIndexForVariant, metricResults, getInsightType } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { experiment, metricResults, getInsightType } = useValues(experimentLogic({ experimentId }))
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
