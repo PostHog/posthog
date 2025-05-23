@@ -11,6 +11,7 @@ import {
     BillingProductV2AddonType,
     BillingProductV2Type,
     BillingTierType,
+    BillingType,
     SurveyEventName,
 } from '~/types'
 
@@ -109,7 +110,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
         }),
         activateTrial: true,
         cancelTrial: true,
-        setTrialModalOpen: (isOpen: boolean) => ({ isOpen }),
         setTrialLoading: (loading: boolean) => ({ loading }),
         setUnsubscribeModalStep: (step: number) => ({ step }),
         resetUnsubscribeModalStep: true,
@@ -193,12 +193,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
             },
         ],
-        trialModalOpen: [
-            false,
-            {
-                setTrialModalOpen: (_, { isOpen }) => isOpen,
-            },
-        ],
         trialLoading: [
             false,
             {
@@ -220,6 +214,32 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     }),
     selectors(({ values }) => ({
+        isSubscribedToAnotherAddon: [
+            (s, p) => [s.billing, p.product],
+            (billing: BillingType, addon: BillingProductV2AddonType) => {
+                const subscribed = addon.subscribed
+                if (subscribed) {
+                    // They are subscribed to this addon so can't be subscribed to another one
+                    return false
+                }
+
+                const parentProduct = billing.products.find((product: any) =>
+                    product.addons.find((a: BillingProductV2AddonType) => a.type === addon.type)
+                )
+                if (!parentProduct) {
+                    return false
+                }
+
+                if (parentProduct?.type !== 'platform_and_support') {
+                    // Only platform and support can have multiple add-ons
+                    return false
+                }
+
+                // Check if they are subscribed to another add-on that is not a legacy add-on
+                // This is because if they are on a legacy add-on, we want them to be able to move to a new add-on.
+                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed && !a.legacy_product)
+            },
+        ],
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
@@ -407,13 +427,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     target: props.product.type,
                 })
                 lemonToast.success('Your trial has been activated!')
-            } catch (e) {
-                lemonToast.error('There was an error activating your trial. Please try again or contact support.')
-            } finally {
                 await breakpoint(400)
                 window.location.reload()
+            } catch (e) {
+                lemonToast.error('There was an error activating your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
-                actions.setTrialModalOpen(false)
+                actions.loadBilling()
             }
         },
         cancelTrial: async () => {
@@ -421,13 +440,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
             try {
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
-            } catch (e) {
-                console.error(e)
-                lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
-            } finally {
-                actions.loadBilling()
                 window.location.reload()
+            } catch (e) {
+                lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
+                actions.loadBilling()
             }
         },
         triggerMoreHedgehogs: async (_, breakpoint) => {

@@ -100,7 +100,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
                 <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
+                        {/* Product icon */}
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
+
+                        {/* Product name and description */}
                         <div>
                             <h3 className="font-bold mb-0 flex items-center gap-x-2">
                                 {product.name}{' '}
@@ -110,6 +113,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             </h3>
                             <div>{product.description}</div>
                         </div>
+
+                        {/* Product actions */}
                         <div className="flex grow justify-end gap-x-2 items-center">
                             {product.docs_url && (
                                 <LemonButton
@@ -170,12 +175,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8 pb-8 sm:pb-0">
+                    {/* Exceeded limit notice */}
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
                             You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}
+
+                    {/* Usage and projected usage */}
                     <div className="sm:flex w-full items-center gap-x-8">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
@@ -329,15 +337,36 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )
                         )}
                     </div>
+
                     {product.price_description ? (
                         <LemonBanner type="info">
                             <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
                         </LemonBanner>
                     ) : null}
+
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
+
+                    {/* Add-ons */}
                     {product.addons?.length > 0 && (
                         <div className="pb-8">
+                            {/* Legacy teams addon */}
+                            {product.type === 'platform_and_support' &&
+                                product.addons.find((addon) => addon.legacy_product && addon.subscribed) && (
+                                    <LemonBanner type="warning" className="my-4" hideIcon>
+                                        <p>
+                                            You're currently subscribed to our legacy{' '}
+                                            {
+                                                product.addons.find((addon) => addon.legacy_product && addon.subscribed)
+                                                    ?.name
+                                            }{' '}
+                                            add-on. If you'd like to move to one of our new add-ons please subscribe
+                                            below.
+                                        </p>
+                                    </LemonBanner>
+                                )}
+
+                            {/* Add-ons title */}
                             <h4 className="my-4">Add-ons</h4>
                             {billing?.subscription_level == 'free' && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
@@ -386,6 +415,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         }
                                         return true
                                     })
+                                    .filter((addon) => {
+                                        if (
+                                            product.type === 'platform_and_support' &&
+                                            addon.legacy_product &&
+                                            !addon.subscribed
+                                        ) {
+                                            return false
+                                        }
+                                        return true
+                                    })
                                     .map((addon, i) => {
                                         return <BillingProductAddon key={i} addon={addon} />
                                     })}
@@ -393,7 +432,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
+
+                {/* Billing limit */}
                 {!isTemporaryFreeProduct && <BillingLimit product={product} />}
+
+                {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />
             </div>
             <ProductPricingModal
