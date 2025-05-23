@@ -1,0 +1,17 @@
+.QuestionSuggestion {
+    opacity: 0;
+    animation: QuestionSuggestion__slide-in-fade-down 50ms ease-out forwards;
+    animation-delay: calc(var(--index) * 50ms);
+}
+
+@keyframes QuestionSuggestion__slide-in-fade-down {
+    from {
+        opacity: 0;
+        transform: translateY(-1.5rem);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

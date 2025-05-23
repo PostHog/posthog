@@ -16,7 +16,7 @@ interface QuestionInputProps {
 
 export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
-    const { question, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
+    const { question, threadLoading, inputDisabled, submissionDisabledReason, focusCounter } = useValues(maxLogic)
     const { askMax, setQuestion, stopGeneration } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -29,11 +29,10 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
 
     useEffect(() => {
         if (textAreaRef.current) {
-            // Autofocus, but a version that also moves cursor to end of text
             textAreaRef.current.focus()
             textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
         }
-    }, [])
+    }, [focusCounter])
 
     return (
         <div
