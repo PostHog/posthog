@@ -555,3 +555,108 @@ class TestRootNodeTools(BaseTest):
         state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
         result = node.run(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
+
+
+class TestRootNodeBillingPrompt(BaseTest):
+    def test_get_billing_products_prompt_with_usage(self):
+        # Mock billing manager response
+        mock_products = [
+            {
+                "name": "Product Analytics",
+                "description": "Analytics platform",
+                "usage": {"data": [100, 200]},
+                "current_usage": 0,
+                "subscribed": True,
+                "docs_url": "https://docs.example.com",
+                "addons": [
+                    {
+                        "name": "Addon",
+                        "description": "Test addon",
+                        "usage": None,
+                        "current_usage": 50,
+                        "subscribed": True,
+                        "docs_url": "https://docs.example.com/addon",
+                    }
+                ],
+            }
+        ]
+
+        with patch("ee.hogai.graph.root.nodes.BillingManager") as mock_billing_manager:
+            mock_instance = mock_billing_manager.return_value
+            mock_instance.get_products_with_recent_usage.return_value = mock_products
+
+            node = RootNode(self.team)
+            prompt = node._get_billing_products_prompt()
+
+            # Verify prompt content
+            self.assertIn("PostHog is composed of the following products:", prompt)
+            self.assertIn("#### Product Analytics", prompt)
+            self.assertIn("Analytics platform", prompt)
+            self.assertIn("The user has subscribed to the product: True", prompt)
+            self.assertIn("The user has used the product in the last month: True", prompt)
+            self.assertIn("https://docs.example.com", prompt)
+
+            # Verify addon content
+            self.assertIn("#### Addon", prompt)
+            self.assertIn("Test addon", prompt)
+            # The addon usage is based on "current_usage" which is 50, so it should be True
+            self.assertNotIn("The user has used the product in the last month: False", prompt)
+            self.assertIn("https://docs.example.com/addon", prompt)
+
+    def test_get_billing_products_prompt_without_usage(self):
+        # Mock billing manager response with no usage
+        mock_products = [
+            {
+                "name": "Product Analytics",
+                "description": "Analytics platform",
+                "usage": None,
+                "current_usage": 0,
+                "subscribed": False,
+                "docs_url": "https://docs.example.com",
+                "addons": [],
+            }
+        ]
+
+        with patch("ee.hogai.graph.root.nodes.BillingManager") as mock_billing_manager:
+            mock_instance = mock_billing_manager.return_value
+            mock_instance.get_products_with_recent_usage.return_value = mock_products
+
+            node = RootNode(self.team)
+            prompt = node._get_billing_products_prompt()
+
+            # Verify prompt content for unused product
+            self.assertIn("The user has subscribed to the product: False", prompt)
+            self.assertIn("The user has used the product in the last month: False", prompt)
+
+    def test_get_billing_products_prompt_usage_calculation(self):
+        # Test different usage calculation scenarios
+        test_cases = [
+            # (usage_data, current_usage, expected_is_used)
+            ({"data": [0, 0]}, 0, False),  # No usage in data array
+            ({"data": [100, 0]}, 0, True),  # Usage in data array
+            (None, 100, True),  # Usage in current_usage
+            (None, 0, False),  # No usage anywhere
+        ]
+
+        for usage_data, current_usage, expected_is_used in test_cases:
+            mock_products = [
+                {
+                    "name": "Product Analytics",
+                    "description": "Analytics platform",
+                    "usage": usage_data,
+                    "current_usage": current_usage,
+                    "subscribed": True,
+                    "docs_url": "https://docs.example.com",
+                    "addons": [],
+                }
+            ]
+
+            with patch("ee.hogai.graph.root.nodes.BillingManager") as mock_billing_manager:
+                mock_instance = mock_billing_manager.return_value
+                mock_instance.get_products_with_recent_usage.return_value = mock_products
+
+                node = RootNode(self.team)
+                prompt = node._get_billing_products_prompt()
+
+                expected_text = f"The user has used the product in the last month: {expected_is_used}"
+                self.assertIn(expected_text, prompt)

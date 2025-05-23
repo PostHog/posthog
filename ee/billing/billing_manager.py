@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, UTC
 from enum import Enum
+import json
 from typing import Any, Optional, cast
 
 import jwt
@@ -23,6 +24,18 @@ from posthog.models.organization import OrganizationMembership, OrganizationUsag
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+
+PRODUCT_TO_USAGE_KEY = {
+    "product_analytics": "event_count_in_period",
+    "enhanced_persons": "enhanced_persons_event_count_in_period",
+    "session_replay": "recording_count_in_period",
+    "mobile_replay": "mobile_recording_count_in_period",
+    "feature_flags": "billable_feature_flag_requests_count_in_period",
+    "exceptions": "exceptions_captured_in_period",
+    "data_warehouse": "rows_synced_in_period",
+    "survey_responses": "survey_responses_count_in_period",
+}
 
 
 class BillingAPIErrorCodes(Enum):
@@ -491,3 +504,92 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def get_products_with_recent_usage(
+        self,
+        organization: Organization,
+        team_ids: list[int] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get products with their recent usage data.
+
+        Args:
+            organization: The organization to get billing data for
+            team_ids: Optional list of team IDs to filter usage by
+            start_date: Optional start date for usage data
+            end_date: Optional end date for usage data
+
+        Returns:
+            List of products with their usage data and addons
+        """
+        try:
+            # Get base products and usage keys
+            products = self.get_billing(organization)["products"]
+            usage_keys = json.dumps(list(PRODUCT_TO_USAGE_KEY.values()))
+
+            if not start_date:
+                start_date = datetime.now() - timedelta(days=30)
+            if not end_date:
+                end_date = datetime.now()
+
+            # Format date range
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            end_date_str = end_date.strftime("%Y-%m-%d")
+
+            # Get usage data
+            usage = self.get_usage_data(
+                organization,
+                {
+                    "start_date": start_date_str,
+                    "end_date": end_date_str,
+                    "usage_types": usage_keys,
+                    "interval": "day",
+                    "organization_id": organization.id,
+                    "team_ids": str(team_ids) if team_ids else None,
+                },
+            )
+
+            usage_results = usage.get("results", [])
+            products_with_usage = []
+
+            def get_usage_for_type(type_key: str) -> dict | None:
+                """Get usage data for a given type key."""
+                if type_key in PRODUCT_TO_USAGE_KEY:
+                    usage_key = PRODUCT_TO_USAGE_KEY[type_key]
+                    return next(
+                        (result for result in usage_results if result.get("breakdown_value", "") == usage_key), None
+                    )
+                return None
+
+            # Process each product and its addons
+            for product in products:
+                # Process addons
+                addons = []
+                for addon in product.get("addons", []):
+                    addon_type = addon.get("type", "")
+                    addons.append(
+                        {
+                            **addon,
+                            "usage": get_usage_for_type(addon_type),
+                        }
+                    )
+
+                # Process main product usage
+                product_type = product.get("type", "")
+                products_with_usage.append(
+                    {
+                        **product,
+                        "addons": addons,
+                        "usage": get_usage_for_type(product_type),
+                    }
+                )
+
+            return products_with_usage
+
+        except Exception as e:
+            logger.error(
+                "Failed to get products with recent usage", organization_id=organization.id, error=str(e), exc_info=True
+            )
+            return []
