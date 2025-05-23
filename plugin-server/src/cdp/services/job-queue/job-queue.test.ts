@@ -7,7 +7,6 @@ import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples
 import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils'
-import { HogFunctionManagerService } from '../hog-function-manager.service'
 import { CyclotronJobQueue, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
@@ -23,7 +22,6 @@ describe('CyclotronJobQueue', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        mockHogFunctionManager = {} as jest.Mocked<HogFunctionManagerService>
         mockConsumeBatch = jest.fn()
     })
 
