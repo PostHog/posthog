@@ -79,7 +79,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             navigationLogic,
             ['mobileLayout'],
             teamLogic,
-            ['hasOnboardedAnyProduct'],
+            ['hasOnboardedAnyProduct', 'hasIngestedEvent'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
             ['playlists', 'playlistsLoading'],
         ],
@@ -361,6 +361,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 s.playlistsLoading,
                 s.groupTypes,
                 s.groupsAccessStatus,
+                s.hasIngestedEvent,
             ],
             (
                 featureFlags,
@@ -370,7 +371,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 playlists,
                 playlistsLoading,
                 groupTypes,
-                groupsAccessStatus
+                groupsAccessStatus,
+                hasIngestedEvent,
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
 
@@ -380,7 +382,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     GroupsAccessStatus.NoAccess,
                 ].includes(groupsAccessStatus)
 
-                const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
+                const sectionOne: NavbarItem[] = hasOnboardedAnyProduct || hasIngestedEvent
                     ? [
                           {
                               identifier: Scene.ProjectHomepage,
@@ -650,7 +652,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: editorSceneLogic,
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
-                        hasOnboardedAnyProduct
+                        hasOnboardedAnyProduct || hasIngestedEvent
                             ? {
                                   identifier: Scene.Pipeline,
                                   label: 'Data pipelines',
@@ -679,7 +681,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
+                        featureFlags[FEATURE_FLAGS.MESSAGING] && (hasOnboardedAnyProduct || hasIngestedEvent)
                             ? {
                                   identifier: Scene.MessagingBroadcasts,
                                   label: 'Messaging',
