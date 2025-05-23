@@ -83,7 +83,7 @@ export function LogsScene(): JSX.Element {
                                 key: 'timestamp',
                                 dataIndex: 'timestamp',
                                 width: 0,
-                                render: (timestamp) => <TZLabel time={timestamp as string} />,
+                                render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
                             },
                             {
                                 title: 'Level',

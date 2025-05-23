@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -28,6 +29,7 @@ class LogsQueryRunner(QueryRunner):
         )
 
     def calculate(self) -> LogsQueryResponse:
+        self.modifiers.convertToProjectTimezone = False
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),
@@ -88,7 +90,11 @@ class LogsQueryRunner(QueryRunner):
             raise Exception("NO!")
 
         query.where = self.where()
-        query.order_by = [parse_order_expr("timestamp ASC" if self.query.orderBy == "earliest" else "timestamp DESC")]
+        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+        query.order_by = [
+            parse_order_expr(f"service_name {order_dir}"),
+            parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
+        ]
 
         return query
 
@@ -157,4 +163,5 @@ class LogsQueryRunner(QueryRunner):
             interval=interval_type,
             interval_count=int(interval_count),
             now=dt.datetime.now(),
+            timezone=ZoneInfo("UTC"),
         )

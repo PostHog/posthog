@@ -24,6 +24,7 @@ class LogsTable(Table):
         "resource_attributes": StringJSONDatabaseField(name="resource_attributes", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
+        "service_name": StringDatabaseField(name="service_name", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
