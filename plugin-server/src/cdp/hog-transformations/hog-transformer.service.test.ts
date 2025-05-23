@@ -1327,9 +1327,11 @@ describe('HogTransformer', () => {
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             await hogTransformer.transformEventAndProduceMessages(event)
+            expect(hogTransformer['invocationResults'].length).toBe(1)
+            await hogTransformer.processInvocationResults()
+            expect(hogTransformer['invocationResults'].length).toBe(0)
 
             expect(observeResultsSpy).toHaveBeenCalled()
-            expect(hogTransformer['invocationResults'].length).toBe(2) // Both produceQueuedMessages and observeResults promises
 
             observeResultsSpy.mockRestore()
         })
