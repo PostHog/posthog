@@ -18,7 +18,7 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     """
     Returns a list of recording blocks with their timestamps and URLs.
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
-    Returns empty list if the recording is invalid or incomplete.
+    Returns an empty list if the recording is invalid or incomplete.
     """
     metadata = SessionReplayEvents().get_metadata(recording.session_id, recording.team)
     if not metadata:

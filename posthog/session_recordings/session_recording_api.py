@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -646,8 +647,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         response: Response | HttpResponse
         if not source:
-            with timer("gather_session_recording_sources"):
-                response = self._gather_session_recording_sources(recording, is_v2_enabled)
+            response = self._gather_session_recording_sources(recording, is_v2_enabled, timer)
         elif source == "realtime":
             with timer("send_realtime_snapshots_to_client"):
                 response = self._send_realtime_snapshots_to_client(recording, request)
@@ -657,11 +657,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         elif source == "blob_v2":
             blob_key = request.GET.get("blob_key")
             if blob_key:
-                with timer("stream_blob_v2_to_client"):
-                    response = self._stream_blob_v2_to_client(recording, request)
+                response = self._stream_blob_v2_to_client(recording, request, timer)
             else:
-                with timer("gather_session_recording_sources"):
-                    response = self._gather_session_recording_sources(recording, is_v2_enabled)
+                response = self._gather_session_recording_sources(recording, is_v2_enabled, timer)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
 
@@ -698,7 +696,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
 
-    def _gather_session_recording_sources(self, recording: SessionRecording, is_v2_enabled: bool = False) -> Response:
+    def _gather_session_recording_sources(
+        self,
+        recording: SessionRecording,
+        is_v2_enabled: bool = False,
+        timer_context_manager: ServerTimingsGathered | None = None,
+    ) -> Response:
         might_have_realtime = True
         newest_timestamp = None
         response_data = {}
@@ -707,7 +710,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_prefix = ""
 
         if is_v2_enabled:
-            blocks = list_blocks(recording)
+            with timer_context_manager("gather_session_recording_sources__list_blocks") or contextlib.nullcontext():
+                blocks = list_blocks(recording)
+
             for i, block in enumerate(blocks):
                 sources.append(
                     {
@@ -718,51 +723,55 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     }
                 )
 
-        if recording.object_storage_path:
-            blob_prefix = recording.object_storage_path
-            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-            might_have_realtime = False
-        else:
-            blob_prefix = recording.build_blob_ingestion_storage_path()
-            blob_keys = object_storage.list_objects(blob_prefix)
+        with timer_context_manager("gather_session_recording_sources__list_objects") or contextlib.nullcontext():
+            if recording.object_storage_path:
+                blob_prefix = recording.object_storage_path
+                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                might_have_realtime = False
+            else:
+                blob_prefix = recording.build_blob_ingestion_storage_path()
+                blob_keys = object_storage.list_objects(blob_prefix)
 
-        if blob_keys:
-            for full_key in blob_keys:
-                # Keys are like 1619712000-1619712060
-                blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
+        with timer_context_manager("gather_session_recording_sources__prepare_sources") or contextlib.nullcontext():
+            if blob_keys:
+                for full_key in blob_keys:
+                    # Keys are like 1619712000-1619712060
+                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
+                    blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                    time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
 
+                    sources.append(
+                        {
+                            "source": "blob",
+                            "start_timestamp": time_range[0],
+                            "end_timestamp": time_range.pop(),
+                            "blob_key": blob_key,
+                        }
+                    )
+            if sources:
+                sources = sorted(sources, key=lambda x: x["start_timestamp"])
+                oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+
+                if might_have_realtime:
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
+            if might_have_realtime:
                 sources.append(
                     {
-                        "source": "blob",
-                        "start_timestamp": time_range[0],
-                        "end_timestamp": time_range.pop(),
-                        "blob_key": blob_key,
+                        "source": "realtime",
+                        "start_timestamp": newest_timestamp,
+                        "end_timestamp": None,
                     }
                 )
-        if sources:
-            sources = sorted(sources, key=lambda x: x["start_timestamp"])
-            oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-            newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+                # the UI will use this to try to load realtime snapshots
+                # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                # it takes a short while for the subscription to be sync'd into redis
+                # let's use the network round trip time to get started
+                publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+            response_data["sources"] = sources
+        with timer_context_manager("gather_session_recording_sources__serialize_data") or contextlib.nullcontext():
+            serializer = SessionRecordingSourcesSerializer(response_data)
 
-            if might_have_realtime:
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
-        if might_have_realtime:
-            sources.append(
-                {
-                    "source": "realtime",
-                    "start_timestamp": newest_timestamp,
-                    "end_timestamp": None,
-                }
-            )
-            # the UI will use this to try to load realtime snapshots
-            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-            # it takes a short while for the subscription to be sync'd into redis
-            # let's use the network round trip time to get started
-            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
-        response_data["sources"] = sources
-        serializer = SessionRecordingSourcesSerializer(response_data)
         return Response(serializer.data)
 
     @staticmethod
@@ -814,7 +823,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
-        # with session/team ids of your choice, and set `local_reads_prod` to True
+        # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
         replay_summarizer = ReplaySummarizer(user=user, team=self.team, session_id=session_id, local_reads_prod=False)
         return StreamingHttpResponse(
@@ -889,7 +898,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
-    def _stream_blob_v2_to_client(self, recording: SessionRecording, request: request.Request) -> HttpResponse:
+    def _stream_blob_v2_to_client(
+        self,
+        recording: SessionRecording,
+        request: request.Request,
+        timings_context_manager: ServerTimingsGathered | None = None,
+    ) -> HttpResponse:
         """Stream a v2 session recording blob to the client.
 
         The blob_key is the block index in the metadata arrays.
@@ -904,31 +918,33 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("Blob key must be an integer")
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
-            blocks = list_blocks(recording)
-            if not blocks:
-                raise exceptions.NotFound("Session recording not found")
+            with timings_context_manager("stream_blob_v2_to_client__list_blocks") or contextlib.nullcontext():
+                blocks = list_blocks(recording)
+                if not blocks:
+                    raise exceptions.NotFound("Session recording not found")
 
             if block_index >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
-            block = blocks[block_index]
-            try:
-                decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
-            except BlockFetchError:
-                logger.exception(
-                    "Failed to fetch block",
-                    recording_id=recording.session_id,
-                    team_id=self.team.id,
-                    block_index=block_index,
-                )
-                raise exceptions.APIException("Failed to load recording block")
+            with timings_context_manager("stream_blob_v2_to_client__fetch_block") or contextlib.nullcontext():
+                block = blocks[block_index]
+                try:
+                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
+                except BlockFetchError:
+                    logger.exception(
+                        "Failed to fetch block",
+                        recording_id=recording.session_id,
+                        team_id=self.team.id,
+                        block_index=block_index,
+                    )
+                    raise exceptions.APIException("Failed to load recording block")
 
             response = HttpResponse(
                 content=decompressed_block,
                 content_type="application/jsonl",
             )
 
-            # Set caching headers - blocks are immutable so we can cache for a while
+            # Set caching headers - blocks are immutable, so we can cache for a while
             response["Cache-Control"] = "max-age=3600"
             response["Content-Disposition"] = "inline"
 
