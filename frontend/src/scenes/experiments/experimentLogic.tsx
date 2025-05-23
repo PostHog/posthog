@@ -70,10 +70,7 @@ import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constan
 import {
     conversionRateForVariant,
     countDataForVariant,
-    credibleIntervalForVariant,
     expectedRunningTime,
-    exposureCountDataForVariant,
-    getHighestProbabilityVariant,
     getIndexForVariant,
     getSignificanceDetails,
     minimumSampleSizePerVariant,
@@ -1589,7 +1586,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
-        minimumSampleSizePerVariant: [(s) => [s.minimumDetectableEffect], (mde) => minimumSampleSizePerVariant(mde)],
         isPrimaryMetricSignificant: [
             (s) => [s.metricResults],
             (
@@ -1635,10 +1631,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         recommendedSampleSize: [
-            (s) => [s.conversionMetrics, s.minimumSampleSizePerVariant, s.variants],
-            (conversionMetrics, minimumSampleSizePerVariant, variants): number => {
+            (s) => [s.conversionMetrics, s.variants, s.minimumDetectableEffect],
+            (conversionMetrics, variants, minimumDetectableEffect): number => {
                 const conversionRate = conversionMetrics.totalRate * 100
-                const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+                const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
                 const sampleSize = sampleSizePerVariant * variants.length
                 return sampleSize
             },
@@ -1651,10 +1647,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 s.firstPrimaryMetric,
                 s.funnelResults,
                 s.conversionMetrics,
-                s.expectedRunningTime,
                 s.trendResults,
-                s.minimumSampleSizePerVariant,
-                s.recommendedExposureForCountData,
+                s.minimumDetectableEffect,
             ],
             (
                 experiment,
@@ -1663,17 +1657,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 firstPrimaryMetric,
                 funnelResults,
                 conversionMetrics,
-                expectedRunningTime,
                 trendResults,
-                minimumSampleSizePerVariant,
-                recommendedExposureForCountData
+                minimumDetectableEffect
             ): number => {
                 if (getInsightType(firstPrimaryMetric) === InsightType.FUNNELS) {
                     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
                     const funnelEntrants = funnelResults?.[0]?.count
 
                     const conversionRate = conversionMetrics.totalRate * 100
-                    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+                    const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
                     const funnelSampleSize = sampleSizePerVariant * variants.length
                     if (experiment?.start_date) {
                         return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
@@ -1682,17 +1674,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 const trendCount = trendResults[0]?.count
-                const runningTime = recommendedExposureForCountData(trendCount)
+                const runningTime = recommendedExposureForCountData(minimumDetectableEffect, trendCount)
                 return runningTime
             },
         ],
-        recommendedExposureForCountData: [
-            (s) => [s.minimumDetectableEffect],
-            (mde) => recommendedExposureForCountData(mde),
-        ],
-        expectedRunningTime: [() => [], () => expectedRunningTime],
-        conversionRateForVariant: [() => [], () => conversionRateForVariant],
-        credibleIntervalForVariant: [() => [], () => credibleIntervalForVariant],
         getIndexForVariant: [
             () => [],
             () =>
@@ -1724,8 +1709,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     return countDataForVariant(metricResult, variant, type, mathAggregation)
                 },
         ],
-        exposureCountDataForVariant: [() => [], () => exposureCountDataForVariant],
-        getHighestProbabilityVariant: [() => [], () => getHighestProbabilityVariant],
         tabularExperimentResults: [
             (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getInsightType],
             (
@@ -1781,15 +1764,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         sortedWinProbabilities: [
-            (s) => [s.metricResults, s.conversionRateForVariant],
+            (s) => [s.metricResults],
             (
                     metricResults: (
                         | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[],
-                    conversionRateForVariant
+                    )[]
                 ) =>
                 (metricIndex: number = 0) => {
                     const result = metricResults?.[metricIndex]

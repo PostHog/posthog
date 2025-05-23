@@ -8,8 +8,13 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+} from '../experimentCalculations'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
-import { calculateDelta } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
 import { ChartEmptyState } from './ChartEmptyState'
@@ -526,12 +531,9 @@ export function DeltaChart({
 }): JSX.Element {
     // Get values from logic
     const {
-        credibleIntervalForVariant,
-        conversionRateForVariant,
         experimentId,
         experiment,
         countDataForVariant,
-        exposureCountDataForVariant,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         featureFlags,

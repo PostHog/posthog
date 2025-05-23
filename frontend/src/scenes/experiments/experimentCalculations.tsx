@@ -268,45 +268,41 @@ export function getHighestProbabilityVariant(results: ExperimentResult): string 
 /**
  * Calculate minimum sample size per variant for a given conversion rate and MDE
  */
-export function minimumSampleSizePerVariant(mde: number): (conversionRate: number) => number {
-    return (conversionRate: number) => {
-        // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
-        // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
-        // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
-        // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
-        if (!mde) {
-            return 0
-        }
-
-        return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
+export function minimumSampleSizePerVariant(mde: number, conversionRate: number): number {
+    // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
+    // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
+    // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
+    // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
+    if (!mde) {
+        return 0
     }
+
+    return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
 }
 
 /**
  * Calculate recommended exposure for count data based on MDE
  */
-export function recommendedExposureForCountData(mde: number): (baseCountData: number) => number {
-    return (baseCountData: number): number => {
-        // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-        if (!mde) {
-            return 0
-        }
-
-        const minCountData = (baseCountData * mde) / 100
-        const lambda1 = baseCountData
-        const lambda2 = minCountData + baseCountData
-
-        // This is exposure in units of days
-        return parseFloat(
-            (
-                4 /
-                Math.pow(
-                    Math.sqrt(lambda1 / EXPERIMENT_DEFAULT_DURATION) - Math.sqrt(lambda2 / EXPERIMENT_DEFAULT_DURATION),
-                    2
-                )
-            ).toFixed(1)
-        )
+export function recommendedExposureForCountData(mde: number, baseCountData: number): number {
+    // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+    if (!mde) {
+        return 0
     }
+
+    const minCountData = (baseCountData * mde) / 100
+    const lambda1 = baseCountData
+    const lambda2 = minCountData + baseCountData
+
+    // This is exposure in units of days
+    return parseFloat(
+        (
+            4 /
+            Math.pow(
+                Math.sqrt(lambda1 / EXPERIMENT_DEFAULT_DURATION) - Math.sqrt(lambda2 / EXPERIMENT_DEFAULT_DURATION),
+                2
+            )
+        ).toFixed(1)
+    )
 }
 
 /**

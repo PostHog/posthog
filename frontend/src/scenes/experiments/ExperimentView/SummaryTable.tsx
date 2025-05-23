@@ -24,7 +24,13 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
-import { calculateDelta } from '../experimentCalculations'
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+} from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { getViewRecordingFilters } from '../utils'
 import { VariantTag } from './components'
@@ -45,12 +51,8 @@ export function SummaryTable({
         secondaryMetricResults,
         tabularExperimentResults,
         getInsightType,
-        exposureCountDataForVariant,
-        conversionRateForVariant,
         experimentMathAggregationForTrends,
         countDataForVariant,
-        getHighestProbabilityVariant,
-        credibleIntervalForVariant,
         featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
@@ -157,7 +159,11 @@ export function SummaryTable({
                 }
 
                 return (
-                    <div className={`font-semibold ${deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''}`}>
+                    <div
+                        className={`font-semibold ${
+                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                        }`}
+                    >
                         {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
                     </div>
                 )
