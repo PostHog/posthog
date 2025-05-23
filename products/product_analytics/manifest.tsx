@@ -73,6 +73,7 @@ export const manifest: ProductManifest = {
         insight: {
             icon: <IconGraph />,
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            iconColor: ['var(--product-web-analytics-primary)', 'var(--product-web-analytics-primary)'],
         },
     },
     treeItemsNew: [

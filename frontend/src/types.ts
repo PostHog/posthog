@@ -5381,6 +5381,8 @@ export interface CoreMemory {
 export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
+    // Pass a single color for light mode, or a pair for light and dark mode
+    iconColor?: [string] | [string, string]
 }
 
 export interface FileSystemFilterType {

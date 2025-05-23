@@ -65,10 +65,12 @@ export const manifest: ProductManifest = {
         'hog_function/broadcast': {
             icon: <IconMegaphone />,
             href: (ref: string) => urls.messagingBroadcast(ref),
+            iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
         },
         'hog_function/campaign': {
             icon: <IconMegaphone />,
             href: (ref: string) => urls.messagingCampaign(ref),
+            iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
         },
     },
     treeItemsNew: [

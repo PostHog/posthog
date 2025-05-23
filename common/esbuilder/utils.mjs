@@ -564,7 +564,6 @@ export function gatherProductManifests(__dirname) {
     const fileSystemTypes = []
     const treeItemsNew = {}
     const treeItemsGames = {}
-    const treeItemsDataManagement = {}
     const treeItemsProducts = {}
     const fileSystemFilterTypes = []
 
@@ -681,7 +680,7 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsDataManagement' || node.name.text === 'treeItemsGames')
+                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsGames')
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
@@ -690,8 +689,6 @@ export function gatherProductManifests(__dirname) {
                         if (path) {
                             if (node.name.text === 'treeItemsProducts') {
                                 treeItemsProducts[path] = cloneNode(element)
-                            } else if (node.name.text === 'treeItemsDataManagement') {
-                                treeItemsDataManagement[path] = cloneNode(element)
                             } else {
                                 treeItemsGames[path] = cloneNode(element)
                             }
@@ -770,15 +767,6 @@ export function gatherProductManifests(__dirname) {
         ),
         sourceFile
     )
-    const manifestTreeItemsDataManagement = printer.printNode(
-        ts.EmitHint.Unspecified,
-        ts.factory.createArrayLiteralExpression(
-            Object.keys(treeItemsDataManagement)
-                .sort()
-                .map((key) => treeItemsDataManagement[key])
-        ),
-        sourceFile
-    )
     const manifestTreeFilterTypes = printer.printNode(
         ts.EmitHint.Unspecified,
         ts.factory.createObjectLiteralExpression(fileSystemFilterTypes),
@@ -824,8 +812,6 @@ export function gatherProductManifests(__dirname) {
         export const getTreeItemsProducts = (): FileSystemImport[] => ${manifestTreeItemsProducts}\n
         ${autogenComment}
         export const getTreeItemsGames = (): FileSystemImport[] => ${manifestTreeItemsGames}\n
-        ${autogenComment}
-        export const getTreeItemsDataManagement = (): FileSystemImport[] => ${manifestTreeItemsDataManagement}\n
         ${autogenComment}
         export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
     `
