@@ -1234,7 +1234,6 @@ export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
-    token: string | undefined
 }
 
 export type RedisPool = GenericPool<Redis>

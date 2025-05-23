@@ -551,20 +551,22 @@ export class IngestionConsumer {
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
         const batches: IncomingEventsByDistinctId = {}
-        for (const { event, message, team, token } of messages) {
-            const eventKey = `${token ?? ''}:${event.distinct_id}`
+        for (const { event, message, team } of messages) {
+            const token = event.token ?? ''
+            const distinctId = event.distinct_id ?? ''
+            const eventKey = `${token}:${distinctId}`
 
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
             if (!batches[eventKey]) {
                 batches[eventKey] = {
-                    token: token ?? '',
-                    distinctId: event.distinct_id ?? '',
+                    token: token,
+                    distinctId,
                     events: [],
                 }
             }
 
-            batches[eventKey].events.push({ message, event, team, token })
+            batches[eventKey].events.push({ message, event, team })
         }
         return batches
     }
@@ -580,7 +582,6 @@ export class IngestionConsumer {
                 event: result.event,
                 team: result.team,
                 message,
-                token: result.token,
             })
         }
         return resolvedMessages

@@ -8,7 +8,7 @@ import { tokenOrTeamPresentCounter } from './metrics'
 export async function populateTeamDataStep(
     hub: Hub,
     event: PipelineEvent
-): Promise<{ event: PipelineEvent; team: Team; token: string | undefined } | null> {
+): Promise<{ event: PipelineEvent; team: Team } | null> {
     /**
      * Implements team_id resolution and applies the team's ingestion settings (dropping event.ip if requested).
      * Resolution can fail if PG is unavailable, leading to the consumer taking lag until retries succeed.
@@ -89,5 +89,5 @@ export async function populateTeamDataStep(
         }
     }
 
-    return { event, team, token: event.token }
+    return { event, team }
 }

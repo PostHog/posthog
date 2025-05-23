@@ -65,7 +65,6 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Inco
                 team_id: team.id,
             },
             team: team,
-            token: e.token,
             message: createKafkaMessage(e),
         })
     )
