@@ -38,6 +38,10 @@ from posthog.temporal.batch_exports.heartbeat import (
     HeartbeatParseError,
     should_resume_from_activity_heartbeat,
 )
+from posthog.temporal.batch_exports.pre_export_stage import (
+    ProducerFromInternalS3Stage,
+    execute_batch_export_insert_activity_using_s3_stage,
+)
 from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
@@ -630,6 +634,7 @@ class S3Consumer(Consumer):
             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
 
 
+# TODO - this is not currently being used as resuming from heartbeats is not reliable enough for S3 multipart uploads
 async def initialize_and_resume_multipart_upload(
     inputs: S3InsertInputs,
 ) -> tuple[S3MultiPartUpload, S3HeartbeatDetails]:
@@ -749,7 +754,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         done_ranges: list[DateRange] = details.done_ranges
 
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -886,7 +891,20 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
+            batch_export_id=inputs.batch_export_id,
+            destination_default_fields=s3_default_fields(),
         )
+        # TODO
+        STAGE_DATA_IN_S3 = True
+        if STAGE_DATA_IN_S3:
+            result = await execute_batch_export_insert_activity_using_s3_stage(
+                insert_into_s3_activity_from_stage,
+                insert_inputs,
+                interval=inputs.interval,
+                non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+                finish_inputs=finish_inputs,
+            )
+            return result
 
         await execute_batch_export_insert_activity(
             insert_into_s3_activity,
@@ -895,3 +913,76 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
         )
+
+
+@activity.defn
+async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsCompleted:
+    """TODO"""
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
+    # await logger.ainfo(
+    #     "Batch exporting range %s - %s to S3: %s",
+    #     inputs.data_interval_start or "START",
+    #     inputs.data_interval_end or "END",
+    #     get_s3_key(inputs),
+    # )
+
+    async with (
+        Heartbeater() as heartbeater,
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+    ):
+        details = S3HeartbeatDetails()
+        # done_ranges: list[DateRange] = details.done_ranges
+
+        # _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+        #     inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+        # )
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        # full_range = (data_interval_start, data_interval_end)
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = ProducerFromInternalS3Stage()
+        assert inputs.batch_export_id is not None
+        producer_task = await producer.start(
+            queue=queue,
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+        )
+
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            return 0
+
+        record_batch_schema = pa.schema(
+            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+            # record batches have them as nullable.
+            # Until we figure it out, we set all fields to nullable. There are some fields we know
+            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+            # between batches.
+            [field.with_nullable(True) for field in record_batch_schema]
+        )
+
+        consumer = S3Consumer(
+            heartbeater=heartbeater,
+            heartbeat_details=details,
+            data_interval_end=data_interval_end,
+            data_interval_start=data_interval_start,
+            writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
+            s3_inputs=inputs,
+        )
+        _ = await run_consumer(
+            consumer=consumer,
+            queue=queue,
+            producer_task=producer_task,
+            schema=record_batch_schema,
+            max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            include_inserted_at=True,
+            writer_file_kwargs={"compression": inputs.compression},
+            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+        )
+
+        return details.records_completed

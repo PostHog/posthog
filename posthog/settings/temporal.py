@@ -70,3 +70,5 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+
+BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str | None = os.getenv("BATCH_EXPORT_INTERNAL_STAGING_BUCKET", "posthog")
