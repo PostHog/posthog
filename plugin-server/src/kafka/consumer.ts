@@ -272,7 +272,11 @@ export class KafkaConsumer {
             } catch (e) {
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
-                logger.error('📝', 'Failed to store offsets', { error: e })
+                logger.error('📝', 'Failed to store offsets', {
+                    error: String(e),
+                    assignedPartitions: this.assignments(),
+                    topicPartitionOffsets,
+                })
                 captureException(e)
             }
         }
