@@ -816,8 +816,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.0(kea@3.1.5(react@18.2.0))
       kea-loaders:
-        specifier: ^3.0.0
-        version: 3.0.0(kea@3.1.5(react@18.2.0))
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-localstorage:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.5(react@18.2.0))
@@ -1172,8 +1172,8 @@ importers:
         specifier: ^6.1.0
         version: 6.4.0(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))
       kea-typegen:
-        specifier: ^3.3.5
-        version: 3.3.5(typescript@4.9.5)
+        specifier: ^3.3.7
+        version: 3.3.7(typescript@4.9.5)
       less:
         specifier: ^3.12.2
         version: 3.13.1
@@ -12044,6 +12044,11 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
+  kea-loaders@3.1.1:
+    resolution: {integrity: sha512-FZcOh5PSTIh5+Of5kZno7bXENmY4rCcRYnTB4e709Mbkc7KzriEZ6b/mIWvYx2vkDEgilIsvibUsGOADZ6wqPw==}
+    peerDependencies:
+      kea: '>= 3'
+
   kea-localstorage@3.1.0:
     resolution: {integrity: sha512-OFByJwu88Ro9C9A1bqY5n8v1JYl6ArXX1zC75qpN8HorrReoM9Kf0gZdVspyExsRuX5en9ga64vsk54+jW4Kvw==}
     peerDependencies:
@@ -12064,8 +12069,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-typegen@3.3.5:
-    resolution: {integrity: sha512-3WuX5cQcVWawpSonHVvTUTiMEbnEbpbMOCklfxeItZuYKPxqvIrYhQWfEWNnS8f17mtCnmhUETifPP/I7jAceQ==}
+  kea-typegen@3.3.7:
+    resolution: {integrity: sha512-Gk4GZ3qhWu4c33y9p889cA4BWS4ycPUeaMtUEyZGRxDDvnIXfy0qQWKTkUwfE0jo5NGY9V1aqx3ryopzVItqAw==}
     hasBin: true
     peerDependencies:
       typescript: ~4.9.5
@@ -29018,7 +29023,7 @@ snapshots:
 
   is-boolean-object@1.1.2:
     dependencies:
-      call-bind: 1.0.7
+      call-bind: 1.0.8
       has-tostringtag: 1.0.0
 
   is-boolean-object@1.2.1:
@@ -29071,7 +29076,7 @@ snapshots:
 
   is-finalizationregistry@1.0.2:
     dependencies:
-      call-bind: 1.0.7
+      call-bind: 1.0.8
 
   is-finalizationregistry@1.1.1:
     dependencies:
@@ -29239,7 +29244,7 @@ snapshots:
 
   is-weakset@2.0.2:
     dependencies:
-      call-bind: 1.0.7
+      call-bind: 1.0.8
       get-intrinsic: 1.2.7
 
   is-weakset@2.0.4:
@@ -30118,6 +30123,10 @@ snapshots:
     dependencies:
       kea: 3.1.5(react@18.2.0)
 
+  kea-loaders@3.1.1(kea@3.1.5(react@18.2.0)):
+    dependencies:
+      kea: 3.1.5(react@18.2.0)
+
   kea-localstorage@3.1.0(kea@3.1.5(react@18.2.0)):
     dependencies:
       kea: 3.1.5(react@18.2.0)
@@ -30136,7 +30145,7 @@ snapshots:
       kea: 3.1.5(react@18.2.0)
       kea-waitfor: 0.2.1(kea@3.1.5(react@18.2.0))
 
-  kea-typegen@3.3.5(typescript@4.9.5):
+  kea-typegen@3.3.7(typescript@4.9.5):
     dependencies:
       '@babel/core': 7.26.0
       '@babel/preset-env': 7.23.5(@babel/core@7.26.0)
@@ -35860,7 +35869,7 @@ snapshots:
   yargs@16.2.0:
     dependencies:
       cliui: 7.0.4
-      escalade: 3.1.1
+      escalade: 3.2.0
       get-caller-file: 2.0.5
       require-directory: 2.1.1
       string-width: 4.2.3
