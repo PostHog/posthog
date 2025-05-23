@@ -7,7 +7,7 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
 
@@ -152,7 +152,9 @@ export function GoalsConfiguration(): JSX.Element {
     // Get goals from config, fallback to empty array
     const goals = revenueAnalyticsConfig?.goals || []
 
-    const [isAdding, setIsAdding] = useState(false)
+    // It's not adding by default, but we want to show the form in storybook and test runner
+    // so that they show up in the snapshots
+    const [isAdding, setIsAdding] = useState(() => inStorybook() || inStorybookTestRunner())
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [temporaryGoal, setTemporaryGoal] = useState<RevenueAnalyticsGoal>(EMPTY_GOAL)
 
@@ -325,7 +327,7 @@ export function GoalsConfiguration(): JSX.Element {
                         onEdit={() => handleEditGoal(index)}
                         onDelete={() => handleDeleteGoal(index)}
                         canSave={!!(temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal)}
-                        canEdit={editingIndex === null}
+                        canEdit={!isAddingRow && editingIndex === null}
                     />
                 )
             },
