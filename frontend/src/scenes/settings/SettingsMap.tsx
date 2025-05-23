@@ -409,6 +409,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-csp-reporting',
         title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
         settings: [
             {
                 id: 'csp-reporting',
