@@ -171,7 +171,7 @@ def prepare_ast_for_printing(
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=context.modifiers.convertToProjectTimezone,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
