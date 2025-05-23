@@ -36,7 +36,7 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
             projectLogic,
             ['currentProjectId'],
         ],
-        actions: [experimentsLogic, ['loadExperiments', 'deleteExperiment']],
+        actions: [experimentsLogic, ['loadExperiments']],
     })),
     selectors(({ actions }) => ({
         contents: [
