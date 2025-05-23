@@ -111,7 +111,7 @@ export function LogsScene(): JSX.Element {
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const attributes = JSON.parse(log.attributes)
+    const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
     return (
