@@ -392,7 +392,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     def create(self, request, *args, **kwargs) -> Response:
         id = UUIDT()  # We use this in the hash if one isn't set, and also as the id of the model
         metadata = request.data.get("metadata")
-        hash_id = str(request.data.get("hash_id")) or str(id)
+        hash_id = str(request.data.get("hash_id") or id)
         hash_id = self.validate_hash_id(hash_id, True)
 
         release = ErrorTrackingRelease.objects.create(
