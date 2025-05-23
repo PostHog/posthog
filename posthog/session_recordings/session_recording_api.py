@@ -708,9 +708,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         sources: list[dict] = []
         blob_keys: list[str] | None = None
         blob_prefix = ""
+        if timer_context_manager is None:
+            timer_context_manager = contextlib.nullcontext
 
         if is_v2_enabled:
-            with timer_context_manager("list_blocks__gather_session_recording_sources") or contextlib.nullcontext():
+            with timer_context_manager("list_blocks__gather_session_recording_sources"):
                 blocks = list_blocks(recording)
 
             for i, block in enumerate(blocks):
@@ -723,7 +725,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     }
                 )
 
-        with timer_context_manager("list_objects__gather_session_recording_sources") or contextlib.nullcontext():
+        with timer_context_manager("list_objects__gather_session_recording_sources"):
             if recording.object_storage_path:
                 blob_prefix = recording.object_storage_path
                 blob_keys = object_storage.list_objects(cast(str, blob_prefix))
@@ -732,7 +734,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 blob_prefix = recording.build_blob_ingestion_storage_path()
                 blob_keys = object_storage.list_objects(blob_prefix)
 
-        with timer_context_manager("prepare_sources__gather_session_recording_sources") or contextlib.nullcontext():
+        with timer_context_manager("prepare_sources__gather_session_recording_sources"):
             if blob_keys:
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
@@ -769,7 +771,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 # let's use the network round trip time to get started
                 publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
             response_data["sources"] = sources
-        with timer_context_manager("serialize_data__gather_session_recording_sources") or contextlib.nullcontext():
+
+        with timer_context_manager("serialize_data__gather_session_recording_sources"):
             serializer = SessionRecordingSourcesSerializer(response_data)
 
         return Response(serializer.data)
@@ -908,6 +911,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         The blob_key is the block index in the metadata arrays.
         """
+        if timings_context_manager is None:
+            timings_context_manager = contextlib.nullcontext
+
         blob_key = request.GET.get("blob_key", "")
         if not blob_key:
             raise exceptions.ValidationError("Must provide a blob key")
@@ -918,7 +924,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("Blob key must be an integer")
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
-            with timings_context_manager("list_blocks__stream_blob_v2_to_client") or contextlib.nullcontext():
+            with timings_context_manager("list_blocks__stream_blob_v2_to_client"):
                 blocks = list_blocks(recording)
                 if not blocks:
                     raise exceptions.NotFound("Session recording not found")
@@ -926,7 +932,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if block_index >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
-            with timings_context_manager("fetch_block__stream_blob_v2_to_client") or contextlib.nullcontext():
+            with timings_context_manager("fetch_block__stream_blob_v2_to_client"):
                 block = blocks[block_index]
                 try:
                     decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
