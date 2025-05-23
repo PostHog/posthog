@@ -361,7 +361,7 @@ def postgres_source(
         sslkey="/tmp/no.txt",
     ) as connection:
         with connection.cursor() as cursor:
-            inner_query = _build_query(
+            inner_query_with_limit = _build_query(
                 schema,
                 table_name,
                 is_incremental,
@@ -371,10 +371,19 @@ def postgres_source(
                 add_limit=True,
             )
 
+            inner_query_without_limit = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query, logger)
+            chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, schema, table_name, logger)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Fallback on checking for an `id` field on the table
