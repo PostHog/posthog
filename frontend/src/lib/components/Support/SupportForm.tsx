@@ -79,7 +79,7 @@ export function SupportForm(): JSX.Element | null {
             if (item.type.startsWith('image/')) {
                 const file = item.getAsFile()
                 if (file) {
-                    setFilesToUpload([file])
+                    setFilesToUpload((prev) => [...prev, file])
                 }
             }
         }
