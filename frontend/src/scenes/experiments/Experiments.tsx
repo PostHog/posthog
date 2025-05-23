@@ -16,6 +16,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -35,6 +36,7 @@ export const scene: SceneExport = {
 
 export function Experiments(): JSX.Element {
     const {
+        currentProjectId,
         filteredExperiments,
         experimentsLoading,
         tab,
@@ -44,7 +46,7 @@ export function Experiments(): JSX.Element {
         userFilter,
         showLegacyBadge,
     } = useValues(experimentsLogic)
-    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
+    const { loadExperiments, setExperimentsTab, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -182,7 +184,15 @@ export function Experiments(): JSX.Element {
                                             primaryButton: {
                                                 children: 'Delete',
                                                 type: 'primary',
-                                                onClick: () => deleteExperiment(experiment.id as number),
+                                                onClick: () => {
+                                                    void deleteWithUndo({
+                                                        endpoint: `projects/${currentProjectId}/experiments`,
+                                                        object: { name: experiment.name, id: experiment.id },
+                                                        callback: () => {
+                                                            loadExperiments()
+                                                        },
+                                                    })
+                                                },
                                                 size: 'small',
                                             },
                                             secondaryButton: {

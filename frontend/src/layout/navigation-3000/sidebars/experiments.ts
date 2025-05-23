@@ -2,7 +2,9 @@ import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { experimentsLogic, getExperimentStatus } from 'scenes/experiments/experimentsLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,13 +28,20 @@ const EXPERIMENT_STATUS_TO_RIBBON_STATUS = { draft: 'muted', running: 'success',
 export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'experimentsSidebarLogic']),
     connect(() => ({
-        values: [experimentsLogic, ['experiments', 'experimentsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
+        values: [
+            experimentsLogic,
+            ['experiments', 'experimentsLoading'],
+            sceneLogic,
+            ['activeScene', 'sceneParams'],
+            projectLogic,
+            ['currentProjectId'],
+        ],
         actions: [experimentsLogic, ['loadExperiments', 'deleteExperiment']],
     })),
     selectors(({ actions }) => ({
         contents: [
-            (s) => [s.relevantExperiments, s.experimentsLoading],
-            (relevantExperiments, experimentsLoading) => [
+            (s) => [s.relevantExperiments, s.experimentsLoading, s.currentProjectId],
+            (relevantExperiments, experimentsLoading, currentProjectId) => [
                 {
                     key: 'experiments',
                     noun: 'experiment',
@@ -66,7 +75,15 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
                                     items: [
                                         {
                                             label: 'Delete experiment',
-                                            onClick: () => actions.deleteExperiment(experiment.id as number),
+                                            onClick: () => {
+                                                void deleteWithUndo({
+                                                    endpoint: `projects/${currentProjectId}/experiments`,
+                                                    object: { name: experiment.name, id: experiment.id },
+                                                    callback: () => {
+                                                        actions.loadExperiments()
+                                                    },
+                                                })
+                                            },
                                             status: 'danger',
                                         },
                                     ],
