@@ -1,10 +1,11 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
+import { ReadableStream } from 'stream/web'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
+import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
@@ -25,7 +26,7 @@ export type SegmentPluginMeta = {
 }
 
 // The module doesn't export this so we redeclare it here
-export interface ModifiedResponse<T = unknown> extends Response {
+export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'> {
     content: string
     data: unknown extends T ? undefined | unknown : T
     headers: Headers & {
@@ -60,18 +61,16 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
         type: 'default',
         url: 'url',
         headers,
-        clone: () => modifiedResponse,
         body: new ReadableStream({
             start: (controller) => {
                 controller.enqueue(new TextEncoder().encode(text))
                 controller.close()
             },
         }),
+        // NOTE: The majority of items below aren't used but we need to simulate their response type
+        clone: () => modifiedResponse as unknown as Response,
         bodyUsed: false,
         arrayBuffer: () => {
-            throw new Error('Not implemented')
-        },
-        bytes: () => {
             throw new Error('Not implemented')
         },
         blob: () => {
