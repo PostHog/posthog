@@ -43,6 +43,7 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     GroupsQuery,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightActorsQuery,
@@ -307,11 +308,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "HogQLQuery":
+    if kind == "HogQLQuery" or kind == "HogQLASTQuery":
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | dict[str, Any], query),
+            query=cast(HogQLQuery | HogQLASTQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

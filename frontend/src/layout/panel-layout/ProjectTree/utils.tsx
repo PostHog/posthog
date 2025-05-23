@@ -24,8 +24,27 @@ export interface ConvertProps {
     allShortcuts?: boolean
 }
 
-export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
-    return item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}/${item.id || item.path}`
+export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
+    const root = protocol.replace(/\/+/, '').replace(':', '')
+    return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
+}
+
+export function protocolTitle(str: string): string {
+    return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
+}
+
+export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
+    const parts = splitPath(url)
+    if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
+        if (parts.length > 1) {
+            return parts[parts.length - 1]
+        }
+        return protocolTitle(parts[0].slice(0, -1))
+    }
+    if (parts.length > 0) {
+        return parts[parts.length - 1]
+    }
+    return defaultName
 }
 
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
@@ -67,7 +86,7 @@ export function convertFileSystemEntryToTreeDataItem({
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
         const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
-        const nodeId = getItemId(item)
+        const nodeId = getItemId(item, root)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
@@ -104,7 +123,7 @@ export function convertFileSystemEntryToTreeDataItem({
     const markIndeterminateFolders = (path: string): void => {
         const parts = splitPath(path)
         for (let i = 0; i < parts.length; i++) {
-            indeterminateFolders[`${root}-folder/${joinPath(parts.slice(0, i + 1))}`] = true
+            indeterminateFolders[`${root}${joinPath(parts.slice(0, i + 1))}`] = true
         }
     }
 
@@ -114,7 +133,7 @@ export function convertFileSystemEntryToTreeDataItem({
             (node) => node.record?.path === fullPath && node.record?.type === 'folder'
         )
         if (!folderNode) {
-            const id = `${root}-folder/${fullPath}`
+            const id = `${root}${fullPath}`
             folderNode = {
                 id,
                 name: folderName,
