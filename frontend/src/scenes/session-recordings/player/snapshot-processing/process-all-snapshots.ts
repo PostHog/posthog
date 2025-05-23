@@ -47,7 +47,10 @@ export function processAllSnapshots(
     // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
         const sourceKey = keyForSource(source)
-        const sourceSnapshots = snapshotsBySource?.[sourceKey]?.snapshots || []
+        // sorting is very cheap for already sorted lists
+        const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
+            (a, b) => a.timestamp - b.timestamp
+        )
 
         for (const snapshot of sourceSnapshots) {
             const { delay: _delay, ...delayFreeSnapshot } = snapshot
@@ -96,7 +99,7 @@ export function processAllSnapshots(
         }
     }
 
-    // Sort by timestamp
+    // sorting is very cheap for already sorted lists
     result.sort((a, b) => a.timestamp - b.timestamp)
 
     // Optional second pass: patch meta-events on the sorted array
