@@ -33,6 +33,19 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
+
+import {
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    expectedRunningTime,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+    getIndexForVariant,
+    getSignificanceDetails,
+    minimumSampleSizePerVariant,
+    recommendedExposureForCountData,
+} from './experimentCalculations'
 import {
     AnyEntityNode,
     CachedExperimentFunnelsQueryResponse,
@@ -1582,17 +1595,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         minimumSampleSizePerVariant: [
             (s) => [s.minimumDetectableEffect],
-            (mde) => (conversionRate: number) => {
-                // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
-                // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
-                // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
-                // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
-                if (!mde) {
-                    return 0
-                }
-
-                return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
-            },
+            (mde) => minimumSampleSizePerVariant(mde),
         ],
         isPrimaryMetricSignificant: [
             (s) => [s.metricResults],
@@ -1635,31 +1638,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) =>
                 (metricIndex: number = 0): string => {
                     const results = metricResults?.[metricIndex]
-
-                    if (results?.significance_code === ExperimentSignificanceCode.HighLoss) {
-                        return `This is because the expected loss in conversion is greater than 1% (current value is ${(
-                            (results as CachedExperimentFunnelsQueryResponse)?.expected_loss || 0
-                        )?.toFixed(2)}%).`
-                    }
-
-                    if (results?.significance_code === ExperimentSignificanceCode.HighPValue) {
-                        return `This is because the p value is greater than 0.05 (current value is ${
-                            (results as CachedExperimentTrendsQueryResponse)?.p_value?.toFixed(3) || 1
-                        }).`
-                    }
-
-                    if (results?.significance_code === ExperimentSignificanceCode.LowWinProbability) {
-                        if (experimentStatsVersion === 2) {
-                            return 'This is because no variant (control or test) has a win probability higher than 90%.'
-                        }
-                        return 'This is because the win probability of all test variants combined is less than 90%.'
-                    }
-
-                    if (results?.significance_code === ExperimentSignificanceCode.NotEnoughExposure) {
-                        return 'This is because we need at least 100 people per variant to declare significance.'
-                    }
-
-                    return ''
+                    return getSignificanceDetails(results, experimentStatsVersion, metricIndex)
                 },
         ],
         recommendedSampleSize: [
@@ -1716,181 +1695,33 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         recommendedExposureForCountData: [
             (s) => [s.minimumDetectableEffect],
-            (mde) =>
-                (baseCountData: number): number => {
-                    // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                    if (!mde) {
-                        return 0
-                    }
-
-                    const minCountData = (baseCountData * mde) / 100
-                    const lambda1 = baseCountData
-                    const lambda2 = minCountData + baseCountData
-
-                    // This is exposure in units of days
-                    return parseFloat(
-                        (
-                            4 /
-                            Math.pow(
-                                Math.sqrt(lambda1 / EXPERIMENT_DEFAULT_DURATION) -
-                                    Math.sqrt(lambda2 / EXPERIMENT_DEFAULT_DURATION),
-                                2
-                            )
-                        ).toFixed(1)
-                    )
-                },
+            (mde) => recommendedExposureForCountData(mde),
         ],
         expectedRunningTime: [
             () => [],
-            () =>
-                (entrants: number, sampleSize: number, duration: number = EXPERIMENT_DEFAULT_DURATION): number => {
-                    // recommended people / (actual people / day) = expected days
-                    return parseFloat((sampleSize / (entrants / duration)).toFixed(1))
-                },
+            () => expectedRunningTime,
         ],
         conversionRateForVariant: [
             () => [],
-            () =>
-                (
-                    metricResult:
-                        | CachedExperimentQueryResponse
-                        | CachedExperimentFunnelsQueryResponse
-                        | CachedExperimentTrendsQueryResponse
-                        | null,
-                    variantKey: string
-                ): number | null => {
-                    if (!metricResult) {
-                        return null
-                    }
-
-                    if (
-                        metricResult.kind === NodeKind.ExperimentQuery &&
-                        metricResult.metric.metric_type === ExperimentMetricType.FUNNEL
-                    ) {
-                        const variants = metricResult.variants as FunnelExperimentVariant[]
-                        const variantResults = variants.find((variant) => variant.key === variantKey)
-
-                        if (!variantResults) {
-                            return null
-                        }
-                        return (
-                            (variantResults.success_count /
-                                (variantResults.success_count + variantResults.failure_count)) *
-                            100
-                        )
-                    } else if (metricResult.kind === NodeKind.ExperimentFunnelsQuery && metricResult.insight) {
-                        const variantResults = (metricResult.insight as FunnelStep[][]).find(
-                            (variantFunnel: FunnelStep[]) => {
-                                const breakdownValue = variantFunnel[0]?.breakdown_value
-                                return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
-                            }
-                        )
-
-                        if (!variantResults) {
-                            return null
-                        }
-
-                        return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
-                    }
-
-                    return null
-                },
+            () => conversionRateForVariant,
         ],
         credibleIntervalForVariant: [
             () => [],
-            () =>
-                (
-                    metricResult:
-                        | CachedExperimentQueryResponse
-                        | CachedExperimentFunnelsQueryResponse
-                        | CachedExperimentTrendsQueryResponse
-                        | null,
-                    variantKey: string,
-                    metricType: InsightType
-                ): [number, number] | null => {
-                    const credibleInterval = metricResult?.credible_intervals?.[variantKey]
-                    if (!credibleInterval) {
-                        return null
-                    }
-
-                    if (metricType === InsightType.FUNNELS) {
-                        const controlVariant = (metricResult.variants as FunnelExperimentVariant[]).find(
-                            ({ key }) => key === 'control'
-                        ) as FunnelExperimentVariant
-                        const controlConversionRate =
-                            controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
-
-                        if (!controlConversionRate) {
-                            return null
-                        }
-
-                        // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
-                        // This represents the range in which the true percentage change relative to the control is likely to fall.
-                        const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
-                        const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
-                        return [lowerBound, upperBound]
-                    }
-
-                    const controlVariant = (metricResult.variants as TrendExperimentVariant[]).find(
-                        ({ key }) => key === 'control'
-                    ) as TrendExperimentVariant
-
-                    const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                    if (!controlMean) {
-                        return null
-                    }
-
-                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
-                    // This represents the range in which the true percentage change relative to the control is likely to fall.
-                    const relativeLowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
-                    const relativeUpperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
-                    return [relativeLowerBound, relativeUpperBound]
-                },
+            () => credibleIntervalForVariant,
         ],
         getIndexForVariant: [
-            (s) => [s.getInsightType, s.firstPrimaryMetric],
-            (getInsightType, firstPrimaryMetric) =>
+            (s) => [s.getInsightType],
+            (getInsightType) =>
                 (
                     metricResult:
                         | CachedExperimentQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | null,
-                    variant: string
+                    variant: string,
+                    metricType: InsightType
                 ): number | null => {
-                    // Ensures we get the right index from results, so the UI can
-                    // display the right colour for the variant
-                    if (!metricResult || !metricResult.insight) {
-                        return null
-                    }
-
-                    let index = -1
-                    if (getInsightType(firstPrimaryMetric) === InsightType.FUNNELS) {
-                        // Funnel Insight is displayed in order of decreasing count
-                        index = (Array.isArray(metricResult.insight) ? [...metricResult.insight] : [])
-                            .sort((a, b) => {
-                                const aCount = (a && Array.isArray(a) && a[0]?.count) || 0
-                                const bCount = (b && Array.isArray(b) && b[0]?.count) || 0
-                                return bCount - aCount
-                            })
-                            .findIndex((variantFunnel) => {
-                                if (!Array.isArray(variantFunnel) || !variantFunnel[0]?.breakdown_value) {
-                                    return false
-                                }
-                                const breakdownValue = variantFunnel[0].breakdown_value
-                                return Array.isArray(breakdownValue) && breakdownValue[0] === variant
-                            })
-                    } else {
-                        index = (metricResult.insight as TrendResult[]).findIndex(
-                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
-                        )
-                    }
-                    const result = index === -1 ? null : index
-
-                    if (result !== null && getInsightType(firstPrimaryMetric) === InsightType.FUNNELS) {
-                        return result + 1
-                    }
-                    return result
+                    return getIndexForVariant(metricResult, variant, metricType)
                 },
         ],
         countDataForVariant: [
@@ -1905,111 +1736,17 @@ export const experimentLogic = kea<experimentLogicType>([
                     variant: string,
                     type: 'primary' | 'secondary' = 'primary'
                 ): number | null => {
-                    if (!metricResult) {
-                        return null
-                    }
-
-                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
-                        const variantResults = (
-                            metricResult.variants as Array<{ key: string } & Record<string, any>>
-                        ).find((variantData) => variantData.key === variant)
-                        // NOTE: Unfortunately, there does not seem to be a better way at the moment to figure out which type it is.
-                        // Something we can improve later when we replace the ExperimentVariantTrendsBaseStats with a new type / interface.
-                        if (variantResults && 'success_count' in variantResults) {
-                            return variantResults.success_count + variantResults.failure_count
-                        } else if (variantResults && 'count' in variantResults) {
-                            return variantResults.count
-                        }
-                        return null
-                    }
-
-                    const usingMathAggregationType = type === 'primary' ? experimentMathAggregationForTrends() : false
-                    if (!metricResult.insight) {
-                        return null
-                    }
-                    const variantResults = (metricResult.insight as TrendResult[]).find(
-                        (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
-                    )
-                    if (!variantResults) {
-                        return null
-                    }
-
-                    let result = variantResults.count
-
-                    if (usingMathAggregationType) {
-                        // TODO: Aggregate end result appropriately for nth percentile
-                        if (
-                            [
-                                CountPerActorMathType.Average,
-                                CountPerActorMathType.Median,
-                                PropertyMathType.Average,
-                                PropertyMathType.Median,
-                            ].includes(usingMathAggregationType)
-                        ) {
-                            result = variantResults.count / variantResults.data.length
-                        } else if (
-                            [CountPerActorMathType.Maximum, PropertyMathType.Maximum].includes(usingMathAggregationType)
-                        ) {
-                            result = Math.max(...variantResults.data)
-                        } else if (
-                            [CountPerActorMathType.Minimum, PropertyMathType.Minimum].includes(usingMathAggregationType)
-                        ) {
-                            result = Math.min(...variantResults.data)
-                        }
-                    }
-
-                    return result
+                    const mathAggregation = type === 'primary' ? experimentMathAggregationForTrends() : undefined
+                    return countDataForVariant(metricResult, variant, type, mathAggregation)
                 },
         ],
         exposureCountDataForVariant: [
             () => [],
-            () =>
-                (
-                    metricResult:
-                        | CachedExperimentQueryResponse
-                        | CachedExperimentTrendsQueryResponse
-                        | CachedExperimentFunnelsQueryResponse
-                        | null,
-                    variant: string
-                ): number | null => {
-                    if (!metricResult || !metricResult.variants) {
-                        return null
-                    }
-
-                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
-                        const variantResults = (
-                            metricResult.variants as Array<{ key: string; exposure?: number }>
-                        ).find((variantData) => variantData.key === variant)
-                        return variantResults?.exposure ?? null
-                    }
-
-                    const variantResults = (metricResult.variants as TrendExperimentVariant[]).find(
-                        (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
-                    )
-                    if (!variantResults || !variantResults.absolute_exposure) {
-                        return null
-                    }
-
-                    return variantResults.absolute_exposure
-                },
+            () => exposureCountDataForVariant,
         ],
         getHighestProbabilityVariant: [
             () => [],
-            () =>
-                (
-                    results:
-                        | CachedExperimentQueryResponse
-                        | CachedExperimentTrendsQueryResponse
-                        | CachedExperimentFunnelsQueryResponse
-                        | null
-                ) => {
-                    if (results && results.probability) {
-                        const maxValue = Math.max(...Object.values(results.probability))
-                        return Object.keys(results.probability).find(
-                            (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
-                        )
-                    }
-                },
+            () => getHighestProbabilityVariant,
         ],
         tabularExperimentResults: [
             (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getInsightType],

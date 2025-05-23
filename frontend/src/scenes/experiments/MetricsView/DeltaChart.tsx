@@ -9,6 +9,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
+import { calculateDelta } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
 import { ChartEmptyState } from './ChartEmptyState'
@@ -160,7 +161,8 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const interval = credibleIntervalForVariant(result, variant.key, metricType)
     const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-    let delta: number
+    const deltaResult = calculateDelta(result, variant.key, metricType)
+    const delta = deltaResult?.delta || 0
     let hasEnoughData: boolean
 
     if (metricType === InsightType.TRENDS) {
@@ -173,18 +175,11 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             !controlVariant?.count ||
             !controlVariant?.absolute_exposure
         ) {
-            delta = 0
             hasEnoughData = false
         } else {
-            const controlMean = controlVariant.count / controlVariant.absolute_exposure
-            const variantMean = variantData.count / variantData.absolute_exposure
-            delta = (variantMean - controlMean) / controlMean
             hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
         }
     } else {
-        const variantRate = conversionRateForVariant(result, variant.key)
-        const controlRate = conversionRateForVariant(result, 'control')
-        delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
         const variantData = result.variants.find((v: any) => v.key === variant.key)
         if (!variantData) {
             hasEnoughData = false
