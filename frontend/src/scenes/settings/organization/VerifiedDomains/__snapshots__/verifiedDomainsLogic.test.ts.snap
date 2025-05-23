@@ -159,7 +159,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               "goal": 100000000,
               "name": "2045 Q4",
             },
-          ]
+          ],
         },
         "secret_api_token": "phs_default-team-secret-api-token",
         "secret_api_token_backup": "phs_default-team-secret-api-token-backup",
