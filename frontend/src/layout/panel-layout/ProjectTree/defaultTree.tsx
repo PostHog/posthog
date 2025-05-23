@@ -1,7 +1,9 @@
 import {
     IconAI,
     IconApp,
+    IconApps,
     IconBook,
+    IconBug,
     IconChevronRight,
     IconDatabase,
     IconHandMoney,
@@ -40,6 +42,9 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string
         icon: <IconDatabase />,
         iconColor: ['var(--product-data-warehouse-primary)', 'var(--product-data-warehouse-primary)'],
     },
+    definitions: {
+        icon: <IconApps />,
+    },
     folder: {
         icon: <IconChevronRight />,
     },
@@ -72,6 +77,9 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string
     },
     warning: {
         icon: <IconWarning />,
+    },
+    bug: {
+        icon: <IconBug />,
         iconColor: ['var(--product-error-tracking-primary)', 'var(--product-error-tracking-primary)'],
     },
 }
@@ -179,12 +187,12 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
     ...getTreeItemsDataManagement(),
     {
         path: 'Event definitions',
-        iconType: 'database',
+        iconType: 'definitions',
         href: urls.eventDefinitions(),
     },
     {
         path: 'Property definitions',
-        iconType: 'database',
+        iconType: 'definitions',
         href: urls.propertyDefinitions(),
     },
     {
@@ -227,7 +235,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         },
         {
             path: 'Error tracking',
-            iconType: 'warning',
+            iconType: 'bug',
             href: urls.errorTracking(),
         },
         {
