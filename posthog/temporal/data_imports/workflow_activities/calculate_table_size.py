@@ -23,9 +23,9 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
 
     logger.debug("Calculating table size in S3")
 
-    schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
-
-    if not schema:
+    try:
+        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
+    except ExternalDataSchema.DoesNotExist:
         logger.debug("Schema doesnt exist, exiting early")
         return
 
