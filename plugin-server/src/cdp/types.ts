@@ -287,16 +287,7 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType =
-    | 'destination'
-    | 'transformation'
-    | 'internal_destination'
-    | 'email'
-    | 'sms'
-    | 'push'
-    | 'activity'
-    | 'alert'
-    | 'broadcast'
+export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'broadcast'
 
 export type HogFunctionKind = 'messaging_campaign'
 
