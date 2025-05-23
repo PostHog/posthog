@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -414,7 +414,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
 
 class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+    scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
         "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
