@@ -8,7 +8,7 @@ from django.conf import settings
 from anthropic.types import MessageParam
 import logging
 
-from products.editor.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+from products.llm_observability.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from openai.types.chat import (
 import logging
 from typing import Any
 
-from products.editor.backend.providers.formatters.openai_formatter import convert_to_openai_messages
+from products.llm_observability.providers.formatters.openai_formatter import convert_to_openai_messages
 
 logger = logging.getLogger(__name__)
 

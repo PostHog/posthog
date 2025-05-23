@@ -321,15 +321,15 @@ class AISustainedRateThrottle(UserRateThrottle):
     rate = "40/day"
 
 
-class EditorProxyBurstRateThrottle(UserRateThrottle):
-    scope = "editor_proxy_burst"
+class LLMProxyBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_burst"
     rate = "30/minute"
 
 
-class EditorProxySustainedRateThrottle(UserRateThrottle):
+class LLMProxySustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "editor_proxy_sustained"
+    scope = "llm_proxy_sustained"
     rate = "500/hour"
 
 
@@ -392,3 +392,8 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
+
+
+# Backwards compatibility aliases
+EditorProxyBurstRateThrottle = LLMProxyBurstRateThrottle
+EditorProxySustainedRateThrottle = LLMProxySustainedRateThrottle

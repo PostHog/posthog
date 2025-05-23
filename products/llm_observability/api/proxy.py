@@ -1,5 +1,5 @@
 """
-ViewSet for Editor Proxy
+ViewSet for LLM Observability Proxy
 
 Endpoints:
 - GET /api/llm_proxy/models
@@ -17,13 +17,13 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from django.http import StreamingHttpResponse
 from rest_framework.response import Response
-from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
+from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
-from products.editor.backend.providers.anthropic import AnthropicProvider, AnthropicConfig
-from products.editor.backend.providers.openai import OpenAIProvider, OpenAIConfig
-from products.editor.backend.providers.codestral import CodestralProvider, CodestralConfig
-from products.editor.backend.providers.inkeep import InkeepProvider, InkeepConfig
-from products.editor.backend.providers.gemini import GeminiProvider, GeminiConfig
+from products.llm_observability.providers.anthropic import AnthropicProvider, AnthropicConfig
+from products.llm_observability.providers.openai import OpenAIProvider, OpenAIConfig
+from products.llm_observability.providers.codestral import CodestralProvider, CodestralConfig
+from products.llm_observability.providers.inkeep import InkeepProvider, InkeepConfig
+from products.llm_observability.providers.gemini import GeminiProvider, GeminiConfig
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from collections.abc import Generator, Callable
@@ -64,8 +64,8 @@ class ProviderData(TypedDict):
 
 class LLMProxyViewSet(viewsets.ViewSet):
     """
-    ViewSet for Editor Proxy
-    Proxies LLM calls from the editor
+    ViewSet for LLM Observability Proxy
+    Proxies LLM calls from the llm observability playground
     """
 
     authentication_classes = [SessionAuthentication]
@@ -73,16 +73,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
-        return [EditorProxyBurstRateThrottle(), EditorProxySustainedRateThrottle()]
+        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle()]
 
     def validate_feature_flag(self, request):
-        result_session = SessionAuthentication().authenticate(request)
-        if result_session is not None:
-            user, _ = result_session
-        else:
+        if not request.user or not request.user.is_authenticated:
             return False
+
         llm_observability_enabled = posthoganalytics.feature_enabled(
-            "llm-observability-playground", user.email, person_properties={"email": user.email}
+            "llm-observability-playground", request.user.email, person_properties={"email": request.user.email}
         )
         return llm_observability_enabled
 
@@ -211,10 +209,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Return a list of available models across providers"""
         model_list: list[dict[str, str]] = []
         model_list += [
-            {"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS
+            {"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS
         ]
         model_list += [
-            {"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS
+            {"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS
         ]
         model_list += [
             {"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS
