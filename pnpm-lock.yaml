@@ -1300,6 +1300,9 @@ importers:
       '@posthog/plugin-scaffold':
         specifier: 1.4.4
         version: 1.4.4
+      '@posthog/shared-types':
+        specifier: workspace:*
+        version: link:../common/shared-types
       '@posthog/siphash':
         specifier: 1.1.1
         version: 1.1.1

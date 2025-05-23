@@ -54,6 +54,7 @@
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "workspace:*",
         "@posthog/hogvm": "workspace:*",
+        "@posthog/shared-types": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@segment/action-destinations": "^3.383.0",
