@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0736_externaldatajob_finished_at"),
+        ("posthog", "0737_experiment_deleted"),
     ]
 
     operations = [
