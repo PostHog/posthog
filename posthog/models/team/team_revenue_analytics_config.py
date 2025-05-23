@@ -57,7 +57,7 @@ class TeamRevenueAnalyticsConfig(models.Model):
             )
             self._goals = dumped_value
         except Exception as e:
-            raise ValidationError(f"Invalid quarter goals schema: {str(e)}")
+            raise ValidationError(f"Invalid goals schema: {str(e)}")
 
 
 # This is best effort, we always attempt to create the config manually
