@@ -27,6 +27,7 @@ export const manifest: ProductManifest = {
         session_recording_playlist: {
             icon: <IconRewindPlay />,
             href: (ref: string) => urls.replayPlaylist(ref),
+            iconColor: ['var(--product-session-replay-primary)', 'var(--product-session-replay-primary)'],
         },
     },
     treeItemsNew: [

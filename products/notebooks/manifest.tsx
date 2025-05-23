@@ -14,6 +14,7 @@ export const manifest: ProductManifest = {
         notebook: {
             icon: <IconNotebook />,
             href: (ref: string) => urls.notebook(ref),
+            iconColor: ['var(--product-notebooks-primary)', 'var(--product-notebooks-primary)'],
         },
     },
     treeItemsNew: [

@@ -325,18 +325,58 @@ export const productUrls = {
 export const fileSystemTypes = {
     action: { icon: <IconRocket />, href: (ref: string) => urls.action(ref) },
     cohort: { icon: <IconPeople />, href: (ref: string) => urls.cohort(ref) },
-    dashboard: { icon: <IconDashboard />, href: (ref: string) => urls.dashboard(ref) },
-    early_access_feature: { icon: <IconRocket />, href: (ref: string) => urls.earlyAccessFeature(ref) },
-    experiment: { icon: <IconTestTube />, href: (ref: string) => urls.experiment(ref) },
-    feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
+    dashboard: {
+        icon: <IconDashboard />,
+        href: (ref: string) => urls.dashboard(ref),
+        iconColor: ['var(--product-dashboards-primary)', 'var(--product-dashboards-primary)'],
+    },
+    early_access_feature: {
+        icon: <IconRocket />,
+        href: (ref: string) => urls.earlyAccessFeature(ref),
+        iconColor: ['var(--product-early-access-features-primary)', 'var(--product-early-access-features-primary)'],
+    },
+    experiment: {
+        icon: <IconTestTube />,
+        href: (ref: string) => urls.experiment(ref),
+        iconColor: ['var(--product-experiments-primary)', 'var(--product-experiments-primary)'],
+    },
+    feature_flag: {
+        icon: <IconToggle />,
+        href: (ref: string) => urls.featureFlag(ref),
+        iconColor: ['var(--product-feature-flags-primary)', 'var(--product-feature-flags-primary)'],
+    },
     'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
     'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
-    insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
-    link: { icon: <IconExternal />, href: (ref: string) => urls.link(ref) },
-    notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
-    session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
-    survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
-    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
+    insight: {
+        icon: <IconGraph />,
+        href: (ref: string) => urls.insightView(ref as InsightShortId),
+        iconColor: ['var(--product-product-analytics-primary)', 'var(--product-product-analytics-primary)'],
+    },
+    link: {
+        icon: <IconExternal />,
+        href: (ref: string) => urls.link(ref),
+        iconColor: ['var(--product-links-primary)', 'var(--product-links-primary)'],
+    },
+    notebook: {
+        icon: <IconNotebook />,
+        href: (ref: string) => urls.notebook(ref),
+        iconColor: ['var(--product-notebooks-primary)', 'var(--product-notebooks-primary)'],
+    },
+    session_recording_playlist: {
+        icon: <IconRewindPlay />,
+        href: (ref: string) => urls.replayPlaylist(ref),
+        iconColor: ['var(--product-session-replay-primary)', 'var(--product-session-replay-primary)'],
+    },
+    survey: {
+        icon: <IconMessage />,
+        href: (ref: string) => urls.survey(ref),
+        iconColor: ['var(--product-surveys-primary)', 'var(--product-surveys-primary)'],
+    },
+    user_interview: {
+        icon: <IconChat />,
+        href: (ref: string) => urls.userInterview(ref),
+        iconColor: ['var(--product-user-interviews-primary)', 'var(--product-user-interviews-primary)'],
+    },
 }
 
 /** This const is auto-generated, as is the whole file */

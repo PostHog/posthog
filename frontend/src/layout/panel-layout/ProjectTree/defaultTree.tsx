@@ -14,6 +14,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
+import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
@@ -26,35 +27,125 @@ import {
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
-const iconTypes: Record<string, JSX.Element> = {
-    ai: <IconAI />,
-    cursorClick: <IconCursorClick />,
-    database: <IconDatabase />,
-    folder: <IconChevronRight />,
-    handMoney: <IconHandMoney />,
-    live: <IconLive />,
-    notification: <IconNotification />,
-    pieChart: <IconPieChart />,
-    piggyBank: <IconPiggyBank />,
-    plug: <IconPlug />,
-    sql: <IconServer />,
-    warning: <IconWarning />,
+const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string] }> = {
+    ai: {
+        icon: <IconAI />,
+        iconColor: ['var(--product-max-ai-primary)', 'var(--product-max-ai-primary)'],
+    },
+    cursorClick: {
+        icon: <IconCursorClick />,
+    },
+    database: {
+        icon: <IconDatabase />,
+        iconColor: ['var(--product-data-warehouse-primary)', 'var(--product-data-warehouse-primary)'],
+    },
+    folder: {
+        icon: <IconChevronRight />,
+    },
+    handMoney: {
+        icon: <IconHandMoney />,
+    },
+    live: {
+        icon: <IconLive />,
+    },
+    notification: {
+        icon: <IconNotification />,
+        iconColor: ['var(--product-notification-primary)', 'var(--product-notification-primary)'],
+    },
+    pieChart: {
+        icon: <IconPieChart />,
+        iconColor: ['var(--product-web-analytics-primary)', 'var(--product-web-analytics-primary)'],
+    },
+    piggyBank: {
+        icon: <IconPiggyBank />,
+        iconColor: ['var(--product-revenue-analytics-primary)', 'var(--product-revenue-analytics-primary)'],
+    },
+    plug: {
+        icon: <IconPlug />,
+        iconColor: ['var(--product-data-pipeline-primary)', 'var(--product-data-pipeline-primary)'],
+    },
+    sql: {
+        icon: <IconServer />,
+        iconColor: ['var(--product-data-warehouse-primary)', 'var(--product-data-warehouse-primary)'],
+    },
+    warning: {
+        icon: <IconWarning />,
+        iconColor: ['var(--product-error-tracking-primary)', 'var(--product-error-tracking-primary)'],
+    },
+}
+
+const getIconColor = (type?: string): [string, string] => {
+    const colorValue = (fileSystemTypes as unknown as Record<string, { iconColor?: string[] }>)[
+        type as keyof typeof fileSystemTypes
+    ]?.iconColor
+
+    if (type && type in iconTypes) {
+        return iconTypes[type].iconColor || ['currentColor', 'currentColor']
+    }
+
+    if (!colorValue) {
+        return ['currentColor', 'currentColor']
+    }
+
+    // If no dark color, use light color
+    if (colorValue.length === 1) {
+        return [colorValue[0], colorValue[0]]
+    }
+
+    return [colorValue[0], colorValue[1]]
+}
+
+const ProductIconWrapper = ({ type, children }: { type?: string; children: React.ReactNode }): JSX.Element => {
+    const [lightColor, darkColor] = getIconColor(type)
+
+    // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
+    return (
+        <span
+            className="group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={
+                { '--product-icon-color-light': lightColor, '--product-icon-color-dark': darkColor } as CSSProperties
+            }
+        >
+            {children}
+        </span>
+    )
 }
 
 export function iconForType(type?: string): JSX.Element {
     if (!type) {
-        return <IconBook />
+        return (
+            <ProductIconWrapper type={type}>
+                <IconBook />
+            </ProductIconWrapper>
+        )
     }
+
+    // Then check fileSystemTypes
+    if (type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes]?.icon) {
+        const IconElement = fileSystemTypes[type as keyof typeof fileSystemTypes].icon
+        return <ProductIconWrapper type={type}>{IconElement}</ProductIconWrapper>
+    }
+
     if (type in iconTypes) {
-        return iconTypes[type]
+        return <ProductIconWrapper type={type}>{iconTypes[type].icon}</ProductIconWrapper>
     }
-    if (type in fileSystemTypes && fileSystemTypes[type].icon) {
-        return fileSystemTypes[type].icon
-    }
+
+    // Handle hog_function types
     if (type.startsWith('hog_function/')) {
-        return <IconPlug />
+        return (
+            <ProductIconWrapper type="plug">
+                <IconPlug />
+            </ProductIconWrapper>
+        )
     }
-    return <IconBook />
+
+    // Default
+    return (
+        <ProductIconWrapper type={type}>
+            <IconBook />
+        </ProductIconWrapper>
+    )
 }
 
 export const getDefaultTreeNew = (): FileSystemImport[] =>
