@@ -51,7 +51,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
 
-    def _bounce_rate_query(self) -> str:
+    def _bounce_rate_query(self, include_filters: bool = False) -> str:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
@@ -90,7 +90,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 sumMergeIf(p.pageviews_count_state, {current_period_filter}),
                 sumMergeIf(p.pageviews_count_state, {previous_period_filter})
             ) as `context.columns.views`,
-            avg(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
+            any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`,
         FROM
             web_paths_daily p
         LEFT JOIN ({self._bounce_rate_query()}) bounces
