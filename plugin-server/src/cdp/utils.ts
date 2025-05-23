@@ -12,6 +12,7 @@ import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager
 import { CdpInternalEvent } from './schema'
 import {
     CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
@@ -325,11 +326,15 @@ export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
     hogFunction: HogFunctionType
-): HogFunctionInvocation {
+): CyclotronJobInvocationHogFunction {
     return {
         id: new UUIDT().toString(),
-        globals,
+        state: {
+            globals,
+            timings: [],
+        },
         teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
         hogFunction,
         queue: isLegacyPluginHogFunction(hogFunction)
             ? 'plugin'
@@ -337,7 +342,6 @@ export function createInvocation(
             ? 'segment'
             : 'hog',
         queuePriority: 1,
-        timings: [],
     }
 }
 

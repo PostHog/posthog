@@ -146,49 +146,6 @@ export class CyclotronJobQueueKafka {
             invocations.push(invocation)
         }
 
-        // const hogFunctionIds = new Set<string>()
-
-        // messages.forEach((message) => {
-        //     const headers = parseKafkaHeaders(message.headers ?? [])
-        //     const hogFunctionId = headers['hogFunctionId']
-        //     if (hogFunctionId) {
-        //         hogFunctionIds.add(hogFunctionId)
-        //     }
-        // })
-
-        // const hogFunctions = await this.hogFunctionManager.getHogFunctions(Array.from(hogFunctionIds))
-
-        // // Parse all the messages into invocations
-        // for (const message of messages) {
-        //     const rawValue = message.value
-        //     if (!rawValue) {
-        //         throw new Error('Bad message: ' + JSON.stringify(message))
-        //     }
-
-        //     // Try to decompress, otherwise just use the value as is
-        //     const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
-        //     const invocationSerialized: HogFunctionInvocationSerialized = parseJSON(decompressedValue.toString())
-
-        //     // NOTE: We might crash out here and thats fine as it would indicate that the schema changed
-        //     // which we have full control over so shouldn't be possible
-        //     const hogFunction = hogFunctions[invocationSerialized.hogFunctionId]
-
-        //     if (!hogFunction) {
-        //         logger.error('⚠️', 'Error finding hog function', {
-        //             id: invocationSerialized.hogFunctionId,
-        //         })
-        //         continue
-        //     }
-
-        //     const invocation: HogFunctionInvocation = {
-        //         ...invocationSerialized,
-        //         hogFunction,
-        //         queueSource: 'kafka', // NOTE: We always set this here, as we know it came from kafka
-        //     }
-
-        //     invocations.push(invocation)
-        // }
-
         return await this.consumeBatch(invocations)
     }
 }

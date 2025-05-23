@@ -14,7 +14,6 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionQueueParametersFetchRequest,
@@ -58,7 +57,7 @@ export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     })
 }
 
-export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals'], key?: string): any => {
+export const formatInput = (bytecode: any, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
@@ -148,13 +147,13 @@ export class HogExecutorService {
         hogFunctions: HogFunctionType[],
         triggerGlobals: HogFunctionInvocationGlobals
     ): {
-        invocations: HogFunctionInvocation[]
+        invocations: CyclotronJobInvocationHogFunction[]
         metrics: MinimalAppMetric[]
         logs: LogEntry[]
     } {
         const metrics: MinimalAppMetric[] = []
         const logs: LogEntry[] = []
-        const invocations: HogFunctionInvocation[] = []
+        const invocations: CyclotronJobInvocationHogFunction[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -182,7 +181,7 @@ export class HogExecutorService {
         const _buildInvocation = (
             hogFunction: HogFunctionType,
             inputs: HogFunctionType['inputs']
-        ): HogFunctionInvocation | null => {
+        ): CyclotronJobInvocationHogFunction | null => {
             try {
                 const globalsWithSource = {
                     ...triggerGlobals,

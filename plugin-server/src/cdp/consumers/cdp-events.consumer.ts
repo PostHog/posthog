@@ -99,8 +99,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
                     this.hogFunctionMonitoringService.produceAppMetric({
-                        team_id: item.globals.project.id,
-                        app_source_id: item.hogFunction.id,
+                        team_id: item.teamId,
+                        app_source_id: item.functionId,
                         metric_kind: 'failure',
                         metric_name:
                             state === HogWatcherState.disabledForPeriod
@@ -123,8 +123,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             this.hogFunctionMonitoringService.produceAppMetrics(
                 masked.map((item) => ({
-                    team_id: item.globals.project.id,
-                    app_source_id: item.hogFunction.id,
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
                     metric_kind: 'other',
                     metric_name: 'masked',
                     count: 1,
