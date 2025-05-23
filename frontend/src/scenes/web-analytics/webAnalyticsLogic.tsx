@@ -61,6 +61,8 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     RetentionPeriod,
+    TeamPublicType,
+    TeamType,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -169,6 +171,22 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
 }
+
+// To enable a tile here, you must update the QueryRunner to support it
+// or make sure it can load in a decent time (which event-only tiles usually do).
+// We filter them here to enable a faster experience for the user as the
+// the tiles that don't support pre-aggregated tables take a longer time to load
+// and will effectively block other queries to load because of the concurrencyController
+export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
+    TileId.OVERVIEW,
+    TileId.PATHS,
+    TileId.SOURCES,
+    TileId.DEVICES,
+
+    // Not 100% supported yet but we fast enought that we can show them
+    TileId.GRAPHS,
+    TileId.GEOGRAPHY,
+]
 
 export interface BaseTile {
     tileId: TileId
@@ -720,6 +738,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        preAggregatedEnabled: [
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                return (
+                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.productTab],
             (productTab: ProductTab): Breadcrumb[] => {
@@ -896,6 +923,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.isGreaterThanMd,
                 () => values.currentTeam,
                 () => values.tileVisualizations,
+                () => values.preAggregatedEnabled,
             ],
             (
                 productTab,
@@ -914,7 +942,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 featureFlags,
                 isGreaterThanMd,
                 currentTeam,
-                tileVisualizations
+                tileVisualizations,
+                preAggregatedEnabled
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -2108,7 +2137,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                 ]
-                return allTiles.filter(isNotNil)
+                return allTiles
+                    .filter(isNotNil)
+                    .filter((tile) =>
+                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                    )
             },
         ],
 
