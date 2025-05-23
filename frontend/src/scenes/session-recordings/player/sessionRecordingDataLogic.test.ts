@@ -299,7 +299,7 @@ describe('sessionRecordingDataLogic', () => {
         const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
             return processAllSnapshots(
                 sources,
-                { 'blob-1': { source: SnapshotSourceType.blob_v2, snapshots } },
+                { 'blob-1': { source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' }, snapshots } },
                 fakeViewportForTimestamp,
                 '12345'
             )
