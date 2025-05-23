@@ -15,7 +15,7 @@ const meta: Meta = {
 }
 export default meta
 
-export function RevenueEventsSettings(): JSX.Element {
+export function RevenueAnalyticsSettings(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.revenueSettings())
     }, [])

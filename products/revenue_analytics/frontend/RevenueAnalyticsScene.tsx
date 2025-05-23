@@ -17,7 +17,7 @@ import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
-import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
 import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
@@ -35,7 +35,7 @@ const PRODUCT_THING_NAME = 'revenue'
 
 export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { dataWarehouseSources } = useValues(revenueEventsSettingsLogic)
+    const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 

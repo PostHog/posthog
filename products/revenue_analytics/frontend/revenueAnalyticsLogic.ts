@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getDefaultInterval } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -17,7 +18,7 @@ import {
 import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
-import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
@@ -76,7 +77,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         values: [
             databaseTableListLogic,
             ['managedViews'],
-            revenueEventsSettingsLogic,
+            revenueAnalyticsSettingsLogic,
             ['baseCurrency', 'events', 'dataWarehouseSources'],
         ],
         actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
@@ -297,6 +298,27 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
+    actionToUrl(() => ({
+        setDates: ({ dateFrom, dateTo }): string => {
+            const searchParams = { ...router.values.searchParams }
+            const urlParams = new URLSearchParams(searchParams)
+
+            urlParams.set('date_from', dateFrom ?? '')
+            urlParams.set('date_to', dateTo ?? '')
+
+            return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.revenueAnalytics()]: (_, { date_from, date_to }) => {
+            if (
+                (date_from && date_from !== values.dateFilter.dateFrom) ||
+                (date_to && date_to !== values.dateFilter.dateTo)
+            ) {
+                actions.setDates(date_from, date_to)
+            }
+        },
+    })),
     listeners(({ actions, values }) => ({
         loadSourcesSuccess: ({ dataWarehouseSources }) => {
             actions.setRevenueSources({
