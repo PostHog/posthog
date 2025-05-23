@@ -612,7 +612,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
-        recording: SessionRecording = self.get_object()
+        timer = ServerTimingsGathered()
+
+        with timer("get_recording"):
+            recording: SessionRecording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
@@ -656,20 +659,29 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
+        response: Response | HttpResponse
         if not source:
-            return self._gather_session_recording_sources(recording, is_v2_enabled)
+            with timer("gather_session_recording_sources"):
+                response = self._gather_session_recording_sources(recording, is_v2_enabled)
         elif source == "realtime":
-            return self._send_realtime_snapshots_to_client(recording, request, event_properties)
+            with timer("send_realtime_snapshots_to_client"):
+                response = self._send_realtime_snapshots_to_client(recording, request, event_properties)
         elif source == "blob":
-            return self._stream_blob_to_client(recording, request, event_properties)
+            with timer("stream_blob_to_client"):
+                response = self._stream_blob_to_client(recording, request, event_properties)
         elif source == "blob_v2":
             blob_key = request.GET.get("blob_key")
             if blob_key:
-                return self._stream_blob_v2_to_client(recording, request, event_properties)
+                with timer("stream_blob_v2_to_client"):
+                    response = self._stream_blob_v2_to_client(recording, request, event_properties)
             else:
-                return self._gather_session_recording_sources(recording, is_v2_enabled)
+                with timer("gather_session_recording_sources"):
+                    response = self._gather_session_recording_sources(recording, is_v2_enabled)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
+
+        response.headers["Server-Timing"] = timer.to_header_string()
+        return response
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
