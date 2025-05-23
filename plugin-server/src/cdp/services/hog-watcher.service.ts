@@ -53,6 +53,13 @@ type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunct
 // Having it as a celery task ID based on a file path is brittle and hard to test.
 export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
 
+// Check if the result is of type CyclotronJobInvocationHogFunction
+export const isHogFunctionResult = (
+    result: CyclotronJobInvocationResult
+): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+    return 'hogFunction' in result.invocation
+}
+
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
 
@@ -167,9 +174,7 @@ export class HogWatcherService {
         await this.onStateChange(id, state)
     }
 
-    public async observeResults(
-        results: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
-    ): Promise<void> {
+    public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
 
         const costs: Record<HogFunctionType['id'], number> = {}
@@ -177,6 +182,10 @@ export class HogWatcherService {
         const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
 
         results.forEach((result) => {
+            if (!isHogFunctionResult(result)) {
+                return
+            }
+
             let cost = (costs[result.invocation.functionId] = costs[result.invocation.functionId] || 0)
 
             if (result.finished) {
