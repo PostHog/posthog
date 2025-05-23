@@ -27,6 +27,7 @@ import {
 import {
     calculateDelta,
     conversionRateForVariant,
+    countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
     getHighestProbabilityVariant,
@@ -52,7 +53,6 @@ export function SummaryTable({
         tabularExperimentResults,
         getInsightType,
         experimentMathAggregationForTrends,
-        countDataForVariant,
         featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
