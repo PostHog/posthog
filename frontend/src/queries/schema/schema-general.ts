@@ -2046,6 +2046,15 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
 }
 
+export interface PersistedFolder {
+    id: string
+    type: string
+    protocol: string
+    path: string
+    created_at: string
+    updated_at: string
+}
+
 export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery

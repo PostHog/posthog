@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -438,7 +438,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     imports: viableItems,
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     users,
                     disabledReason: onlyFolders
                         ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
@@ -454,7 +454,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     imports: recentResults.results,
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     disableFolderSelect: true,
                     recent: true,
                     users,
@@ -502,7 +502,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     imports: searchResults.results,
                     folderStates,
                     checkedItems,
-                    root: 'project',
+                    root: 'project://',
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
@@ -1175,6 +1175,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }
         if (typeof props.defaultSortMethod !== 'undefined') {
             actions.setSortMethod(props.defaultSortMethod)
+        }
+    }),
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.root !== oldProps.root) {
+            const expandedFolders = values.expandedFolders.filter((f) => f !== oldProps.root)
+            if (props.root) {
+                expandedFolders.push(props.root)
+            }
+            actions.setExpandedFolders(expandedFolders)
+            if (props.root) {
+                actions.loadFolderIfNotLoaded(props.root)
+            }
         }
     }),
 ])
