@@ -1802,8 +1802,8 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-        specifier: '0.14'
-        version: 0.14.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: '0.17'
+        version: 0.17.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -16257,8 +16257,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.266.0:
-    resolution: {integrity: sha512-0o5P60todvhXUM2ubPxnH9GN3gCWYVC4Bkq9U7CxcgK6EE9ggm2OBXYeBrcUltCkfyJjsoqeJ0Tk8TLG2FcHhg==}
+  unlayer-types@1.267.0:
+    resolution: {integrity: sha512-8xavBeo1ASKZqcO3trVpPqIWC78DJ4jw1gSfdloL0cCtb87L3dPmUPJg7ZC0HZJgvESpfHtxfrwmQET4fvt+JQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -20569,11 +20569,6 @@ snapshots:
   '@popperjs/core@2.11.6': {}
 
   '@posthog/clickhouse@1.7.0': {}
-
-  '@posthog/icons@0.14.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
-    dependencies:
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
 
   '@posthog/icons@0.17.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -33089,7 +33084,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.266.0
+      unlayer-types: 1.267.0
 
   react-error-overlay@6.0.9: {}
 
@@ -35244,7 +35239,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.266.0: {}
+  unlayer-types@1.267.0: {}
 
   unpipe@1.0.0: {}
 
