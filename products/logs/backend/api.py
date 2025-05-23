@@ -65,17 +65,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         results = sync_execute(
             """
 SELECT
-    arraySort(arrayDistinct(arrayFlatten(groupArray(JSONDynamicPaths(attributes))))) as flat_unique_paths
-FROM logs
-WHERE (timestamp >= now() - interval 10 minute AND timestamp <= now())
-GROUP BY team_id
-ORDER BY team_id DESC
+    arraySort(groupArrayDistinctArrayMerge(attribute_keys)) as flat_unique_paths
+FROM log_attributes
+WHERE time >= toStartOfHour(now()) AND time <= toStartOfHour(now())
+GROUP BY team_id, service_name, time
 LIMIT 1000;
 """,
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
-
         return Response(results[0][0], status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
