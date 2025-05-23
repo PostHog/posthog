@@ -1733,6 +1733,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxMap": HogQLFunctionMeta("maxMap", 1, 2, aggregate=True),
     "maxMapIf": HogQLFunctionMeta("maxMapIf", 2, 3, aggregate=True),
     "sumMerge": HogQLFunctionMeta("sumMerge", 1, 1, aggregate=True),
+    "sumMergeIf": HogQLFunctionMeta("sumMergeIf", 2, 2, aggregate=True),
     "sumState": HogQLFunctionMeta("sumState", 1, 1, aggregate=True),
     "sumStateIf": HogQLFunctionMeta("sumStateIf", 2, 2, aggregate=True),
     "medianArray": HogQLFunctionMeta("medianArrayOrNull", 1, 1, aggregate=True),
@@ -1757,6 +1758,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
     "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True),
+    "uniqMergeIf": HogQLFunctionMeta("uniqMergeIf", 2, 2, aggregate=True),
     "uniqMap": HogQLFunctionMeta("uniqMap", 1, 1, aggregate=True),
     "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
     "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
@@ -1835,6 +1837,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
+    "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),

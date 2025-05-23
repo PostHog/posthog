@@ -1,6 +1,6 @@
 import {
     IconAI,
-    IconArrowUpRight,
+    IconChat,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -20,7 +20,6 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
-    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -464,21 +463,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                       ]
 
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-                    sectionOne.splice(1, 0, {
-                        identifier: Scene.Max,
-                        label: 'Max',
-                        icon: <IconSparkles />,
-                        onClick: () =>
-                            lemonToast.info(
-                                'Max now lives in the top right corner of the app – he will soon disappear from the navbar',
-                                { icon: <IconArrowUpRight /> }
-                            ),
-                        to: urls.max(),
-                        tag: 'beta' as const,
-                    })
-                }
-
                 return [
                     sectionOne,
                     [
@@ -624,6 +608,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.earlyAccessFeatures(),
                             tooltipDocLink: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
                         },
+                        featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
+                            ? {
+                                  identifier: Scene.UserInterviews,
+                                  label: 'User interviews',
+                                  icon: <IconChat />,
+                                  to: urls.userInterviews(),
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
                                   identifier: 'LLMObservability',
@@ -675,6 +667,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: isUsingSidebar ? undefined : urls.heatmaps(),
                                   tag: 'alpha' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.LINKS]
+                            ? {
+                                  identifier: Scene.Links,
+                                  label: 'Links',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.links(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct

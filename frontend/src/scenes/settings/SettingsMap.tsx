@@ -29,6 +29,7 @@ import {
     WebVitalsAutocaptureSettings,
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -401,6 +402,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 component: <ErrorTrackingAlerting />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        settings: [
+            {
+                id: 'csp-reporting',
+                title: 'CSP reporting',
+                component: <CSPReportingSettings />,
+                flag: 'CSP_REPORTING',
             },
         ],
     },

@@ -32,6 +32,7 @@ export interface LemonTabsProps<T extends string | number> {
     size?: 'small' | 'medium'
     'data-attr'?: string
     barClassName?: string
+    className?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -45,6 +46,7 @@ export function LemonTabs<T extends string | number>({
     tabs,
     barClassName,
     size = 'medium',
+    className,
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
@@ -58,7 +60,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`)}
+            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {

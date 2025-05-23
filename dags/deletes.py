@@ -1,3 +1,4 @@
+import abc
 import pydantic
 import time
 from clickhouse_driver.client import Client
@@ -10,6 +11,7 @@ import uuid
 from django.utils import timezone
 from django.db.models import Q
 
+from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     MutationWaiter,
@@ -68,7 +70,20 @@ ShardMutations = dict[int, MutationWaiter]
 
 
 @dataclass
-class PendingDeletesTable:
+class Table:
+    @property
+    @abc.abstractmethod
+    def table_name(self) -> str:
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def qualified_name(self):
+        raise NotImplementedError()
+
+
+@dataclass
+class PendingDeletesTable(Table):
     """
     Represents a table storing pending deletions.
     """
@@ -118,6 +133,7 @@ class PendingDeletesTable:
             )
             ENGINE = ReplicatedReplacingMergeTree('{self.zk_path}', '{{shard}}-{{replica}}')
             ORDER BY (team_id, deletion_type, key)
+            SETTINGS replicated_can_become_leader = 1
         """
 
     @property
@@ -160,20 +176,24 @@ class PendingDeletesTable:
             VALUES
         """
 
-    def checksum(self, client: Client):
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, deletion_type, key, created_at)
-            """
-        )
-        [[checksum]] = results
-        return checksum
+
+class AdhocEventDeletesTable(Table):
+    @property
+    def table_name(self) -> str:
+        return ADHOC_EVENTS_DELETION_TABLE
+
+    @property
+    def qualified_name(self):
+        return f"{settings.CLICKHOUSE_DATABASE}.{self.table_name}"
+
+    def optimize(self, client: Client) -> None:
+        # This is a pretty small table and has a TTL of 3 months, so we can optimize it.
+        client.execute(f"OPTIMIZE TABLE {self.qualified_name} FINAL")
 
 
 @dataclass
-class PendingDeletesDictionary:
-    source: PendingDeletesTable
+class Dictionary(abc.ABC):
+    source: Table
 
     @property
     def name(self) -> str:
@@ -184,31 +204,13 @@ class PendingDeletesDictionary:
         return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
     @property
+    @abc.abstractmethod
     def query(self) -> str:
-        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})"
+        raise NotImplementedError()
 
+    @abc.abstractmethod
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
-        client.execute(
-            f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
-                team_id Int64,
-                deletion_type UInt8,
-                key String,
-                created_at DateTime,
-            )
-            PRIMARY KEY team_id, deletion_type, key
-            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
-                "query": self.query,
-            },
-        )
+        raise NotImplementedError()
 
     def exists(self, client: Client) -> bool:
         results = client.execute(
@@ -248,10 +250,90 @@ class PendingDeletesDictionary:
         while not self.__is_loaded(client):
             time.sleep(5.0)
 
+        return self.checksum(client)
+
+    @abc.abstractmethod
+    def checksum(self, client: Client) -> int:
+        raise NotImplementedError()
+
+
+@dataclass
+class PendingDeletesDictionary(Dictionary):
+    source: PendingDeletesTable
+
+    @property
+    def query(self) -> str:
+        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})"
+
+    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+        client.execute(
+            f"""
+            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
+                team_id Int64,
+                deletion_type UInt8,
+                key String,
+                created_at DateTime,
+            )
+            PRIMARY KEY team_id, deletion_type, key
+            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
+            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
+            LIFETIME(0)
+            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "user": settings.CLICKHOUSE_USER,
+                "password": settings.CLICKHOUSE_PASSWORD,
+                "query": self.query,
+            },
+        )
+
+    def checksum(self, client: Client) -> int:
         results = client.execute(
             f"""
             SELECT groupBitXor(row_checksum) AS table_checksum
             FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, key)
+            """
+        )
+        [[checksum]] = results
+        return checksum
+
+
+@dataclass
+class AdhocEventDeletesDictionary(Dictionary):
+    source: AdhocEventDeletesTable
+
+    @property
+    def query(self) -> str:
+        return f"SELECT team_id, uuid, created_at FROM {self.source.qualified_name} WHERE (team_id, uuid) not in (SELECT team_id, uuid FROM {self.source.qualified_name} WHERE is_deleted = 1)"
+
+    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+        client.execute(
+            f"""
+            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
+                team_id Int64,
+                uuid UUID,
+                created_at DateTime64(6, 'UTC')
+            )
+            PRIMARY KEY team_id, uuid
+            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
+            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
+            LIFETIME(0)
+            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "user": settings.CLICKHOUSE_USER,
+                "password": settings.CLICKHOUSE_PASSWORD,
+                "query": self.query,
+            },
+        )
+
+    def checksum(self, client: Client) -> int:
+        results = client.execute(
+            f"""
+            SELECT groupBitXor(row_checksum) AS table_checksum
+            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, uuid)
             """
         )
         [[checksum]] = results
@@ -402,6 +484,37 @@ def create_deletes_dict(
 
 
 @dagster.op
+def create_adhoc_event_deletes_dict(
+    config: DeleteConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> AdhocEventDeletesDictionary:
+    """Create a dictionary in ClickHouse to store pending event deletions."""
+
+    adhoc_event_deletions = AdhocEventDeletesTable()
+
+    # Wait for the table to be fully replicated
+    def sync_replica(client: Client):
+        client.execute(f"SYSTEM SYNC REPLICA {adhoc_event_deletions.qualified_name} STRICT")
+
+    cluster.map_all_hosts(sync_replica).result()
+
+    del_dict = AdhocEventDeletesDictionary(
+        source=adhoc_event_deletions,
+    )
+
+    cluster.map_all_hosts(
+        partial(
+            del_dict.create,
+            shards=config.shards,
+            max_execution_time=config.max_execution_time,
+            max_memory_usage=config.max_memory_usage,
+        )
+    ).result()
+
+    return del_dict
+
+
+@dagster.op
 def load_and_verify_deletes_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PendingDeletesDictionary,
@@ -413,10 +526,22 @@ def load_and_verify_deletes_dictionary(
 
 
 @dagster.op
+def load_and_verify_adhoc_event_deletes_dictionary(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    dictionary: AdhocEventDeletesDictionary,
+) -> AdhocEventDeletesDictionary:
+    """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
+    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
+    assert len(set(checksums.values())) == 1
+    return dictionary
+
+
+@dagster.op
 def delete_events(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    load_and_verify_adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
 ) -> tuple[PendingDeletesDictionary, ShardMutations]:
     """Delete events from sharded_events table for pending deletions."""
 
@@ -430,9 +555,21 @@ def delete_events(
         )
         return result[0][0] if result else 0
 
-    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.DATA).result()
+    def count_pending_adhoc_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count() as pending
+            FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}
+            """
+        )
+        return result[0][0] if result else 0
 
-    all_zero = all(count == 0 for count in count_result.values())
+    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.DATA).result()
+    count_adhoc_result = cluster.map_hosts_by_role(count_pending_adhoc_deletes, NodeRole.DATA).result()
+
+    all_zero = all(count == 0 for count in count_result.values()) and all(
+        count == 0 for count in count_adhoc_result.values()
+    )
     if all_zero:
         context.add_output_metadata(
             {"events_deleted": dagster.MetadataValue.int(0), "message": "No pending deletions found"}
@@ -442,16 +579,23 @@ def delete_events(
     context.add_output_metadata(
         {
             "events_deleted": dagster.MetadataValue.int(sum(count_result.values())),
+            "adhoc_events_deleted": dagster.MetadataValue.int(sum(count_adhoc_result.values())),
         }
     )
 
     delete_mutation_runner = LightweightDeleteMutationRunner(
         EVENTS_DATA_TABLE(),
-        "(dictHas(%(dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))) OR (dictHas(%(dictionary)s, (team_id, %(team_deletion_type)s, team_id)))",
+        """or(
+            (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
+            (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
+            (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
+        )
+        """,
         parameters={
-            "dictionary": load_and_verify_deletes_dictionary.qualified_name,
+            "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
             "person_deletion_type": DeletionType.Person,
             "team_deletion_type": DeletionType.Team,
+            "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
         },
     )
 
@@ -570,6 +714,7 @@ def cleanup_delete_assets(
     config: DeleteConfig,
     create_pending_deletions_table: PendingDeletesTable,
     create_deletes_dict: PendingDeletesDictionary,
+    create_adhoc_event_deletes_dict: AdhocEventDeletesDictionary,
     waited_mutation: PendingDeletesDictionary,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
@@ -599,6 +744,16 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(create_deletes_dict.drop).result()
     cluster.map_all_hosts(create_pending_deletions_table.drop).result()
 
+    # Mark adhoc event deletes as verified
+    cluster.any_host(
+        lambda client: client.execute(f"""
+            INSERT INTO {create_adhoc_event_deletes_dict.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
+            SELECT team_id, uuid, created_at, now64(), 1
+            FROM {create_adhoc_event_deletes_dict.qualified_name}
+    """)
+    ).result()
+    cluster.map_all_hosts(create_adhoc_event_deletes_dict.drop).result()
+    cluster.any_host(create_adhoc_event_deletes_dict.source.optimize).result()
     return True
 
 
@@ -613,8 +768,11 @@ def deletes_job():
     create_deletes_dict_op = create_deletes_dict(loaded_deletions_table)
     load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
 
+    create_adhoc_event_deletes_dict_op = create_adhoc_event_deletes_dict()
+    load_adhoc_event_deletes_dict = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict_op)
+
     # Delete all data requested
-    delete_mutations = delete_events(load_dict)
+    delete_mutations = delete_events(load_dict, load_adhoc_event_deletes_dict)
     waited_mutation = wait_for_delete_mutations_in_shards(delete_mutations)
 
     delete_mutations = delete_team_data_from(PERSON_DISTINCT_ID2_TABLE)(load_dict, waited_mutation)
@@ -626,8 +784,9 @@ def deletes_job():
     delete_mutations = delete_team_data_from(GROUPS_TABLE)(load_dict, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
+    # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
+    # delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
+    # waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(load_dict, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
@@ -636,7 +795,9 @@ def deletes_job():
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     # Clean up
-    cleaned = cleanup_delete_assets(deletions_table, create_deletes_dict_op, waited_mutation)
+    cleaned = cleanup_delete_assets(
+        deletions_table, create_deletes_dict_op, create_adhoc_event_deletes_dict_op, waited_mutation
+    )
     load_pending_deletions(report_deletions_table, cleaned)
 
 

@@ -30,6 +30,7 @@ import {
 } from './LemonTreeUtils'
 
 export type LemonTreeSelectMode = 'default' | 'multi' | 'folder-only'
+export type LemonTreeSize = 'default' | 'narrow'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -105,7 +106,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
-    /** The mode of the tree. */
+    /** The select mode of the tree. */
     selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
      * this takes precedence over showFolderActiveState, and selectedId state */
@@ -158,6 +159,14 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     tableModeHeader?: () => React.ReactNode
     /** The row to render for the table mode */
     tableModeRow?: (item: TreeDataItem, firstColumnOffset: number) => React.ReactNode
+
+    /** The size of the tree.
+     *
+     * default: icon, text, side action visible
+     *
+     * narrow: icon, no text, side action hidden
+     */
+    size?: LemonTreeSize
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -176,6 +185,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     onDragEnd?: (dragEvent: DragEndEvent) => void
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
+    /** Whether to disable the scrollable shadows. */
+    disableScroll?: boolean
 }
 
 export type LemonTreeNodeProps = LemonTreeBaseProps & {
@@ -234,6 +245,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             checkedItemCount,
             setFocusToElementFromId,
             setFocusToLastFocusedElement,
+            size,
             ...props
         },
         ref
@@ -267,7 +279,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         }
 
         return (
-            <div className={cn('list-none m-0 p-0 h-full w-full', className)}>
+            <div className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}>
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
                     const isFolder = item.record?.type === 'folder'
@@ -331,11 +343,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             buttonProps={{
                                 active: getItemActiveState(item),
                                 menuItem: true,
-                                hasSideActionRight: true,
+                                hasSideActionRight: size === 'default',
+                                iconOnly: size === 'narrow',
                                 disabled: isEmptyFolder,
                                 className: cn(
                                     'group/lemon-tree-button gap-[5px]',
-                                    'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)]',
+                                    'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
                                     {
                                         'bg-fill-button-tertiary-hover':
                                             (selectMode === 'folder-only' &&
@@ -347,6 +360,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             !isEmptyFolder,
                                         'hover:bg-transparent opacity-50 cursor-default':
                                             (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
+                                        'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                                     }
                                 ),
                             }}
@@ -358,21 +372,22 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-disabled={!!item.disabledReason}
                             aria-haspopup={!!itemContextMenu?.(item)}
                             aria-roledescription="tree item"
-                            aria-rolemap={`item-${item.id}`}
                             aria-label={ariaLabel}
                             tooltip={
                                 isDragging || isEmptyFolder || mode === 'table' ? undefined : renderItemTooltip?.(item)
                             }
                             tooltipPlacement="right"
                         >
-                            {/* Spacer to offset button padding */}
-                            <span
-                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${firstColumnOffset}px`,
-                                }}
-                            />
+                            {size === 'default' && (
+                                <span
+                                    // Spacer to offset button padding
+                                    className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        width: `${firstColumnOffset}px`,
+                                    }}
+                                />
+                            )}
 
                             {renderItemIcon ? (
                                 renderItemIcon?.(item)
@@ -381,42 +396,47 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     item={item}
                                     expandedItemIds={expandedItemIds ?? []}
                                     defaultNodeIcon={defaultNodeIcon}
+                                    size={size}
                                 />
                             )}
 
-                            {mode === 'table' ? (
-                                tableModeRow?.(item, firstColumnOffset)
-                            ) : (
-                                <span className="relative truncate text-left w-full">
-                                    {renderItem ? (
-                                        <>
-                                            {renderItem(
-                                                item,
+                            {size === 'default' && (
+                                <>
+                                    {mode === 'table' ? (
+                                        tableModeRow?.(item, firstColumnOffset)
+                                    ) : (
+                                        <span className="relative truncate text-left w-full">
+                                            {renderItem ? (
+                                                <>
+                                                    {renderItem(
+                                                        item,
+                                                        <span
+                                                            className={cn({
+                                                                'font-semibold': isFolder && !isEmptyFolder,
+                                                            })}
+                                                        >
+                                                            {displayName}
+                                                        </span>
+                                                    )}
+                                                </>
+                                            ) : (
                                                 <span
-                                                    className={cn({
+                                                    className={cn('truncate', {
                                                         'font-semibold': isFolder && !isEmptyFolder,
                                                     })}
                                                 >
                                                     {displayName}
                                                 </span>
                                             )}
-                                        </>
-                                    ) : (
-                                        <span
-                                            className={cn('truncate', {
-                                                'font-semibold': isFolder && !isEmptyFolder,
-                                            })}
-                                        >
-                                            {displayName}
+
+                                            {/* Loading state */}
+                                            {item.record?.loading && <Spinner className="ml-1" />}
+
+                                            {/* Unapplied state */}
+                                            {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
                                         </span>
                                     )}
-
-                                    {/* Loading state */}
-                                    {item.record?.loading && <Spinner className="ml-1" />}
-
-                                    {/* Unapplied state */}
-                                    {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
-                                </span>
+                                </>
                             )}
                         </Link>
                     )
@@ -452,7 +472,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         }}
                                     >
                                         {/* Folder lines */}
-                                        {depth !== 0 && (
+                                        {depth !== 0 && size !== 'narrow' && (
                                             <div
                                                 className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
@@ -515,7 +535,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     button
                                                 )}
 
-                                                {itemSideAction && !isEmptyFolder && (
+                                                {itemSideAction && !isEmptyFolder && size === 'default' && (
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
                                                             <ButtonPrimitive
@@ -581,6 +601,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             setFocusToElementFromId={setFocusToElementFromId}
                                             onItemNameChange={onItemNameChange}
                                             tableModeRow={tableModeRow}
+                                            size={size}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -640,6 +661,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeTotalWidth,
             tableModeHeader,
             tableModeRow,
+            size = 'default',
+            disableScroll = false,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1270,6 +1293,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     onKeyDown={handleKeyDown}
                     className="flex-1"
                     innerClassName="relative overflow-x-auto"
+                    disableScroll={disableScroll}
+                    hideShadows={disableScroll}
                     styledScrollbars
                     style={
                         {
@@ -1337,6 +1362,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
                             tableModeRow={tableModeRow}
+                            size={size}
                             {...props}
                         />
                     </TreeNodeDroppable>
