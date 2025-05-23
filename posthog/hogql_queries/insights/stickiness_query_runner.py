@@ -318,7 +318,6 @@ class StickinessQueryRunner(QueryRunner):
                     "type": "events",
                     "name": series_label or "All events",
                     "id": series_label,
-                    "custom_name": series_with_extra.series.custom_name,
                 }
 
                 # Modifications for when comparing to previous period
