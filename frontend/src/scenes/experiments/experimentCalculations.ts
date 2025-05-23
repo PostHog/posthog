@@ -45,10 +45,7 @@ export interface VariantCalculationResult {
 /**
  * Calculate conversion rate for a specific variant in experiment results
  */
-export function conversionRateForVariant(
-    metricResult: ExperimentResult,
-    variantKey: string
-): number | null {
+export function conversionRateForVariant(metricResult: ExperimentResult, variantKey: string): number | null {
     if (!metricResult) {
         return null
     }
@@ -63,9 +60,7 @@ export function conversionRateForVariant(
         if (!variantResults) {
             return null
         }
-        return (
-            (variantResults.success_count / (variantResults.success_count + variantResults.failure_count)) * 100
-        )
+        return (variantResults.success_count / (variantResults.success_count + variantResults.failure_count)) * 100
     } else if (metricResult.kind === NodeKind.ExperimentFunnelsQuery && metricResult.insight) {
         const variantResults = (metricResult.insight as FunnelStep[][]).find((variantFunnel: FunnelStep[]) => {
             const breakdownValue = variantFunnel[0]?.breakdown_value
@@ -341,8 +336,8 @@ export function calculateDelta(
     let delta = 0
 
     if (metricType === InsightType.TRENDS) {
-        const controlVariant = metricResult.variants.find((v: any) => v.key === 'control')
-        const variantData = metricResult.variants.find((v: any) => v.key === variantKey)
+        const controlVariant = (metricResult.variants as any[]).find((v: any) => v.key === 'control')
+        const variantData = (metricResult.variants as any[]).find((v: any) => v.key === variantKey)
 
         if (
             !variantData?.count ||
@@ -359,11 +354,11 @@ export function calculateDelta(
     } else {
         const variantRate = conversionRateForVariant(metricResult, variantKey)
         const controlRate = conversionRateForVariant(metricResult, 'control')
-        
+
         if (!variantRate || !controlRate) {
             return null
         }
-        
+
         delta = (variantRate - controlRate) / controlRate
     }
 
@@ -408,11 +403,7 @@ export function getVariantCalculationResult(
 /**
  * Generate significance details text based on experiment results
  */
-export function getSignificanceDetails(
-    metricResult: ExperimentResult,
-    experimentStatsVersion: number,
-    metricIndex: number = 0
-): string {
+export function getSignificanceDetails(metricResult: ExperimentResult, experimentStatsVersion: number): string {
     if (!metricResult) {
         return ''
     }

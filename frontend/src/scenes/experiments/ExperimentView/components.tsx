@@ -64,7 +64,9 @@ export function VariantTag({
     fontSize?: number
     className?: string
 }): JSX.Element {
-    const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
+    const { experiment, getIndexForVariant, metricResults, getInsightType } = useValues(
+        experimentLogic({ experimentId })
+    )
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
@@ -85,7 +87,9 @@ export function VariantTag({
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
+                        backgroundColor: getExperimentInsightColour(
+                            getIndexForVariant(metricResults[0], variantKey, getInsightType(experiment.metrics[0]))
+                        ),
                     }}
                 />
                 <LemonTag type="option" className="ml-2">

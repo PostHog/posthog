@@ -17,10 +17,10 @@ export function WinningVariantText({
     result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
-    const { getIndexForVariant, getHighestProbabilityVariant } = useValues(experimentLogic)
+    const { getIndexForVariant, getHighestProbabilityVariant, getInsightType, experiment } = useValues(experimentLogic)
 
     const highestProbabilityVariant = getHighestProbabilityVariant(result)
-    const index = getIndexForVariant(result, highestProbabilityVariant || '')
+    const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
 

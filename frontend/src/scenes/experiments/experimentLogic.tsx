@@ -33,19 +33,6 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
-
-import {
-    conversionRateForVariant,
-    countDataForVariant,
-    credibleIntervalForVariant,
-    expectedRunningTime,
-    exposureCountDataForVariant,
-    getHighestProbabilityVariant,
-    getIndexForVariant,
-    getSignificanceDetails,
-    minimumSampleSizePerVariant,
-    recommendedExposureForCountData,
-} from './experimentCalculations'
 import {
     AnyEntityNode,
     CachedExperimentFunnelsQueryResponse,
@@ -56,7 +43,6 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
-    ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     InsightQueryNode,
     InsightVizNode,
@@ -72,17 +58,27 @@ import {
     Experiment,
     FeatureFlagType,
     FunnelExperimentVariant,
-    FunnelStep,
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
     ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
-    TrendResult,
 } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
+import {
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    expectedRunningTime,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+    getIndexForVariant,
+    getSignificanceDetails,
+    minimumSampleSizePerVariant,
+    recommendedExposureForCountData,
+} from './experimentCalculations'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -1593,10 +1589,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
-        minimumSampleSizePerVariant: [
-            (s) => [s.minimumDetectableEffect],
-            (mde) => minimumSampleSizePerVariant(mde),
-        ],
+        minimumSampleSizePerVariant: [(s) => [s.minimumDetectableEffect], (mde) => minimumSampleSizePerVariant(mde)],
         isPrimaryMetricSignificant: [
             (s) => [s.metricResults],
             (
@@ -1638,7 +1631,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) =>
                 (metricIndex: number = 0): string => {
                     const results = metricResults?.[metricIndex]
-                    return getSignificanceDetails(results, experimentStatsVersion, metricIndex)
+                    return getSignificanceDetails(results, experimentStatsVersion)
                 },
         ],
         recommendedSampleSize: [
@@ -1697,21 +1690,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.minimumDetectableEffect],
             (mde) => recommendedExposureForCountData(mde),
         ],
-        expectedRunningTime: [
-            () => [],
-            () => expectedRunningTime,
-        ],
-        conversionRateForVariant: [
-            () => [],
-            () => conversionRateForVariant,
-        ],
-        credibleIntervalForVariant: [
-            () => [],
-            () => credibleIntervalForVariant,
-        ],
+        expectedRunningTime: [() => [], () => expectedRunningTime],
+        conversionRateForVariant: [() => [], () => conversionRateForVariant],
+        credibleIntervalForVariant: [() => [], () => credibleIntervalForVariant],
         getIndexForVariant: [
-            (s) => [s.getInsightType],
-            (getInsightType) =>
+            () => [],
+            () =>
                 (
                     metricResult:
                         | CachedExperimentQueryResponse
@@ -1740,14 +1724,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     return countDataForVariant(metricResult, variant, type, mathAggregation)
                 },
         ],
-        exposureCountDataForVariant: [
-            () => [],
-            () => exposureCountDataForVariant,
-        ],
-        getHighestProbabilityVariant: [
-            () => [],
-            () => getHighestProbabilityVariant,
-        ],
+        exposureCountDataForVariant: [() => [], () => exposureCountDataForVariant],
+        getHighestProbabilityVariant: [() => [], () => getHighestProbabilityVariant],
         tabularExperimentResults: [
             (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getInsightType],
             (
