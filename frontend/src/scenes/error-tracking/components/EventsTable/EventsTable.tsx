@@ -2,8 +2,9 @@ import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { getExceptionAttributes } from 'lib/components/Errors/utils'
+import { getExceptionAttributes, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useErrorTagRenderer } from 'scenes/error-tracking/hooks/use-error-tag-renderer'
 import { cancelEvent } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -18,6 +19,23 @@ export interface EventsTableProps {
     issueId: string
     selectedEvent: ErrorEventType | null
     onEventSelect: (event: ErrorEventType | null) => void
+}
+
+function renderViewRecordingButton(event: ErrorEventType): JSX.Element {
+    const sessionId = getSessionId(event.properties)
+    const hasRecording = mightHaveRecording(event.properties || {})
+    return (
+        <span onClick={cancelEvent}>
+            <ViewRecordingButton
+                sessionId={sessionId}
+                timestamp={event.timestamp ?? undefined}
+                inModal={true}
+                size="xsmall"
+                type="secondary"
+                disabledReason={hasRecording ? undefined : 'No recording available'}
+            />
+        </span>
+    )
 }
 
 export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
@@ -67,6 +85,10 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
         )
     }
 
+    function renderRecording(record: ErrorEventType): JSX.Element {
+        return <div className="flex justify-end">{renderViewRecordingButton(record)}</div>
+    }
+
     function renderTime(record: ErrorEventType): JSX.Element {
         return <TZLabel time={record.timestamp} />
     }
@@ -76,7 +98,8 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
             <DataSourceTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
             <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
             <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
-            <DataSourceTableColumn<ErrorEventType> align="right" cellRenderer={renderAttributes} />
+            <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
+            <DataSourceTableColumn<ErrorEventType> title="Recording" align="right" cellRenderer={renderRecording} />
         </DataSourceTable>
     )
 }
