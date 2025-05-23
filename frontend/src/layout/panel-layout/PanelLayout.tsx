@@ -1,6 +1,5 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
@@ -116,12 +115,12 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
-        projectTreeMode,
         panelWidth,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
-        useActions(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef } = useActions(panelLayoutLogic)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     useEffect(() => {
@@ -142,7 +141,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         isLayoutPanelVisible,
                         isMobileLayout,
                         isLayoutNavCollapsed,
-                        projectTreeMode: projectTreeMode as TreeMode,
+                        projectTreeMode: projectTreeMode,
                     })
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

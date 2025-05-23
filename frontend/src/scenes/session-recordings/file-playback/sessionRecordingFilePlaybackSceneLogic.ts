@@ -143,7 +143,6 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
             // Simulate a loaded source and sources so that nothing extra gets loaded
             dataLogic.actions.loadSnapshotsForSourceSuccess({
                 snapshots: snapshots,
-                untransformed_snapshots: snapshots,
                 source: { source: 'file' },
             })
             dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])

@@ -1199,6 +1199,19 @@ class GoalLine(BaseModel):
     value: float
 
 
+class HedgehogColorOptions(StrEnum):
+    GREEN = "green"
+    RED = "red"
+    BLUE = "blue"
+    PURPLE = "purple"
+    DARK = "dark"
+    LIGHT = "light"
+    SEPIA = "sepia"
+    INVERT = "invert"
+    INVERT_HUE = "invert-hue"
+    GREYSCALE = "greyscale"
+
+
 class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1389,6 +1402,15 @@ class MatchedRecordingEvent(BaseModel):
         extra="forbid",
     )
     uuid: str
+
+
+class MinimalHedgehogConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accessories: list[str]
+    color: Optional[HedgehogColorOptions] = None
+    use_as_profile: bool
 
 
 class MultipleBreakdownType(StrEnum):
@@ -1921,6 +1943,20 @@ class TrendsFormulaNode(BaseModel):
     )
     custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
     formula: str
+
+
+class UserBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    email: str
+    first_name: str
+    hedgehog_config: Optional[MinimalHedgehogConfig] = None
+    id: float
+    is_email_verified: Optional[Any] = None
+    last_name: Optional[str] = None
+    uuid: str
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -2724,6 +2760,19 @@ class ExperimentExposureQueryResponse(BaseModel):
     total_exposures: dict[str, float]
 
 
+class ExperimentHoldoutType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    description: Optional[str] = None
+    filters: dict[str, Any]
+    id: Optional[float] = None
+    name: str
+    updated_at: Optional[str] = None
+
+
 class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2800,6 +2849,7 @@ class HogQLQueryModifiers(BaseModel):
     customChannelTypeRules: Optional[list[CustomChannelRule]] = None
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
     debug: Optional[bool] = None
+    formatCsvAllowDoubleQuotes: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[bool] = None
@@ -3600,6 +3650,7 @@ class WebOverviewItem(BaseModel):
     key: str
     kind: WebOverviewItemKind
     previous: Optional[float] = None
+    usedPreAggregatedTables: Optional[bool] = None
     value: Optional[float] = None
 
 
@@ -5706,18 +5757,6 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
-
-
-class ExperimentExposureQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiment_id: Optional[int] = None
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ExperimentExposureQueryResponse] = None
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -8018,6 +8057,24 @@ class ExperimentExposureCriteria(BaseModel):
     )
     exposure_config: Optional[ExperimentEventExposureConfig] = None
     filterTestAccounts: Optional[bool] = None
+
+
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end_date: Optional[str] = None
+    experiment_id: Optional[int] = None
+    experiment_name: str
+    exposure_criteria: Optional[ExperimentExposureCriteria] = None
+    feature_flag: dict[str, Any]
+    holdout: Optional[ExperimentHoldoutType] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentExposureQueryResponse] = None
+    start_date: Optional[str] = None
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -10593,6 +10650,7 @@ class QueryRequest(BaseModel):
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        HogQLASTQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,
@@ -10675,6 +10733,7 @@ class QuerySchemaRoot(
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
+            HogQLASTQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
@@ -10731,6 +10790,7 @@ class QuerySchemaRoot(
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
+        HogQLASTQuery,
         SessionAttributionExplorerQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,

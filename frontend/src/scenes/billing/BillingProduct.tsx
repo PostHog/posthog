@@ -265,7 +265,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 {capitalizeFirstLetter(
                                                                     billing?.billing_period?.interval || ''
                                                                 )}
-                                                                -to-date
+                                                                -to-date <IconInfo className="text-muted text-sm" />
                                                             </span>
                                                         </div>
                                                     </Tooltip>
@@ -275,13 +275,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 billing?.discount_percent
                                                                     ? ', discounts on your account,'
                                                                     : ''
-                                                            } and the remaining time left in this billing period. This number updates once daily.`}
+                                                            } and the remaining time left in this billing period. This number updates once daily.${
+                                                                product.projected_amount_usd_with_limit !==
+                                                                product.projected_amount_usd
+                                                                    ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
+                                                                          parseFloat(
+                                                                              product.projected_amount_usd || '0'
+                                                                          )
+                                                                      )}`
+                                                                    : ''
+                                                            }`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-secondary text-lg leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
-                                                                            product.projected_amount_usd || '0'
+                                                                            product.projected_amount_usd_with_limit ||
+                                                                                '0'
                                                                         ) *
                                                                             (1 -
                                                                                 (billing?.discount_percent
@@ -290,7 +300,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     )}
                                                                 </div>
                                                                 <span className="text-xs text-secondary">
-                                                                    Projected
+                                                                    Projected{' '}
+                                                                    <IconInfo className="text-muted text-sm" />
                                                                 </span>
                                                             </div>
                                                         </Tooltip>
@@ -299,7 +310,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             ) : null}
                                         </>
                                     ) : product.current_amount_usd ? (
-                                        <div className="my-8">
+                                        <div className="mt-8 mb-4 flex justify-end w-full">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
                                             >

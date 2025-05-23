@@ -25,6 +25,7 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
+import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
@@ -80,7 +81,6 @@ export class IngestionConsumer {
     protected testingTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
-    protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
@@ -91,6 +91,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personStore: MeasuringPersonsStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    public readonly promiseScheduler = new PromiseScheduler()
 
     constructor(
         private hub: Hub,
@@ -189,12 +190,6 @@ export class IngestionConsumer {
         return this.kafkaConsumer?.isHealthy()
     }
 
-    private scheduleWork<T>(promise: Promise<T>): Promise<T> {
-        this.promises.add(promise)
-        void promise.finally(() => this.promises.delete(promise))
-        return promise
-    }
-
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
         return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
     }
@@ -247,7 +242,7 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
-    public async handleKafkaBatch(messages: Message[]) {
+    public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
@@ -277,10 +272,6 @@ export class IngestionConsumer {
             )
         })
 
-        logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
-        await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        logger.debug('🔁', `Processed batch`)
-
         personsStoreForBatch.reportBatch()
 
         for (const message of messages) {
@@ -289,6 +280,15 @@ export class IngestionConsumer {
                     .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
                     .set(message.timestamp)
             }
+        }
+
+        return {
+            backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
+                await Promise.all([
+                    this.promiseScheduler.waitForAll(),
+                    this.hogTransformer.promiseScheduler.waitForAll(),
+                ])
+            }),
         }
     }
 
@@ -302,7 +302,9 @@ export class IngestionConsumer {
         }
 
         if (this.testingTopic) {
-            void this.scheduleWork(this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message)))
+            void this.promiseScheduler.schedule(
+                this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message))
+            )
             return {
                 ...eventsForDistinctId,
                 events: [],
@@ -339,7 +341,7 @@ export class IngestionConsumer {
             // of random partitioning.
             const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
 
-            void this.scheduleWork(
+            void this.promiseScheduler.schedule(
                 this.emitToOverflow(
                     eventsForDistinctId.events.map((x) => x.message),
                     preserveLocality
@@ -424,7 +426,7 @@ export class IngestionConsumer {
 
             // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
             result.ackPromises?.forEach((promise) => {
-                void this.scheduleWork(
+                void this.promiseScheduler.schedule(
                     promise.catch(async (error) => {
                         await this.handleProcessingErrorV1(error, message, event)
                     })

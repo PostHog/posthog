@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { CurrencyDropdown } from 'products/revenue_analytics/frontend/settings/CurrencyDropdown'
-import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
 export function RevenueBaseCurrencySettings(): JSX.Element {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
-    const { updateBaseCurrency, save } = useActions(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { updateBaseCurrency, save } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>

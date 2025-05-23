@@ -18,6 +18,7 @@ import {
     appendResultsToFolders,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
+    formatUrlAsName,
     joinPath,
     sortFilesAndFolders,
     splitPath,
@@ -483,7 +484,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 viableItems.reduce(
                     (acc, item) => ({
                         ...acc,
-                        [item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id]: item,
+                        [item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id]: item,
                     }),
                     {} as Record<string, FileSystemEntry>
                 ),
@@ -534,43 +535,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         searchTerm,
                     })
                 return function getStaticItems(searchTerm?: string): TreeDataItem[] {
-                    return [
-                        {
-                            id: 'products://',
-                            name: 'products://',
-                            displayName: <>Products</>,
-                            record: { type: 'folder', path: '' },
-                            children: convert(getDefaultTreeProducts(), 'products://', searchTerm),
-                        },
-                        {
-                            id: 'data-management://',
-                            name: 'data-management://',
-                            displayName: <>Data management</>,
-                            record: { type: 'folder', path: '' },
-                            children: convert(getDefaultTreeDataManagement(), 'data-management://', searchTerm),
-                        },
-                        {
-                            id: 'games://',
-                            name: 'games://',
-                            displayName: <>Games</>,
-                            record: { type: 'folder', path: '' },
-                            children: convert(getDefaultTreeGames(), 'games://', searchTerm),
-                        },
-                        {
-                            id: 'new://',
-                            name: 'new://',
-                            displayName: <>New</>,
-                            record: { type: 'folder', path: '' },
-                            children: convert(getDefaultTreeNew(), 'new://', searchTerm),
-                        },
-                        {
-                            id: 'shortcuts://',
-                            name: 'shortcuts://',
-                            displayName: <>Shortcuts</>,
-                            record: { type: 'folder', path: '' },
-                            children: convert(shortcutData, 'shortcuts://', searchTerm),
-                        },
+                    const data: [string, FileSystemImport[]][] = [
+                        ['products://', getDefaultTreeProducts()],
+                        ['data-management://', getDefaultTreeDataManagement()],
+                        ['games://', getDefaultTreeGames()],
+                        ['new://', getDefaultTreeNew()],
+                        ['shortcuts://', shortcutData],
                     ]
+                    return data.map(([id, files]) => ({
+                        id: id,
+                        name: id,
+                        displayName: <>{formatUrlAsName(id)}</>,
+                        record: { type: 'folder', path: '' },
+                        children: convert(files, id, searchTerm),
+                    }))
                 }
             },
         ],
@@ -683,5 +661,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     afterMount(({ actions }) => {
         actions.loadFolder('')
         actions.loadUnfiledItems()
+        actions.loadShortcuts()
     }),
 ])
