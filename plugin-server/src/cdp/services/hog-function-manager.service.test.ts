@@ -7,6 +7,7 @@ import { PostgresUse } from '~/src/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
+import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -92,7 +93,6 @@ describe('HogFunctionManager', () => {
                 },
             })
         )
-
         await manager.start()
     })
 
@@ -112,7 +112,7 @@ describe('HogFunctionManager', () => {
                 type: 'destination',
                 enabled: true,
                 execution_order: null,
-                bytecode: {},
+                bytecode: null,
                 filters: null,
                 inputs_schema: [
                     {
@@ -543,7 +543,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         // Update the integration in the database
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_integration 
+            `UPDATE posthog_integration
              SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
                  sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb)
              WHERE id = $2`,
@@ -694,5 +694,96 @@ describe('sanitize', () => {
 
         // Should preserve undefined value
         expect(items[0].encrypted_inputs).toBeUndefined()
+    })
+})
+
+describe('HogFunctionManager - Template Based Hog Functions', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+    let teamId: number
+
+    beforeEach(async () => {
+        hub = await createHub()
+        await resetTestDatabase()
+        manager = new HogFunctionManagerService(hub)
+        const team = await getTeam(hub, 2)
+        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        await manager.start()
+    })
+
+    afterEach(async () => {
+        await manager.stop()
+        await closeHub(hub)
+    })
+
+    it('should correctly populate template-based hog function fields', async () => {
+        // Get template from DB
+        const template = (
+            await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                'SELECT * FROM posthog_hogfunctiontemplate WHERE template_id = $1',
+                [geoipTemplate.id],
+                'get-geoip-template'
+            )
+        ).rows[0]
+
+        // Insert template based hog function (hog, bytecode, inputs_schema, mappings are null)
+        const { id } = await insertHogFunction(hub.postgres, teamId, {
+            hog_function_template_id: template.id,
+            template_id: geoipTemplate.id,
+            name: 'GeoIP Template Template Based',
+            hog: null,
+            bytecode: null,
+            inputs_schema: null,
+            mappings: null,
+        })
+
+        // Fetch via manager and assert fields are filled-in from template
+        // this will get it from the db, not the template as hog, bytecode, inputs_schema, mappings are null
+        const fn = (await manager['fetchHogFunctions']([id]))[id]
+
+        // Verify all template fields were correctly populated
+        expect(fn?.template).toBeDefined()
+        expect(fn?.template?.template_id).toEqual(geoipTemplate.id)
+        expect(fn?.template?.code).toEqual(geoipTemplate.hog)
+        expect(fn?.template?.bytecode).toBeDefined()
+    })
+
+    it('should correctly use custom hog function fields instead of template fields', async () => {
+        // Create a custom function using the template ID but with custom code
+        const customCode = 'return event'
+        const customBytecode = ['_H', 1, 32, 'event', 1, 1, 38]
+
+        const template = (
+            await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                'SELECT * FROM posthog_hogfunctiontemplate WHERE template_id = $1',
+                [geoipTemplate.id],
+                'get-geoip-template'
+            )
+        ).rows[0]
+
+        const { id } = await insertHogFunction(hub.postgres, teamId, {
+            hog: customCode,
+            bytecode: customBytecode,
+            hog_function_template_id: template.id,
+            inputs_schema: [
+                {
+                    type: 'string',
+                    key: 'test_input',
+                    label: 'Test Input',
+                    required: true,
+                    default: 'test',
+                },
+            ],
+            mappings: null,
+        })
+
+        const fn = (await manager['fetchHogFunctions']([id]))[id]
+
+        // Should use the function's code/inputs, not the template's
+        expect(fn?.template).toBeUndefined()
+        expect(fn?.hog).toEqual(customCode)
+        expect(fn?.bytecode).toEqual(customBytecode)
     })
 })
