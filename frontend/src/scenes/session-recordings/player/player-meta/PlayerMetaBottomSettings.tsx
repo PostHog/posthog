@@ -1,4 +1,11 @@
-import { IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import {
+    IconEllipsis,
+    IconHourglass,
+    IconLlmPromptEvaluation,
+    IconRabbit,
+    IconSearch,
+    IconTortoise,
+} from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -75,11 +82,25 @@ function InspectDOM(): JSX.Element {
             title="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
             label="Inspect DOM"
             data-attr="explore-dom"
-            onClick={() => openExplorer()}
+            onClick={openExplorer}
             disabledReason={
                 sessionPlayerMetaData?.snapshot_source === 'mobile' ? 'Only available for web recordings' : undefined
             }
             icon={<IconSearch />}
+        />
+    )
+}
+
+function Screenshot(): JSX.Element {
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <SettingsButton
+            title="Take a screenshot of the current frame"
+            label="Screenshot"
+            data-attr="screenshot"
+            onClick={takeScreenshot}
+            icon={<IconLlmPromptEvaluation />}
         />
     )
 }
@@ -135,6 +156,11 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                             </LemonButton>
                         </Tooltip>
                     </FlaggedFeature>
+                    {noInspector ? null : (
+                        <FlaggedFeature match={true} flag={FEATURE_FLAGS.REPLAY_SCREENSHOT}>
+                            <Screenshot />
+                        </FlaggedFeature>
+                    )}
                     {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>

@@ -25,19 +25,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useState } from 'react'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import {
-    AvailableFeature,
-    GroupType,
-    GroupTypeIndex,
-    HogFunctionInvocationGlobals,
-    LogEntry,
-    PipelineNodeTab,
-    PipelineStage,
-} from '~/types'
+import { AvailableFeature, GroupType, GroupTypeIndex, HogFunctionInvocationGlobals, LogEntry } from '~/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -288,6 +281,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
     const logic = hogFunctionTestingLogic({ id })
     const { eventsLoading, baseEventsQuery } = useValues(logic)
     const { loadEvents, changeDateRange, loadTotalEvents } = useActions(logic)
+    const [dropdownOpen, setDropdownOpen] = useState(false)
 
     const handleRefresh = (): void => {
         loadEvents()
@@ -311,6 +305,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                 onChange={changeDateRange}
             />
             <LemonDropdown
+                visible={dropdownOpen}
                 closeOnClickInside={false}
                 matchWidth={false}
                 placement="right-end"
@@ -322,10 +317,15 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         className="deprecated-space-y-3"
                     >
                         <HogFunctionFilters embedded={true} />
+                        <div className="flex justify-end mt-2">
+                            <LemonButton size="small" type="primary" onClick={() => setDropdownOpen(false)}>
+                                Done
+                            </LemonButton>
+                        </div>
                     </Form>
                 }
             >
-                <LemonButton size="small" type="secondary">
+                <LemonButton size="small" type="secondary" onClick={() => setDropdownOpen((v) => !v)}>
                     Filters
                 </LemonButton>
             </LemonDropdown>
@@ -492,7 +492,7 @@ function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                                             },
                                         },
                                         {
-                                            label: 'View event in configuration tab',
+                                            label: 'Test with this event in configuration',
                                             onClick: () => {
                                                 const globals = buildGlobals(
                                                     row,
@@ -501,13 +501,7 @@ function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                                                 )
                                                 setSampleGlobals(globals)
                                                 toggleExpanded(true)
-                                                router.actions.push(
-                                                    urls.pipelineNode(
-                                                        PipelineStage.Destination,
-                                                        'hog-' + id,
-                                                        PipelineNodeTab.Configuration
-                                                    )
-                                                )
+                                                router.actions.push(urls.hogFunction(id) + '?tab=configuration')
                                             },
                                         },
                                     ]}

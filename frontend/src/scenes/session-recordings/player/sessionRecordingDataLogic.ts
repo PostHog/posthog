@@ -1,19 +1,6 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import {
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    defaults,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -32,7 +19,6 @@ import {
     EncodedRecordingSnapshot,
     RecordingEventsFilters,
     RecordingEventType,
-    RecordingReportLoadTimes,
     RecordingSegment,
     RecordingSnapshot,
     SessionPlayerData,
@@ -55,12 +41,13 @@ import { decompressEvent } from './snapshot-processing/decompress'
 import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
 import {
     getHrefFromSnapshot,
+    patchMetaEventIntoMobileData,
     patchMetaEventIntoWebData,
     ViewportResolution,
 } from './snapshot-processing/patch-meta-event'
-import { patchMetaEventIntoMobileData } from './snapshot-processing/patch-meta-event'
 import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
@@ -85,18 +72,15 @@ function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
  *
  * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean, sessionRecordingId: string): eventWithTime {
-    // we decompress first so that we could support partial compression on mobile in future
+function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
+    // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return withMobileTransformer
-        ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
-        : (currentEvent as eventWithTime)
+    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
 }
 
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
-    sessionId: string,
-    withMobileTransformer: boolean = true
+    sessionId: string
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
@@ -140,7 +124,7 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.flatMap((d: unknown) => {
-                const snap = coerceToEventWithTime(d, withMobileTransformer, sessionId)
+                const snap = coerceToEventWithTime(d, sessionId)
 
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
@@ -176,51 +160,24 @@ export const parseEncodedSnapshots = async (
     return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
 }
 
-const generateRecordingReportDurations = (cache: Record<string, any>): RecordingReportLoadTimes => {
-    return {
-        metadata: cache.metadataLoadDuration || Math.round(performance.now() - cache.metaStartTime),
-        snapshots: cache.snapshotsLoadDuration || Math.round(performance.now() - cache.snapshotsStartTime),
-        events: cache.eventsLoadDuration || Math.round(performance.now() - cache.eventsStartTime),
-        firstPaint: cache.firstPaintDuration,
-    }
-}
-
-const resetTimingsCache = (cache: Record<string, any>): void => {
-    cache.metaStartTime = null
-    cache.metadataLoadDuration = null
-    cache.snapshotsStartTime = null
-    cache.snapshotsLoadDuration = null
-    cache.eventsStartTime = null
-    cache.eventsLoadDuration = null
-    cache.firstPaintDuration = null
-}
-
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
+    // allows altering v1 polling interval in tests
     realTimePollingIntervalMilliseconds?: number
+    // allows disabling polling for new sources in tests
+    blobV2PollingDisabled?: boolean
 }
 
 async function processEncodedResponse(
     encodedResponse: (EncodedRecordingSnapshot | string)[],
-    props: SessionRecordingDataLogicProps,
-    featureFlags: FeatureFlagsSet
-): Promise<{ transformed: RecordingSnapshot[]; untransformed: RecordingSnapshot[] | null }> {
-    let untransformed: RecordingSnapshot[] | null = null
-
-    const transformed = await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId)
-
-    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_EXPORT_MOBILE_DATA]) {
-        untransformed = await parseEncodedSnapshots(
-            encodedResponse,
-            props.sessionRecordingId,
-            false // don't transform mobile data
-        )
-    }
-
-    return { transformed, untransformed }
+    props: SessionRecordingDataLogicProps
+): Promise<RecordingSnapshot[]> {
+    return await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId)
 }
 
-const getSourceKey = (source: SessionRecordingSnapshotSource): string => {
+export type SourceKey = `${SnapshotSourceType}-${string}`
+
+const getSourceKey = (source: SessionRecordingSnapshotSource): SourceKey => {
     // realtime sources vary so blob_key is not always present and is either null or undefined...
     // we only care about key when not realtime
     // and we'll always have a key when not realtime
@@ -287,7 +244,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
         snapshotsBySource: [
-            null as Record<string, SessionRecordingSnapshotSourceResponse> | null,
+            null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
             {
                 loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
                     const sourceKey = getSourceKey(snapshotsForSource.source)
@@ -306,7 +263,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ values, props }) => ({
         sessionComments: {
             loadRecordingComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
@@ -325,8 +282,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-
-                cache.metaStartTime = performance.now()
 
                 const response = await api.recordings.get(props.sessionRecordingId)
                 breakpoint()
@@ -388,29 +343,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw new Error(`Unsupported source: ${source.source}`)
                     }
 
-                    const snapshotLoadingStartTime = performance.now()
-
-                    if (!cache.snapshotsStartTime) {
-                        cache.snapshotsStartTime = snapshotLoadingStartTime
-                    }
-
                     await breakpoint(1)
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
                         if (source.source === 'realtime' && e.status === 404) {
-                            // Realtime source is not always available so a 404 is expected
+                            // Realtime source is not always available, so a 404 is expected
                             return []
                         }
                         throw e
                     })
 
-                    const { transformed, untransformed } = await processEncodedResponse(
-                        response,
-                        props,
-                        values.featureFlags
-                    )
-
-                    return { snapshots: transformed, untransformed_snapshots: untransformed ?? undefined, source }
+                    return { snapshots: await processEncodedResponse(response, props), source }
                 },
             },
         ],
@@ -418,10 +361,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | RecordingEventType[],
             {
                 loadEvents: async () => {
-                    if (!cache.eventsStartTime) {
-                        cache.eventsStartTime = performance.now()
-                    }
-
                     const { start, end, person } = values.sessionPlayerData
 
                     if (!person || !start || !end) {
@@ -608,11 +547,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadRecordingMetaSuccess: () => {
-            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
             actions.reportUsageIfFullyLoaded()
-        },
-        loadRecordingMetaFailure: () => {
-            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
         },
 
         loadSnapshotSourcesSuccess: () => {
@@ -642,8 +577,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
                 })
-            } else if (!cache.firstPaintDuration) {
-                cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
             }
             if (!values.wasMarkedViewed) {
                 actions.markViewed()
@@ -662,12 +595,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return actions.loadSnapshotsForSource(nextSourceToLoad)
             }
 
-            if (values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2)) {
+            if (
+                values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2) &&
+                !props.blobV2PollingDisabled
+            ) {
                 actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
             }
 
-            // TODO: Move this to a one time check - only report once per recording
-            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
             actions.reportUsageIfFullyLoaded()
 
             // If we have a realtime source, start polling it
@@ -675,9 +609,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (realTimeSource) {
                 actions.pollRealtimeSnapshots()
             }
-        },
-        loadSnapshotsForSourceFailure: () => {
-            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
         },
         pollRealtimeSnapshots: () => {
             // always make sure we've cleared up the last timeout
@@ -695,28 +626,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadEventsSuccess: () => {
-            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
             actions.reportUsageIfFullyLoaded()
-        },
-        loadEventsFailure: () => {
-            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
         },
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
             if (values.fullyLoaded) {
                 actions.reportRecording(
                     values.sessionPlayerData,
-                    generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
                     values.sessionPlayerMetaData,
                     0
                 )
-                // Reset cache now that final usage report has been sent
-                resetTimingsCache(cache)
             }
         },
         markViewed: async ({ delay }, breakpoint) => {
-            const durations = generateRecordingReportDurations(cache)
             // Triggered on first paint
             breakpoint()
             if (values.wasMarkedViewed) {
@@ -728,13 +651,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
-                durations,
             })
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             await api.recordings.update(props.sessionRecordingId, {
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
-                durations,
             })
         },
 
@@ -977,19 +898,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
-        untransformedSnapshots: [
-            (s) => [s.snapshotSources, s.snapshotsBySource],
-            (sources, snapshotsBySource): RecordingSnapshot[] => {
-                const allSnapshots =
-                    sources?.flatMap((source) => {
-                        const sourceKey = getSourceKey(source)
-                        return snapshotsBySource?.[sourceKey]?.untransformed_snapshots || []
-                    }) ?? []
-
-                return deduplicateSnapshots(allSnapshots)
-            },
-        ],
-
         snapshotsByWindowId: [
             (s) => [s.snapshots],
             (snapshots): Record<string, eventWithTime[]> => {
@@ -1069,18 +977,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         createExportJSON: [
-            (s) => [s.sessionPlayerMetaData, s.snapshots, s.untransformedSnapshots],
-            (
-                sessionPlayerMetaData,
-                snapshots,
-                untransformedSnapshots
-            ): ((exportUntransformedMobileSnapshotData: boolean) => ExportedSessionRecordingFileV2) => {
-                return (exportUntransformedMobileSnapshotData: boolean) => ({
+            (s) => [s.sessionPlayerMetaData, s.snapshots],
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return () => ({
                     version: '2023-04-28',
                     data: {
                         id: sessionPlayerMetaData?.id ?? '',
                         person: sessionPlayerMetaData?.person,
-                        snapshots: exportUntransformedMobileSnapshotData ? untransformedSnapshots : snapshots,
+                        snapshots: snapshots,
                     },
                 })
             },
@@ -1114,10 +1018,4 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
     })),
-    afterMount(({ cache }) => {
-        resetTimingsCache(cache)
-    }),
-    beforeUnmount(({ cache }) => {
-        resetTimingsCache(cache)
-    }),
 ])
