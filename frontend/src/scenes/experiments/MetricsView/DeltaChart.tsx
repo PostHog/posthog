@@ -425,6 +425,19 @@ const duplicateMetric =
         }
     }
 
+type SharedMetric = ExperimentMetric & {
+    isSharedMetric: true
+    sharedMetricId: number
+}
+
+const isSharedMetric = (metric: ExperimentMetric): metric is SharedMetric => {
+    /**
+     * the === true is to please the type checker. isSharedMetric is a boolean,
+     * but the type checker doesn't know that so it treat is as unknown.
+     */
+    return 'isSharedMetric' in metric && metric.isSharedMetric === true
+}
+
 // Main DeltaChart component
 export function DeltaChart({
     isSecondary,
@@ -464,7 +477,8 @@ export function DeltaChart({
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { openVariantDeltaTimeseriesModal, setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+    const { openVariantDeltaTimeseriesModal, setExperiment, updateExperimentMetrics, duplicateSharedMetric } =
+        useActions(experimentLogic)
 
     // Loading state
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
@@ -501,6 +515,11 @@ export function DeltaChart({
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
             onDuplicateMetricClick={(metric) => {
+                if (isSharedMetric(metric)) {
+                    duplicateSharedMetric(metric.sharedMetricId, { type: !isSecondary ? 'primary' : 'secondary' })
+                    return
+                }
+
                 setExperiment(onDuplicateMetric(metric))
                 updateExperimentMetrics()
             }}
