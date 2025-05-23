@@ -8,11 +8,10 @@ import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils'
 import { HogFunctionManagerService } from '../hog-function-manager.service'
-import { CyclotronJobQueueKind, getProducerMapping } from './job-queue'
+import { CyclotronJobQueue, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
-    let mockHogFunctionManager: jest.Mocked<HogFunctionManagerService>
     let mockConsumeBatch: jest.Mock
 
     const exampleHogFunction = createHogFunction({
@@ -34,7 +33,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('postgres')
         })
@@ -46,7 +45,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('kafka')
         })
@@ -57,7 +56,7 @@ describe('CyclotronJobQueue', () => {
             config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockHogFunctionManager, mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()

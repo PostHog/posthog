@@ -16,7 +16,6 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
-import { HogFunctionManagerService } from '../hog-function-manager.service'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
@@ -54,7 +53,6 @@ export class CyclotronJobQueue {
     constructor(
         private config: PluginsServerConfig,
         private queue: CyclotronJobQueueKind,
-        private hogFunctionManager: HogFunctionManagerService,
         private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
         this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE

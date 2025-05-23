@@ -23,9 +23,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
         super(hub)
         this.queue = queue
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, this.hogFunctionManager, (batch) =>
-            this.processBatch(batch)
-        )
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
