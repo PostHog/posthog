@@ -9746,7 +9746,7 @@ class LogsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: OrderBy1
+    orderBy: Optional[OrderBy1] = None
     resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
