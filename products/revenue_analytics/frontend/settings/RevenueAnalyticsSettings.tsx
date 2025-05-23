@@ -11,6 +11,7 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { BaseCurrency } from './BaseCurrency'
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
+import { GoalsConfiguration } from './GoalsConfiguration'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
@@ -89,7 +90,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             />
 
             <BaseCurrency />
-
+            <GoalsConfiguration />
             <EventConfiguration buttonRef={eventsButtonRef} />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
                 <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
