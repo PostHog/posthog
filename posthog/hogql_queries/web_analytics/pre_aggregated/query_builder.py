@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Union
 from datetime import datetime, UTC
 
 from posthog.hogql import ast
@@ -50,7 +50,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             ]
         )
 
-        filter_parts = [current_date_expr]
+        filter_parts: list[Union[ast.And, ast.CompareOperation]] = [current_date_expr]
 
         for posthog_field, table_field in self.supported_props_filters.items():
             for prop in self.runner.query.properties:
