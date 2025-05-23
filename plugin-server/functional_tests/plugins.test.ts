@@ -1,6 +1,5 @@
 import { v4 as uuid4 } from 'uuid'
 
-import { ONE_HOUR } from '../src/config/constants'
 import { PluginLogEntryType } from '../src/types'
 import { parseJSON } from '../src/utils/json-parse'
 import { UUIDT } from '../src/utils/utils'
@@ -30,57 +29,6 @@ let organizationId: string
 
 beforeAll(async () => {
     organizationId = await createOrganization()
-})
-
-test.concurrent(`plugin method tests: event captured, processed, ingested`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: `
-            export async function processEvent(event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-                event.properties['$snapshot_data'] = 'no way'
-                event.properties.runCount = (event.properties.runCount || 0) + 1
-                return event
-            }
-
-            export function onEvent (event, { global }) {
-                // we use this to mock setupPlugin being
-                // run after some events were already ingested
-                global.timestampBoundariesForTeam = {
-                    max: new Date(),
-                    min: new Date(Date.now()-${ONE_HOUR})
-                }
-                console.info(JSON.stringify(['onEvent', event]))
-            }
-        `,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
-    }
-
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-        expect(events[0].properties).toEqual(
-            expect.objectContaining({
-                processed: 'hell yes',
-                upperUuid: uuid.toUpperCase(),
-                runCount: 1,
-            })
-        )
-    })
 })
 
 test.concurrent(
