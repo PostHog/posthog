@@ -12819,6 +12819,31 @@
             "required": ["results"],
             "type": "object"
         },
+        "PersistedFolder": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
+            "type": "object"
+        },
         "PersonPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -19276,6 +19301,9 @@
                 },
                 "previous": {
                     "type": "number"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 },
                 "value": {
                     "type": "number"

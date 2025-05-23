@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -72,10 +72,14 @@ import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constan
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
-import { getDefaultMetricTitle } from './MetricsView/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
+import {
+    featureFlagEligibleForExperiment,
+    isLegacyExperiment,
+    percentageDistribution,
+    transformFiltersForWinningVariant,
+} from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -405,10 +409,6 @@ export const experimentLogic = kea<experimentLogicType>([
             sharedMetricIds,
             metadata,
         }),
-        duplicateMetric: (
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            isPrimary: boolean
-        ) => ({ metric, isPrimary }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
@@ -426,24 +426,6 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     return { ...state, ...experiment }
-                },
-                duplicateMetric: (state, { metric, isPrimary }) => {
-                    const name = metric.name
-                        ? `${metric.name} (copy)`
-                        : metric.kind === NodeKind.ExperimentMetric
-                        ? `${getDefaultMetricTitle(metric)} (copy)`
-                        : undefined
-
-                    const newMetric = { ...metric, id: undefined, name }
-                    const metricsKey = isPrimary ? 'metrics' : 'metrics_secondary'
-                    const metrics = [...state[metricsKey]]
-                    const originalIndex = metrics.findIndex((m) => m === metric)
-                    metrics.splice(originalIndex + 1, 0, newMetric)
-
-                    return {
-                        ...state,
-                        [metricsKey]: metrics,
-                    }
                 },
                 addVariant: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
@@ -848,13 +830,6 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        duplicateMetric: ({ isPrimary }) => {
-            if (isPrimary) {
-                actions.loadMetricResults()
-            } else {
-                actions.loadSecondaryMetricResults()
-            }
-        },
         createExperiment: async ({ draft, folder }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
@@ -1477,7 +1452,11 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
-                    const { experiment } = values
+                    const { experiment, usesNewQueryRunner } = values
+
+                    if (!usesNewQueryRunner) {
+                        return
+                    }
 
                     const query = {
                         kind: NodeKind.ExperimentExposureQuery,
@@ -2212,40 +2191,28 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         compatibleSharedMetrics: [
-            (s) => [s.sharedMetrics, s.shouldUseExperimentMetrics],
-            (sharedMetrics: SharedMetric[], shouldUseExperimentMetrics: boolean): SharedMetric[] => {
+            (s) => [s.sharedMetrics, s.usesNewQueryRunner],
+            (sharedMetrics: SharedMetric[], usesNewQueryRunner: boolean): SharedMetric[] => {
                 if (!sharedMetrics) {
                     return []
                 }
-                if (shouldUseExperimentMetrics) {
+                if (usesNewQueryRunner) {
                     return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
                 }
                 return sharedMetrics.filter((metric) => metric.query.kind !== NodeKind.ExperimentMetric)
             },
         ],
-        shouldUseExperimentMetrics: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
-                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
-                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
-                const hasLegacyMetrics = allMetrics.some(
-                    (query) =>
-                        query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery
-                )
-                if (hasExperimentMetrics) {
-                    return true
-                }
-                if (hasLegacyMetrics) {
-                    return false
-                }
-                return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+        usesNewQueryRunner: [
+            (s) => [s.experiment],
+            (experiment: Experiment): boolean => {
+                return !isLegacyExperiment(experiment)
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
-            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
+            (s) => [s.exposures, s.usesNewQueryRunner, s.experiment],
+            (exposures, usesNewQueryRunner, experiment): boolean => {
                 // Not relevant for old metrics
-                if (!shouldUseExperimentMetrics) {
+                if (!usesNewQueryRunner) {
                     return true
                 }
 

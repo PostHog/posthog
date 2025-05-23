@@ -1450,22 +1450,20 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_type=ExternalDataSource.Type.STRIPE,
         )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=3,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
                 status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=4,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
                 status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
@@ -1510,22 +1508,20 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_type=ExternalDataSource.Type.STRIPE,
         )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=3,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
                 status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=4,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
                 status=ExternalDataJob.Status.FAILED,
                 pipeline=source,
@@ -1570,22 +1566,20 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_type=ExternalDataSource.Type.STRIPE,
         )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=3,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
                 status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=4,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
                 status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,

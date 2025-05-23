@@ -646,7 +646,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.all().delete()
         test_path = "A/B/C"
         # Import the function to be tested.
-        from posthog.api.file_system import assure_parent_folders
+        from posthog.api.file_system.file_system import assure_parent_folders
 
         assure_parent_folders(test_path, self.team, self.user)
 

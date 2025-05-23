@@ -1538,6 +1538,18 @@ class PathsLink(BaseModel):
     value: float
 
 
+class PersistedFolder(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    id: str
+    path: str
+    protocol: str
+    type: str
+    updated_at: str
+
+
 class PersonType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3650,6 +3662,7 @@ class WebOverviewItem(BaseModel):
     key: str
     kind: WebOverviewItemKind
     previous: Optional[float] = None
+    usedPreAggregatedTables: Optional[bool] = None
     value: Optional[float] = None
 
 
