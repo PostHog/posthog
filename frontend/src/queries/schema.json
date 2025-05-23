@@ -10366,6 +10366,9 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "displayIfCrossed": {
+                    "type": "boolean"
+                },
                 "displayLabel": {
                     "type": "boolean"
                 },
@@ -16885,9 +16888,16 @@
                         "$ref": "#/definitions/RevenueAnalyticsEventItem"
                     },
                     "type": "array"
+                },
+                "goals": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGoal"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["base_currency", "events"],
+            "required": ["base_currency", "events", "goals"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -16912,6 +16922,22 @@
                 }
             },
             "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "type": "object"
+        },
+        "RevenueAnalyticsGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "due_date": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "due_date", "goal"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
