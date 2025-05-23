@@ -307,6 +307,8 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(),
         )
+        assert response is not None
+        assert response.clickhouse is not None
         assert response.clickhouse.count("toTimeZone") == 1
 
         response = execute_hogql_query(
@@ -314,4 +316,6 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )
+        assert response is not None
+        assert response.clickhouse is not None
         assert response.clickhouse.count("toTimeZone") == 0

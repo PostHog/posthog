@@ -162,9 +162,12 @@ class TestQueryDateRange(APIBaseTest):
         )
 
         # the tz shouldn't affect the actual time, should both be equal
-        self.assertEqual(query_date_range.date_to(), query_date_range_utc.date_to())
-        self.assertEqual(query_date_range.date_to().tzinfo.key, "Europe/Berlin")
-        self.assertEqual(query_date_range_utc.date_to().tzinfo.key, "UTC")
+        date_to = query_date_range.date_to()
+        date_to_utc = query_date_range_utc.date_to()
+        self.assertEqual(date_to, date_to_utc)
+        assert date_to.tzinfo != date_to_utc.tzinfo
+        self.assertEqual(date_to.tzinfo, ZoneInfo("Europe/Berlin"))
+        self.assertEqual(date_to_utc.tzinfo, ZoneInfo("UTC"))
 
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):
