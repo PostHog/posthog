@@ -28,11 +28,11 @@ class TeamRevenueAnalyticsConfig(models.Model):
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
     # that are then wrapped by schema-validation getters/setters
     _events = models.JSONField(default=list, db_column="events")
-    _goals = models.JSONField(default=list, db_column="goals")
+    _goals = models.JSONField(default=list, db_column="goals", null=True, blank=True)
 
     @property
     def events(self) -> list[RevenueAnalyticsEventItem]:
-        return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events]
+        return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events or []]
 
     @events.setter
     def events(self, value: list[dict]) -> None:
@@ -45,7 +45,7 @@ class TeamRevenueAnalyticsConfig(models.Model):
 
     @property
     def goals(self) -> list[RevenueAnalyticsGoal]:
-        return [RevenueAnalyticsGoal.model_validate(goal) for goal in self._goals]
+        return [RevenueAnalyticsGoal.model_validate(goal) for goal in self._goals or []]
 
     @goals.setter
     def goals(self, value: list[dict]) -> None:
