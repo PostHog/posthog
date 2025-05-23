@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -538,7 +539,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
                         ['data-management://', getDefaultTreeDataManagement()],
-                        ['games://', getDefaultTreeGames()],
+                        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER] ? [['games://', getDefaultTreeGames()]] : []),
                         ['new://', getDefaultTreeNew()],
                         ['shortcuts://', shortcutData],
                     ]
