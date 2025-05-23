@@ -1,10 +1,20 @@
+import json
+from typing import TypedDict
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from autoevals.llm import LLMClassifier
 
 from braintrust import Score
-from posthog.schema import AssistantMessage, AssistantToolCall
+from posthog.schema import (
+    AssistantHogQLQuery,
+    AssistantMessage,
+    AssistantToolCall,
+    NodeKind,
+    AssistantTrendsQuery,
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+)
 
 
 class ToolRelevance(ScorerWithPartial):
@@ -45,41 +55,235 @@ class ToolRelevance(ScorerWithPartial):
         return Score(name=self._name(), score=score)
 
 
+class PlanAndQueryOutput(TypedDict):
+    plan: str | None
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery | None
+
+
+class PlanCorrectness(LLMClassifier):
+    """Evaluate if the generated plan correctly answers the user's question."""
+
+    async def _run_eval_async(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+        if not output.get("plan"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan present"})
+        output = PlanAndQueryOutput(
+            plan=output.get("plan"),
+            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
+        )
+        return await super()._run_eval_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+        if not output.get("plan"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No plan present"})
+        output = PlanAndQueryOutput(
+            plan=output.get("plan"),
+            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
+        )
+        return super()._run_eval_sync(output, expected, **kwargs)
+
+    def __init__(self, query_kind: NodeKind, evaluation_criteria: str, **kwargs):
+        super().__init__(
+            name="plan_correctness",
+            prompt_template="""
+You will be given expected and actual generated plans to provide a taxonomy to answer the user's question with a {{query_kind}} insight.
+Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan.
+Do not apply general knowledge about {{query_kind}} insights.
+
+<evaluation_criteria>
+{{evaluation_criteria}}
+</evaluation_criteria>
+
+<input_vs_output>
+User question:
+<user_question>
+{{input}}
+</user_question>
+
+Expected plan:
+<expected_plan>
+{{expected.plan}}
+</expected_plan>
+
+Actual generated plan:
+<output_plan>
+{{output.plan}}
+</output_plan>
+
+</input_vs_output>
+How would you rate the correctness of the plan? Choose one:
+- perfect: The plan fully matches the expected plan and addresses the user question.
+- near_perfect: The plan mostly matches the expected plan with at most one immaterial detail missed from the user question.
+- slightly_off: The plan mostly matches the expected plan with minor discrepancies.
+- somewhat_misaligned: The plan has some correct elements but misses key aspects of the expected plan or question.
+- strongly_misaligned: The plan does not match the expected plan or fails to address the user question.
+- useless: The plan is incomprehensible.""".strip(),
+            choice_scores={
+                "perfect": 1.0,
+                "near_perfect": 0.9,
+                "slightly_off": 0.75,
+                "somewhat_misaligned": 0.5,
+                "strongly_misaligned": 0.25,
+                "useless": 0.0,
+            },
+            model="gpt-4.1",
+            query_kind=query_kind,
+            evaluation_criteria=evaluation_criteria,
+            **kwargs,
+        )
+
+
+class QueryAndPlanAlignment(LLMClassifier):
+    """Evaluate if the generated SQL query aligns with the plan generated in the previous step."""
+
+    async def _run_eval_async(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+        if not output.get("plan"):
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "No plan present in the first place, skipping evaluation"},
+            )
+        if not output.get("query"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
+        output = PlanAndQueryOutput(
+            plan=output.get("plan"),
+            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
+        )
+        return await super()._run_eval_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output: PlanAndQueryOutput, expected=None, **kwargs):
+        if not output.get("plan"):
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "No plan present in the first place, skipping evaluation"},
+            )
+        if not output.get("query"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
+        output = PlanAndQueryOutput(
+            plan=output.get("plan"),
+            query=output["query"].model_dump_json(exclude_none=True) if output.get("query") else None,  # Clean up
+        )
+        return super()._run_eval_sync(output, expected, **kwargs)
+
+    def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):
+        json_schema_str = json.dumps(json_schema)
+        if len(json_schema_str) > 100_000:
+            raise ValueError(
+                f"JSON schema of {query_kind} has blown up in size, are you sure you want to put this into an LLM? "
+                "You CAN increase this limit if you're sure"
+            )
+        super().__init__(
+            name="query_and_plan_alignment",
+            prompt_template="""
+Evaluate if the generated {{query_kind}} aligns with the query plan.
+
+Use knowledge of the {{query_kind}} schema, especially included descriptions:
+<json_schema>
+{{json_schema}}
+</json_schema>
+
+<evaluation_criteria>
+{{evaluation_criteria}}
+
+Note: It's fine to include filterTestAccounts or showLegend in the query by default.
+</evaluation_criteria>
+
+<input_vs_output>
+Original user question, only for context:
+<user_question>
+{{input}}
+</user_question>
+
+Generated query plan:
+<plan>
+{{output.plan}}
+</plan>
+
+Expected query based on the plan:
+<expected_query>
+{{expected.query}}
+</expected_query>
+
+Actual generated query:
+<output_query>
+{{output.query}}
+</output_query>
+</input_vs_output>
+
+How would you rate the alignment of the generated query with the plan? Choose one:
+- perfect: The generated query fully matches the plan.
+- near_perfect: The generated query matches the plan with at most one immaterial detail missed from the user question.
+- slightly_off: The generated query mostly matches the plan, with minor discrepancies that may slightly change the meaning of the query.
+- somewhat_misaligned: The generated query has some correct elements, but misses key aspects of the plan.
+- strongly_misaligned: The generated query does not match the plan and fails to address the user question.
+- useless: The generated query is basically incomprehensible.
+""".strip(),
+            choice_scores={
+                "perfect": 1.0,
+                "near_perfect": 0.9,
+                "slightly_off": 0.75,
+                "somewhat_misaligned": 0.5,
+                "strongly_misaligned": 0.25,
+                "useless": 0.0,
+            },
+            model="gpt-4.1",
+            query_kind=query_kind,
+            json_schema=json_schema_str,
+            evaluation_criteria=evaluation_criteria,
+            **kwargs,
+        )
+
+
 class TimeRangeRelevancy(LLMClassifier):
     """Evaluate if the generated query's time range, interval, or period correctly answers the user's question."""
 
-    def __init__(self, query_type: str, **kwargs):
-        prompt_template = f"""You will be given an original user question and the generated query (or query components) to answer that question.
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        if not output.get("query"):
+            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
+        return await super()._run_eval_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        if not output.get("query"):
+            return Score(name=self._name(), score=None, metadata={"reason": "No query to check"})
+        return super()._run_eval_sync(output, expected, **kwargs)
+
+    def __init__(self, query_kind: NodeKind, **kwargs):
+        prompt_template = """You will be given an original user question and the generated query (or query components) to answer that question.
 Your goal is to determine if the time range, interval, or period in the generated query is relevant and correct based on the user's question.
 
-User question:
-<user_question>
-{{{{input}}}}
-</user_question>
-
-Generated {query_type} query components:
-<output_query>
-{{{{output.query}}}}
-</output_query>
-
-Evaluation criteria:
+<evaluation_criteria>
 1. Explicit Time Mentions: If the user's question explicitly mentions a time range (e.g., "last 7 days", "this month", "January 2023", "before 2024-01-01"), the query MUST reflect this.
     - For "last X days/weeks/months": Check if the query uses a relative date range (e.g., -Xd, -Xw, -Xm or `now() - interval 'X day/week/month'`).
     - For "this month/year": Check if the query filters for the current month/year (e.g., `date_trunc('month', timestamp) = date_trunc('month', now())`).
     - For specific dates or months (e.g., "January 2023", "this January"): Check if the query filters for the exact date or month and year.
 2. Implicit Time Context: If the user's question implies a time context without being explicit (e.g., "recent activity", "trends over time"), the query should use a reasonable default time range (e.g., last 30 days, last 7 days) or an appropriate interval/period.
-3. Interval/Period Correctness (for Trends, Retention, SQL):
+3. Interval/Period Correctness (for Trends, Retention, HogQL):
     - Trends: If the question implies a specific granularity (e.g., "daily pageviews for the last 80 days" implies 'week' or 'day' interval, "pageviews over last five years" implies 'month' interval), the `interval` field in the query should match.
     - Retention: If the question implies a cohort period (e.g., "daily retention", "weekly cohort"), the `period` field should match (e.g., "Day", "Week").
-    - SQL: If the question implies aggregation over time periods (e.g. "average session duration by day of week"), check for appropriate time functions like `dayOfWeek` or `toStartOfWeek`.
+    - HogQL: If the question implies aggregation over time periods (e.g. "average session duration by day of week"), check for appropriate time functions like `dayOfWeek` or `toStartOfWeek`.
 4. No Time Mention: If the user's question has no discernible time component, the query can use a default time range, or no time filter if not applicable, and should not be penalized.
 5. Excessive or Missing Time Filters: Penalize if the query includes time filters that contradict the user's question or omits them when clearly needed. For SQL, check if `timestamp` or relevant date fields are used in WHERE clauses for filtering.
 
 Query type specific considerations for `output.query`:
-- SQL: `output.query` is an AssistantHogQLQuery object. The actual SQL string is in `output.query.query`.
+- HogQL: `output.query` is an AssistantHogQLQuery object. The actual SQL string is in `output.query.query`. (HogQL is a flavor of standard SQL.)
 - Trends: `output.query` is an AssistantTrendsQuery object. Check `output.query.dateRange` and `output.query.interval`.
 - Funnels: `output.query` is an AssistantFunnelsQuery object. Check `output.query.dateRange`. Funnels do not have an interval.
 - Retention: `output.query` is an AssistantRetentionQuery object. Check `output.query.dateRange` and `output.query.retentionFilter.period`.
+</evaluation_criteria>
+
+<input_vs_output>
+
+User question:
+<user_question>
+{{input}}
+</user_question>
+
+Generated {{query_kind}} query components:
+<output_query>
+{{output.query}}
+</output_query>
+
+</input_vs_output>
 
 How would you rate the time range relevancy of the generated query? Choose one:
 - perfect: The time range, interval, and/or period in the query perfectly match the user's question or a sensible default if unspecified.
@@ -103,5 +307,6 @@ How would you rate the time range relevancy of the generated query? Choose one:
                 "useless": 0.0,
             },
             model="gpt-4.1",
+            query_kind=query_kind,
             **kwargs,
         )

@@ -61,7 +61,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
             matrix = HedgeboxMatrix(
                 seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
                 days_past=120,
-                days_future=0,
+                days_future=30,
                 n_clusters=500,
                 group_type_index_offset=0,
             )

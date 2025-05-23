@@ -1,138 +1,22 @@
-import json
-from typing import TypedDict
 from ee.hogai.graph import InsightsAssistantGraph
 from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
 from braintrust import EvalCase
-from autoevals.llm import LLMClassifier
 from datetime import datetime
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
-    AssistantTrendsQuery,
-    AssistantRetentionQuery,
-    AssistantHogQLQuery,
     HumanMessage,
+    NodeKind,
     VisualizationMessage,
     AssistantFunnelsFilter,
     AssistantFunnelsExclusionEventsNode,
 )
-from .scorers import TimeRangeRelevancy
-
-
-class FunnelPlanCorrectness(LLMClassifier):
-    """Evaluate if the generated plan correctly answers the user's question."""
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="plan_correctness",
-            prompt_template="""You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a funnel insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about funnel insights.
-
-User question:
-<user_question>
-{{input}}
-</user_question>
-
-Expected plan:
-<expected_plan>
-{{expected.plan}}
-</expected_plan>
-
-Actual generated plan:
-<output_plan>
-{{output.plan}}
-</output_plan>
-
-Evaluation criteria:
-1. A plan must define at least two series in the sequence, but it is not required to define any filters, exclusion steps, or a breakdown.
-2. Compare events, properties, math types, and property values of 'expected plan' and 'output plan'. Do not penalize if the actual output does not include a timeframe unless specified in the 'expected plan'.
-3. Check if the combination of events, properties, and property values in 'output plan' can answer the user's question according to the 'expected plan'.
-4. Check if the math types in 'output plan' match those in 'expected plan.' If the aggregation type is specified by a property, user, or group in 'expected plan', the same property, user, or group must be used in 'generated plan'.
-5. If 'expected plan' contains exclusion steps, check if 'output plan' contains those, and heavily penalize if the exclusion steps are not present or different.
-6. If 'expected plan' contains a breakdown, check if 'output plan' contains a similar breakdown, and heavily penalize if the breakdown is not present or different. Plans may only have one breakdown.
-7. Heavily penalize if the 'output plan' contains any excessive output not present in the 'expected plan'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.
-
-How would you rate the correctness of the plan? Choose one:
-- perfect: The plan fully matches the expected plan and addresses the user question.
-- near_perfect: The plan mostly matches the expected plan with at most one immaterial detail missed from the user question.
-- slightly_off: The plan mostly matches the expected plan with minor discrepancies.
-- somewhat_misaligned: The plan has some correct elements but misses key aspects of the expected plan or question.
-- strongly_misaligned: The plan does not match the expected plan or fails to address the user question.
-- useless: The plan is incomprehensible.""",
-            choice_scores={
-                "perfect": 1.0,
-                "near_perfect": 0.9,
-                "slightly_off": 0.75,
-                "somewhat_misaligned": 0.5,
-                "strongly_misaligned": 0.25,
-                "useless": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-
-class FunnelQueryAndPlanAlignment(LLMClassifier):
-    """Evaluate if the generated funnel query aligns with the plan generated in the previous step."""
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="query_and_plan_alignment",
-            prompt_template="""Evaluate if the generated funnel query aligns with the query plan.
-
-Use knowledge of the FunnelQuery JSON schema, especially included descriptions:
-<funnel_schema>
-{{funnel_schema}}
-</funnel_schema>
-
-<input_vs_output>
-
-Original user question:
-<user_question>
-{{input}}
-</user_question>
-
-Generated query plan:
-<plan>
-{{output.plan}}
-</plan>
-
-Actual generated query that should be aligned with the plan:
-<output_query>
-{{output.query}}
-</output_query>
-
-</input_vs_output>
-
-How would you rate the alignment of the generated query with the plan? Choose one:
-- perfect: The generated query fully matches the plan.
-- near_perfect: The generated query matches the plan with at most one immaterial detail missed from the user question.
-- slightly_off: The generated query mostly matches the plan, with minor discrepancies that may slightly change the meaning of the query.
-- somewhat_misaligned: The generated query has some correct elements, but misses key aspects of the plan.
-- strongly_misaligned: The generated query does not match the plan and fails to address the user question.
-- useless: The generated query is basically incomprehensible.
-""",
-            choice_scores={
-                "perfect": 1.0,
-                "near_perfect": 0.9,
-                "slightly_off": 0.75,
-                "somewhat_misaligned": 0.5,
-                "strongly_misaligned": 0.25,
-                "useless": 0.0,
-            },
-            model="gpt-4.1",
-            funnel_schema=json.dumps(FUNNEL_SCHEMA),
-            **kwargs,
-        )
-
-
-class CallNodeOutput(TypedDict):
-    plan: str | None
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery | None
+from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
 
 
 @pytest.fixture
@@ -146,7 +30,7 @@ def call_node(demo_org_team_user):
         .compile()
     )
 
-    def callable(query: str) -> CallNodeOutput:
+    def callable(query: str) -> PlanAndQueryOutput:
         conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
         # Initial state for the graph
         initial_state = AssistantState(
@@ -180,14 +64,57 @@ def eval_funnel(call_node):
         experiment_name="funnel",
         task=call_node,
         scores=[
-            FunnelPlanCorrectness(),
-            FunnelQueryAndPlanAlignment(),
-            TimeRangeRelevancy(query_type="Funnels"),
+            PlanCorrectness(
+                query_kind=NodeKind.FUNNELS_QUERY,
+                evaluation_criteria="""
+1. A plan must define at least two series in the sequence, but it is not required to define any filters, exclusion steps, or a breakdown.
+2. Compare events, properties, math types, and property values of 'expected plan' and 'output plan'. Do not penalize if the actual output does not include a timeframe unless specified in the 'expected plan'.
+3. Check if the combination of events, properties, and property values in 'output plan' can answer the user's question according to the 'expected plan'.
+4. Check if the math types in 'output plan' match those in 'expected plan.' If the aggregation type is specified by a property, user, or group in 'expected plan', the same property, user, or group must be used in 'generated plan'.
+5. If 'expected plan' contains exclusion steps, check if 'output plan' contains those, and heavily penalize if the exclusion steps are not present or different.
+6. If 'expected plan' contains a breakdown, check if 'output plan' contains a similar breakdown, and heavily penalize if the breakdown is not present or different. Plans may only have one breakdown.
+7. Heavily penalize if the 'output plan' contains any excessive output not present in the 'expected plan'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.
+""",
+            ),
+            QueryAndPlanAlignment(
+                query_kind=NodeKind.FUNNELS_QUERY,
+                json_schema=FUNNEL_SCHEMA,
+                evaluation_criteria="""
+1. Series sequence: Verify that the funnel steps in the query's `series` array match the sequence order and events specified in the plan. The order must be preserved if funnel steps are set to be sequential (ordered).
+2. Event names: Ensure each funnel step uses the exact event name specified in the plan for that step position.
+3. Property filters: Check that event properties and filters from the plan are correctly implemented for each step:
+   - Property names, values, and operators must match exactly
+   - Multiple property values should be represented as arrays in the `value` field
+   - Filter types (event, person, group) must be correct
+   - Properties should be applied to the correct funnel step
+4. Math operations: Verify that math aggregations for each step match the plan (though most funnel steps use `math: null` for simple event counting).
+5. Exclusions: For exclusion steps mentioned in the plan:
+   - Exclusion events must be present in the `funnelsFilter.exclusions` array
+   - Start and end step indices (`funnelFromStep`, `funnelToStep`) must match the plan specification
+   - Exclusion event names must be exact
+6. Breakdown implementation: Verify breakdown configuration matches the plan:
+   - Breakdown property name must match exactly
+   - Breakdown type (event, person, group) must be correct
+   - Only one breakdown should be present (funnels support single breakdown only)
+7. Funnel configuration: Check core funnel settings align with typical defaults:
+   - `funnelOrderType` should typically be "ordered" unless plan specifies otherwise
+   - `funnelStepReference` should be "total" for standard conversion funnels
+   - `funnelVizType` should be "steps" for standard funnel visualization
+8. Time window: Verify funnel time window settings when specified in the plan:
+   - `funnelWindowInterval` and `funnelWindowIntervalUnit` should match plan requirements
+   - Default to reasonable values (e.g., 14 days) when not specified
+9. Aggregation: Check if group aggregation is correctly set when plan specifies group-based funnels (`aggregation_group_type_index`).
+10. Missing implementation: Heavily penalize when key plan elements are missing (e.g., missing exclusions, wrong sequence order, incorrect breakdown).
+11. Unnecessary fields: Penalize inclusion of fields not mentioned in the plan or that don't align with the funnel intent.
+12. Schema compliance: Ensure all query fields conform to the FUNNEL_SCHEMA structure and constraints.
+""",
+            ),
+            TimeRangeRelevancy(query_kind=NodeKind.FUNNELS_QUERY),
         ],
         data=[
             EvalCase(
                 input="Conversion from page view to sign up",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview
@@ -207,7 +134,6 @@ Sequence:
                             funnelVizType="steps",
                             funnelWindowInterval=14,
                             funnelWindowIntervalUnit="day",
-                            layout="vertical",
                         ),
                         series=[
                             AssistantFunnelsEventsNode(
@@ -224,7 +150,7 @@ Sequence:
             ),
             EvalCase(
                 input="what was the conversion from a page view to sign up?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview
@@ -253,7 +179,7 @@ Sequence:
             ),
             EvalCase(
                 input="What was the conversion from uploading a file to downloading it from Chrome and Safari in the last 30d?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. uploaded_file
@@ -310,7 +236,7 @@ Sequence:
             ),
             EvalCase(
                 input="What was the conversion from uploading a file to downloading it in the last 30d excluding users that invited a team member?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. uploaded_file
@@ -349,7 +275,7 @@ Exclusions:
             ),
             EvalCase(
                 input="Show a conversion from uploading a file to downloading it segmented by a browser",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. uploaded_file
@@ -382,7 +308,7 @@ Breakdown by:
             ),
             EvalCase(
                 input="What was the conversion from a sign up to a paying customer on the personal-pro plan?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. signed_up
@@ -423,7 +349,7 @@ Sequence:
             ),
             EvalCase(
                 input="What's our sign-up funnel?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview
@@ -452,7 +378,7 @@ Sequence:
             ),
             EvalCase(
                 input="what was the conversion from a page view to sign up for event time before 2024-01-01?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview
@@ -484,7 +410,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up for yesterday",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="Sequence:\\n1. $pageview\\n2. signed_up\\n\\nTime period: for yesterday",
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
@@ -509,7 +435,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up for the last 1 week",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="Sequence:\\n1. $pageview\\n2. signed_up\\n\\nTime period: for the last 1 week",
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
@@ -534,7 +460,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up for the last 1 month",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="Sequence:\\n1. $pageview\\n2. signed_up\\n\\nTime period: for the last 1 month",
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
@@ -559,7 +485,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up for the last 80 days",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="Sequence:\\n1. $pageview\\n2. signed_up\\n\\nTime period: for the last 80 days",
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
@@ -584,7 +510,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up for the last 6 months",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="Sequence:\\n1. $pageview\\n2. signed_up\\n\\nTime period: for the last 6 months",
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
@@ -609,7 +535,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up from 2020 to 2025",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="Sequence:\\n1. $pageview\\n2. signed_up\\n\\nTime period: from 2020 to 2025",
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
@@ -634,7 +560,7 @@ Granularity: day
             ),
             EvalCase(
                 input="conversion from a page view to a sign up",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview
@@ -666,7 +592,7 @@ Time interval: day
             ),
             EvalCase(
                 input="what is the conversion rate from a page view to sign up for users with name John?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview
@@ -704,7 +630,7 @@ Sequence:
             ),
             EvalCase(
                 input="what is the conversion rate from a page view to a next page view in this January?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Sequence:
 1. $pageview

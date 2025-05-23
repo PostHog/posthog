@@ -1,12 +1,9 @@
-import json
-from typing import TypedDict
 from ee.hogai.graph import InsightsAssistantGraph
 from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
 from braintrust import EvalCase
-from autoevals.llm import LLMClassifier
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import (
@@ -14,119 +11,10 @@ from posthog.schema import (
     AssistantRetentionFilter,
     AssistantRetentionEventsNode,
     HumanMessage,
+    NodeKind,
     VisualizationMessage,
 )
-from .scorers import TimeRangeRelevancy
-
-
-class RetentionPlanCorrectness(LLMClassifier):
-    """Evaluate if the generated plan correctly answers the user's question."""
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="plan_correctness",
-            prompt_template="""You will be given expected and actual generated plans to provide a taxonomy to answer a user's question with a retention insight. Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan. Do not apply general knowledge about retention insights.
-
-User question:
-<user_question>
-{{input}}
-</user_question>
-
-Expected plan:
-<expected_plan>
-{{expected.plan}}
-</expected_plan>
-
-Actual generated plan:
-<output_plan>
-{{output.plan}}
-</output_plan>
-
-Evaluation criteria:
-1. A plan must define at least a returning event, and a target event, but it is not required to define any filters or breakdowns.
-2. Compare returning events, target events, properties, and property values of 'expected plan' and 'output plan'. Do not penalize if the actual output does not include a timeframe unless specified in the 'expected plan'.
-3. Check if the combination of events, properties, and property values in 'output plan' can answer the user's question according to the 'expected plan'.
-4. If 'expected plan' contains a breakdown, check if 'output plan' contains a similar breakdown, and heavily penalize if the breakdown is not present or different.
-5. If 'expected plan' contains specific period settings (e.g., daily, weekly, monthly), check if 'output plan' contains the same period settings, and penalize if different.
-6. Heavily penalize if the 'output plan' contains any excessive output not present in the 'expected plan'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.
-
-How would you rate the correctness of the plan? Choose one:
-- perfect: The plan fully matches the expected plan and addresses the user question.
-- near_perfect: The plan mostly matches the expected plan with at most one immaterial detail missed from the user question.
-- slightly_off: The plan mostly matches the expected plan with minor discrepancies.
-- somewhat_misaligned: The plan has some correct elements but misses key aspects of the expected plan or question.
-- strongly_misaligned: The plan does not match the expected plan or fails to address the user question.
-- useless: The plan is incomprehensible.""",
-            choice_scores={
-                "perfect": 1.0,
-                "near_perfect": 0.9,
-                "slightly_off": 0.75,
-                "somewhat_misaligned": 0.5,
-                "strongly_misaligned": 0.25,
-                "useless": 0.0,
-            },
-            model="gpt-4.1",
-            **kwargs,
-        )
-
-
-class RetentionQueryAndPlanAlignment(LLMClassifier):
-    """Evaluate if the generated retention query aligns with the plan generated in the previous step."""
-
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="query_and_plan_alignment",
-            prompt_template="""Evaluate if the generated retention query aligns with the query plan.
-
-Use knowledge of the RetentionQuery JSON schema, especially included descriptions:
-<retention_schema>
-{{retention_schema}}
-</retention_schema>
-
-<input_vs_output>
-
-Original user question:
-<user_question>
-{{input}}
-</user_question>
-
-Generated query plan:
-<plan>
-{{output.plan}}
-</plan>
-
-Actual generated query that should be aligned with the plan:
-<output_query>
-{{output.query}}
-</output_query>
-
-</input_vs_output>
-
-How would you rate the alignment of the generated query with the plan? Choose one:
-- perfect: The generated query fully matches the plan.
-- near_perfect: The generated query matches the plan with at most one immaterial detail missed from the user question.
-- slightly_off: The generated query mostly matches the plan, with minor discrepancies that may slightly change the meaning of the query.
-- somewhat_misaligned: The generated query has some correct elements, but misses key aspects of the plan.
-- strongly_misaligned: The generated query does not match the plan and fails to address the user question.
-- useless: The generated query is basically incomprehensible.
-""",
-            choice_scores={
-                "perfect": 1.0,
-                "near_perfect": 0.9,
-                "slightly_off": 0.75,
-                "somewhat_misaligned": 0.5,
-                "strongly_misaligned": 0.25,
-                "useless": 0.0,
-            },
-            model="gpt-4.1",
-            retention_schema=json.dumps(RETENTION_SCHEMA),
-            **kwargs,
-        )
-
-
-class CallNodeOutput(TypedDict):
-    plan: str | None
-    query: AssistantRetentionQuery | None
+from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
 
 
 @pytest.fixture
@@ -140,7 +28,7 @@ def call_node(demo_org_team_user):
         .compile()
     )
 
-    def callable(query: str) -> CallNodeOutput:
+    def callable(query: str) -> PlanAndQueryOutput:
         conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
         # Initial state for the graph
         initial_state = AssistantState(
@@ -177,14 +65,30 @@ def eval_retention(call_node):
         experiment_name="retention",
         task=call_node,
         scores=[
-            RetentionPlanCorrectness(),
-            RetentionQueryAndPlanAlignment(),
-            TimeRangeRelevancy(query_type="Retention"),
+            PlanCorrectness(
+                query_kind=NodeKind.RETENTION_QUERY,
+                evaluation_criteria="""
+1. A plan must define at least a returning event, and a target event, but it is not required to define any filters or breakdowns.
+2. Compare returning events, target events, properties, and property values of 'expected plan' and 'output plan'. Do not penalize if the actual output does not include a timeframe unless specified in the 'expected plan'.
+3. Check if the combination of events, properties, and property values in 'output plan' can answer the user's question according to the 'expected plan'.
+4. If 'expected plan' contains a breakdown, check if 'output plan' contains a similar breakdown, and heavily penalize if the breakdown is not present or different.
+5. If 'expected plan' contains specific period settings (e.g., daily, weekly, monthly), check if 'output plan' contains the same period settings, and penalize if different.
+6. Heavily penalize if the 'output plan' contains any excessive output not present in the 'expected plan'. For example, the `is set` operator in filters should not be used unless the user explicitly asks for it.
+""".strip(),
+            ),
+            QueryAndPlanAlignment(
+                query_kind=NodeKind.RETENTION_QUERY,
+                json_schema=RETENTION_SCHEMA,
+                evaluation_criteria="""
+PLACEHOLDER
+""".strip(),
+            ),
+            TimeRangeRelevancy(query_kind=NodeKind.RETENTION_QUERY),
         ],
         data=[
             EvalCase(
                 input="Show user retention",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Returning event: $pageview
 Target event: $pageview
@@ -204,7 +108,7 @@ Period: Week
             ),
             EvalCase(
                 input="Show monthly retention for users who sign up and then come back to view a dashboard",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Returning event: signed_up
 Target event: viewed_dashboard
@@ -224,7 +128,7 @@ Period: Month
             ),
             EvalCase(
                 input="daily retention for Chrome users who sign up and then make a purchase",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Returning event: signed_up
     - property filter 1:
@@ -261,7 +165,7 @@ Period: Day
             EvalCase(
                 input="weekly retention breakdown by browser for users who sign up and then make a purchase in the last 3 months",
                 # Tricky one, as AssistantRetentionQuery doesn't support `breakdownFilter` as of 2025-05-22!
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Returning event: signed_up
 Target event: purchased
@@ -285,7 +189,7 @@ Time period: last 3 months
             ),
             EvalCase(
                 input="what's the retention for users who view the pricing page and then upgrade their plan?",
-                expected=CallNodeOutput(
+                expected=PlanAndQueryOutput(
                     plan="""
 Returning event: viewed_pricing_page
 Target event: upgraded_plan
