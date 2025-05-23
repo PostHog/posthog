@@ -39,7 +39,11 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
     }
 
     function renderPerson(record: ErrorEventType): JSX.Element {
-        return <PersonDisplay person={record.person} withIcon noPopover noLink />
+        return (
+            <div className="flex items-center">
+                <PersonDisplay person={record.person} withIcon />
+            </div>
+        )
     }
 
     function renderAttributes(record: ErrorEventType): JSX.Element {
