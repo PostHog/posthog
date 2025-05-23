@@ -10953,6 +10953,9 @@
                 },
                 "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
+                },
+                "convertToProjectTimezone": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
