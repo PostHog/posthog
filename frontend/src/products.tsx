@@ -418,7 +418,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
     { path: `Experiments`, type: 'experiment', href: urls.experiments() },
     { path: `Feature flags`, type: 'feature_flag', href: urls.featureFlags() },
     {
