@@ -1,5 +1,5 @@
-import { events, kea, path, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { kea, path, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { eventIngestionRestrictionLogicType } from './eventIngestionRestrictionLogicType'
@@ -18,7 +18,7 @@ export interface EventIngestionRestriction {
 export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogicType>([
     path(['lib', 'logic', 'eventIngestionRestrictionLogic']),
 
-    loaders(() => ({
+    lazyLoaders(() => ({
         eventIngestionRestrictions: {
             __default: [] as EventIngestionRestriction[],
             loadEventIngestionRestrictions: async () => {
@@ -45,10 +45,4 @@ export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogic
             },
         ],
     }),
-
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadEventIngestionRestrictions()
-        },
-    })),
 ])

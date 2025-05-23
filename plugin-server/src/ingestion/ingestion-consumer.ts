@@ -81,7 +81,6 @@ export class IngestionConsumer {
     protected testingTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
-
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
@@ -243,7 +242,7 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
-    public async handleKafkaBatch(messages: Message[]) {
+    public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
@@ -283,12 +282,14 @@ export class IngestionConsumer {
             }
         }
 
-        // TODO: Return this for the consumer to wait for in the background
-        logger.debug('🔁', `Waiting for promises`, { promises: this.promiseScheduler.promises.size })
-        await this.runInstrumented('awaitScheduledWork', () => {
-            return Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.promiseScheduler.waitForAll()])
-        })
-        logger.debug('🔁', `Processed batch`)
+        return {
+            backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
+                await Promise.all([
+                    this.promiseScheduler.waitForAll(),
+                    this.hogTransformer.promiseScheduler.waitForAll(),
+                ])
+            }),
+        }
     }
 
     /**
