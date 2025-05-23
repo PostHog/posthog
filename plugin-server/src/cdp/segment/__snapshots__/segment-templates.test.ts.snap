@@ -36,6 +36,13 @@ exports[`segment templates template segment-absmartly matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -356,6 +363,13 @@ exports[`segment templates template segment-accoil-analytics matches expected re
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -841,6 +855,13 @@ Last-Modified: 02.01.2024 10.30.43
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -1170,6 +1191,13 @@ Last-Modified: 06.28.2023 16.15.37
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -1435,6 +1463,13 @@ exports[`segment templates template segment-airship matches expected result 1`] 
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -1623,6 +1658,13 @@ exports[`segment templates template segment-algolia-insights matches expected re
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -2358,6 +2400,13 @@ exports[`segment templates template segment-amazon-amc matches expected result 1
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Amazon Ads DSP and AMC",
@@ -2411,6 +2460,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -4577,6 +4633,13 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -8159,6 +8222,13 @@ exports[`segment templates template segment-attentive matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -8267,6 +8337,13 @@ exports[`segment templates template segment-blend-ai matches expected result 1`]
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -8384,6 +8461,13 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -8880,6 +8964,13 @@ exports[`segment templates template segment-canny matches expected result 1`] = 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -9042,6 +9133,13 @@ exports[`segment templates template segment-canvas matches expected result 1`] =
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -9671,6 +9769,13 @@ exports[`segment templates template segment-clevertap matches expected result 1`
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -9799,6 +9904,13 @@ exports[`segment templates template segment-cloud-gwen matches expected result 1
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -9955,6 +10067,13 @@ exports[`segment templates template segment-drip matches expected result 1`] = `
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -10156,6 +10275,13 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -10865,6 +10991,13 @@ exports[`segment templates template segment-equals matches expected result 1`] =
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -10933,6 +11066,13 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -11149,6 +11289,13 @@ exports[`segment templates template segment-gainsight-px-cloud matches expected 
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -11352,6 +11499,13 @@ exports[`segment templates template segment-gameball matches expected result 1`]
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -11952,6 +12106,13 @@ exports[`segment templates template segment-heap-cloud matches expected result 1
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -12152,6 +12313,13 @@ exports[`segment templates template segment-hilo matches expected result 1`] = `
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -12569,6 +12737,13 @@ exports[`segment templates template segment-hyperengage matches expected result 
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -13284,6 +13459,13 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -13956,6 +14138,13 @@ exports[`segment templates template segment-insider-cloud matches expected resul
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -14205,6 +14394,13 @@ exports[`segment templates template segment-iqm matches expected result 1`] = `
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -14292,6 +14488,13 @@ exports[`segment templates template segment-iterable matches expected result 1`]
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -14691,6 +14894,13 @@ exports[`segment templates template segment-iterable-lists matches expected resu
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Iterable Lists",
@@ -14725,6 +14935,13 @@ exports[`segment templates template segment-kameleoon matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -15182,6 +15399,13 @@ exports[`segment templates template segment-koala-cloud matches expected result 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -15410,6 +15634,13 @@ exports[`segment templates template segment-launchdarkly matches expected result
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -15620,6 +15851,13 @@ exports[`segment templates template segment-launchpad matches expected result 1`
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -16146,6 +16384,13 @@ exports[`segment templates template segment-livelike-cloud matches expected resu
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -16506,6 +16751,13 @@ exports[`segment templates template segment-m3ter matches expected result 1`] = 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -16710,6 +16962,13 @@ exports[`segment templates template segment-marketo-static-lists matches expecte
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Marketo Static Lists",
@@ -16735,6 +16994,13 @@ exports[`segment templates template segment-metronome-actions matches expected r
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -16900,6 +17166,13 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -18901,6 +19174,13 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -20834,6 +21114,13 @@ exports[`segment templates template segment-movable-ink matches expected result 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -20934,6 +21221,13 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
       "required": true,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -21865,6 +22159,13 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -22215,6 +22516,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -24495,6 +24803,13 @@ exports[`segment templates template segment-pipedrive matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -24918,6 +25233,13 @@ exports[`segment templates template segment-playerzero-cloud matches expected re
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -25019,6 +25341,13 @@ exports[`segment templates template segment-podscribe matches expected result 1`
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -25404,6 +25733,13 @@ exports[`segment templates template segment-prodeology matches expected result 1
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -25798,6 +26134,13 @@ exports[`segment templates template segment-pushwoosh matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -26131,6 +26474,13 @@ exports[`segment templates template segment-recombee matches expected result 1`]
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -27302,6 +27652,13 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -27603,6 +27960,13 @@ exports[`segment templates template segment-ripe-cloud matches expected result 1
       "required": false,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -28078,6 +28442,13 @@ exports[`segment templates template segment-s3-csv matches expected result 1`] =
       "secret": true,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "AWS S3 CSV",
@@ -28122,6 +28493,13 @@ exports[`segment templates template segment-saleswings matches expected result 1
       "required": true,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -28606,6 +28984,13 @@ exports[`segment templates template segment-schematic matches expected result 1`
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -28809,6 +29194,13 @@ exports[`segment templates template segment-sprig matches expected result 1`] = 
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -29006,6 +29398,13 @@ exports[`segment templates template segment-stackadapt-cloud matches expected re
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -29244,6 +29643,13 @@ exports[`segment templates template segment-taboola-actions matches expected res
       "secret": false,
       "type": "choice",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [],
   "name": "Taboola",
@@ -29269,6 +29675,13 @@ exports[`segment templates template segment-toplyne-cloud matches expected resul
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -29512,6 +29925,13 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
       "required": true,
       "secret": true,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -29934,6 +30354,13 @@ exports[`segment templates template segment-usermaven matches expected result 1`
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -30854,6 +31281,13 @@ exports[`segment templates template segment-usermotion matches expected result 1
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -31106,6 +31540,13 @@ exports[`segment templates template segment-userpilot-cloud matches expected res
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -31330,6 +31771,13 @@ exports[`segment templates template segment-voucherify-actions matches expected 
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -31853,6 +32301,13 @@ exports[`segment templates template segment-voyage matches expected result 1`] =
       "secret": false,
       "type": "string",
     },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
+    },
   ],
   "mapping_templates": [
     {
@@ -32097,6 +32552,13 @@ exports[`segment templates template segment-vwo-cloud matches expected result 1`
       "required": false,
       "secret": false,
       "type": "choice",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
@@ -32472,6 +32934,13 @@ exports[`segment templates template segment-xtremepush matches expected result 1
       "required": true,
       "secret": false,
       "type": "string",
+    },
+    {
+      "default": false,
+      "description": "Will log configuration and request details",
+      "key": "debug_mode",
+      "label": "Debug Mode",
+      "type": "boolean",
     },
   ],
   "mapping_templates": [
