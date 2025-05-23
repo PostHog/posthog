@@ -1,7 +1,7 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { FetchExecutorService } from '../services/fetch-executor.service'
-import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { filterExists } from '../utils'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -14,7 +14,7 @@ export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
         this.fetchExecutor = new FetchExecutorService(this.hub)
     }
 
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         // Plugins fire fetch requests and so need to be run in true parallel
         logger.info(`Processing ${invocations.length} fetch invocations`)
         return (

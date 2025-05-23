@@ -34,7 +34,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     // TODO: Move this to an abstract function??
-    private async loadHogFunctions(
+    protected async loadHogFunctions(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
         const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
@@ -72,6 +72,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             async () => await this.processInvocations(invocations)
         )
 
+        // Check if the result is of type CyclotronJobInvocationHogFunction
+        // TODO: Abstract this out to some helpers
+        const isHogFunctionResult = (
+            result: CyclotronJobInvocationResult
+        ): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+            return 'hogFunction' in result.invocation
+        }
+
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
         const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
             // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
@@ -81,7 +89,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     logger.error('Error processing invocation results', { err })
                 }),
 
-                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                this.hogWatcher.observeResults(invocationResults.filter(isHogFunctionResult)).catch((err) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
                 }),

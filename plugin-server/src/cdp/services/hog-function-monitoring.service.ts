@@ -7,7 +7,7 @@ import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow } from '../../utils/utils'
-import { AppMetricType, HogFunctionInvocationResult, LogEntry, LogEntrySerialized, MinimalAppMetric } from '../types'
+import { AppMetricType, CyclotronJobInvocationResult, LogEntry, LogEntrySerialized, MinimalAppMetric } from '../types'
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
@@ -94,7 +94,7 @@ export class HogFunctionMonitoringService {
         })
     }
 
-    async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
+    async processInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
@@ -103,7 +103,7 @@ export class HogFunctionMonitoringService {
                         if (result.finished || result.error) {
                             this.produceAppMetric({
                                 team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.hogFunction.id,
+                                app_source_id: result.invocation.functionId,
                                 metric_kind: result.error ? 'failure' : 'success',
                                 metric_name: result.error ? 'failed' : 'succeeded',
                                 count: 1,
@@ -113,9 +113,9 @@ export class HogFunctionMonitoringService {
                         this.produceLogs(
                             result.logs.map((logEntry) => ({
                                 ...logEntry,
-                                team_id: result.invocation.hogFunction.team_id,
+                                team_id: result.invocation.teamId,
                                 log_source: 'hog_function',
-                                log_source_id: result.invocation.hogFunction.id,
+                                log_source_id: result.invocation.functionId,
                                 instance_id: result.invocation.id,
                             }))
                         )

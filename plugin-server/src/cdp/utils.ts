@@ -11,6 +11,7 @@ import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/ut
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
+    CyclotronJobInvocation,
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
@@ -344,13 +345,13 @@ export function createInvocation(
  * Clones an invocation, removing all queue related values
  */
 export function cloneInvocation(
-    invocation: HogFunctionInvocation,
+    invocation: CyclotronJobInvocation,
     params: Pick<
-        Partial<HogFunctionInvocation>,
+        Partial<CyclotronJobInvocation>,
         'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
     > &
-        Pick<HogFunctionInvocation, 'queue'>
-): HogFunctionInvocation {
+        Pick<CyclotronJobInvocation, 'queue'>
+): CyclotronJobInvocation {
     return {
         ...invocation,
         queueMetadata: params.queueMetadata ?? undefined,
