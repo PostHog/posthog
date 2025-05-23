@@ -1,0 +1,48 @@
+name: Validate query versions
+
+on:
+    pull_request: # run on every PR
+    workflow_dispatch: # allow manual runs from the UI
+
+jobs:
+    validate:
+        runs-on: ubuntu-latest
+
+        # `GITHUB_TOKEN` can write PR comments only if we request the perms explicitly
+        permissions:
+            contents: read
+            pull-requests: write
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: '3.11.9'
+
+            - name: Run validation script
+              id: run
+              # `tee` lets us see the output live *and* save it to a file
+              run: |
+                  python bin/validate-query-versions.py | tee validation_output.txt
+
+            - name: Upload validation output
+              id: upload
+              uses: actions/upload-artifact@v4
+              with:
+                  name: validation-query-versions
+                  path: validation_output.txt
+                  retention-days: 14 # keep for two weeks
+
+            - name: Comment with artifact link
+              if: github.event_name == 'pull_request'
+              uses: peter-evans/create-or-update-comment@v4
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  issue-number: ${{ github.event.pull_request.number }}
+                  body: |
+                      ### 🔍 Query-version validation results
+                      The full output of `python bin/validate-query-versions.py` \
+                      is available as an artifact → \
+                      [Download](${{ steps.upload.outputs.artifact-url }})
