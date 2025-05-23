@@ -410,6 +410,12 @@ class UserViewSet(
 
         return super().get_object()
 
+    def get_authenticators(self):
+        if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
+            return [SessionAuthentication()]
+
+        return super().get_authenticators()
+
     def get_queryset(self):
         queryset = super().get_queryset()
         if not self.request.user.is_staff:

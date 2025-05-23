@@ -5164,6 +5164,9 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -6372,6 +6375,9 @@
                                 "types": {
                                     "items": {},
                                     "type": "array"
+                                },
+                                "usedPreAggregatedTables": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -8802,8 +8808,23 @@
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
+                "end_date": {
+                    "type": ["string", "null"]
+                },
                 "experiment_id": {
                     "$ref": "#/definitions/integer"
+                },
+                "experiment_name": {
+                    "type": "string"
+                },
+                "exposure_criteria": {
+                    "$ref": "#/definitions/ExperimentExposureCriteria"
+                },
+                "feature_flag": {
+                    "type": "object"
+                },
+                "holdout": {
+                    "$ref": "#/definitions/ExperimentHoldoutType"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -8815,9 +8836,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentExposureQueryResponse"
+                },
+                "start_date": {
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["end_date", "experiment_name", "feature_flag", "kind", "start_date"],
             "type": "object"
         },
         "ExperimentExposureQueryResponse": {
@@ -9017,6 +9041,41 @@
                 "expected_loss",
                 "credible_intervals"
             ],
+            "type": "object"
+        },
+        "ExperimentHoldoutType": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": ["string", "null"]
+                },
+                "created_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/UserBasicType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "filters": {
+                    "type": "object"
+                },
+                "id": {
+                    "type": ["number", "null"]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
             "type": "object"
         },
         "ExperimentMeanMetric": {
@@ -10481,6 +10540,10 @@
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
         },
+        "HedgehogColorOptions": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+            "type": "string"
+        },
         "HogCompileResponse": {
             "additionalProperties": false,
             "properties": {
@@ -10834,6 +10897,9 @@
                     "type": "array"
                 },
                 "debug": {
+                    "type": "boolean"
+                },
+                "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },
                 "inCohortVia": {
@@ -12345,6 +12411,32 @@
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 }
             ]
+        },
+        "MinimalHedgehogConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "accessories": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogColorOptions"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "use_as_profile": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
         },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
@@ -13998,6 +14090,9 @@
                         "types": {
                             "items": {},
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -14652,6 +14747,9 @@
                         "types": {
                             "items": {},
                             "type": "array"
+                        },
+                        "usedPreAggregatedTables": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -15916,6 +16014,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLAutocomplete"
+                },
+                {
+                    "$ref": "#/definitions/HogQLASTQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
@@ -18667,6 +18768,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "UserBasicType": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "hedgehog_config": {
+                    "$ref": "#/definitions/MinimalHedgehogConfig"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "is_email_verified": {},
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
+            "type": "object"
+        },
         "VectorSearchQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19147,6 +19277,9 @@
                 "previous": {
                     "type": "number"
                 },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
+                },
                 "value": {
                     "type": "number"
                 }
@@ -19541,6 +19674,9 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

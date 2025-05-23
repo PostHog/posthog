@@ -464,6 +464,16 @@ def property_to_expr(
             "$exception_functions",
         ]
 
+        if is_string_array_property:
+            # if materialized these columns will be strings so we need to extract them
+            extracted_field = ast.Call(
+                name="JSONExtract",
+                args=[
+                    ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                    ast.Constant(value="Array(String)"),
+                ],
+            )
+
         if isinstance(value, list):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -492,7 +502,7 @@ def property_to_expr(
                             "arrayExists(v -> {expr}, {key})",
                             {
                                 "expr": expr,
-                                "key": field,
+                                "key": extracted_field,
                             },
                         )
                     else:
@@ -533,7 +543,7 @@ def property_to_expr(
         if is_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
-                {"expr": expr, "key": field},
+                {"expr": expr, "key": extracted_field},
             )
         else:
             return expr

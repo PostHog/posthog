@@ -8,6 +8,7 @@ import React, {
     useContext,
     useEffect,
     useRef,
+    useState,
 } from 'react'
 
 interface ListBoxContextType {
@@ -20,6 +21,9 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     className?: string
     focusedElement?: HTMLElement | null
+    // If true, the listbox will use virtual focus instead of the default browser focus
+    // Useful for when you need to keep focus, but allow keyboard navigation in lists
+    virtualFocus?: boolean
     onFinishedKeyDown?: ({
         e,
         activeElement,
@@ -38,16 +42,23 @@ export const ListBox = ({
     className,
     onFinishedKeyDown,
     focusedElement,
+    virtualFocus = false,
     ...props
 }: ListBoxProps): JSX.Element => {
     const containerRef = useRef<HTMLDivElement>(null)
     const focusableElements = useRef<HTMLElement[]>([])
+    const [virtualFocusedElement, setVirtualFocusedElement] = useState<HTMLElement | null>(null)
 
     /** Fetches all valid focusable elements inside ListBox */
     function recalculateFocusableElements(): void {
         focusableElements.current = Array.from(
             containerRef.current?.querySelectorAll<HTMLElement>('[data-listbox-item]') || []
-        ).filter((el) => !(el.hidden || window.getComputedStyle(el).display === 'none'))
+        ).filter(
+            (el) =>
+                !(el.hidden || window.getComputedStyle(el).display === 'none') &&
+                el.getAttribute('aria-disabled') !== 'true' &&
+                el.getAttribute('data-virtual-focus-ignore') !== 'true'
+        )
     }
 
     /** Handle Arrow navigation */
@@ -58,18 +69,35 @@ export const ListBox = ({
             return
         }
 
-        const activeElement = document.activeElement as HTMLElement
+        const activeElement = virtualFocus
+            ? (virtualFocusedElement as HTMLElement)
+            : (document.activeElement as HTMLElement)
         const currentIndex = elements.indexOf(activeElement)
         let nextIndex = currentIndex
+
+        // If virtual focus is enabled, remove the data-focused attribute from all elements
+        if (virtualFocus) {
+            elements.forEach((el) => el.removeAttribute('data-focused'))
+        }
 
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
             nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
-            elements[nextIndex]?.focus()
+            if (virtualFocus) {
+                setVirtualFocusedElement(elements[nextIndex])
+                elements[nextIndex]?.setAttribute('data-focused', 'true')
+            } else {
+                elements[nextIndex]?.focus()
+            }
         } else if (e.key === 'Home' || e.key === 'End') {
             e.preventDefault()
             nextIndex = e.key === 'Home' ? 0 : elements.length - 1
-            elements[nextIndex]?.focus()
+            if (virtualFocus) {
+                setVirtualFocusedElement(elements[nextIndex])
+                elements[nextIndex]?.setAttribute('data-focused', 'true')
+            } else {
+                elements[nextIndex]?.focus()
+            }
         }
 
         if (e.key === 'Enter') {
@@ -115,10 +143,11 @@ ListBox.displayName = 'ListBox'
 interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> {
     children: ReactNode
     asChild?: boolean
+    virtualFocusIgnore?: boolean
 }
 
 ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    ({ children, asChild, onClick, ...props }, ref): JSX.Element => {
+    ({ children, asChild, onClick, virtualFocusIgnore, ...props }, ref): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -161,6 +190,7 @@ ListBox.Item = forwardRef<HTMLLIElement, ListBoxItemProps>(
             onFocus: handleFocus,
             onBlur: handleBlur,
             ref,
+            ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
             ...props,
         }
 
