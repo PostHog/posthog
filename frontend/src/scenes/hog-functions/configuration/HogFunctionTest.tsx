@@ -479,7 +479,7 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                                                     }}
                                                 >
                                                     You are using an example event at the moment. Click this button to
-                                                    fetch an actual event that would match your trigger options.
+                                                    fetch an actual event that would match your filters.
                                                 </LemonBanner>
                                             ) : null}
                                             <div className="deprecated-space-y-2">
