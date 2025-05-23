@@ -61,11 +61,10 @@ How would you rate the memory content? Choose one:
 
 
 @pytest.fixture
-def call_node(demo_org_team_user):
+def call_node(demo_org_team_user, core_memory):
     graph = (
         AssistantGraph(demo_org_team_user[1])
-        .add_memory_collector(AssistantNodeName.END)
-        .add_memory_collector_tools()
+        .add_memory_collector(AssistantNodeName.END, AssistantNodeName.END)
         .compile()
     )
 
