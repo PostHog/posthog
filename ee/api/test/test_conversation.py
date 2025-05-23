@@ -2,6 +2,7 @@ import datetime
 import uuid
 from unittest.mock import patch
 from freezegun import freeze_time
+from django.core.cache import cache
 
 from django.utils import timezone
 from rest_framework import status
@@ -24,6 +25,13 @@ class TestConversation(APIBaseTest):
             password="password",
             first_name="Other",
         )
+        # Clear cache to reset rate limits
+        cache.clear()
+
+    def tearDown(self):
+        super().tearDown()
+        # Clear cache after test
+        cache.clear()
 
     def _get_streaming_content(self, response):
         return b"".join(response.streaming_content)
@@ -363,27 +371,47 @@ class TestConversation(APIBaseTest):
 
         # Test free user throttling
         with patch.object(Assistant, "_stream", return_value=["test response"]):
-            # Should hit sustained limit (20/day)
-            for _ in range(21):
-                with freeze_time(base_time + datetime.timedelta(minutes=2 + _)):
+            # First test sustained limit (20/day)
+            for i in range(20):
+                with freeze_time(base_time + datetime.timedelta(minutes=2 + i)):
                     response = self.client.post(
                         f"/api/environments/{self.team.id}/conversations/",
                         {"content": "test query", "trace_id": str(uuid.uuid4())},
                     )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Should hit sustained limit
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
+            )
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # reset the throttling
+        # Clear rate limits again
+        cache.delete(f"throttle_ai_burst_{self.user.id}")
+        cache.delete(f"throttle_ai_sustained_{self.user.id}")
 
         # Test paid user throttling
         with patch.object(Assistant, "_stream", return_value=["test response"]):
-            # Mock paid user
-            with patch.object(OrganizationMembership.objects, "get") as mock_get:
-                mock_membership = mock_get.return_value
-                mock_membership.enabled_seat_based_products = [OrganizationMembership.SeatBasedProduct.MAX_AI]
+            membership, _ = OrganizationMembership.objects.get_or_create(
+                user=self.user,
+                organization=self.team.organization,
+            )
+            membership.enabled_seat_based_products = [OrganizationMembership.SeatBasedProduct.MAX_AI]
+            membership.save()
+            # Now test sustained limit (100/day)
+            for i in range(100):
+                with freeze_time(base_time + datetime.timedelta(minutes=2 + i)):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {"content": "test query", "trace_id": str(uuid.uuid4())},
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-                # Should hit sustained limit (100/day)
-                for _ in range(101):
-                    with freeze_time(base_time + datetime.timedelta(minutes=2 + _)):
-                        response = self.client.post(
-                            f"/api/environments/{self.team.id}/conversations/",
-                            {"content": "test query", "trace_id": str(uuid.uuid4())},
-                        )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            # Should hit sustained limit
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
