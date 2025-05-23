@@ -2598,7 +2598,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             },
             name="cohort_X",
         )
-        cohort_extra.calculate_people_ch(pending_version=1)
 
         action1 = Action.objects.create(
             team=self.team,
@@ -2727,6 +2726,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             timestamp=datetime.now() - timedelta(days=2),
         )
         flush_persons_and_events()
+
+        cohort_extra.calculate_people_ch(pending_version=1)
 
         # now call to make cohort
         response = self.client.post(
