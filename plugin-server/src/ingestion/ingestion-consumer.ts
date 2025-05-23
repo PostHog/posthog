@@ -246,12 +246,10 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
-        // Resolve teams for all messages in batch
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(parsedMessages)
         })
 
-        // Group messages by token and distinct_id
         const groupedMessages = this.groupEventsByDistinctId(eventsWithTeams)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
@@ -572,20 +570,20 @@ export class IngestionConsumer {
     }
 
     private async resolveTeams(messages: IncomingEvent[]): Promise<IncomingEventWithTeam[]> {
-        const resolvedMessaged: IncomingEventWithTeam[] = []
+        const resolvedMessages: IncomingEventWithTeam[] = []
         for (const { event, message } of messages) {
             const result = await populateTeamDataStep(this.hub, event)
             if (!result) {
                 continue
             }
-            resolvedMessaged.push({
+            resolvedMessages.push({
                 event: result.eventWithTeam,
                 team: result.team,
                 message,
                 token: result.token,
             })
         }
-        return resolvedMessaged
+        return resolvedMessages
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
