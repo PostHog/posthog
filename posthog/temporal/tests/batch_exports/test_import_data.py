@@ -77,7 +77,7 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
 
         mock_postgres_source.assert_called_once_with(
             host="host.com",
-            port="5432",
+            port=5432,
             user="Username",
             password="password",
             database="database",
@@ -114,7 +114,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
 
         mock_postgres_source.assert_called_once_with(
             host="host.com",
-            port="5432",
+            port=5432,
             user="Username",
             password="password",
             database="database",
@@ -154,7 +154,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
 
         mock_postgres_source.assert_called_once_with(
             host="host.com",
-            port="5432",
+            port=5432,
             user="Username",
             password="password",
             database="database",
