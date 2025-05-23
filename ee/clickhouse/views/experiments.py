@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.db import transaction
+
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -7,13 +9,16 @@ from rest_framework.response import Response
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_saved_metrics import (
+    ExperimentSavedMetricSerializer,
+    ExperimentToSavedMetricSerializer,
+)
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.schema import ExperimentEventExposureConfig
@@ -517,3 +522,41 @@ class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def duplicate_shared_metric(self, request, *args, **kwargs):
+        experiment = self.get_object()
+        shared_metric_id = request.data.get("shared_metric_id")
+        metadata = request.data.get("metadata")
+
+        if not shared_metric_id:
+            return Response({"detail": "shared_metric_id is required"}, status=400)
+
+        try:
+            with transaction.atomic():
+                shared_metric = ExperimentSavedMetric.objects.get(id=shared_metric_id, team=self.team)
+
+                # Verify the shared metric is already part of the experiment
+                if not ExperimentToSavedMetric.objects.filter(
+                    experiment=experiment, saved_metric=shared_metric
+                ).exists():
+                    return Response({"detail": "Shared metric is not part of this experiment"}, status=400)
+
+                # Create a new saved metric based on he existing one
+                new_shared_metric = ExperimentSavedMetric.objects.create(
+                    name=f"{shared_metric.name} (copy)",
+                    description=shared_metric.description,
+                    query=shared_metric.query,
+                    team=self.team,
+                    created_by=request.user,
+                )
+
+                # Add the new shared metric to the experiment
+                ExperimentToSavedMetric.objects.create(
+                    experiment=experiment, saved_metric=new_shared_metric, metadata=metadata
+                )
+
+                return Response(ExperimentSavedMetricSerializer(new_shared_metric).data, status=201)
+
+        except ExperimentSavedMetric.DoesNotExist:
+            return Response({"detail": "Shared metric not found"}, status=400)
