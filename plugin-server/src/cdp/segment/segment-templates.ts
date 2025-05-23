@@ -395,7 +395,16 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 description: `Send event data to ${name}`,
                 icon_url: `/api/environments/@current/hog_functions/icon/?id=${destination.slug?.split('-')[1]}.com`,
                 category: [],
-                inputs_schema: translateInputsSchema(destination.authentication?.fields),
+                inputs_schema: [
+                    ...translateInputsSchema(destination.authentication?.fields),
+                    {
+                        key: 'debug_mode',
+                        label: 'Debug Mode',
+                        type: 'boolean',
+                        description: 'Will log configuration and request details',
+                        default: false,
+                    },
+                ],
                 hog: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)

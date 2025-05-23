@@ -127,7 +127,10 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.globals.inputs
-            addLog('debug', 'config', config)
+
+            if (config.debug_mode) {
+                addLog('debug', 'config', config)
+            }
 
             try {
                 const action = segmentDestination.destination.actions[config.internal_partner_action]
@@ -139,19 +142,27 @@ export class SegmentDestinationExecutorService {
                 await action.perform(
                     // @ts-expect-error can't figure out unknown extends Data
                     async (endpoint, options) => {
-                        addLog('debug', 'endpoint', endpoint)
-                        addLog('debug', 'options', options)
+                        if (config.debug_mode) {
+                            addLog('debug', 'endpoint', endpoint)
+                        }
+                        if (config.debug_mode) {
+                            addLog('debug', 'options', options)
+                        }
                         const requestExtension = segmentDestination.destination.extendRequest?.({
                             settings: config,
                             auth: config as any,
                             payload: config,
                         })
-                        addLog('debug', 'requestExtension', requestExtension)
+                        if (config.debug_mode) {
+                            addLog('debug', 'requestExtension', requestExtension)
+                        }
                         const headers: Record<string, string> = {
                             ...options?.headers,
                             ...requestExtension?.headers,
                         }
-                        addLog('debug', 'headers', headers)
+                        if (config.debug_mode) {
+                            addLog('debug', 'headers', headers)
+                        }
 
                         let body: string | undefined = undefined
                         if (options?.json) {
@@ -222,19 +233,23 @@ export class SegmentDestinationExecutorService {
                             endpoint: endpoint + '?' + params.toString(),
                         }
 
-                        addLog('debug', 'fetchOptions', fetchOptions)
+                        if (config.debug_mode) {
+                            addLog('debug', 'fetchOptions', fetchOptions)
+                        }
                         const fetchResponse = await this.fetch(
                             `${endpoint}${params.toString() ? '?' + params.toString() : ''}`,
                             fetchOptions
                         )
                         const convertedResponse = await convertFetchResponse(fetchResponse)
-                        addLog(
-                            'debug',
-                            'convertedResponse',
-                            convertedResponse.data,
-                            convertedResponse.content,
-                            convertedResponse.body
-                        )
+                        if (config.debug_mode) {
+                            addLog(
+                                'debug',
+                                'convertedResponse',
+                                convertedResponse.data,
+                                convertedResponse.content,
+                                convertedResponse.body
+                            )
+                        }
                         return convertedResponse
                     },
                     {
