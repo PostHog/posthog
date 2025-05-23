@@ -163,5 +163,5 @@ class LogsQueryRunner(QueryRunner):
             interval=interval_type,
             interval_count=int(interval_count),
             now=dt.datetime.now(),
-            timezone=ZoneInfo("UTC"),
+            timezone_info=ZoneInfo("UTC"),
         )
