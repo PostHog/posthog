@@ -2907,6 +2907,7 @@ class HogQLQueryModifiers(BaseModel):
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
+    convertToProjectTimezone: bool = True
 
 
 class HogQuery(BaseModel):
