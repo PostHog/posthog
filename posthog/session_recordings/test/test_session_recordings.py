@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+import re
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import ANY, MagicMock, call, patch
@@ -892,6 +893,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
 
         # default headers if the object store does nothing
+        headers = response.headers.__dict__
+        server_timing_headers = headers.pop("server-timing")
+        assert re.match(r"get_recording;dur=\d+\.\d+, stream_blob_to_client;dur=\d+\.\d+", server_timing_headers)
         assert response.headers.__dict__ == {
             "_store": {
                 "content-type": ("Content-Type", "application/json"),
