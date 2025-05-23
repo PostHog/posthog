@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
+from rest_framework import filters, request, response, serializers, status, viewsets
 from posthog.api.utils import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -94,14 +94,6 @@ class TableSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         team_id = self.context["team_id"]
 
-        table_name_exists = (
-            DataWarehouseTable.objects.exclude(deleted=True)
-            .filter(team_id=team_id, name=validated_data["name"])
-            .exists()
-        )
-        if table_name_exists:
-            raise exceptions.ValidationError("Table name already exists.")
-
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
         if validated_data.get("credential"):
@@ -120,6 +112,13 @@ class TableSerializer(serializers.ModelSerializer):
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
+
+    def validate_name(self, name):
+        name_exists_in_hogql_database = self.context["database"].has_table(name)
+        if name_exists_in_hogql_database:
+            raise serializers.ValidationError("A table with this name already exists.")
+
+        return name
 
 
 class SimpleTableSerializer(serializers.ModelSerializer):

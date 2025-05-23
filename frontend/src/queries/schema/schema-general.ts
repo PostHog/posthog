@@ -15,6 +15,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentHoldoutType,
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
@@ -303,6 +304,7 @@ export interface HogQLQueryModifiers {
     customChannelTypeRules?: CustomChannelRule[]
     usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
+    formatCsvAllowDoubleQuotes?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1669,6 +1671,7 @@ export interface WebOverviewItem {
     kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
+    usedPreAggregatedTables?: boolean
 }
 
 export interface SamplingRate {
@@ -2043,6 +2046,15 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
 }
 
+export interface PersistedFolder {
+    id: string
+    type: string
+    protocol: string
+    path: string
+    created_at: string
+    updated_at: string
+}
+
 export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery
@@ -2194,6 +2206,13 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
     kind: NodeKind.ExperimentExposureQuery
     experiment_id?: integer
+    experiment_name: string
+    exposure_criteria?: ExperimentExposureCriteria
+    // Generic type as FeatureFlagBasicType is recursive and the schema:build breaks
+    feature_flag: Record<string, any>
+    start_date: string | null
+    end_date: string | null
+    holdout?: ExperimentHoldoutType
 }
 
 export interface ExperimentQueryResponse {
