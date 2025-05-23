@@ -193,7 +193,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }
 
                 const dataWarehouseSourceIds = rawRevenueSources.dataWarehouseSources.map((source) => source.id)
-                const eventNames = rawRevenueSources.events.map((e) => e.eventName.replace(/[^a-zA-Z0-9]/g, '_'))
+                const eventNames = rawRevenueSources.events.map((e) => e.eventName.replace(/[^a-zA-Z0-9]/g, '_')) // Sanitizing event names to ensure they're valid as database identifiers - matches transformation in backend/views.py
 
                 return managedViews
                     .filter((view) => view.kind === DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE)
