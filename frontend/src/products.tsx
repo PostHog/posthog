@@ -418,13 +418,9 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
-    { path: 'Broadcasts', href: urls.messagingBroadcasts(), type: 'hog_function/broadcast' },
-    { path: 'Campaigns', href: urls.messagingCampaigns(), type: 'hog_function/campaign' },
     { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
-    { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
     { path: `Experiments`, type: 'experiment', href: urls.experiments() },
     { path: `Feature flags`, type: 'feature_flag', href: urls.featureFlags() },
-    { path: 'Group analytics', iconType: 'cohort', href: urls.groups(0) },
     {
         path: 'LLM observability',
         iconType: 'ai',
@@ -433,7 +429,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     { path: 'Links', type: 'link', href: urls.links(), flag: FEATURE_FLAGS.LINKS },
     { path: 'Logs', iconType: 'live', href: urls.logs(), flag: FEATURE_FLAGS.LOGS },
-    { path: 'Persons', iconType: 'cohort', href: urls.persons() },
     { path: 'Product analytics', type: 'insight', href: urls.insights() },
     { path: 'Revenue analytics', iconType: 'piggyBank', href: urls.revenueAnalytics() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },

@@ -1,8 +1,8 @@
 import {
     IconAI,
+    IconApp,
     IconBook,
     IconChevronRight,
-    IconCursorClick,
     IconDatabase,
     IconHandMoney,
     IconLive,
@@ -25,7 +25,7 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-import { ActivityTab, PipelineStage } from '~/types'
+import { PipelineStage } from '~/types'
 
 const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string] }> = {
     ai: {
@@ -33,7 +33,8 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string
         iconColor: ['var(--product-max-ai-primary)', 'var(--product-max-ai-primary)'],
     },
     cursorClick: {
-        icon: <IconCursorClick />,
+        icon: <IconApp />,
+        iconColor: ['var(--product-heatmaps-primary)', 'var(--product-heatmaps-primary)'],
     },
     database: {
         icon: <IconDatabase />,
@@ -47,6 +48,7 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string
     },
     live: {
         icon: <IconLive />,
+        iconColor: ['var(--product-logs-primary)', 'var(--product-logs-primary)'],
     },
     notification: {
         icon: <IconNotification />,
@@ -222,11 +224,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             path: 'Data warehouse',
             iconType: 'database',
             href: urls.sqlEditor(),
-        },
-        {
-            path: 'Live events',
-            iconType: 'live',
-            href: urls.activity(ActivityTab.LiveEvents),
         },
         {
             path: 'Error tracking',

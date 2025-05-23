@@ -46,13 +46,7 @@ export const manifest: ProductManifest = {
             href: urls.earlyAccessFeature('new'),
         },
     ],
-    treeItemsProducts: [
-        {
-            path: 'Early access features',
-            type: 'early_access_feature',
-            href: urls.earlyAccessFeatures(),
-        },
-    ],
+    treeItemsProducts: [],
     fileSystemFilterTypes: {
         early_access_feature: { name: 'Early access features' },
     },
