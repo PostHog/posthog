@@ -228,7 +228,7 @@ const ReplayPageTabs: ReplayTab[] = [
         key: ReplayTabs.Home,
     },
     {
-        label: 'Collections',
+        label: 'Playlists → Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',

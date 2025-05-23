@@ -270,8 +270,10 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExposureCriteriaModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
-        openConclusionModal: true,
-        closeConclusionModal: true,
+        openStopExperimentModal: true,
+        closeStopExperimentModal: true,
+        openEditConclusionModal: true,
+        closeEditConclusionModal: true,
         openDistributionModal: true,
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
@@ -614,11 +616,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
-        isConclusionModalOpen: [
+        isStopExperimentModalOpen: [
             false,
             {
-                openConclusionModal: () => true,
-                closeConclusionModal: () => false,
+                openStopExperimentModal: () => true,
+                closeStopExperimentModal: () => false,
+            },
+        ],
+        isEditConclusionModalOpen: [
+            false,
+            {
+                openEditConclusionModal: () => true,
+                closeEditConclusionModal: () => false,
             },
         ],
         isDistributionModalOpen: [
@@ -961,7 +970,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     duration,
                     values.isPrimaryMetricSignificant(0)
                 )
-            actions.closeConclusionModal()
+            actions.closeStopExperimentModal()
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
@@ -1438,9 +1447,17 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
+                    const { experiment } = values
+
                     const query = {
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
+                        experiment_name: experiment.name,
+                        exposure_criteria: experiment.exposure_criteria,
+                        feature_flag: experiment.feature_flag,
+                        start_date: experiment.start_date,
+                        end_date: experiment.end_date,
+                        holdout: experiment.holdout,
                     }
                     return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },

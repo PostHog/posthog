@@ -1,4 +1,3 @@
-import { IconPerson } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -13,11 +12,11 @@ export const manifest: ProductManifest = {
         persons: (): string => '/persons',
     },
     fileSystemTypes: {},
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'People and groups/People',
-            icon: <IconPerson />,
-            href: () => urls.persons(),
+            path: 'Persons',
+            iconType: 'cohort',
+            href: urls.persons(),
         },
     ],
 }

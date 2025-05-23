@@ -15,6 +15,8 @@ class AnthropicConfig:
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-opus-4-20250514",
+        "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022",
         "claude-3-5-haiku-20241022",
@@ -23,6 +25,8 @@ class AnthropicConfig:
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-opus-4-20250514",
+        "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022",
         "claude-3-5-haiku-20241022",
@@ -30,7 +34,11 @@ class AnthropicConfig:
         "claude-3-haiku-20240307",
     ]
 
-    SUPPORTED_MODELS_WITH_THINKING: list[str] = ["claude-3-7-sonnet-20250219"]
+    SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-3-7-sonnet-20250219",
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+    ]
 
 
 class AnthropicProvider:
@@ -91,7 +99,12 @@ class AnthropicProvider:
         return prepared_messages
 
     def stream_response(
-        self, system: str, messages: list[MessageParam], thinking: bool = False
+        self,
+        system: str,
+        messages: list[MessageParam],
+        thinking: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -102,6 +115,10 @@ class AnthropicProvider:
             reasoning_on = True
         else:
             reasoning_on = False
+
+        # Resolve runtime overrides or fall back to config defaults
+        effective_temperature = temperature if temperature is not None else AnthropicConfig.TEMPERATURE
+        effective_max_tokens = max_tokens if max_tokens is not None else AnthropicConfig.MAX_TOKENS
 
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
@@ -115,11 +132,11 @@ class AnthropicProvider:
             if reasoning_on:
                 stream = self.client.messages.create(
                     messages=formatted_messages,
-                    max_tokens=AnthropicConfig.MAX_TOKENS,
+                    max_tokens=effective_max_tokens,
                     model=self.model_id,
                     system=system_prompt,
                     stream=True,
-                    temperature=AnthropicConfig.TEMPERATURE,
+                    temperature=effective_temperature,
                     thinking=ThinkingConfigEnabledParam(
                         type="enabled", budget_tokens=AnthropicConfig.MAX_THINKING_TOKENS
                     ),
@@ -127,11 +144,11 @@ class AnthropicProvider:
             else:
                 stream = self.client.messages.create(
                     messages=formatted_messages,
-                    max_tokens=AnthropicConfig.MAX_TOKENS,
+                    max_tokens=effective_max_tokens,
                     model=self.model_id,
                     system=system_prompt,
                     stream=True,
-                    temperature=AnthropicConfig.TEMPERATURE,
+                    temperature=effective_temperature,
                 )
         except anthropic.APIError as e:
             logger.exception(f"Anthropic API error: {e}")

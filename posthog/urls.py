@@ -57,7 +57,7 @@ from .views import (
     security_txt,
     stats,
 )
-from posthog.api.query import query_awaited
+from posthog.api.query import progress
 
 from posthog.api.slack import slack_interactivity_callback
 
@@ -173,7 +173,9 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
-    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
+    path("api/environments/<int:team_id>/progress/", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
@@ -227,6 +229,7 @@ urlpatterns = [
     opt_slash_path("capture", capture.get_event),
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
+    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth

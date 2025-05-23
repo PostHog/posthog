@@ -20,7 +20,17 @@ export const manifest: ProductManifest = {
         {
             path: `Feature flag`,
             type: 'feature_flag',
-            href: () => urls.featureFlag('new'),
+            href: urls.featureFlag('new'),
         },
     ],
+    treeItemsProducts: [
+        {
+            path: `Feature flags`,
+            type: 'feature_flag',
+            href: urls.featureFlags(),
+        },
+    ],
+    fileSystemFilterTypes: {
+        feature_flag: { name: 'Feature flags' },
+    },
 }

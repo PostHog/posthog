@@ -239,6 +239,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
         },
+        "$csp_violation": {
+            "label": "CSP violation",
+            "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
+            "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
+        },
         "Application opened": {
             "label": "Application opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -445,6 +450,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Sentry tags",
             "description": "Tags sent to Sentry along with the exception.",
         },
+        "$exception_types": {
+            "label": "Exception type",
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+        },
+        "$exception_functions": {
+            "label": "Exception function",
+            "description": "A function contained in the exception.",
+        },
+        "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
+        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions.",
@@ -1141,6 +1157,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Survey iteration start date",
             "description": "The start date for the current iteration of the survey.",
         },
+        "$survey_submission_id": {
+            "description": "The unique identifier for the survey submission. Relevant for partial submissions, as they submit multiple 'survey sent' events. This is what allows us to count them as a single submission.",
+            "label": "Survey submission ID",
+        },
+        "$survey_completed": {
+            "description": "If a survey was fully completed (all questions answered), this will be true.",
+            "label": "Survey completed",
+        },
+        "$survey_partially_completed": {
+            "description": "If a survey was partially completed (some questions answered) on dismissal, this will be true.",
+            "label": "Survey partially completed",
+        },
         "$device": {
             "label": "Device",
             "description": "The mobile device that was used.",
@@ -1659,6 +1687,79 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
         },
+        "$csp_document_url": {
+            "label": "Document URL",
+            "description": "The URL of the document where the violation occurred.",
+            "examples": ["https://example.com/page"],
+        },
+        "$csp_violated_directive": {
+            "label": "Violated directive",
+            "description": "The CSP directive that was violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+        },
+        "$csp_effective_directive": {
+            "label": "Effective directive",
+            "description": "The CSP directive that was effectively violated.",
+            "examples": ["script-src", "img-src", "default-src"],
+        },
+        "$csp_original_policy": {
+            "label": "Original policy",
+            "description": "The CSP policy that was active when the violation occurred.",
+            "examples": ["default-src 'self'; script-src 'self' example.com"],
+        },
+        "$csp_disposition": {
+            "label": "Disposition",
+            "description": "The disposition of the CSP policy that was violated (enforce or report).",
+            "examples": ["enforce", "report"],
+        },
+        "$csp_blocked_url": {
+            "label": "Blocked URL",
+            "description": "The URL that was blocked by the CSP policy.",
+            "examples": ["https://malicious-site.com/script.js"],
+        },
+        "$csp_line_number": {
+            "label": "Line number",
+            "description": "The line number in the source file where the violation occurred.",
+            "examples": ["42"],
+        },
+        "$csp_column_number": {
+            "label": "Column number",
+            "description": "The column number in the source file where the violation occurred.",
+            "examples": ["13"],
+        },
+        "$csp_source_file": {
+            "label": "Source file",
+            "description": "The source file where the violation occurred.",
+            "examples": ["script.js"],
+        },
+        "$csp_status_code": {
+            "label": "Status code",
+            "description": "The HTTP status code that was returned when trying to load the blocked resource.",
+            "examples": ["200", "404"],
+        },
+        "$csp_script_sample": {
+            "label": "Script sample",
+            "description": "A escaped sample of the script that caused the violation. Usually capped at 40 characters.",
+            "examples": ["eval('alert(1)')"],
+        },
+        "$csp_report_type": {
+            "label": "Report type",
+            "description": "The type of CSP report.",
+        },
+        "$csp_raw_report": {
+            "label": "Raw CSP report",
+            "description": "The raw CSP report as received from the browser.",
+        },
+        "$csp_referrer": {
+            "label": "CSP Referrer",
+            "description": "The referrer of the CSP report if available.",
+            "examples": ["https://example.com/referrer"],
+        },
+        "$csp_version": {
+            "label": "CSP Policy version",
+            "description": "The version of the CSP policy. Must be provided in the report URL.",
+            "examples": ["1.0"],
+        },
     },
     "numerical_event_properties": {},
     "person_properties": {},
@@ -1811,15 +1912,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
-    },
-    "error_tracking_issue_properties": {
-        "$exception_types": {"label": "Exception type", "description": "The type of the exception."},
-        "$exception_messages": {"label": "Exception message", "description": "The description of the exception."},
-        "$exception_functions": {
-            "label": "Exception function",
-            "description": "A function contained in the exception.",
-        },
-        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
     },
 }
 

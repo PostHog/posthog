@@ -32,7 +32,6 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
-    EventsHeatMapQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -44,11 +43,13 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     GroupsQuery,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -211,11 +212,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "EventsHeatMapQuery":
-        from .web_analytics.web_active_hours_heatmap_query_runner import EventsHeatMapQueryRunner
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
-        return EventsHeatMapQueryRunner(
-            query=cast(EventsHeatMapQuery | dict[str, Any], query),
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -307,11 +308,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "HogQLQuery":
+    if kind == "HogQLQuery" or kind == "HogQLASTQuery":
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | dict[str, Any], query),
+            query=cast(HogQLQuery | HogQLASTQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

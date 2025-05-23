@@ -100,6 +100,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    hog_function_template = models.ForeignKey(
+        "posthog.HogFunctionTemplate",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hog_functions",
+    )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @classmethod
