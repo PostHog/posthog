@@ -10,7 +10,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { HogWatcherState } from '../services/hog-watcher.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueueKind } from '../services/job-queue/job-queue'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -23,7 +23,7 @@ export const counterParseError = new Counter({
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
-    private cyclotronJobQueue: CyclotronJobQueue
+    private cyclotronJobQueue: CyclotronJobQueueKind
     protected kafkaConsumer: KafkaConsumer
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {

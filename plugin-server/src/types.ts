@@ -19,7 +19,7 @@ import { VM } from 'vm2'
 import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
-import { CyclotronJobQueueKind } from './cdp/types'
+import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
@@ -105,7 +105,7 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueKind
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka

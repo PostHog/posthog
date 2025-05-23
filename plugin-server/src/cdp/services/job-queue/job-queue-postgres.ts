@@ -18,16 +18,11 @@ import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import {
-    HogFunctionInvocation,
-    HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionInvocationJobQueue,
-    HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationResult,
-    HogFunctionInvocationSerialized,
-    HogFunctionType,
+    CyclotronInvocationQueueParameters,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
 } from '../../types'
-import { HogFunctionManagerService } from '../hog-function-manager.service'
-import { serializeHogFunctionInvocation } from './job-queue-kafka'
 
 export class CyclotronJobQueuePostgres {
     private cyclotronWorker?: CyclotronWorker
@@ -35,9 +30,8 @@ export class CyclotronJobQueuePostgres {
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: HogFunctionInvocationJobQueue,
-        private hogFunctionManager: HogFunctionManagerService,
-        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        private queue: CyclotronJobQueueKind,
+        private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {}
 
     /**
@@ -90,7 +84,7 @@ export class CyclotronJobQueuePostgres {
         return this.getCyclotronWorker().isHealthy()
     }
 
-    public async queueInvocations(invocations: HogFunctionInvocation[]) {
+    public async queueInvocations(invocations: CyclotronJobInvocation[]) {
         if (invocations.length === 0) {
             return
         }
@@ -119,7 +113,7 @@ export class CyclotronJobQueuePostgres {
         }
     }
 
-    public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
+    public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         const worker = this.getCyclotronWorker()
         await Promise.all(
             invocationResults.map(async (item) => {
@@ -147,7 +141,7 @@ export class CyclotronJobQueuePostgres {
         )
     }
 
-    public async releaseInvocations(invocations: HogFunctionInvocation[]) {
+    public async releaseInvocations(invocations: CyclotronJobInvocation[]) {
         // Called specially for jobs that came from postgres but are being requeued to kafka
         const worker = this.getCyclotronWorker()
         await Promise.all(
@@ -175,62 +169,25 @@ export class CyclotronJobQueuePostgres {
     }
 
     private async consumeCyclotronJobs(jobs: CyclotronJob[]) {
-        const worker = this.getCyclotronWorker()
-        const invocations: HogFunctionInvocation[] = []
+        const invocations: CyclotronJobInvocation[] = []
         // A list of all the promises related to job releasing that we need to await
-        const failReleases: Promise<void>[] = []
-
-        const hogFunctionIds: string[] = []
 
         for (const job of jobs) {
-            if (!job.functionId) {
-                throw new Error('Bad job: ' + JSON.stringify(job))
-            }
-
-            hogFunctionIds.push(job.functionId)
-        }
-
-        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
-
-        for (const job of jobs) {
-            // NOTE: This is all a bit messy and might be better to refactor into a helper
-            const hogFunction = hogFunctions[job.functionId!]
-
-            if (!hogFunction) {
-                // Here we need to mark the job as failed
-
-                logger.error('⚠️', 'Error finding hog function', {
-                    id: job.functionId,
-                })
-                worker.updateJob(job.id, 'failed')
-                failReleases.push(worker.releaseJob(job.id))
-                continue
-            }
-
-            const invocation = cyclotronJobToInvocation(job, hogFunction)
+            const invocation = cyclotronJobToInvocation(job)
             invocations.push(invocation)
         }
 
-        await Promise.all([this.consumeBatch!(invocations), ...failReleases])
+        await Promise.all([this.consumeBatch!(invocations)])
+        // TODO: Ensure that all jobs eventually get acked!!!
     }
 }
 
-function serializeHogFunctionInvocationForCyclotron(
-    invocation: HogFunctionInvocation
-): HogFunctionInvocationSerialized {
-    const serializedInvocation = serializeHogFunctionInvocation(invocation)
-
-    // Ensure we don't include this as it is set elsewhere
-    delete serializedInvocation.queueParameters
-
-    return serializedInvocation
-}
-
-function invocationToCyclotronJobInitial(invocation: HogFunctionInvocation): CyclotronJobInit {
-    const queueParameters: HogFunctionInvocation['queueParameters'] = invocation.queueParameters
+function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): CyclotronJobInit {
+    const queueParameters: CyclotronJobInvocation['queueParameters'] = invocation.queueParameters
     let blob: CyclotronJobInit['blob'] = null
     let parameters: CyclotronJobInit['parameters'] = null
 
+    // TODO: Ditch this queue params stuff
     if (queueParameters) {
         const { body, ...rest } = queueParameters
         parameters = rest
@@ -238,11 +195,11 @@ function invocationToCyclotronJobInitial(invocation: HogFunctionInvocation): Cyc
     }
 
     const job: CyclotronJobInit = {
-        teamId: invocation.globals.project.id,
-        functionId: invocation.hogFunction.id,
+        teamId: invocation.teamId,
+        functionId: invocation.functionId,
         queueName: invocation.queue,
         priority: invocation.queuePriority,
-        vmState: serializeHogFunctionInvocationForCyclotron(invocation),
+        vmState: invocation.state,
         parameters,
         blob,
         metadata: invocation.queueMetadata ?? null,
@@ -251,15 +208,14 @@ function invocationToCyclotronJobInitial(invocation: HogFunctionInvocation): Cyc
     return job
 }
 
-function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+function invocationToCyclotronJobUpdate(invocation: CyclotronJobInvocation): CyclotronJobUpdate {
     const job = invocationToCyclotronJobInitial(invocation)
     // Currently the job updates are identical to the initial job
     return job
 }
 
-function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
-    const parsedState = job.vmState as HogFunctionInvocationSerialized | null
-    const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
+function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
+    const params = job.parameters as CyclotronInvocationQueueParameters | undefined
 
     if (job.blob && params) {
         // Deserialize the blob into the params
@@ -277,16 +233,14 @@ function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionTyp
 
     return {
         id: job.id,
-        globals: parsedState?.globals ?? ({} as unknown as HogFunctionInvocationGlobalsWithInputs),
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: (job.queueName as HogFunctionInvocationJobQueue) ?? 'hog',
+        state: job.vmState,
+        teamId: job.teamId,
+        functionId: job.functionId!,
+        queue: (job.queueName as CyclotronJobQueueKind) ?? 'hog',
         queuePriority: job.priority,
         queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
         queueMetadata: job.metadata ?? undefined,
         queueParameters: params,
         queueSource: 'postgres', // NOTE: We always set this here, as we know it came from postgres
-        vmState: parsedState?.vmState,
-        timings: parsedState?.timings ?? [],
     }
 }

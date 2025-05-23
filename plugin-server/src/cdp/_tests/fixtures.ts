@@ -8,7 +8,7 @@ import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
 import {
-    HogFunctionInvocation,
+    CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
@@ -167,7 +167,7 @@ export const createHogExecutionGlobals = (
 export const createInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
     _globals: Partial<HogFunctionInvocationGlobals> = {}
-): HogFunctionInvocation => {
+): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)
     // Add the source of the trigger to the globals
 
@@ -180,11 +180,14 @@ export const createInvocation = (
     return {
         id: new UUIDT().toString(),
         // NOTE: This is due to some legacy code that checks for inputs and uses it. BW will fix later.
-        globals: globals as HogFunctionInvocationGlobalsWithInputs,
+        state: {
+            globals: globals as HogFunctionInvocationGlobalsWithInputs,
+            timings: [],
+        },
         teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
         hogFunction,
         queue: 'hog',
-        timings: [],
         queuePriority: 0,
     }
 }
@@ -211,19 +214,22 @@ const SAMPLE_GLOBALS = {
 export const createSegmentInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
     inputs: Record<string, any> = {}
-): HogFunctionInvocation => {
+): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)
 
     return {
         id: new UUIDT().toString(),
-        globals: {
-            inputs,
-            ...SAMPLE_GLOBALS,
+        state: {
+            globals: {
+                inputs,
+                ...SAMPLE_GLOBALS,
+            },
+            timings: [],
         },
         teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
         hogFunction,
         queue: 'segment',
-        timings: [],
         queuePriority: 0,
     }
 }

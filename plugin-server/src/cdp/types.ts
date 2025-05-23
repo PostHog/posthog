@@ -177,11 +177,6 @@ export type AppMetricType = MinimalAppMetric & {
     instance_id?: string
 }
 
-export interface HogFunctionTiming {
-    kind: 'hog' | 'async_function'
-    duration_ms: number
-}
-
 export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
@@ -209,6 +204,11 @@ export type CyclotronFetchFailureInfo = {
     timestamp: DateTime
 }
 
+export interface HogFunctionTiming {
+    kind: 'hog' | 'async_function'
+    duration_ms: number
+}
+
 export type HogFunctionQueueParametersFetchResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
@@ -224,16 +224,138 @@ export type HogFunctionQueueParametersFetchResponse = {
     logs?: MinimalLogEntry[]
 }
 
-export type HogFunctionInvocationQueueParameters =
+export type CyclotronInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
-export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment'] as const
-export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment'] as const
+export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_KINDS = ['postgres', 'kafka'] as const
-export type CyclotronJobQueueKind = (typeof CYCLOTRON_JOB_QUEUE_KINDS)[number]
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
+export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
+// Agnostic job invocation type
+export type CyclotronJobInvocation = {
+    id: string
+    teamId: Team['id']
+    functionId: string
+    state?: object | null
+    // The queue that the invocation is on
+    queue: CyclotronJobQueueKind
+    // Optional parameters for that queue to use
+    queueParameters?: CyclotronInvocationQueueParameters | null
+    // Priority of the invocation
+    queuePriority: number
+    // When the invocation is scheduled to run
+    queueScheduledAt?: DateTime
+    // Metadata for the invocation - TODO: check when this gets cleared
+    queueMetadata?: Record<string, any> | null
+    // Where the invocation came from (kafka or postgres)
+    queueSource?: CyclotronJobQueueSource
+}
+
+// The result of an execution
+export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
+    invocation: T
+    finished: boolean
+    error?: any
+    logs: MinimalLogEntry[]
+    metrics?: MinimalAppMetric[]
+    capturedPostHogEvents?: HogFunctionCapturedEvent[]
+    execResult?: unknown
+}
+
+export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
+    state?: {
+        globals: HogFunctionInvocationGlobalsWithInputs
+        vmState?: VMState
+        timings: HogFunctionTiming[]
+    }
+    hogFunction: HogFunctionType
+}
+
+export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
+    state?: HogFlowInvocationContext
+    hogFlow: HogFlow
+}
+
+export type HogFlowInvocationContext = {
+    personId: string
+    event: any // TODO: Type better
+    variables: Record<string, any>
+    currentActionId?: string
+}
+
+export type HogFlow = {
+    // Primary key is id + version
+    id: string
+    team_id: number
+    version: number
+    status: 'active' | 'draft' | 'archived'
+
+    trigger:
+        | {
+              type: 'event'
+              filters: any // HogFunctionFilters
+          }
+        | {
+              type: 'pre-processed-event'
+              filters: any // HogFunctionFilters
+          }
+        | {
+              type: 'schedule'
+              cron: string
+          }
+        | {
+              type: 'webhook'
+              hog_function_id: string
+          }
+
+    trigger_masking: {
+        ttl: number
+        hash: string
+        // bytecode: HogBytecode
+        threshold: number
+    }
+
+    conversion: {
+        window: number
+        // cohort_id: number
+        filters: any // HogFunctionFilters
+    }
+    exit_condition:
+        | 'exit_on_conversion'
+        | 'exit_on_trigger_not_matched'
+        | 'exit_on_trigger_not_matched_or_conversion'
+        | 'exit_only_at_end'
+
+    // workflow graph
+    edges: {
+        from: string
+        to: string
+        type: 'continue' | 'branch'
+        index: number
+    }[]
+
+    actions: {
+        id: string
+        name: string
+        description: string
+        type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
+        config: any // HogFunctionInputSchemaType[] // Try to type this strongly to the "type"
+
+        // Maybe v1?
+        on_error: 'continue' | 'abort' | 'complete' | 'branch'
+
+        created: number
+        updated: Date
+        position: number
+    }[]
+
+    abort_action?: string
+}
+
+// TODO: Replace with CyclotronJobInvocationHogFunction
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobalsWithInputs
@@ -243,12 +365,12 @@ export type HogFunctionInvocation = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     // Params specific to the queueing system
-    queue: HogFunctionInvocationJobQueue
-    queueParameters?: HogFunctionInvocationQueueParameters | null
+    queue: CyclotronJobQueueKind
+    queueParameters?: CyclotronInvocationQueueParameters | null
     queuePriority: number
     queueScheduledAt?: DateTime
     queueMetadata?: Record<string, any> | null
-    queueSource?: CyclotronJobQueueKind
+    queueSource?: CyclotronJobQueueSource
 }
 
 // The result of an execution
@@ -256,7 +378,6 @@ export type HogFunctionInvocationResult = {
     invocation: HogFunctionInvocation
     finished: boolean
     error?: any
-    // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: MinimalLogEntry[]
     metrics?: MinimalAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]

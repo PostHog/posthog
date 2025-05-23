@@ -16,9 +16,9 @@ import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
     LogEntry,
     LogEntrySerialized,
-    HogFunctionType,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode

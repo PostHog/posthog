@@ -3,8 +3,8 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
-    HogFunctionInvocation,
-    HogFunctionInvocationJobQueue,
+    CyclotronJobInvocation,
+    CyclotronJobQueueKind,
     HogFunctionInvocationResult,
     HogFunctionTypeType,
 } from '../types'
@@ -17,9 +17,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronJobQueue: CyclotronJobQueue
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
-    private queue: HogFunctionInvocationJobQueue
+    private queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub, queue: HogFunctionInvocationJobQueue = 'hog') {
+    constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
         super(hub)
         this.queue = queue
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, this.hogFunctionManager, (batch) =>
@@ -27,12 +27,12 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
     }
 
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<HogFunctionInvocationResult[]> {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
     }
 
     public async processBatch(
-        invocations: HogFunctionInvocation[]
+        invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
         if (!invocations.length) {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }

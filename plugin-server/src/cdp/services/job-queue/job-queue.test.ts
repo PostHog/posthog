@@ -8,7 +8,7 @@ import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils'
 import { HogFunctionManagerService } from '../hog-function-manager.service'
-import { CyclotronJobQueue, getProducerMapping } from './job-queue'
+import { CyclotronJobQueueKind, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig

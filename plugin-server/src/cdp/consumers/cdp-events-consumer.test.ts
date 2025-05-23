@@ -16,7 +16,7 @@ import {
 } from '../_tests/fixtures'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueueKind } from '../services/job-queue/job-queue'
 
 jest.setTimeout(1000)
 
@@ -64,7 +64,7 @@ describe.each([
             queueInvocations: jest.fn(),
             startAsProducer: jest.fn(() => Promise.resolve()),
             stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
+        } as unknown as jest.Mocked<CyclotronJobQueueKind>
 
         mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
 
