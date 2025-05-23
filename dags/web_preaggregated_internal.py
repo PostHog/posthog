@@ -162,7 +162,7 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
 )
 def web_paths_daily(context: dagster.AssetExecutionContext) -> None:
     """
-    Simple daily pathnames data with pageviews and unique visitors per path. Intented to use with web_bounces_daily for path-specific analysis.
+    Simple daily pathnames data with pageviews and unique visitors per path. Intended to use with web_bounces_daily for path-specific analysis.
     """
     return pre_aggregate_web_analytics_data(
         context=context,
