@@ -10,24 +10,20 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queri
 import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
+import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType
 }
 
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const {
-        minimumDetectableEffect,
-        experiment,
-        conversionMetrics,
-        minimumSampleSizePerVariant,
-        recommendedRunningTime,
-        variants,
-    } = useValues(experimentLogic({ experimentId }))
+    const { minimumDetectableEffect, experiment, conversionMetrics, recommendedRunningTime, variants } = useValues(
+        experimentLogic({ experimentId })
+    )
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
     const conversionRate = conversionMetrics.totalRate * 100
-    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+    const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
     const funnelSampleSize = sampleSizePerVariant * variants.length
 
     // Displayed values
@@ -68,12 +64,10 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
 }
 
 function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { minimumDetectableEffect, experiment, trendResults, recommendedExposureForCountData } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { minimumDetectableEffect, experiment, trendResults } = useValues(experimentLogic({ experimentId }))
 
     const trendCount = trendResults[0]?.count || 0
-    const trendExposure = recommendedExposureForCountData(trendCount)
+    const trendExposure = recommendedExposureForCountData(minimumDetectableEffect, trendCount)
 
     // Displayed values
     const baselineCount = humanFriendlyNumber(trendCount || 0)
