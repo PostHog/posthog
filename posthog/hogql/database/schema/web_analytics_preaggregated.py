@@ -73,3 +73,17 @@ class WebBouncesDailyTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_daily"
+
+
+class WebPathsDailyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        "pathname": StringDatabaseField(name="pathname", nullable=True),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_paths_daily"
+
+    def to_printed_hogql(self):
+        return "web_paths_daily"

@@ -8,6 +8,7 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-segment-worker.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
@@ -265,6 +266,14 @@ export class PluginServer {
                 return serverCommands.service
             })
 
+            if (capabilities.cdpCyclotronWorkerSegment) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerSegment(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)
 
@@ -296,8 +305,8 @@ export class PluginServer {
             })
         }
 
-        process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
+        process.on('unhandledRejection', (error: Error | any) => {
+            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },

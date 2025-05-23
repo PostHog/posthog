@@ -850,7 +850,7 @@ def get_teams_with_ai_event_count_in_period(
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(
-            created_at__gte=begin, created_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
+            finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
         )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
