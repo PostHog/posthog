@@ -289,8 +289,6 @@ export type HogFunctionInputSchemaType = {
 
 export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign'
-
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
@@ -300,7 +298,6 @@ export interface HogFunctionMappingType {
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind | null
     team_id: number
     name: string
     enabled: boolean
