@@ -524,7 +524,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         getStaticTreeItems: [
             (s) => [s.featureFlags, s.shortcutData],
-            (featureFlags, shortcutData): ((searchTerm?: string) => TreeDataItem[]) => {
+            (featureFlags, shortcutData): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 const convert = (
                     imports: FileSystemImport[],
                     root: string,
@@ -543,11 +543,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
                             : undefined,
                     })
-                return function getStaticItems(searchTerm?: string, onlyFolders: boolean): TreeDataItem[] {
+                return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
                         ['data-management://', getDefaultTreeDataManagement()],
-                        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER] ? [['games://', getDefaultTreeGames()]] : []),
+                        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+                            ? ([['games://', getDefaultTreeGames()]] as [string, FileSystemImport[]][])
+                            : ([] as [string, FileSystemImport[]][])),
                         ['new://', getDefaultTreeNew()],
                         ['shortcuts://', shortcutData],
                     ]
