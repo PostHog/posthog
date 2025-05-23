@@ -128,20 +128,23 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 invocation: {
+                    state: {
+                        globals: invocation.state.globals,
+                        timings: [
+                            {
+                                kind: 'hog',
+                                duration_ms: 0,
+                            },
+                        ],
+                        vmState: expect.any(Object),
+                    },
                     id: expect.any(String),
                     teamId: 1,
-                    globals: invocation.state.globals,
                     hogFunction: invocation.hogFunction,
+                    functionId: invocation.functionId,
                     queue: 'fetch',
                     queueParameters: expect.any(Object),
                     queuePriority: 0,
-                    timings: [
-                        {
-                            kind: 'hog',
-                            duration_ms: 0,
-                        },
-                    ],
-                    vmState: expect.any(Object),
                 },
                 finished: false,
                 logs: expect.any(Array),
