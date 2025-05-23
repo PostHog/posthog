@@ -932,10 +932,14 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface LogPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Log
+    operator: PropertyOperator
+}
+
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
-    key: string
 }
 
 export interface HogQLPropertyFilter extends BasePropertyFilter {
@@ -966,6 +970,7 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
+    | LogPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3526,6 +3531,7 @@ export enum PropertyDefinitionType {
     LogEntry = 'log_entry',
     Meta = 'meta',
     Resource = 'resource',
+    Log = 'log',
 }
 
 export interface PropertyDefinition {

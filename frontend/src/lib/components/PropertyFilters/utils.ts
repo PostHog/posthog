@@ -28,6 +28,7 @@ import {
     GroupPropertyFilter,
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
+    LogPropertyFilter,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -225,6 +226,9 @@ export function isLogEntryPropertyFilter(filter?: AnyFilterLike | null): filter 
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
+export function isLogPropertyFilter(filter?: AnyFilterLike | null): filter is LogPropertyFilter {
+    return filter?.type === PropertyFilterType.Log
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -254,7 +258,8 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
-        isGroupPropertyFilter(filter)
+        isGroupPropertyFilter(filter) ||
+        isLogPropertyFilter(filter)
     )
 }
 
@@ -364,6 +369,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.LogEntry
         : filterType === PropertyFilterType.ErrorTrackingIssue
         ? PropertyDefinitionType.Resource
+        : filterType === PropertyFilterType.Log
+        ? PropertyDefinitionType.Log
         : PropertyDefinitionType.Event
 }
 

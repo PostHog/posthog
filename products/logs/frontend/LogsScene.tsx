@@ -1,5 +1,3 @@
-import './sparkline-loading.scss'
-
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
