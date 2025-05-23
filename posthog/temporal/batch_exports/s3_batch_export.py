@@ -834,6 +834,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
+        internal_logger = get_internal_logger()
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
@@ -895,8 +896,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=s3_default_fields(),
         )
         # TODO
-        STAGE_DATA_IN_S3 = True
-        if STAGE_DATA_IN_S3:
+        if inputs.team_id in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
+            await internal_logger.ainfo("Using internal S3 stage")
             result = await execute_batch_export_insert_activity_using_s3_stage(
                 insert_into_s3_activity_from_stage,
                 insert_inputs,
@@ -917,30 +918,32 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
 @activity.defn
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsCompleted:
-    """TODO"""
+    """Activity to batch export data to a customer's S3.
+
+    This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
+    instead of ClickHouse.
+
+    It will upload multiple files if the max_file_size_mb is set, otherwise it will upload a single file. File uploads
+    are done using multipart upload.
+
+    We could maybe optimize this by simply copying the data from the internal S3 stage to the customer's S3 bucket,
+    however, we've tried to keep the activity that writes the data to the internal S3 stage as generic as possible, as
+    it will be used by other destinations, not just S3. Our S3 batch exports also support customising the max S3 file
+    size, different file formats, compression, etc, which ClickHouse's S3 functions may not support.
+    """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
-    # await logger.ainfo(
-    #     "Batch exporting range %s - %s to S3: %s",
-    #     inputs.data_interval_start or "START",
-    #     inputs.data_interval_end or "END",
-    #     get_s3_key(inputs),
-    # )
+    await logger.ainfo("Exporting data to S3: %s", get_s3_key(inputs))
 
     async with (
         Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
+        # NOTE: we don't currently support resuming from heartbeats for this activity, as resuming from old heartbeats
+        # doesn't play nicely with S3 multipart uploads.
         details = S3HeartbeatDetails()
-        # done_ranges: list[DateRange] = details.done_ranges
-
-        # _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-        #     inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
-        # )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
         data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-        # full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalS3Stage()

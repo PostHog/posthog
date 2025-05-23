@@ -3,7 +3,6 @@ import datetime as dt
 import typing
 import uuid
 from dataclasses import dataclass
-from typing import Any, TypedDict
 
 import aioboto3
 import pyarrow.dataset as ds
@@ -11,6 +10,7 @@ from django.conf import settings
 from pyarrow import fs
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
+from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
@@ -50,8 +50,13 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_PERSONS,
     SELECT_FROM_PERSONS_BACKFILL,
 )
+from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import get_internal_logger
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import (
+    bind_temporal_worker_logger,
+    get_internal_logger,
+)
 from posthog.warehouse.util import database_sync_to_async
 
 
@@ -66,7 +71,30 @@ async def execute_batch_export_insert_activity_using_s3_stage(
     initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
-    """TODO: Implement this."""
+    """
+    This is the entrypoint for a new version of the batch export insert activity.
+
+    All batch exports boil down to inserting some data somewhere, and they all follow the same error
+    handling patterns, logging and updating run status. For this reason, we have this function
+    to abstract executing the main insert activity of each batch export.
+
+    It works in a similar way to the old version of the batch export insert activity, but instead of
+    reading data from ClickHouse and exporting it to the destination in batches, we break this down into 2 steps:
+        1. Exporting the batch export data directly into our own internal S3 staging area using ClickHouse
+        2. Reading the data from the internal S3 staging area and exporting it to the destination using the
+            producer/consumer pattern
+
+    Args:
+        activity: The 'insert_into_*' activity function to execute.
+        inputs: The inputs to the activity.
+        non_retryable_error_types: A list of errors to not retry on when executing the activity.
+        finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
+        interval: The interval of the batch export used to set the start to close timeout.
+        maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
+            Assuming the error that triggered the retry is not in non_retryable_error_types.
+        initial_retry_interval_seconds: When retrying, seconds until the first retry.
+        maximum_retry_interval_seconds: Maximum interval in seconds between retries.
+    """
     get_export_started_metric().add(1)
 
     if TEST:
@@ -76,8 +104,7 @@ async def execute_batch_export_insert_activity_using_s3_stage(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        # TODO - reduce this to 1 hour once we are confident
-        start_to_close_timeout = dt.timedelta(hours=2)
+        start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):
@@ -157,97 +184,25 @@ async def execute_batch_export_insert_activity_using_s3_stage(
         )
 
 
-class S3ListObjectsResponse(TypedDict):
-    Contents: list[dict[str, Any]]
-
-
-async def delete_all_from_s3(bucket_name: str, key_prefix: str):
+async def _delete_all_from_bucket_with_prefix(bucket_name: str, key_prefix: str):
     """Delete all objects in bucket_name under key_prefix."""
     session = aioboto3.Session()
     async with session.client(
         "s3",
         # TODO - should we use our own set of env vars for this?
+        # TODO - check these are available in production workers
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         region_name=settings.OBJECT_STORAGE_REGION,
     ) as s3_client:
-        response: S3ListObjectsResponse = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+        response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
         if "Contents" in response:
-            objects_to_delete = [{"Key": obj["Key"]} for obj in response["Contents"]]
+            objects_to_delete: list[ObjectIdentifierTypeDef] = [
+                {"Key": obj["Key"]} for obj in response["Contents"] if "Key" in obj
+            ]
             if objects_to_delete:
                 await s3_client.delete_objects(Bucket=bucket_name, Delete={"Objects": objects_to_delete})
-
-
-async def write_batch_export_record_batches_to_s3(
-    query_or_model: str | RecordBatchModel,
-    full_range: tuple[dt.datetime | None, dt.datetime],
-    query_parameters: dict[str, typing.Any],
-    team_id: int,
-    batch_export_id: str,
-    data_interval_start: str | None,
-    data_interval_end: str,
-):
-    """Write record batches to S3 staging area."""
-    logger = get_internal_logger()
-
-    clickhouse_url = None
-    # 5 min batch exports should query a single node, which is known to have zero replication lag
-    if is_5_min_batch_export(full_range=full_range):
-        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-
-    # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
-    # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
-    # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
-    if is_5_min_batch_export(full_range):
-        delta = dt.timedelta(seconds=30)
-    else:
-        delta = dt.timedelta(minutes=1)
-    end_at = full_range[1]
-    await wait_for_delta_past_data_interval_end(end_at, delta)
-
-    done_ranges = []
-    async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_id = uuid.uuid4()
-
-            if isinstance(query_or_model, RecordBatchModel):
-                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
-            else:
-                query = query_or_model
-
-            s3_staging_folder = get_s3_staging_folder(
-                batch_export_id=batch_export_id,
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
-            )
-            try:
-                await delete_all_from_s3(
-                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=s3_staging_folder
-                )
-            except Exception as e:
-                await logger.aexception("Unexpected error occurred while deleting existing objects from S3", exc_info=e)
-                raise
-
-            try:
-                await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id))
-                # TODO - remove this once testing over
-                # need to wait for query info to become available in system.query_log
-                await asyncio.sleep(5)
-                memory_usage = await client.read_query(
-                    f"SELECT formatReadableSize(memory_usage) as memory_used FROM system.query_log WHERE query_id = '{query_id}' AND type='QueryFinish' ORDER BY event_time DESC LIMIT 1",
-                )
-                await logger.ainfo(f"Query memory usage = {memory_usage.decode('utf-8').strip()}")
-
-            except Exception as e:
-                await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
-                raise
 
 
 @dataclass
@@ -267,44 +222,69 @@ class BatchExportInsertIntoS3StageInputs:
     batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        """Return a dictionary of properties that we want to log if an error is raised."""
+        return {
+            "team_id": self.team_id,
+            "batch_export_id": self.batch_export_id,
+            "data_interval_start": self.data_interval_start,
+            "data_interval_end": self.data_interval_end,
+            "exclude_events": self.exclude_events,
+            "include_events": self.include_events,
+            "run_id": self.run_id,
+            "backfill_details": self.backfill_details,
+            "batch_export_model": self.batch_export_model,
+            "batch_export_schema": self.batch_export_schema,
+            "destination_default_fields": self.destination_default_fields,
+        }
+
 
 @activity.defn
 async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInputs):
     """Write record batches to S3 staging area."""
 
-    _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-        inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    await logger.ainfo(
+        "Batch exporting range %s - %s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
     )
-    data_interval_start = dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-    data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-    full_range = (data_interval_start, data_interval_end)
 
-    if record_batch_model is not None:
-        await write_batch_export_record_batches_to_s3(
-            query_or_model=record_batch_model,
-            full_range=full_range,
-            query_parameters={},
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
-            data_interval_start=inputs.data_interval_start,
-            data_interval_end=inputs.data_interval_end,
+    async with (
+        Heartbeater(),
+        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+    ):
+        _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
-    else:
-        query, query_parameters = await get_query(
-            model_name=model_name,
-            backfill_details=inputs.backfill_details,
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
-            full_range=full_range,
-            data_interval_start=inputs.data_interval_start,
-            data_interval_end=inputs.data_interval_end,
-            fields=fields,
-            filters=filters,
-            destination_default_fields=inputs.destination_default_fields,
-            extra_query_parameters=extra_query_parameters,
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
-        await write_batch_export_record_batches_to_s3(
-            query_or_model=query,
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
+
+        if record_batch_model is not None:
+            query_or_model = record_batch_model
+            query_parameters = {}
+        else:
+            query, query_parameters = await _get_query(
+                model_name=model_name,
+                backfill_details=inputs.backfill_details,
+                team_id=inputs.team_id,
+                batch_export_id=inputs.batch_export_id,
+                full_range=full_range,
+                data_interval_start=inputs.data_interval_start,
+                data_interval_end=inputs.data_interval_end,
+                fields=fields,
+                filters=filters,
+                destination_default_fields=inputs.destination_default_fields,
+                extra_query_parameters=extra_query_parameters,
+            )
+            query_or_model = query
+
+        await _write_batch_export_record_batches_to_s3(
+            query_or_model=query_or_model,
             full_range=full_range,
             query_parameters=query_parameters,
             team_id=inputs.team_id,
@@ -314,26 +294,7 @@ async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInpu
         )
 
 
-def get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
-    """Get the URL for the S3 staging folder for a given batch export."""
-    subfolder = "batch-exports"
-    return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
-
-
-def get_s3_staging_folder_url(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
-    """Get the URL for the S3 staging folder for a given batch export."""
-    bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
-    if settings.DEBUG or settings.TEST:
-        base_url = f"{settings.OBJECT_STORAGE_ENDPOINT}/{bucket}/"
-    else:
-        base_url = f"https://{bucket}.s3.amazonaws.com/"
-
-    folder = get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
-
-    return f"{base_url}{folder}"
-
-
-async def get_query(
+async def _get_query(
     model_name: str,
     backfill_details: BackfillDetails | None,
     team_id: int,
@@ -341,11 +302,8 @@ async def get_query(
     full_range: tuple[dt.datetime | None, dt.datetime],
     data_interval_start: str | None,
     data_interval_end: str,
-    # done_ranges: list[tuple[dt.datetime, dt.datetime]],
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
-    # max_record_batch_size_bytes: int = 0,
-    # min_records_per_batch: int = 100,
     filters: list[dict[str, str | list[str]]] | None = None,
     **parameters,
 ):
@@ -382,6 +340,8 @@ async def get_query(
             parameters["include_events"] = list(parameters["include_events"])
         else:
             parameters["include_events"] = []
+
+        # TODO - update all queries to export to S3
 
         # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
         # may not be able to handle the load from all batch exports
@@ -420,10 +380,9 @@ async def get_query(
         query = query_template.safe_substitute(
             fields=query_fields,
             filters=filters_str,
-            # TODO - check these are available in production workers
             s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            s3_folder=get_s3_staging_folder_url(
+            s3_folder=_get_s3_staging_folder_url(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
@@ -435,8 +394,102 @@ async def get_query(
     return query, parameters
 
 
+def _get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
+    """Get the URL for the S3 staging folder for a given batch export."""
+    subfolder = "batch-exports"
+    return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
+
+
+def _get_s3_staging_folder_url(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
+    """Get the URL for the S3 staging folder for a given batch export."""
+    bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
+    if settings.DEBUG or settings.TEST:
+        base_url = f"{settings.OBJECT_STORAGE_ENDPOINT}/{bucket}/"
+    else:
+        base_url = f"https://{bucket}.s3.amazonaws.com/"
+
+    folder = _get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
+
+    return f"{base_url}{folder}"
+
+
+async def _write_batch_export_record_batches_to_s3(
+    query_or_model: str | RecordBatchModel,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    query_parameters: dict[str, typing.Any],
+    team_id: int,
+    batch_export_id: str,
+    data_interval_start: str | None,
+    data_interval_end: str,
+):
+    """Write record batches to S3 staging area."""
+    logger = get_internal_logger()
+
+    clickhouse_url = None
+    # 5 min batch exports should query a single node, which is known to have zero replication lag
+    if is_5_min_batch_export(full_range=full_range):
+        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+
+    # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
+    # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
+    # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
+    if is_5_min_batch_export(full_range):
+        delta = dt.timedelta(seconds=30)
+    else:
+        delta = dt.timedelta(minutes=1)
+    end_at = full_range[1]
+    await wait_for_delta_past_data_interval_end(end_at, delta)
+
+    done_ranges = []
+    async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
+        # TODO - in future we might want to catch any ClickHouse memory usage errors and break down the interval into
+        # sub-intervals to reduce memory usage
+        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+            if interval_start is not None:
+                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+            query_id = uuid.uuid4()
+
+            if isinstance(query_or_model, RecordBatchModel):
+                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
+            else:
+                query = query_or_model
+
+            s3_staging_folder = _get_s3_staging_folder(
+                batch_export_id=batch_export_id,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+            )
+            try:
+                await _delete_all_from_bucket_with_prefix(
+                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=s3_staging_folder
+                )
+            except Exception as e:
+                await logger.aexception("Unexpected error occurred while deleting existing objects from S3", exc_info=e)
+                raise
+
+            try:
+                await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id))
+                # TODO - remove this once testing over
+                # need to wait for query info to become available in system.query_log
+                await asyncio.sleep(5)
+                memory_usage = await client.read_query(
+                    f"SELECT formatReadableSize(memory_usage) as memory_used FROM system.query_log WHERE query_id = '{query_id}' AND type='QueryFinish' ORDER BY event_time DESC LIMIT 1",
+                )
+                await logger.ainfo(f"Query memory usage = {memory_usage.decode('utf-8').strip()}")
+
+            except Exception as e:
+                await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
+                raise
+
+
 class ProducerFromInternalS3Stage:
-    """TODO"""
+    """
+    This is an alernative implementation of the `spmc.Producer` class that reads data from the internal S3 staging area.
+    """
 
     def __init__(self):
         self.logger = get_internal_logger()
@@ -486,7 +539,7 @@ class ProducerFromInternalS3Stage:
             endpoint_override=settings.OBJECT_STORAGE_ENDPOINT if settings.DEBUG or settings.TEST else None,
             region=settings.OBJECT_STORAGE_REGION,
         )
-        folder = get_s3_staging_folder(
+        folder = _get_s3_staging_folder(
             batch_export_id=batch_export_id,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
@@ -496,7 +549,6 @@ class ProducerFromInternalS3Stage:
             dataset_path,
             format="parquet",
             filesystem=s3,
-            # partitioning=ds.partitioning(pa.schema([("date", pa.date32())])),
         )
 
         # Read in batches
