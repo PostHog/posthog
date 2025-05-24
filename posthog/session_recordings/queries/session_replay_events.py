@@ -127,7 +127,10 @@ class SessionReplayEvents:
         """
         query = """
                 SELECT
-                    min (min_first_timestamp) as start_time, groupArrayArray(block_first_timestamps) as block_first_timestamps, groupArrayArray(block_last_timestamps) as block_last_timestamps, groupArrayArray(block_urls) as block_urls
+                    min(min_first_timestamp) as start_time,
+                    groupArrayArray(block_first_timestamps) as block_first_timestamps,
+                    groupArrayArray(block_last_timestamps) as block_last_timestamps,
+                    groupArrayArray(block_urls) as block_urls
                 FROM
                     session_replay_events
                     PREWHERE
@@ -136,7 +139,7 @@ class SessionReplayEvents:
                     AND min_first_timestamp <= %(python_now)s
                     {optional_timestamp_clause}
                 GROUP BY
-                    session_id \
+                    session_id
                 """
         query = query.format(
             optional_timestamp_clause=(
