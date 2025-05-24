@@ -98,7 +98,12 @@ class ExperimentAdmin(admin.ModelAdmin):
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
+
         obj = self.get_object(request, object_id)
+        if obj is None:
+            messages.error(request, "Experiment not found")
+            return redirect("admin:posthog_experiment_changelist")
+
         all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
         extra_context["show_migration"] = has_legacy_metric(all_metrics)
 
