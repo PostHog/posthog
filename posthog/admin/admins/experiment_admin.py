@@ -6,7 +6,7 @@ from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.forms import ModelForm
 
-from posthog.models import Experiment, Cohort, ExperimentHoldout, FeatureFlag
+from posthog.models import Experiment, Cohort, ExperimentHoldout, FeatureFlag, ExperimentSavedMetric
 from posthog.models.utils import convert_legacy_metrics
 
 
@@ -99,11 +99,14 @@ class ExperimentAdmin(admin.ModelAdmin):
         shared_metrics = obj.saved_metrics.all()
         shared_metrics_status = []
         for metric in shared_metrics:
+            kind = metric.query.get("kind") if metric.query else None
+            is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
             migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
             shared_metrics_status.append(
                 {
                     "id": metric.id,
                     "name": metric.name,
+                    "is_legacy": is_legacy,
                     "migrated": migrated,
                     "migrate_url": reverse("admin:posthog_experimentsavedmetric_change", args=[metric.id]),
                 }
@@ -154,6 +157,20 @@ class ExperimentAdmin(admin.ModelAdmin):
                 new_experiment.save()
 
                 # find the shared metrics "migrated to" and create new relationships
+                # check if all saved metrics have been migrated
+                for metric in original.saved_metrics.all():
+                    kind = metric.query.get("kind") if metric.query else None
+                    is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
+                    migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
+
+                    # bail with an exception if the metric is legacy and has not been migrated
+                    if is_legacy and not migrated:
+                        raise Exception(f"Saved metric {metric.id} has not been migrated yet")
+
+                    metric_id = metric.metadata["migrated_to"] if is_legacy else metric.id
+
+                    migrated_metric = ExperimentSavedMetric.objects.get(id=metric_id)
+                    new_experiment.saved_metrics.add(migrated_metric)
 
                 # update the migrated to soft relation
                 if original.stats_config is None:

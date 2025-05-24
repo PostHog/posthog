@@ -35,7 +35,7 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     @admin.display(description="Engine")
     def engine(self, saved_metric: ExperimentSavedMetric):
         kind = saved_metric.query.get("kind") if saved_metric.query else None
-        if kind == "ExperimentFunnelsQuery" or kind == "ExperimentTrendsQuery":
+        if kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery"):
             return format_html('<span style="color: orange;">Legacy</span>')
         return ""
 
@@ -61,7 +61,7 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         kind = obj.query.get("kind") if obj.query else None
-        extra_context["show_migration"] = kind == "ExperimentFunnelsQuery" or kind == "ExperimentTrendsQuery"
+        extra_context["show_migration"] = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def get_urls(self):
