@@ -8,6 +8,7 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { HeaderRenderer, StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
 import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
+import { StacktraceJsonDisplay } from './StacktraceJsonDisplay'
 import { StacktraceTextDisplay } from './StacktraceTextDisplay'
 
 const meta: Meta = {
@@ -89,6 +90,17 @@ export function TextDisplayWithStacktrace(): JSX.Element {
     return (
         <StacktraceWrapperAllEvents>
             <StacktraceTextDisplay {...props} />
+        </StacktraceWrapperAllEvents>
+    )
+}
+
+///////////////////// Json display
+
+export function JsonDisplayWithStacktrace(): JSX.Element {
+    const props = defaultBaseProps({}, false)
+    return (
+        <StacktraceWrapperAllEvents>
+            <StacktraceJsonDisplay {...props} />
         </StacktraceWrapperAllEvents>
     )
 }

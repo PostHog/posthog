@@ -13,6 +13,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     actions({
         setShowDetails: (showDetails: boolean) => ({ showDetails }),
         setShowAsText: (showAsText: boolean) => ({ showAsText }),
+        setShowAsJson: (showAsJson: boolean) => ({ showAsJson }),
         setShowContext: (showContext: boolean) => ({ showContext }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
     }),
@@ -29,7 +30,16 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             false,
             { persist: true },
             {
+                setShowAsJson: (prevState, { showAsJson }: { showAsJson: boolean }) => (showAsJson ? false : prevState),
                 setShowAsText: (_, { showAsText }: { showAsText: boolean }) => showAsText,
+            },
+        ],
+        showAsJson: [
+            false,
+            { persist: true },
+            {
+                setShowAsText: (prevState, { showAsText }: { showAsText: boolean }) => (showAsText ? false : prevState),
+                setShowAsJson: (_, { showAsJson }: { showAsJson: boolean }) => showAsJson,
             },
         ],
         showAllFrames: [
