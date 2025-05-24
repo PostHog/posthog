@@ -132,6 +132,10 @@ class ExperimentSavedMetric(RootTeamMixin, models.Model):
 
     query = models.JSONField()
 
+    # Metadata for the saved metric
+    # has things like if this metric was migrated from a legacy metric
+    metadata = models.JSONField(null=True, blank=True, default=dict)
+
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
