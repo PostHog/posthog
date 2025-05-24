@@ -146,10 +146,11 @@ export const exportsLogic = kea<exportsLogicType>([
                             if (response && response.has_content) {
                                 await downloadExportedAsset(response)
                             } else if (response && response.exception) {
-                                lemonToast.error('Export failed! ' + response.exception)
+                                lemonToast.error('Export failed: ' + response.exception)
                             }
                         } catch (error) {
-                            lemonToast.error('Export failed!' + str(error))
+                            const message = error instanceof Error ? error.message : String(error)
+                            lemonToast.error('Export failed: ' + message)
                         }
                     })()
 
