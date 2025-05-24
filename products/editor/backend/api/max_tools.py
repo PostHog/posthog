@@ -15,11 +15,12 @@ from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rate_limit import AIBurstRateThrottle, AIFreeSustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from products.editor.backend.api.proxy import ServerSentEventRenderer
 
 
+# DEPRECATED
 class InsightsToolCallSerializer(serializers.Serializer):
     query = serializers.CharField(required=True, max_length=1000)
     insight_type = serializers.ChoiceField(choices=["trends", "funnel", "retention", "sql"])
@@ -38,13 +39,14 @@ class InsightsToolCallSerializer(serializers.Serializer):
         return data
 
 
+# DEPRECATED
 class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
     queryset = Conversation.objects.all()
 
     permission_classes = [IsAuthenticated]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
-    throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
+    throttle_classes = [AIBurstRateThrottle, AIFreeSustainedRateThrottle]
     authentication_classes = [PersonalAPIKeyAuthentication]
 
     @action(detail=False, methods=["POST"], url_path="create_and_query_insight", required_scopes=["insight:read"])

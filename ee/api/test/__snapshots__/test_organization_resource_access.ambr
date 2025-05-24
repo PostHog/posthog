@@ -75,7 +75,8 @@
          "posthog_organizationmembership"."user_id",
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at"
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."enabled_seat_based_products"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 99999)
@@ -146,7 +147,8 @@
          "posthog_organizationmembership"."user_id",
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at"
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."enabled_seat_based_products"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 99999)

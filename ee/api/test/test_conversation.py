@@ -1,6 +1,8 @@
 import datetime
 import uuid
 from unittest.mock import patch
+from freezegun import freeze_time
+from django.core.cache import cache
 
 from django.utils import timezone
 from rest_framework import status
@@ -10,6 +12,7 @@ from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
+from posthog.models.organization import OrganizationMembership
 
 
 class TestConversation(APIBaseTest):
@@ -22,6 +25,13 @@ class TestConversation(APIBaseTest):
             password="password",
             first_name="Other",
         )
+        # Clear cache to reset rate limits
+        cache.clear()
+
+    def tearDown(self):
+        super().tearDown()
+        # Clear cache after test
+        cache.clear()
 
     def _get_streaming_content(self, response):
         return b"".join(response.streaming_content)
@@ -355,3 +365,53 @@ class TestConversation(APIBaseTest):
             # Second result should be the older conversation
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
+
+    def test_free_vs_paid_throttling(self):
+        base_time = timezone.now()
+
+        # Test free user throttling
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            # First test sustained limit (20/day)
+            for i in range(20):
+                with freeze_time(base_time + datetime.timedelta(minutes=2 + i)):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {"content": "test query", "trace_id": str(uuid.uuid4())},
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Should hit sustained limit
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # reset the throttling
+        # Clear rate limits again
+        cache.delete(f"throttle_ai_burst_{self.user.id}")
+        cache.delete(f"throttle_ai_sustained_{self.user.id}")
+
+        # Test paid user throttling
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
+            membership, _ = OrganizationMembership.objects.get_or_create(
+                user=self.user,
+                organization=self.team.organization,
+            )
+            membership.enabled_seat_based_products = [OrganizationMembership.SeatBasedProduct.MAX_AI]
+            membership.save()
+            # Now test sustained limit (100/day)
+            for i in range(100):
+                with freeze_time(base_time + datetime.timedelta(minutes=2 + i)):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {"content": "test query", "trace_id": str(uuid.uuid4())},
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Should hit sustained limit
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

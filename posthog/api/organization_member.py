@@ -58,6 +58,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "last_login",
+            "enabled_seat_based_products",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
 

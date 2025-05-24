@@ -1,4 +1,5 @@
 import re
+from typing import cast
 import uuid
 import json
 
@@ -12,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from concurrent.futures import ThreadPoolExecutor
 
+from ee.hogai.utils.throttles import get_ai_throttles
 from posthog import settings
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -38,8 +40,6 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
-    AIBurstRateThrottle,
-    AISustainedRateThrottle,
     APIQueriesBurstThrottle,
     APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
@@ -99,7 +99,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
     def get_throttles(self):
         if self.action == "draft_sql":
-            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+            return get_ai_throttles(cast(User, self.request.user), self.team.organization)
         if self.team_id in settings.API_QUERIES_PER_TEAM or (
             settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
         ):

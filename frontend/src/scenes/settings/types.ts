@@ -134,6 +134,7 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'max-billing'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
