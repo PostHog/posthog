@@ -127,24 +127,29 @@ export const exportsLogic = kea<exportsLogicType>([
         pollingExports: [
             [] as ExportedAssetType[],
             {
-                createExport: async ({ exportData }) => {
-                    void api.exports
-                        .create({
-                            export_format: exportData.export_format,
-                            dashboard: exportData.dashboard,
-                            insight: exportData.insight,
-                            export_context: exportData.export_context,
-                            expires_after: dayjs().add(6, 'hour').toJSON(),
-                        })
-                        .then((response) => {
+                createExport: ({ exportData }) => {
+                    void (async () => {
+                        try {
+                            const response = await api.exports.create({
+                                export_format: exportData.export_format,
+                                dashboard: exportData.dashboard,
+                                insight: exportData.insight,
+                                export_context: exportData.export_context,
+                                expires_after: dayjs().add(6, 'hour').toJSON(),
+                            })
+
                             const currentExports = exportsLogic.values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
                             exportsLogic.actions.loadExportsSuccess(updatedExports)
+
                             // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
-                                void downloadExportedAsset(response)
+                                await downloadExportedAsset(response)
                             }
-                        })
+                        } catch (error) {
+                            lemonToast.error('Export failed!' + str(error))
+                        }
+                    })()
 
                     return [exportData]
                 },
