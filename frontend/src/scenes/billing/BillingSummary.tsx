@@ -68,7 +68,7 @@ export const BillingSummary = (): JSX.Element => {
                                                 billing.amount_off_expires_at
                                                     ? 'Your credits expire on ' +
                                                       billing.amount_off_expires_at.format('LL')
-                                                    : null
+                                                    : ''
                                             }`}
                                             className="text-secondary"
                                         >
