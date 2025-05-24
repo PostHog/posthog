@@ -11,16 +11,17 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { BaseCurrency } from './BaseCurrency'
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { GoalsConfiguration } from './GoalsConfiguration'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
 
 type Tab = 'events' | 'data-warehouse'
 
-export function RevenueEventsSettings(): JSX.Element {
+export function RevenueAnalyticsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
 
-    const { events } = useValues(revenueEventsSettingsLogic)
+    const { events } = useValues(revenueAnalyticsSettingsLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -89,7 +90,7 @@ export function RevenueEventsSettings(): JSX.Element {
             />
 
             <BaseCurrency />
-
+            <GoalsConfiguration />
             <EventConfiguration buttonRef={eventsButtonRef} />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
                 <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />

@@ -24,18 +24,28 @@ export interface ConvertProps {
     allShortcuts?: boolean
 }
 
-export function getItemId(item: FileSystemImport | FileSystemEntry): string {
-    return item.type === 'folder' ? `project://${item.path}` : `project/${item.id || item.path}`
+export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
+    const root = protocol.replace(/\/+/, '').replace(':', '')
+    return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
 }
 
 export function protocolTitle(str: string): string {
     return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
 }
 
+export function splitProtocolPath(url: string): [string, string] {
+    const folders = url ? splitPath(url) : []
+    const urlWithProtocol = folders.length > 0 && folders[0].endsWith(':') && url.startsWith(`${folders[0]}//`)
+    if (urlWithProtocol) {
+        return [folders[0] + '//', joinPath(folders.slice(1))]
+    }
+    return ['products://', url]
+}
+
 export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
     const parts = splitPath(url)
-    if (parts[0]?.endsWith(':') && (parts.length === 1 || parts[1] === '')) {
-        if (parts.length > 2) {
+    if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
+        if (parts.length > 1) {
             return parts[parts.length - 1]
         }
         return protocolTitle(parts[0].slice(0, -1))
@@ -85,7 +95,7 @@ export function convertFileSystemEntryToTreeDataItem({
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
         const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
-        const nodeId = getItemId(item)
+        const nodeId = getItemId(item, root)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
