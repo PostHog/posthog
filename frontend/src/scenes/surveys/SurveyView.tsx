@@ -15,6 +15,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import {
+    MultipleChoiceQuestionViz,
+    RatingQuestionViz,
+    SingleChoiceQuestionViz,
+} from 'scenes/surveys/components/question-visualizations'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
@@ -340,6 +345,39 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     )
 }
 
+function SurveyResponsesByQuestionV2(): JSX.Element {
+    const { survey, surveyOpenTextResults, surveyOpenTextResultsReady } = useValues(surveyLogic)
+
+    return (
+        <div className="flex flex-col gap-1">
+            {survey.questions.map((question, i) => {
+                if (!question.id) {
+                    return null
+                }
+                return (
+                    <div key={question.id} className="flex flex-col gap-2">
+                        {question.type === SurveyQuestionType.Rating && <RatingQuestionViz questionIndex={i} />}
+                        {question.type === SurveyQuestionType.SingleChoice && (
+                            <SingleChoiceQuestionViz questionIndex={i} />
+                        )}
+                        {question.type === SurveyQuestionType.MultipleChoice && (
+                            <MultipleChoiceQuestionViz questionIndex={i} />
+                        )}
+                        {question.type === SurveyQuestionType.Open && (
+                            <OpenTextViz
+                                surveyOpenTextResults={surveyOpenTextResults}
+                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                                questionIndex={i}
+                            />
+                        )}
+                        <LemonDivider />
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
 export function SurveyResponsesByQuestion(): JSX.Element {
     const {
         survey,
@@ -432,8 +470,14 @@ export function SurveyResponsesByQuestion(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        isNewQuestionVizEnabled,
+    } = useValues(surveyLogic)
 
     const atLeastOneResonse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
@@ -459,7 +503,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResonse ? (
                 <>
-                    <SurveyResponsesByQuestion />
+                    {isNewQuestionVizEnabled ? <SurveyResponsesByQuestionV2 /> : <SurveyResponsesByQuestion />}
                     <LemonButton
                         type="primary"
                         data-attr="survey-results-explore"
