@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from products.editor.backend.chunking import chunk_text
+from products.llm_observability.chunking import chunk_text
 
 from .util import load_fixture
 

@@ -16,8 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import SafeJSONRenderer
-from products.editor.backend.api.proxy import ServerSentEventRenderer
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
 
 class InsightsToolCallSerializer(serializers.Serializer):

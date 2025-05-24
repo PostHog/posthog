@@ -7,6 +7,8 @@ import json
 from collections.abc import Generator
 from django.conf import settings
 import mistralai
+import posthoganalytics
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,10 @@ class CodestralProvider:
         stop: list[str],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
     ) -> Generator[str, None, None]:
         """
         Generator function that yields SSE formatted data
@@ -52,6 +58,21 @@ class CodestralProvider:
         try:
             effective_temperature = temperature if temperature is not None else CodestralConfig.TEMPERATURE
             effective_max_tokens = max_tokens if max_tokens is not None else CodestralConfig.MAX_TOKENS
+
+            # Manually track with PostHog since Codestral doesn't have native support
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={
+                    **(properties or {}),
+                    "ai_product": "playground",
+                    "provider": "codestral",
+                    "model": self.model_id,
+                    "trace_id": trace_id or str(uuid.uuid4()),
+                    "mode": "fim",
+                },
+                groups=groups,
+            )
 
             response = self.client.fim.stream(
                 model=self.model_id,

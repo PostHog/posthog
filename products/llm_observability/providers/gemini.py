@@ -1,14 +1,16 @@
-import google.genai as genai
+from posthoganalytics.ai.gemini import genai
 from google.genai.types import GenerateContentConfig
 from google.genai.errors import APIError
 
 import json
 from collections.abc import Generator
 from django.conf import settings
+import posthoganalytics
 from anthropic.types import MessageParam
 import logging
+import uuid
 
-from products.editor.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+from products.llm_observability.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,11 @@ class GeminiConfig:
 
 class GeminiProvider:
     def __init__(self, model_id: str):
-        self.client = genai.Client(api_key=self.get_api_key())
+        posthog_client = posthoganalytics.default_client
+        if not posthog_client:
+            raise ValueError("PostHog client not found")
+
+        self.client = genai.Client(api_key=self.get_api_key(), posthog_client=posthog_client)
         self.validate_model(model_id)
         self.model_id = model_id
 
@@ -51,6 +57,10 @@ class GeminiProvider:
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data
@@ -73,7 +83,12 @@ class GeminiProvider:
                 model=self.model_id,
                 contents=convert_anthropic_messages_to_gemini(messages),
                 config=GenerateContentConfig(**config_kwargs),
+                posthog_distinct_id=distinct_id,
+                posthog_trace_id=trace_id or str(uuid.uuid4()),
+                posthog_properties={**(properties or {}), "ai_product": "playground"},
+                posthog_groups=groups or {},
             )
+
             for chunk in response:
                 if chunk.text:
                     yield f"data: {json.dumps({'type': 'text', 'text': chunk.text})}\n\n"

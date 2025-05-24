@@ -5,9 +5,11 @@ from django.conf import settings
 import openai
 from anthropic.types import MessageParam
 import logging
+import posthoganalytics
+import uuid
 from typing import Any
 
-from products.editor.backend.providers.formatters.openai_formatter import convert_to_openai_messages
+from products.llm_observability.providers.formatters.openai_formatter import convert_to_openai_messages
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +39,30 @@ class InkeepProvider:
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
     ) -> Generator[str, None, None]:
         """
         Generator function that yields SSE formatted data
         """
 
         try:
+            # Manually track with PostHog since Inkeep doesn't have native support
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={
+                    **(properties or {}),
+                    "ai_product": "playground",
+                    "provider": "inkeep",
+                    "model": self.model_id,
+                    "trace_id": trace_id or str(uuid.uuid4()),
+                },
+                groups=groups,
+            )
+
             kwargs: dict[str, Any] = {
                 "model": self.model_id,
                 "stream": True,

@@ -4,7 +4,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
-from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
+from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, metalytics, project, wizard
