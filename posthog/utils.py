@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+import orjson
 import os
 import re
 import secrets
@@ -42,6 +43,7 @@ from django.utils import timezone
 from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
+from rest_framework.utils.encoders import JSONEncoder
 from sentry_sdk import configure_scope
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -1576,3 +1578,11 @@ def is_relative_url(url: str | None) -> bool:
     return (
         parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
     )
+
+
+def to_json(obj: dict) -> bytes:
+    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
+    option = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
+
+    return json_string

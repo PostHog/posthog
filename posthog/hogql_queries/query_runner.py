@@ -70,8 +70,8 @@ from posthog.schema import (
     WebOverviewQuery,
     WebStatsTableQuery,
 )
-from posthog.schema_helpers import to_dict, to_json
-from posthog.utils import generate_cache_key, get_from_dict_or_attr
+from posthog.schema_helpers import to_dict
+from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 

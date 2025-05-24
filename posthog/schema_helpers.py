@@ -1,7 +1,5 @@
-import orjson
 from typing import Any, Literal, get_origin
 from pydantic import BaseModel, ValidationError, model_serializer
-from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
 from posthog.schema import (
@@ -114,14 +112,6 @@ def to_dict(query: BaseModel) -> dict:
     instance_dict = query.model_dump(exclude_none=True, exclude_defaults=True)
 
     return instance_dict
-
-
-def to_json(obj: dict) -> bytes:
-    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
-    option = orjson.OPT_SORT_KEYS
-    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
-
-    return json_string
 
 
 def filter_key_for_query(node: InsightQueryNode) -> str:
