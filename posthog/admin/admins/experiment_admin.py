@@ -1,9 +1,12 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db import transaction
 from django.utils.html import format_html
-from django.urls import reverse
+from django.urls import path, reverse
+from django.shortcuts import redirect
 from django.forms import ModelForm
 
 from posthog.models import Experiment, Cohort, ExperimentHoldout, FeatureFlag
+from posthog.models.utils import convert_legacy_metrics
 
 
 class ExperimentAdminForm(ModelForm):
@@ -25,11 +28,22 @@ class ExperimentAdminForm(ModelForm):
                 self.fields["feature_flag"].queryset = FeatureFlag.objects.filter(team=self.instance.team)  # type: ignore
 
 
+def has_legacy_metric(metrics):
+    if not metrics:
+        return False
+    for metric in metrics:
+        kind = metric.get("kind")
+        if kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery"):
+            return True
+    return False
+
+
 class ExperimentAdmin(admin.ModelAdmin):
     form = ExperimentAdminForm
     list_display = (
         "id",
         "name",
+        "engine",
         "team_link",
         "created_at",
         "created_by",
@@ -47,3 +61,68 @@ class ExperimentAdmin(admin.ModelAdmin):
             reverse("admin:posthog_team_change", args=[experiment.team.pk]),
             experiment.team.name,
         )
+
+    @admin.display(description="Engine")
+    def engine(self, experiment: Experiment):
+        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+        if has_legacy_metric(all_metrics):
+            return format_html('<span style="color: orange;">Legacy</span>')
+        return ""
+
+    change_form_template = "admin/posthog/experiment/change_form.html"
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        obj = self.get_object(request, object_id)
+        all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
+        extra_context["show_migration"] = has_legacy_metric(all_metrics)
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/migrate/",
+                self.admin_site.admin_view(self.migrate_experiment),
+                name="experiment_migrate",
+            ),
+        ]
+        return custom_urls + urls
+
+    def migrate_experiment(self, request, object_id):
+        original = self.get_object(request, object_id)
+        if not original:
+            messages.error(request, "Experiment not found")
+            return redirect("admin:posthog_experiment_changelist")
+
+        try:
+            with transaction.atomic():
+                new_experiment = Experiment()
+
+                # copy all fields... almost all...
+                excluded_fields = ["id", "created_at", "key"]
+                for field in original._meta.fields:
+                    if field.name not in excluded_fields:
+                        setattr(new_experiment, field.name, getattr(original, field.name))
+
+                # migrate metrics and secondary metrics
+                new_experiment.metrics = convert_legacy_metrics(original.metrics)
+                new_experiment.metrics_secondary = convert_legacy_metrics(original.metrics_secondary)
+
+                # update the migrated from relation
+                (new_experiment.stats_config or {}).update({"migrated_from": int(object_id)})
+                new_experiment.save()
+
+                # find the shared metrics "migrated to" and create new relationships
+
+                # update the migrated to soft relation
+                if original.stats_config is None:
+                    original.stats_config = {}
+                original.stats_config["migrated_to"] = new_experiment.id
+                original.save(update_fields=["stats_config"])
+
+            messages.success(request, "Metric migrated successfully")
+            return redirect("admin:posthog_experiment_change", new_experiment.pk)
+        except Exception as e:
+            messages.error(request, f"Error migrating metric: {e}")
+            return redirect("admin:posthog_experiment_change", object_id)
