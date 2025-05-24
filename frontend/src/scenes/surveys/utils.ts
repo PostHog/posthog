@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify'
 import { dayjs } from 'lib/dayjs'
-import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { QuestionProcessedData, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
@@ -99,6 +99,29 @@ export type NPSBreakdown = {
     promoters: number
     passives: number
     detractors: number
+    score: string
+}
+
+export function calculateNpsBreakdownFromProcessedData(processedData: QuestionProcessedData): NPSBreakdown | null {
+    if (!processedData || !processedData.data || processedData.data.length !== 11) {
+        return null
+    }
+
+    if (!processedData.total) {
+        return { total: 0, promoters: 0, passives: 0, detractors: 0, score: '0.0' }
+    }
+
+    const PROMOTER_MIN = 9
+    const PASSIVE_MIN = 7
+
+    const breakdown = {
+        total: processedData.total,
+        promoters: processedData.data.slice(PROMOTER_MIN, 11).reduce((acc, curr) => acc + curr.value, 0),
+        passives: processedData.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((acc, curr) => acc + curr.value, 0),
+        detractors: processedData.data.slice(0, PASSIVE_MIN).reduce((acc, curr) => acc + curr.value, 0),
+    }
+
+    return { ...breakdown, score: calculateNpsScore(breakdown).toFixed(1) }
 }
 
 export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
@@ -108,19 +131,23 @@ export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[n
     }
 
     if (surveyRatingResults.total === 0) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+        return { total: 0, promoters: 0, passives: 0, detractors: 0, score: '0.0' }
     }
 
     const PROMOTER_MIN = 9
     const PASSIVE_MIN = 7
 
-    const promoters = surveyRatingResults.data.slice(PROMOTER_MIN, 11).reduce((a, b) => a + b, 0)
-    const passives = surveyRatingResults.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((a, b) => a + b, 0)
-    const detractors = surveyRatingResults.data.slice(0, PASSIVE_MIN).reduce((a, b) => a + b, 0)
-    return { total: surveyRatingResults.total, promoters, passives, detractors }
+    const breakdown = {
+        total: surveyRatingResults.total,
+        promoters: surveyRatingResults.data.slice(PROMOTER_MIN, 11).reduce((a, b) => a + b, 0),
+        passives: surveyRatingResults.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((a, b) => a + b, 0),
+        detractors: surveyRatingResults.data.slice(0, PASSIVE_MIN).reduce((a, b) => a + b, 0),
+    }
+
+    return { ...breakdown, score: calculateNpsScore(breakdown).toFixed(1) }
 }
 
-export function calculateNpsScore(npsBreakdown: NPSBreakdown): number {
+export function calculateNpsScore(npsBreakdown: Pick<NPSBreakdown, 'total' | 'promoters' | 'detractors'>): number {
     if (npsBreakdown.total === 0) {
         return 0
     }

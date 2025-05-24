@@ -34,6 +34,7 @@ import {
     SurveyEventProperties,
     SurveyEventStats,
     SurveyMatchType,
+    SurveyQuestion,
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
@@ -175,6 +176,165 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
+}
+
+// single question and rating are effectively the same, since we count the frequency of each choice
+export interface QuestionProcessedData {
+    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
+    data?: { label: string; value: number; isPredefined: boolean }[]
+    total?: number
+}
+
+interface ResponsesByQuestion {
+    [questionId: string]: QuestionProcessedData
+}
+
+export interface ConsolidatedSurveyResults {
+    responsesByQuestion: {
+        [questionId: string]: QuestionProcessedData
+    }
+    isLoaded: boolean
+}
+
+function isEmptyOrUndefined(value: any): boolean {
+    return value === null || value === undefined || value === ''
+}
+
+function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): boolean {
+    if (question.type !== SurveyQuestionType.SingleChoice && question.type !== SurveyQuestionType.MultipleChoice) {
+        return false
+    }
+    return !!(choiceIndex === question.choices.length - 1 && question?.hasOpenChoice)
+}
+
+function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: Array<string | string[]>): any {
+    const responsesByQuestion = questions.reduce<ResponsesByQuestion>((acc, question) => {
+        if (!question.id || question.type === SurveyQuestionType.Open || question.type === SurveyQuestionType.Link) {
+            return acc
+        }
+        acc[question.id] = {
+            type: question.type,
+        }
+        return acc
+    }, {} as any)
+
+    questions.forEach((question, index) => {
+        if (!question.id || question.type === SurveyQuestionType.Open || question.type === SurveyQuestionType.Link) {
+            return
+        }
+        if (question.type === SurveyQuestionType.SingleChoice) {
+            let processedData: QuestionProcessedData = {
+                type: question.type,
+            }
+
+            // For SingleChoice, count frequency of each choice
+            const counts: { [key: string]: number } = {}
+            let total = 0
+
+            //zero-fill for any choices explicitly defined in the question but not in responses
+            if (question.choices) {
+                question.choices.forEach((choice, choiceIndex) => {
+                    if (isQuestionOpenChoice(question, choiceIndex)) {
+                        return
+                    }
+                    counts[choice] = 0
+                })
+            }
+
+            if (results) {
+                results.forEach((row: any) => {
+                    const value = row[index] as string
+                    if (!isEmptyOrUndefined(value)) {
+                        counts[value] = (counts[value] || 0) + 1
+                        total += 1
+                    }
+                })
+            }
+
+            const labels = Object.keys(counts)
+            const data = labels
+                .map((label) => ({ label, value: counts[label], isPredefined: question.choices?.includes(label) }))
+                .sort((a, b) => b.value - a.value)
+
+            processedData = { ...processedData, data, total }
+
+            responsesByQuestion[question.id] = processedData
+            return
+        }
+
+        if (question.type === SurveyQuestionType.Rating) {
+            let processedData: QuestionProcessedData = {
+                type: question.type,
+            }
+            const counts = new Array(question.scale === 10 ? 11 : question.scale).fill(0)
+            let total = 0
+
+            if (results) {
+                results.forEach((row: any) => {
+                    const value = row[index] as string
+                    if (!isEmptyOrUndefined(value)) {
+                        const parsedValue = parseInt(value)
+                        if (!isNaN(parsedValue)) {
+                            counts[parsedValue] = (counts[parsedValue] || 0) + 1
+                            total += 1
+                        }
+                    }
+                })
+            }
+
+            const data = counts.map((count, index) => ({ label: index.toString(), value: count, isPredefined: true }))
+            processedData = { ...processedData, data, total }
+
+            responsesByQuestion[question.id] = processedData
+            return
+        }
+
+        if (question.type === SurveyQuestionType.MultipleChoice) {
+            let processedData: QuestionProcessedData = {
+                type: question.type,
+            }
+
+            const counts: { [key: string]: number } = {}
+            let total = 0
+            // zero-fill for any choices explicitly defined in the question but not in responses
+            if (question.choices && !isQuestionOpenChoice(question, index)) {
+                question.choices.forEach((choice, choiceIndex) => {
+                    if (isQuestionOpenChoice(question, choiceIndex)) {
+                        return
+                    }
+                    counts[choice] = 0
+                })
+            }
+
+            if (results) {
+                results.forEach((row: any) => {
+                    const value = row[index] as string[]
+                    if (value !== null && value !== undefined) {
+                        total += 1
+                        value.forEach((choice) => {
+                            // remove any trailing or leading quotes
+                            const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
+                            if (!isEmptyOrUndefined(cleaned)) {
+                                counts[cleaned] = (counts[cleaned] || 0) + 1
+                            }
+                        })
+                    }
+                })
+            }
+
+            const labels = Object.keys(counts)
+            const data = labels
+                .map((label) => ({ label, value: counts[label], isPredefined: question.choices?.includes(label) }))
+                .sort((a, b) => b.value - a.value)
+
+            processedData = { ...processedData, data, total }
+
+            responsesByQuestion[question.id] = processedData
+            return
+        }
+    })
+
+    return responsesByQuestion
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -756,12 +916,56 @@ export const surveyLogic = kea<surveyLogicType>([
                 return { ...values.surveyOpenTextResults, [questionIndex]: { events } }
             },
         },
+        consolidatedSurveyResults: {
+            loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
+                if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
+                    return { responsesByQuestion: {}, isLoaded: true }
+                }
+
+                // Build an array of all questions with their types
+                const questionFields = values.survey.questions.map((question, index) => {
+                    const isMultipleChoice = question.type === SurveyQuestionType.MultipleChoice
+                    return `getSurveyResponse(${index}, '${question?.id}'${
+                        isMultipleChoice ? ', true' : ''
+                    }) AS q${index}_response`
+                })
+
+                // Also get distinct_id and person properties for open text questions
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        -- QUERYING ALL SURVEY RESPONSES IN ONE GO
+                        SELECT
+                            ${questionFields.join(',\n                            ')}
+                        FROM events
+                        WHERE event = '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            ${values.timestampFilter}
+                            ${values.answerFilterHogQLExpression}
+                            ${values.partialResponsesFilter}
+                            AND {filters}
+                    `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
+                }
+
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+
+                // Process the results into a format that can be used by each question type
+                const responsesByQuestion = processResultsForSurveyQuestions(values.survey.questions, results)
+
+                return { responsesByQuestion, isLoaded: true }
+            },
+        },
     })),
     listeners(({ actions, values }) => {
         const reloadAllSurveyResults = debounce((): void => {
             // Load survey stats data
             actions.loadSurveyBaseStats()
             actions.loadSurveyDismissedAndSentCount()
+            actions.loadConsolidatedSurveyResults()
             // Load results for each question
             values.survey.questions.forEach((question, index) => {
                 switch (question.type) {
@@ -820,6 +1024,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
+                    actions.loadConsolidatedSurveyResults()
                 }
 
                 if (values.survey.start_date) {
@@ -1173,12 +1378,28 @@ export const surveyLogic = kea<surveyLogicType>([
                 resetSurvey: () => null,
             },
         ],
+        consolidatedSurveyResultsLoading: [
+            false,
+            {
+                loadConsolidatedSurveyResults: () => true,
+                loadConsolidatedSurveyResultsSuccess: () => false,
+                loadConsolidatedSurveyResultsFailure: () => false,
+                loadSurveySuccess: () => false,
+                resetSurvey: () => false,
+            },
+        ],
     }),
     selectors({
         isPartialResponsesEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
                 return !!enabledFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES]
+            },
+        ],
+        isNewQuestionVizEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEYS_NEW_QUESTION_VIZ]
             },
         ],
         timestampFilter: [
