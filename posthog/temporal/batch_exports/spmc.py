@@ -599,7 +599,6 @@ class SessionsRecordBatchModel(RecordBatchModel):
 
 def resolve_batch_exports_model(
     team_id: int,
-    is_backfill: bool,
     batch_export_model: BatchExportModel | None = None,
     batch_export_schema: BatchExportSchema | None = None,
 ):
@@ -956,6 +955,14 @@ class Producer:
                             record_batch, max_record_batch_size_bytes, min_records_per_batch
                         ):
                             await queue.put(record_batch_slice)
+
+                    # TODO - remove this once testing over
+                    # need to wait for query info to become available in system.query_log
+                    await asyncio.sleep(5)
+                    memory_usage = await client.read_query(
+                        f"SELECT formatReadableSize(memory_usage) as memory_used FROM system.query_log WHERE query_id = '{query_id}' AND type='QueryFinish' ORDER BY event_time DESC LIMIT 1",
+                    )
+                    await self.logger.ainfo(f"Query memory usage = {memory_usage.decode('utf-8').strip()}")
 
                 except Exception as e:
                     await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
