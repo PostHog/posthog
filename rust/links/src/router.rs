@@ -55,15 +55,22 @@ where
         .route("/_readiness", get(|| ready(StatusCode::OK)))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
+    // Definitions duplicated for now to support the temporary deployment
     let links_external_router = Router::new()
         .route("/ph/:short_code", get(external_redirect_url))
         .route("/ph/:short_code/", get(external_redirect_url))
         .route("/ph", post(external_store_url))
-        .route("/ph/", post(external_store_url));
+        .route("/ph/", post(external_store_url))
+        .route("/redirect/ph/:short_code", get(external_redirect_url))
+        .route("/redirect/ph/:short_code/", get(external_redirect_url))
+        .route("/redirect/ph", post(external_store_url))
+        .route("/redirect/ph/", post(external_store_url));
 
     let links_internal_router = Router::new()
         .route("/:short_code", get(internal_redirect_url))
-        .route("/:short_code/", get(internal_redirect_url));
+        .route("/:short_code/", get(internal_redirect_url))
+        .route("/redirect/:short_code", get(internal_redirect_url))
+        .route("/redirect/:short_code/", get(internal_redirect_url));
 
     let router = Router::new()
         .merge(status_router)
