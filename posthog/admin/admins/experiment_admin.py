@@ -6,7 +6,14 @@ from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.forms import ModelForm
 
-from posthog.models import Experiment, Cohort, ExperimentHoldout, FeatureFlag, ExperimentSavedMetric
+from posthog.models import (
+    Experiment,
+    Cohort,
+    ExperimentHoldout,
+    FeatureFlag,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from posthog.models.utils import convert_legacy_metrics
 
 
@@ -154,6 +161,8 @@ class ExperimentAdmin(admin.ModelAdmin):
                 if new_experiment.stats_config is None:
                     new_experiment.stats_config = {}
                 new_experiment.stats_config["migrated_from"] = int(object_id)
+
+                # save the experiment, we need this for referencial integrity
                 new_experiment.save()
 
                 # find the shared metrics "migrated to" and create new relationships
@@ -167,10 +176,23 @@ class ExperimentAdmin(admin.ModelAdmin):
                     if is_legacy and not migrated:
                         raise Exception(f"Saved metric {metric.id} has not been migrated yet")
 
+                    # because we need metadata from the through table, we can'd just do
+                    # experiment.saved_metrics.add. We need to create the relationship by hand
+                    original_to_saved_metric = ExperimentToSavedMetric.objects.get(
+                        experiment=original, saved_metric=metric
+                    )
+
+                    # if is legacy, get the migrated metric, otherwise, keep the id from the original experiment
                     metric_id = metric.metadata["migrated_to"] if is_legacy else metric.id
 
-                    migrated_metric = ExperimentSavedMetric.objects.get(id=metric_id)
-                    new_experiment.saved_metrics.add(migrated_metric)
+                    saved_metric = ExperimentSavedMetric.objects.get(id=metric_id)
+
+                    # Create the new through object with the same metadata
+                    ExperimentToSavedMetric.objects.create(
+                        experiment=new_experiment,
+                        saved_metric=saved_metric,
+                        metadata=copy.deepcopy(original_to_saved_metric.metadata),
+                    )
 
                 # update the migrated to soft relation
                 if original.stats_config is None:
