@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="experimentsavedmetric",
             name="metadata",
-            field=models.JSONField(blank=True, default=dict),
+            field=models.JSONField(null=True, blank=True, default=dict),
         ),
     ]
