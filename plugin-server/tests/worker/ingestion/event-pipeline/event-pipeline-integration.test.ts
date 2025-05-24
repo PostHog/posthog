@@ -1,10 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { fetch } from 'undici'
+import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { CookielessServerHashMode, Hook, Hub } from '../../../../src/types'
+import { CookielessServerHashMode, Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
@@ -22,6 +23,26 @@ import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/logger')
 
+const team: Team = {
+    id: 2,
+    project_id: 2 as ProjectId,
+    organization_id: '2',
+    uuid: v4(),
+    name: '2',
+    anonymize_ips: true,
+    api_token: 'api_token',
+    slack_incoming_webhook: 'slack_incoming_webhook',
+    session_recording_opt_in: true,
+    person_processing_opt_out: null,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
+}
+
 describe('Event Pipeline integration test', () => {
     let hub: Hub
     let actionManager: ActionManager
@@ -31,7 +52,7 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
         const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore)
-        const result = await runner.runEventPipeline(event)
+        const result = await runner.runEventPipeline(event, team)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])
     }
@@ -253,13 +274,13 @@ describe('Event Pipeline integration test', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event, team)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(event, team)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
@@ -339,7 +360,8 @@ describe('Event Pipeline integration test', () => {
 
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
         const result = await new EventPipelineRunner(hub, event, undefined, undefined, personsStore).runEventPipeline(
-            event
+            event,
+            team
         )
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })

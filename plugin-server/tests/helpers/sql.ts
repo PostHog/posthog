@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
 import {
+    CookielessServerHashMode,
     Hub,
     InternalPerson,
     Plugin,
@@ -14,7 +15,6 @@ import {
     RawOrganization,
     RawPerson,
     Team,
-    TeamId,
 } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
@@ -307,11 +307,12 @@ export async function createUserTeamAndOrganization(
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
     })
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
-    const selectResult = await hub.db.postgres.query<Team>(
+    const selectResult = await hub.postgres.query<Team>(
         PostgresUse.COMMON_READ,
         'SELECT * FROM posthog_team ORDER BY id',
         undefined,
@@ -382,7 +383,7 @@ export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
     token?: string
-): Promise<TeamId> => {
+): Promise<number> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
     let organizationId: string
