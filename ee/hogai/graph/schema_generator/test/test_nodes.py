@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 from posthog.test.base import BaseTest
 
-TestSchema = SchemaGeneratorOutput[AssistantTrendsQuery]
+DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
 class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
@@ -44,7 +44,7 @@ class TestSchemaGeneratorNode(BaseTest):
     def test_node_runs(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            generator_model_mock.return_value = RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump())
+            generator_model_mock.return_value = RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump())
             new_state = node.run(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
@@ -204,7 +204,7 @@ class TestSchemaGeneratorNode(BaseTest):
     def test_failover_with_incorrect_schema(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = TestSchema(query=None).model_dump()
+            schema = DummySchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
             schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
@@ -226,7 +226,7 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(lambda _: TestSchema(query=self.schema).model_dump()),
+            return_value=RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump()),
         ):
             new_state = node.run(
                 AssistantState(
@@ -252,7 +252,7 @@ class TestSchemaGeneratorNode(BaseTest):
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            schema = TestSchema(query=None).model_dump()
+            schema = DummySchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
             schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
