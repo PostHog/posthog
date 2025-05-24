@@ -231,6 +231,7 @@ services:
             SKIP_READS: 'false'
 
     plugins:
+        build: .
         command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
         environment:
