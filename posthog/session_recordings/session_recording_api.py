@@ -628,13 +628,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
+        source_log_label = source or "listing"
         is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
-        SNAPSHOT_SOURCE_REQUESTED.labels(source=source or "listing").inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             used_key = request.successful_authenticator.personal_api_key
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source or "listing").inc()
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
             posthoganalytics.capture(
