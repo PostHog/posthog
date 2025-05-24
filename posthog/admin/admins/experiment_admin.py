@@ -203,5 +203,5 @@ class ExperimentAdmin(admin.ModelAdmin):
             messages.success(request, "Experiment migrated successfully")
             return redirect("admin:posthog_experiment_change", new_experiment.pk)
         except Exception as e:
-            messages.error(request, f"Error migrating metric: {e}")
+            messages.error(request, f"Error migrating experiment: {e}")
             return redirect("admin:posthog_experiment_change", object_id)
