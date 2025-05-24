@@ -97,9 +97,16 @@ GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
     "Time taken to get realtime snapshots from Redis",
 )
 
+GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
+    "session_snapshots_gather_recording_sources_histogram",
+    "Time taken to gather recording sources",
+    labelnames=["blob_version"],
+)
+
 STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
+    labelnames=["blob_version"],
 )
 
 logger = structlog.get_logger(__name__)
@@ -708,71 +715,72 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_keys: list[str] | None = None
         blob_prefix = ""
 
-        if is_v2_enabled:
-            with timer("list_blocks__gather_session_recording_sources"):
-                blocks = list_blocks(recording)
+        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
+            if is_v2_enabled:
+                with timer("list_blocks__gather_session_recording_sources"):
+                    blocks = list_blocks(recording)
 
-            for i, block in enumerate(blocks):
-                sources.append(
-                    {
-                        "source": "blob_v2",
-                        "start_timestamp": block["start_time"],
-                        "end_timestamp": block["end_time"],
-                        "blob_key": str(i),
-                    }
-                )
-
-        with timer("list_objects__gather_session_recording_sources"):
-            if recording.object_storage_path:
-                blob_prefix = recording.object_storage_path
-                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                might_have_realtime = False
-            else:
-                blob_prefix = recording.build_blob_ingestion_storage_path()
-                blob_keys = object_storage.list_objects(blob_prefix)
-
-        with timer("prepare_sources__gather_session_recording_sources"):
-            if blob_keys:
-                for full_key in blob_keys:
-                    # Keys are like 1619712000-1619712060
-                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                    time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
-
+                for i, block in enumerate(blocks):
                     sources.append(
                         {
-                            "source": "blob",
-                            "start_timestamp": time_range[0],
-                            "end_timestamp": time_range.pop(),
-                            "blob_key": blob_key,
+                            "source": "blob_v2",
+                            "start_timestamp": block["start_time"],
+                            "end_timestamp": block["end_time"],
+                            "blob_key": str(i),
                         }
                     )
-            if sources:
-                sources = sorted(sources, key=lambda x: x["start_timestamp"])
-                oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
+            with timer("list_objects__gather_session_recording_sources"):
+                if recording.object_storage_path:
+                    blob_prefix = recording.object_storage_path
+                    blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                    might_have_realtime = False
+                else:
+                    blob_prefix = recording.build_blob_ingestion_storage_path()
+                    blob_keys = object_storage.list_objects(blob_prefix)
+
+            with timer("prepare_sources__gather_session_recording_sources"):
+                if blob_keys:
+                    for full_key in blob_keys:
+                        # Keys are like 1619712000-1619712060
+                        blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
+                        blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                        time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
+
+                        sources.append(
+                            {
+                                "source": "blob",
+                                "start_timestamp": time_range[0],
+                                "end_timestamp": time_range.pop(),
+                                "blob_key": blob_key,
+                            }
+                        )
+                if sources:
+                    sources = sorted(sources, key=lambda x: x["start_timestamp"])
+                    oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                    newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+
+                    if might_have_realtime:
+                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
                 if might_have_realtime:
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
-            if might_have_realtime:
-                sources.append(
-                    {
-                        "source": "realtime",
-                        "start_timestamp": newest_timestamp,
-                        "end_timestamp": None,
-                    }
-                )
-                # the UI will use this to try to load realtime snapshots
-                # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                # it takes a short while for the subscription to be sync'd into redis
-                # let's use the network round trip time to get started
-                publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
-            response_data["sources"] = sources
+                    sources.append(
+                        {
+                            "source": "realtime",
+                            "start_timestamp": newest_timestamp,
+                            "end_timestamp": None,
+                        }
+                    )
+                    # the UI will use this to try to load realtime snapshots
+                    # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                    # it takes a short while for the subscription to be sync'd into redis
+                    # let's use the network round trip time to get started
+                    publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+                response_data["sources"] = sources
 
-        with timer("serialize_data__gather_session_recording_sources"):
-            serializer = SessionRecordingSourcesSerializer(response_data)
+            with timer("serialize_data__gather_session_recording_sources"):
+                serializer = SessionRecordingSourcesSerializer(response_data)
 
-        return Response(serializer.data)
+            return Response(serializer.data)
 
     @staticmethod
     def _validate_blob_key(blob_key: Any) -> None:
@@ -860,7 +868,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
 
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1").time():
             # streams the file from S3 to the client
             # will not decompress the possibly large file because of `stream=True`
             #
@@ -917,7 +925,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         except ValueError:
             raise exceptions.ValidationError("Blob key must be an integer")
 
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with timer("list_blocks__stream_blob_v2_to_client"):
                 blocks = list_blocks(recording)
                 if not blocks:
