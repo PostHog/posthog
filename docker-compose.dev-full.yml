@@ -18,7 +18,6 @@ services:
         depends_on:
             - replay-capture
             - capture
-            - feature-flags
             - web
     db:
         extends:
@@ -151,14 +150,6 @@ services:
             service: property-defs-rs
         depends_on:
             - kafka
-
-    feature-flags:
-        extends:
-            file: docker-compose.base.yml
-            service: feature-flags
-        depends_on:
-            - redis
-            - db
 
     plugins:
         extends:
