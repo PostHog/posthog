@@ -12,10 +12,11 @@ from posthog import constants
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import afetch_batch_export_runs_in_range
 from posthog.temporal.batch_exports.monitoring import (
+    ZERO_RECORDS_COMPLETED_THRESHOLD,
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
     _log_warning_for_missing_batch_export_runs,
-    check_for_missing_batch_export_runs,
+    check_batch_export_runs,
     get_batch_export,
     get_event_counts,
     update_batch_export_runs,
@@ -122,7 +123,7 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
             activities=[
                 get_batch_export,
                 get_event_counts,
-                check_for_missing_batch_export_runs,
+                check_batch_export_runs,
                 update_batch_export_runs,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -157,8 +158,13 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
     "simulate_missing_batch_export_runs",
     [True, False],
 )
+@pytest.mark.parametrize(
+    "simulate_zero_records_completed",
+    [True, False],
+)
 async def test_monitoring_workflow(
     simulate_missing_batch_export_runs,
+    simulate_zero_records_completed,
     batch_export,
     generate_test_data,
     data_interval_start,
@@ -172,6 +178,9 @@ async def test_monitoring_workflow(
     generated and assert that the expected records count matches the records
     completed.
     """
+
+    if simulate_zero_records_completed and simulate_missing_batch_export_runs:
+        pytest.skip("Cannot simulate both zero records completed and missing batch export runs")
 
     expected_missing_runs: list[tuple[dt.datetime, dt.datetime]] = []
     if simulate_missing_batch_export_runs:
@@ -187,11 +196,30 @@ async def test_monitoring_workflow(
             expected_missing_runs.append((run.data_interval_start, run.data_interval_end))
             await run.adelete()
 
+    if simulate_zero_records_completed:
+        # simulate a batch export run with zero records completed by updating the batch export run for the first 5 minutes
+        runs = await afetch_batch_export_runs_in_range(
+            batch_export_id=batch_export.id,
+            interval_start=data_interval_start,
+            interval_end=data_interval_end,
+        )
+
+        # this should always be the case, but if not, our test will not pass
+        assert len(runs) >= ZERO_RECORDS_COMPLETED_THRESHOLD
+        for run in runs:
+            run.records_completed = 0
+            await run.asave()
+
     workflow_id = str(uuid.uuid4())
     inputs = BatchExportMonitoringInputs(batch_export_id=batch_export.id)
-    with patch(
-        "posthog.temporal.batch_exports.monitoring._log_warning_for_missing_batch_export_runs"
-    ) as mock_log_warning:
+    with (
+        patch(
+            "posthog.temporal.batch_exports.monitoring._log_warning_for_missing_batch_export_runs"
+        ) as mock_log_warning_missing_runs,
+        patch(
+            "posthog.temporal.batch_exports.monitoring._log_warning_for_zero_records_completed"
+        ) as mock_log_warning_zero_records_completed,
+    ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
@@ -200,7 +228,7 @@ async def test_monitoring_workflow(
                 activities=[
                     get_batch_export,
                     get_event_counts,
-                    check_for_missing_batch_export_runs,
+                    check_batch_export_runs,
                     update_batch_export_runs,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -216,21 +244,28 @@ async def test_monitoring_workflow(
 
         if simulate_missing_batch_export_runs:
             # check that the warning was logged
-            mock_log_warning.assert_called_once_with(batch_export.id, expected_missing_runs)
+            mock_log_warning_missing_runs.assert_called_once_with(batch_export.id, expected_missing_runs)
         else:
             # check that the warning was not logged
-            mock_log_warning.assert_not_called()
+            mock_log_warning_missing_runs.assert_not_called()
 
-        # check that the batch export runs were updated correctly
-        batch_export_runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        if simulate_zero_records_completed:
+            # check that the warning was logged
+            mock_log_warning_zero_records_completed.assert_called_once_with(batch_export.id, runs)
+        else:
+            # check that the warning was not logged
+            mock_log_warning_zero_records_completed.assert_not_called()
 
-        for run in batch_export_runs:
-            if run.records_completed == 0:
-                # TODO: in the actual monitoring activity it would be better to
-                # update the actual count to 0 rather than None
-                assert run.records_total_count is None
-            else:
-                assert run.records_completed == run.records_total_count
+            # check that the batch export runs were updated correctly
+            batch_export_runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+
+            for run in batch_export_runs:
+                if run.records_completed == 0:
+                    # TODO: in the actual monitoring activity it would be better to
+                    # update the actual count to 0 rather than None
+                    assert run.records_total_count is None
+                else:
+                    assert run.records_completed == run.records_total_count
 
 
 def test_log_warning_for_missing_batch_export_runs():
