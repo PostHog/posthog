@@ -139,17 +139,9 @@ class AnthropicProvider:
             system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": None})]
             formatted_messages = [MessageParam(content=msg["content"], role=msg["role"]) for msg in messages]
 
-        # Prepare PostHog tracking parameters
-        posthog_kwargs = {
-            "posthog_distinct_id": distinct_id,
-            "posthog_trace_id": trace_id or str(uuid.uuid4()),
-            "posthog_properties": {**(properties or {}), "ai_product": "playground"},
-            "posthog_groups": groups or {},
-        }
-
         try:
             if reasoning_on:
-                stream = self.client.messages.create(
+                stream = self.client.messages.create(  # type: ignore[call-overload]
                     messages=formatted_messages,
                     max_tokens=effective_max_tokens,
                     model=self.model_id,
@@ -159,17 +151,23 @@ class AnthropicProvider:
                     thinking=ThinkingConfigEnabledParam(
                         type="enabled", budget_tokens=AnthropicConfig.MAX_THINKING_TOKENS
                     ),
-                    **posthog_kwargs,
+                    posthog_distinct_id=distinct_id,
+                    posthog_trace_id=trace_id or str(uuid.uuid4()),
+                    posthog_properties={**(properties or {}), "ai_product": "playground"},
+                    posthog_groups=groups or {},
                 )
             else:
-                stream = self.client.messages.create(
+                stream = self.client.messages.create(  # type: ignore[call-overload]
                     messages=formatted_messages,
                     max_tokens=effective_max_tokens,
                     model=self.model_id,
                     system=system_prompt,
                     stream=True,
                     temperature=effective_temperature,
-                    **posthog_kwargs,
+                    posthog_distinct_id=distinct_id,
+                    posthog_trace_id=trace_id or str(uuid.uuid4()),
+                    posthog_properties={**(properties or {}), "ai_product": "playground"},
+                    posthog_groups=groups or {},
                 )
         except Exception as e:
             logger.exception(f"Anthropic API error: {e}")

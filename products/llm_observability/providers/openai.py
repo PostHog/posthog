@@ -103,14 +103,6 @@ class OpenAIProvider:
         else:
             reasoning_on = False
 
-        # Prepare PostHog tracking parameters
-        posthog_kwargs = {
-            "posthog_distinct_id": distinct_id,
-            "posthog_trace_id": trace_id or str(uuid.uuid4()),
-            "posthog_properties": {**(properties or {}), "ai_product": "playground"},
-            "posthog_groups": groups or {},
-        }
-
         try:
             effective_temperature = temperature if temperature is not None else OpenAIConfig.TEMPERATURE
 
@@ -119,7 +111,10 @@ class OpenAIProvider:
                     "stream": True,
                     "stream_options": {"include_usage": True},
                     "temperature": effective_temperature,
-                    **posthog_kwargs,
+                    "posthog_distinct_id": distinct_id,
+                    "posthog_trace_id": trace_id or str(uuid.uuid4()),
+                    "posthog_properties": {**(properties or {}), "ai_product": "playground"},
+                    "posthog_groups": groups or {},
                 }
                 if max_tokens is not None:
                     common["max_tokens"] = max_tokens

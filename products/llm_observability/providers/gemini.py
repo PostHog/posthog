@@ -79,19 +79,14 @@ class GeminiProvider:
             if effective_max_tokens is not None:
                 config_kwargs["max_output_tokens"] = effective_max_tokens
 
-            # Prepare PostHog tracking parameters
-            posthog_kwargs = {
-                "posthog_distinct_id": distinct_id,
-                "posthog_trace_id": trace_id or str(uuid.uuid4()),
-                "posthog_properties": {**(properties or {}), "ai_product": "playground"},
-                "posthog_groups": groups or {},
-            }
-
             response = self.client.models.generate_content_stream(
                 model=self.model_id,
                 contents=convert_anthropic_messages_to_gemini(messages),
                 config=GenerateContentConfig(**config_kwargs),
-                **posthog_kwargs,
+                posthog_distinct_id=distinct_id,
+                posthog_trace_id=trace_id or str(uuid.uuid4()),
+                posthog_properties={**(properties or {}), "ai_product": "playground"},
+                posthog_groups=groups or {},
             )
 
             for chunk in response:
