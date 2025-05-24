@@ -284,10 +284,7 @@ export class IngestionConsumer {
 
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
-                await Promise.all([
-                    this.promiseScheduler.waitForAll(),
-                    this.hogTransformer.promiseScheduler.waitForAll(),
-                ])
+                await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
             }),
         }
     }

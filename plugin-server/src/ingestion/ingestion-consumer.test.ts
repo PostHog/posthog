@@ -867,7 +867,8 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                const result = await ingester.handleKafkaBatch(messages)
+                await result.backgroundTask
 
                 // Verify metrics were published
                 const metricsMessages =
@@ -946,7 +947,8 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                const result = await ingester.handleKafkaBatch(messages)
+                await result.backgroundTask
 
                 // Verify metrics were published
                 const metricsMessages =
