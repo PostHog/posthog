@@ -630,8 +630,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source = request.GET.get("source")
         is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
-        if source:
-            SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             used_key = request.successful_authenticator.personal_api_key
