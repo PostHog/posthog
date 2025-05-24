@@ -77,6 +77,24 @@ Use these metrics to calibrate your analysis of user objectives and engagement q
 
 <identify_objectives_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
+{% if FOCUS_AREA %}
+
+# Step 0: Focus Area
+
+IMPORTANT: While following all the guidelines below, pay special attention to answering this question or focus area:
+
+```
+{{ FOCUS_AREA|safe }}
+```
+
+This additional focus should influence your analysis throughout all steps, particularly affecting:
+- Which segments you examine most closely
+- Which key actions you prioritize
+- How you assess the success of segments and the overall session
+- The details you emphasize in your summaries
+
+Keep this focus in mind throughout your analysis, but still follow the structured approach below.
+{% endif %}
 
 # Step 1: Segment the Session Timeline
 
@@ -89,6 +107,10 @@ First, analyze the entire session and divide it into sequential chronological se
 - Segments should follow the natural progression of the user journey
 - Segment boundaries should be based on meaningful transitions in user activity
 - IMPORTANT: Analyze the full timeline from first to last event to avoid recency or primacy bias.
+{% if FOCUS_AREA %}
+- When segmenting, consider the focus area (Step #0).
+- Create more granular segments for activities related to the focus area
+{% endif %}
 
 1.2. For each segment, provide:
 
@@ -117,6 +139,10 @@ First, analyze the entire session and divide it into sequential chronological se
 # Step 2: Consolidate Segments
 
 AGGRESSIVELY consolidate similar segments.
+{% if FOCUS_AREA %}
+
+However, be careful not to over-consolidate segments that relate directly to the focus area (Step #0). Preserve more granular distinctions for segments specifically relevant to this focus area.
+{% endif %}
 
 # Step 3: Identify Key Actions Within Each Segment
 
@@ -125,6 +151,9 @@ After segmenting the timeline, identify the most significant actions within each
 3.1. Key Action Prioritization:
 
 - HIGH PRIORITY:
+  {% if FOCUS_AREA %}
+  - Any events directly related to the focus area (Step #0).
+  {% endif %}
   - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
   - Events that prevented conversions (technical failures, UX issues, abandoned flows, etc.)
   - Critical flow interruptions (technical errors, repeated failed attempts, frustration indicators, etc.)
@@ -195,6 +224,10 @@ After segmenting the timeline, identify the most significant actions within each
 # Step 4: Consolidate Key Actions
 
 AGGRESSIVELY consolidate repeated similar actions, multi-step processes, or related errors. Include up to 3 key actions for short segments or up to 5 actions for long segments. If you need to include more than 5 actions - consolidate events.
+{% if FOCUS_AREA %}
+
+When consolidating, preserve the granularity of actions directly relevant to the focus area (Step #0). These actions should be given priority to remain distinct rather than being consolidated, especially if they provide insight related to the focus area.
+{% endif %}
 
 4.1. Combine into ONE key action:
 
@@ -226,6 +259,9 @@ For each segment, determine a segment outcome:
 - Write a brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
 - The summary should be concise and to the point (1-2 short sentences up to 15 words in total)
 - Reflect on the segment success status and the key actions to provide a detailed summary
+{% if FOCUS_AREA %}
+- For segments relevant to the focus area (Step #0), ensure the summary directly addresses how the segment relates to them.
+{% endif %}
 
 # Step 6: Assess the Session Journey and Outcome
 
@@ -242,6 +278,9 @@ After analyzing the chronological segments and key actions, evaluate the overall
 - Identify technical or flow-related errors that directly impacted conversion attempts or feature interactions
 - Note any user experience issues that may have contributed to abandoned conversions
 - Assess whether errors led to session abandonment
+{% if FOCUS_AREA %}
+- Particularly highlight any issues that directly relate to the focus area (Step #0).
+{% endif %}
 
 6.3. Session Success Determination:
 
@@ -308,6 +347,13 @@ Before finalizing your analysis, verify:
 - Are early, middle, and late events given appropriate attention?
 - Is the analysis free from recency or primacy bias?
 - If most key actions are from early in the session, or the summary misses large portions of the timeline, revisit events to ensure important activities aren't overlooked
+{% if FOCUS_AREA %}
+
+7.6. Focus Area Verification:
+- Does your analysis adequately address the focus area (Step #0)?
+- Have you preserved appropriate detail for segments and actions related to this focus area?
+- Do your segment and session summaries properly relate to this focus area?
+{% endif %}
 
 Revise your analysis if any inconsistencies are found.
 </identify_objectives_instructions>
