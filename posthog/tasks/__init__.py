@@ -3,7 +3,6 @@
 from . import (
     async_migrations,
     calculate_cohort,
-    check_clickhouse_schema_drift,
     demo_create_data,
     demo_reset_master_team,
     email,
@@ -26,7 +25,6 @@ from . import (
 __all__ = [
     "async_migrations",
     "calculate_cohort",
-    "check_clickhouse_schema_drift",
     "demo_create_data",
     "demo_reset_master_team",
     "email",
