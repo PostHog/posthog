@@ -634,7 +634,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             used_key = request.successful_authenticator.personal_api_key
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=used_key.value, source=source).inc()
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source).inc()
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
             posthoganalytics.capture(
