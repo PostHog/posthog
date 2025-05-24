@@ -206,9 +206,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
-            : '',
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
 
