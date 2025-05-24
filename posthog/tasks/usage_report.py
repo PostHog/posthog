@@ -794,7 +794,6 @@ def get_teams_with_survey_responses_count_in_period(
     # Construct the subquery for unique event UUIDs
     unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
         base_conditions_sql=[
-            "event = 'survey sent'",
             "timestamp BETWEEN %(begin)s AND %(end)s",
         ],
         group_by_prefix_expressions=[
@@ -850,7 +849,9 @@ def get_teams_with_ai_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
-        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end, billable=True)
+        ExternalDataJob.objects.filter(
+            finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
+        )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )

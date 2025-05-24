@@ -19,7 +19,7 @@ import {
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
-import { revenueEventsSettingsLogic } from '../settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.REVENUE_GROWTH_RATE
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -29,7 +29,7 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 }
 
 export const RevenueGrowthRateTile = (): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
 
     const { queries, growthRateDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
     const { setGrowthRateDisplayMode } = useActions(revenueAnalyticsLogic)

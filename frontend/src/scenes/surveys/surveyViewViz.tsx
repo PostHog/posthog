@@ -462,7 +462,7 @@ export function OpenTextViz({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
-    const atLeastOneResponse = !!surveyOpenTextResults?.[questionIndex].events?.length
+    const atLeastOneResponse = !!surveyOpenTextResults?.[questionIndex]?.events?.length
 
     return (
         <div>

@@ -25,6 +25,8 @@ export const manifest: ProductManifest = {
             iconType: 'piggyBank',
             href: urls.revenueAnalytics(),
         },
+    ],
+    treeItemsDataManagement: [
         {
             path: 'Revenue settings',
             iconType: 'handMoney',

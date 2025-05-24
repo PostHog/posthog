@@ -4,6 +4,8 @@ import {
     LemonButton,
     LemonCollapse,
     LemonCollapsePanel,
+    LemonDialog,
+    LemonInput,
     LemonLabel,
     LemonSelect,
     LemonTag,
@@ -24,8 +26,9 @@ import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfi
 import { HogFunctionInputs } from '../configuration/HogFunctionInputs'
 
 const humanize = (value: string): string => {
+    const fallback = typeof value === 'string' ? value ?? '' : ''
     // Simple replacement from something like MY_STRING-here to My string here
-    return value
+    return fallback
         .toLowerCase()
         .replace(/_/g, ' ')
         .replace(/-/g, ' ')
@@ -63,7 +66,9 @@ const MappingSummary = memo(function MappingSummary({
             </span>
             <IconArrowRight className="text-secondary" />
             <span>
-                {typeof firstInputValue === 'object' ? JSON.stringify(firstInputValue) : humanize(firstInputValue)}
+                {typeof firstInputValue === 'object'
+                    ? JSON.stringify(firstInputValue)
+                    : humanize(mapping.name ?? firstInputValue)}
             </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
@@ -231,6 +236,31 @@ export function HogFunctionMappings(): JSX.Element | null {
                     }
                 }
 
+                const renameMapping = (mapping: HogFunctionMappingType): void => {
+                    LemonDialog.openForm({
+                        title: 'Rename mapping',
+                        initialValues: { mappingName: mapping.name },
+                        content: (
+                            <LemonField name="mappingName">
+                                <LemonInput
+                                    data-attr="mapping-name"
+                                    placeholder="Please enter the new name"
+                                    autoFocus
+                                />
+                            </LemonField>
+                        ),
+                        errors: {
+                            mappingName: (name) => (!name ? 'You must enter a name' : undefined),
+                        },
+                        onSubmit: async ({ mappingName }) => {
+                            const index = value.findIndex((m) => m === mapping)
+                            if (index !== -1) {
+                                onChange(value.map((m, i) => (i === index ? { ...m, name: mappingName } : m)))
+                            }
+                        },
+                    })
+                }
+
                 const addMappingButton = mappingTemplates.length ? (
                     <LemonSelect
                         placeholder="Add mapping"
@@ -279,6 +309,9 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                                         onClick={() => toggleDisabled(mapping)}
                                                                     >
                                                                         {mapping.disabled ? 'Enable' : 'Disable'}
+                                                                    </LemonButton>
+                                                                    <LemonButton onClick={() => renameMapping(mapping)}>
+                                                                        Rename
                                                                     </LemonButton>
                                                                     <LemonButton
                                                                         onClick={() => duplicateMapping(mapping)}
