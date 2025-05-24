@@ -475,4 +475,4 @@ def convert_legacy_metric(metric):
 
 
 def convert_legacy_metrics(metrics):
-    return [convert_legacy_metric(m) for m in metrics]
+    return [convert_legacy_metric(m) for m in (metrics or [])]
