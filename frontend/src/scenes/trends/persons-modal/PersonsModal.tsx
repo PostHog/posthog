@@ -14,6 +14,7 @@ import {
     Link,
     LemonTable,
     LemonTag,
+    LemonTabs,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -22,7 +23,6 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -90,6 +90,7 @@ export function PersonsModal({
     orderBy,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
+    const [activeTab, setActiveTab] = useState('people')
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
 
     const logic = personsModalLogic({
@@ -154,128 +155,178 @@ export function PersonsModal({
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
-                    {actorsResponse && !!missingActorsCount && !hasGroups && (
-                        <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
-                    )}
-                    <LemonInput
-                        type="search"
-                        placeholder={
-                            hasGroups ? 'Search for groups by name or ID' : 'Search for persons by email, name, or ID'
-                        }
-                        fullWidth
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        className="my-2"
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key)}
+                        tabs={[
+                            {
+                                key: 'people',
+                                label: 'People',
+                                content: (
+                                    <>
+                                        <div className="pb-2">
+                                            {actorsResponse && !!missingActorsCount && !hasGroups && (
+                                                <MissingPersonsAlert
+                                                    actorLabel={actorLabel}
+                                                    missingActorsCount={missingActorsCount}
+                                                />
+                                            )}
+                                            <LemonInput
+                                                type="search"
+                                                placeholder={
+                                                    hasGroups
+                                                        ? 'Search for groups by name or ID'
+                                                        : 'Search for persons by email, name, or ID'
+                                                }
+                                                fullWidth
+                                                value={searchTerm}
+                                                onChange={setSearchTerm}
+                                                className="mb-4 mt-2"
+                                            />
+
+                                            {urls ? (
+                                                <LemonSelect
+                                                    fullWidth
+                                                    className="mb-2"
+                                                    value={selectedUrlIndex}
+                                                    onChange={(v) => {
+                                                        if (v !== null && v >= 0) {
+                                                            setSelectedUrlIndex(v)
+                                                        }
+                                                    }}
+                                                    options={(urls || []).map((url, index) => ({
+                                                        value: index,
+                                                        label: url.label,
+                                                    }))}
+                                                />
+                                            ) : null}
+
+                                            {query &&
+                                                cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(
+                                                    ([key, options]) =>
+                                                        key === 'breakdowns'
+                                                            ? options.map(({ values }, index) => (
+                                                                  <div key={`${key}_${index}`}>
+                                                                      <LemonSelect
+                                                                          fullWidth
+                                                                          className="mb-2"
+                                                                          value={query?.breakdown?.[index] ?? null}
+                                                                          onChange={(v) => {
+                                                                              const breakdown = Array.isArray(
+                                                                                  query.breakdown
+                                                                              )
+                                                                                  ? [...query.breakdown]
+                                                                                  : []
+                                                                              breakdown[index] = v
+                                                                              updateActorsQuery({ breakdown })
+                                                                          }}
+                                                                          options={values}
+                                                                      />
+                                                                  </div>
+                                                              ))
+                                                            : options.length > 1 && (
+                                                                  <div key={key}>
+                                                                      <LemonSelect
+                                                                          fullWidth
+                                                                          className="mb-2"
+                                                                          value={query?.[key] ?? null}
+                                                                          onChange={(v) =>
+                                                                              updateActorsQuery({ [key]: v })
+                                                                          }
+                                                                          options={options}
+                                                                      />
+                                                                  </div>
+                                                              )
+                                                )}
+
+                                            <div className="flex items-center gap-2 text-secondary">
+                                                {actorsResponseLoading ? (
+                                                    <>
+                                                        <Spinner />
+                                                        <span>Loading {actorLabel.plural}...</span>
+                                                    </>
+                                                ) : (
+                                                    <span>
+                                                        {actorsResponse?.next || actorsResponse?.offset
+                                                            ? 'More than '
+                                                            : ''}
+                                                        <b>
+                                                            {totalActorsCount || 'No'} unique{' '}
+                                                            {pluralize(
+                                                                totalActorsCount,
+                                                                actorLabel.singular,
+                                                                actorLabel.plural,
+                                                                false
+                                                            )}
+                                                        </b>
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="overflow-hidden flex flex-col">
+                                            <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
+                                                {errorObject ? (
+                                                    validationError ? (
+                                                        <InsightValidationError
+                                                            query={query}
+                                                            detail={validationError}
+                                                        />
+                                                    ) : (
+                                                        <InsightErrorState query={query} />
+                                                    )
+                                                ) : actors && actors.length > 0 ? (
+                                                    <>
+                                                        {actors.map((actor) => (
+                                                            <ActorRow
+                                                                key={actor.id}
+                                                                actor={actor}
+                                                                propertiesTimelineFilter={
+                                                                    actor.type == 'person' &&
+                                                                    currentTeam?.person_on_events_querying_enabled
+                                                                        ? propertiesTimelineFilterFromUrl
+                                                                        : undefined
+                                                                }
+                                                            />
+                                                        ))}
+                                                    </>
+                                                ) : actorsResponseLoading ? (
+                                                    <div className="deprecated-space-y-3">
+                                                        <LemonSkeleton active={false} className="h-4 w-full" />
+                                                        <LemonSkeleton active={false} className="h-4 w-3/5" />
+                                                    </div>
+                                                ) : (
+                                                    <div
+                                                        className="text-center p-5"
+                                                        data-attr="persons-modal-no-matches"
+                                                    >
+                                                        We couldn't find any matching {actorLabel.plural} for this data
+                                                        point.
+                                                    </div>
+                                                )}
+
+                                                {(actorsResponse?.next || actorsResponse?.offset) && (
+                                                    <div className="m-4 flex justify-center">
+                                                        <LemonButton
+                                                            type="primary"
+                                                            onClick={loadNextActors}
+                                                            loading={actorsResponseLoading}
+                                                        >
+                                                            Load more {actorLabel.plural}
+                                                        </LemonButton>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                ),
+                            },
+                            {
+                                key: 'summary',
+                                label: 'Summary',
+                                content: <div className="p-4">Summary content will go here</div>,
+                            },
+                        ]}
                     />
-
-                    {urls ? (
-                        <LemonSelect
-                            fullWidth
-                            className="mb-2"
-                            value={selectedUrlIndex}
-                            onChange={(v) => {
-                                if (v !== null && v >= 0) {
-                                    setSelectedUrlIndex(v)
-                                }
-                            }}
-                            options={(urls || []).map((url, index) => ({
-                                value: index,
-                                label: url.label,
-                            }))}
-                        />
-                    ) : null}
-
-                    {query &&
-                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
-                            key === 'breakdowns'
-                                ? options.map(({ values }, index) => (
-                                      <div key={`${key}_${index}`}>
-                                          <LemonSelect
-                                              fullWidth
-                                              className="mb-2"
-                                              value={query?.breakdown?.[index] ?? null}
-                                              onChange={(v) => {
-                                                  const breakdown = Array.isArray(query.breakdown)
-                                                      ? [...query.breakdown]
-                                                      : []
-                                                  breakdown[index] = v
-                                                  updateActorsQuery({ breakdown })
-                                              }}
-                                              options={values}
-                                          />
-                                      </div>
-                                  ))
-                                : options.length > 1 && (
-                                      <div key={key}>
-                                          <LemonSelect
-                                              fullWidth
-                                              className="mb-2"
-                                              value={query?.[key] ?? null}
-                                              onChange={(v) => updateActorsQuery({ [key]: v })}
-                                              options={options}
-                                          />
-                                      </div>
-                                  )
-                        )}
-
-                    <div className="flex items-center gap-2 text-secondary">
-                        {actorsResponseLoading ? (
-                            <>
-                                <Spinner />
-                                <span>Loading {actorLabel.plural}...</span>
-                            </>
-                        ) : (
-                            <span>
-                                {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
-                                <b>
-                                    {totalActorsCount || 'No'} unique{' '}
-                                    {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
-                                </b>
-                            </span>
-                        )}
-                    </div>
-                </div>
-                <div className="px-4 overflow-hidden flex flex-col">
-                    <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
-                        {errorObject ? (
-                            validationError ? (
-                                <InsightValidationError query={query} detail={validationError} />
-                            ) : (
-                                <InsightErrorState query={query} />
-                            )
-                        ) : actors && actors.length > 0 ? (
-                            <>
-                                {actors.map((actor) => (
-                                    <ActorRow
-                                        key={actor.id}
-                                        actor={actor}
-                                        propertiesTimelineFilter={
-                                            actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
-                                                ? propertiesTimelineFilterFromUrl
-                                                : undefined
-                                        }
-                                    />
-                                ))}
-                            </>
-                        ) : actorsResponseLoading ? (
-                            <div className="deprecated-space-y-3">
-                                <LemonSkeleton active={false} className="h-4 w-full" />
-                                <LemonSkeleton active={false} className="h-4 w-3/5" />
-                            </div>
-                        ) : (
-                            <div className="text-center p-5" data-attr="persons-modal-no-matches">
-                                We couldn't find any matching {actorLabel.plural} for this data point.
-                            </div>
-                        )}
-
-                        {(actorsResponse?.next || actorsResponse?.offset) && (
-                            <div className="m-4 flex justify-center">
-                                <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
-                                    Load more {actorLabel.plural}
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
                 </div>
                 <LemonModal.Footer>
                     <div className="flex justify-between gap-2 w-full">
@@ -595,13 +646,14 @@ function PersonSummariesTable(): JSX.Element {
                             id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
                             timestamp: '2024-03-10 16:30:22',
                             hasRecording: true,
-                            summary: 'User reached free tier limits, viewed upgrade options, but continued using free features.',
+                            summary:
+                                'User reached free tier limits, viewed upgrade options, but continued using free features.',
                         },
                     ],
                 },
             ],
             summary:
-                'User is an active free tier user who regularly researches pricing but hasn\'t converted to a paid plan, while attempting to upgrade multiple times.',
+                "User is an active free tier user who regularly researches pricing but hasn't converted to a paid plan, while attempting to upgrade multiple times.",
         },
     }
 
@@ -666,7 +718,9 @@ function PersonSummariesTable(): JSX.Element {
                                                         </div>
                                                         <p className="mb-0">{session.summary}</p>
                                                     </div>
-                                                    {j < issue.sessions.length - 1 && <div className="h-px bg-border" />}
+                                                    {j < issue.sessions.length - 1 && (
+                                                        <div className="h-px bg-border" />
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -754,7 +808,9 @@ function PersonSummariesTable(): JSX.Element {
                                                         </div>
                                                         <p className="mb-0">{session.summary}</p>
                                                     </div>
-                                                    {j < edgeCase.sessions.length - 1 && <div className="h-px bg-border" />}
+                                                    {j < edgeCase.sessions.length - 1 && (
+                                                        <div className="h-px bg-border" />
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
