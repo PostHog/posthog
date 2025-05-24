@@ -162,7 +162,7 @@ class ExperimentAdmin(admin.ModelAdmin):
                     new_experiment.stats_config = {}
                 new_experiment.stats_config["migrated_from"] = int(object_id)
 
-                # save the experiment, we need this for referencial integrity
+                # save the experiment, we need this for referential integrity
                 new_experiment.save()
 
                 # find the shared metrics "migrated to" and create new relationships
@@ -176,7 +176,7 @@ class ExperimentAdmin(admin.ModelAdmin):
                     if is_legacy and not migrated:
                         raise Exception(f"Saved metric {metric.id} has not been migrated yet")
 
-                    # because we need metadata from the through table, we can'd just do
+                    # because we need metadata from the through table, we can't just do
                     # experiment.saved_metrics.add. We need to create the relationship by hand
                     original_to_saved_metric = ExperimentToSavedMetric.objects.get(
                         experiment=original, saved_metric=metric
