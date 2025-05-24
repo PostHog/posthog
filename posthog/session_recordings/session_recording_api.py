@@ -724,8 +724,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     sources.append(
                         {
                             "source": "blob_v2",
-                            "start_timestamp": block["start_time"],
-                            "end_timestamp": block["end_time"],
+                            "start_timestamp": block.start_time,
+                            "end_timestamp": block.end_time,
                             "blob_key": str(i),
                         }
                     )
@@ -937,7 +937,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             with timer("fetch_block__stream_blob_v2_to_client"):
                 block = blocks[block_index]
                 try:
-                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
+                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block.url)
                 except BlockFetchError:
                     logger.exception(
                         "Failed to fetch block",

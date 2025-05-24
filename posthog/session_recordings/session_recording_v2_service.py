@@ -1,5 +1,5 @@
+import dataclasses
 from datetime import datetime
-from typing import TypedDict
 import structlog
 
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -8,7 +8,8 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 logger = structlog.get_logger(__name__)
 
 
-class RecordingBlock(TypedDict):
+@dataclasses.dataclass(frozen=True)
+class RecordingBlock:
     start_time: datetime
     end_time: datetime
     url: str
@@ -20,13 +21,13 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
     Returns an empty list if the recording is invalid or incomplete.
     """
-    metadata = SessionReplayEvents().get_metadata(recording.session_id, recording.team)
+    metadata = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
     if not metadata:
         return []
 
-    first_timestamps = metadata["block_first_timestamps"]
-    last_timestamps = metadata["block_last_timestamps"]
-    urls = metadata["block_urls"]
+    first_timestamps = metadata.block_first_timestamps
+    last_timestamps = metadata.block_last_timestamps
+    urls = metadata.block_urls
 
     # Validate that all arrays exist and have the same length
     if not (
@@ -43,19 +44,19 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
         return []
 
     blocks: list[RecordingBlock] = [
-        {
-            "start_time": start_time,
-            "end_time": end_time,
-            "url": url,
-        }
+        RecordingBlock(
+            start_time=start_time,
+            end_time=end_time,
+            url=url,
+        )
         for start_time, end_time, url in zip(first_timestamps, last_timestamps, urls)
     ]
 
-    blocks.sort(key=lambda b: b["start_time"])
+    blocks.sort(key=lambda b: b.start_time)
 
     # If we started recording halfway through the session, we should not return any blocks
     # as we don't have the complete recording from the start
-    if not blocks or "start_time" not in metadata or blocks[0]["start_time"] != metadata["start_time"]:
+    if not blocks or not metadata.start_time or blocks[0].start_time != metadata.start_time:
         return []
 
     return blocks
