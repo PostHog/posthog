@@ -94,6 +94,22 @@ class ExperimentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
         extra_context["show_migration"] = has_legacy_metric(all_metrics)
+
+        # Get all related ExperimentSavedMetric objects
+        shared_metrics = obj.saved_metrics.all()
+        shared_metrics_status = []
+        for metric in shared_metrics:
+            migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
+            shared_metrics_status.append(
+                {
+                    "id": metric.id,
+                    "name": metric.name,
+                    "migrated": migrated,
+                    "migrate_url": reverse("admin:posthog_experimentsavedmetric_change", args=[metric.id]),
+                }
+            )
+        extra_context["shared_metrics_status"] = shared_metrics_status
+
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def get_urls(self):
