@@ -67,6 +67,8 @@ class ExportedAsset(models.Model):
     # path in object storage or some other location identifier for the asset
     # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
     content_location = models.TextField(null=True, blank=True, max_length=1000)
+    # If there is an exception in calculating this export, record it here to display to the user.
+    exception = models.TextField(null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
