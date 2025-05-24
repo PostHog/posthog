@@ -39,6 +39,7 @@ import {
 
 import { sidePanelSettingsLogic } from '../sidePanelSettingsLogic'
 import type { activationLogicType } from './activationLogicType'
+import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 
 export type ActivationTaskDefinition = {
     id: ActivationTask
@@ -256,7 +257,7 @@ export const activationLogic = kea<activationLogicType>([
             switch (id) {
                 // Quick Start
                 case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
