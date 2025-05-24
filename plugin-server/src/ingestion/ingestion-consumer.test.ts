@@ -824,7 +824,7 @@ describe('IngestionConsumer', () => {
                 expect(results.length).toBeGreaterThan(0)
 
                 // Check that the results contain our transformation function
-                const functionResult = results.find((r) => r.invocation.hogFunction.id === transformationFunction.id)
+                const functionResult = results.find((r) => r.invocation.functionId === transformationFunction.id)
                 expect(functionResult).toBeDefined()
                 expect(functionResult?.finished).toBe(true)
             },

@@ -11,7 +11,12 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const counterParseError = new Counter({
@@ -28,13 +33,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog', this.hogFunctionManager)
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: HogFunctionInvocation[] }> {
+    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (!invocationGlobals.length) {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
@@ -62,7 +67,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
      */
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<HogFunctionInvocation[]> {
+    ): Promise<CyclotronJobInvocation[]> {
         return await this.runInstrumented('handleEachBatch.queueMatchingFunctions', async () => {
             // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
             await this.groupsManager.enrichGroups(invocationGlobals)
@@ -87,15 +92,15 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             ).flat()
 
             const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
-            const validInvocations: HogFunctionInvocation[] = []
+            const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
                     this.hogFunctionMonitoringService.produceAppMetric({
-                        team_id: item.globals.project.id,
-                        app_source_id: item.hogFunction.id,
+                        team_id: item.teamId,
+                        app_source_id: item.functionId,
                         metric_kind: 'failure',
                         metric_name:
                             state === HogWatcherState.disabledForPeriod
@@ -118,8 +123,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             this.hogFunctionMonitoringService.produceAppMetrics(
                 masked.map((item) => ({
-                    team_id: item.globals.project.id,
-                    app_source_id: item.hogFunction.id,
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
                     metric_kind: 'other',
                     metric_name: 'masked',
                     count: 1,

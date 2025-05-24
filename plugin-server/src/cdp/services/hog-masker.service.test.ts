@@ -80,9 +80,9 @@ describe('HogMasker', () => {
             const res = await masker.filterByMasking(invocations)
             expect(res.notMasked).toHaveLength(1)
             expect(res.masked).toHaveLength(2)
-            expect(res.notMasked[0].globals).toEqual(invocation1.globals)
-            expect(res.masked[0].globals).toEqual(invocation2.globals)
-            expect(res.masked[1].globals).toEqual(invocation3.globals)
+            expect(res.notMasked[0].state.globals).toEqual(invocation1.state.globals)
+            expect(res.masked[0].state.globals).toEqual(invocation2.state.globals)
+            expect(res.masked[1].state.globals).toEqual(invocation3.state.globals)
 
             const res2 = await masker.filterByMasking(invocations)
             expect(res2.notMasked).toHaveLength(0)

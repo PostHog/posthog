@@ -11,14 +11,15 @@ import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/ut
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionInvocationLogEntry,
-    HogFunctionLogEntrySerialized,
     HogFunctionType,
+    LogEntry,
+    LogEntrySerialized,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
@@ -291,8 +292,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return parseJSON(res.toString())
 }
 
-export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
-    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
+    const preparedLogs: LogEntrySerialized[] = []
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -311,7 +312,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
         previousTimestamp = logEntry.timestamp
 
-        const sanitized: HogFunctionLogEntrySerialized = {
+        const sanitized: LogEntrySerialized = {
             ...logEntry,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
@@ -324,11 +325,15 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
     hogFunction: HogFunctionType
-): HogFunctionInvocation {
+): CyclotronJobInvocationHogFunction {
     return {
         id: new UUIDT().toString(),
-        globals,
+        state: {
+            globals,
+            timings: [],
+        },
         teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
         hogFunction,
         queue: isLegacyPluginHogFunction(hogFunction)
             ? 'plugin'
@@ -336,21 +341,20 @@ export function createInvocation(
             ? 'segment'
             : 'hog',
         queuePriority: 1,
-        timings: [],
     }
 }
 
 /**
  * Clones an invocation, removing all queue related values
  */
-export function cloneInvocation(
-    invocation: HogFunctionInvocation,
+export function cloneInvocation<T extends CyclotronJobInvocation>(
+    invocation: T,
     params: Pick<
-        Partial<HogFunctionInvocation>,
+        Partial<CyclotronJobInvocation>,
         'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
     > &
-        Pick<HogFunctionInvocation, 'queue'>
-): HogFunctionInvocation {
+        Pick<CyclotronJobInvocation, 'queue'>
+): T {
     return {
         ...invocation,
         queueMetadata: params.queueMetadata ?? undefined,

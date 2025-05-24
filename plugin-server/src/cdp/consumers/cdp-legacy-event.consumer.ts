@@ -7,7 +7,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { runOnEvent } from '../../worker/plugins/run'
-import { HogFunctionInvocation, HogFunctionInvocationGlobals } from '../types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
 
@@ -48,7 +48,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: HogFunctionInvocation[] }> {
+    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (invocationGlobals.length) {
             const results = await Promise.all(
                 invocationGlobals.map((x) => {

@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter, Histogram } from 'prom-client'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
+import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
@@ -47,7 +47,7 @@ export const hogWatcherLatency = new Histogram({
 
 export interface TransformationResult {
     event: PluginEvent | null
-    invocationResults: HogFunctionInvocationResult[]
+    invocationResults: CyclotronJobInvocationResult[]
 }
 
 export class HogTransformerService {
@@ -160,7 +160,7 @@ export class HogTransformerService {
             statsKey: `hogTransformer.transformEvent`,
             func: async () => {
                 hogTransformationInvocations.inc()
-                const results: HogFunctionInvocationResult[] = []
+                const results: CyclotronJobInvocationResult[] = []
                 const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
                 const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
@@ -320,7 +320,7 @@ export class HogTransformerService {
     private async executeHogFunction(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals
-    ): Promise<HogFunctionInvocationResult> {
+    ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
         const globalsWithInputs = buildGlobalsWithInputs(globals, {
             ...(hogFunction.inputs ?? {}),

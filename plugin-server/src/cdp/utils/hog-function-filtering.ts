@@ -5,12 +5,7 @@ import { Histogram } from 'prom-client'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
-import {
-    HogFunctionAppMetric,
-    HogFunctionFilterGlobals,
-    HogFunctionInvocationLogEntry,
-    HogFunctionType,
-} from '../types'
+import { HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -23,8 +18,8 @@ const hogFunctionFilterDuration = new Histogram({
 interface HogFunctionFilterResult {
     match: boolean
     error?: unknown
-    logs: HogFunctionInvocationLogEntry[]
-    metrics: HogFunctionAppMetric[]
+    logs: LogEntry[]
+    metrics: MinimalAppMetric[]
 }
 
 /**
@@ -44,8 +39,8 @@ export function checkHogFunctionFilters(options: {
     const { hogFunction, filterGlobals, enabledTelemetry, eventUuid } = options
     const filters = options.filters ?? hogFunction.filters
     const start = performance.now()
-    const logs: HogFunctionInvocationLogEntry[] = []
-    const metrics: HogFunctionAppMetric[] = []
+    const logs: LogEntry[] = []
+    const metrics: MinimalAppMetric[] = []
 
     let execResult: ExecResult | undefined
     const result: HogFunctionFilterResult = {
