@@ -23,7 +23,11 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (!values.featureFlags[FEATURE_FLAGS.DISCUSSIONS] || !values.commentsLogicProps) {
+                    if (
+                        !values.featureFlags[FEATURE_FLAGS.DISCUSSIONS] ||
+                        !values.commentsLogicProps ||
+                        values.commentsLogicProps.disabled
+                    ) {
                         return 0
                     }
 
@@ -51,6 +55,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
                     ? {
                           scope: sceneSidePanelContext.activity_scope,
                           item_id: sceneSidePanelContext.activity_item_id,
+                          disabled: sceneSidePanelContext.discussions_disabled,
                       }
                     : null
             },
