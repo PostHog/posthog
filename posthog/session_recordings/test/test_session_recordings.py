@@ -1373,3 +1373,57 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+
+    @parameterized.expand(
+        [
+            ("blob", True, status.HTTP_200_OK),
+            ("blob_v2", True, status.HTTP_200_OK),
+            ("realtime", True, status.HTTP_200_OK),
+            (None, True, status.HTTP_200_OK),  # No source parameter
+            ("invalid_source", False, status.HTTP_400_BAD_REQUEST),
+            ("", False, status.HTTP_400_BAD_REQUEST),
+            ("BLOB", False, status.HTTP_400_BAD_REQUEST),  # Case sensitive
+            ("real-time", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
+    def test_snapshots_source_parameter_validation(
+        self,
+        source_value,
+        is_valid,
+        expected_status,
+        _mock_stream_from,
+        mock_realtime_snapshots,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
+    ):
+        session_id = str(uuid.uuid4())
+
+        # Setup mocks
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_presigned_url.return_value = "https://test.com/"
+        mock_realtime_snapshots.return_value = ['{"test": "data"}']
+
+        # Build URL with source parameter
+        if source_value is None:
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        else:
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source={source_value}"
+
+        # Add blob_key for blob sources to avoid other validation errors
+        if source_value in ("blob", "blob_v2"):
+            url += "&blob_key=1682608337071"
+
+        response = self.client.get(url)
+
+        assert response.status_code == expected_status
+
+        if not is_valid:
+            # For invalid sources, we expect a validation error
+            response_data = response.json()
+            assert "detail" in response_data or "error" in response_data
