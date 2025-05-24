@@ -631,6 +631,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source_log_label = source or "listing"
         is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
+        if source not in ["realtime", "blob", "blob_v2", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
