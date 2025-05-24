@@ -20,7 +20,7 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
     Returns an empty list if the recording is invalid or incomplete.
     """
-    metadata = SessionReplayEvents().get_metadata(recording.session_id, recording.team)
+    metadata = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
     if not metadata:
         return []
 
