@@ -139,6 +139,87 @@ export function PersonsModal({
 
     const hasGroups = actors.some((actor) => isGroupType(actor))
 
+    const totalModalData: SummaryData = {
+        id: 1,
+        period: '2024-03-01 to 2024-03-15',
+        sessionsAnalyzed: 150,
+        keyInsights: 5,
+        pains: 2,
+        status: 'success',
+        details: {
+            criticalIssues: [
+                {
+                    description: 'High drop-off rate in checkout process',
+                    sessions: [
+                        {
+                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
+                            timestamp: '2024-03-15 14:23:45',
+                            hasRecording: true,
+                            summary: 'Multiple users abandon cart after viewing shipping costs',
+                        },
+                        {
+                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
+                            timestamp: '2024-03-12 11:15:22',
+                            hasRecording: true,
+                            summary: 'Users hesitate at payment method selection',
+                        },
+                    ],
+                },
+                {
+                    description: 'Feature discovery issues',
+                    sessions: [
+                        {
+                            id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
+                            timestamp: '2024-03-10 16:30:22',
+                            hasRecording: true,
+                            summary: 'Users struggle to find advanced filtering options',
+                        },
+                    ],
+                },
+            ],
+            commonJourneys: [
+                {
+                    name: 'Successful Purchase Flow',
+                    path: 'Home → Browse → Add to Cart → Checkout → Payment → Confirmation',
+                },
+                {
+                    name: 'Feature Exploration',
+                    path: 'Dashboard → Analytics → Reports → Export → Share',
+                },
+                {
+                    name: 'Account Management',
+                    path: 'Profile → Settings → Billing → Subscription → Update',
+                },
+            ],
+            edgeCases: [
+                {
+                    description: 'Users combining multiple payment methods',
+                    sessions: [
+                        {
+                            id: '0196d2bd-515c-7230-9e15-a2a437f2e3e5',
+                            timestamp: '2024-03-11 09:45:12',
+                            hasRecording: true,
+                            summary: 'User attempted to split payment between credit card and PayPal',
+                        },
+                    ],
+                },
+                {
+                    description: 'Unusual feature combinations',
+                    sessions: [
+                        {
+                            id: '0196d2bd-515c-7230-9e15-a2a437f2e3e6',
+                            timestamp: '2024-03-13 15:20:33',
+                            hasRecording: true,
+                            summary: 'User created complex automation using unexpected feature combinations',
+                        },
+                    ],
+                },
+            ],
+            summary:
+                'Overall user engagement is positive with high feature adoption. Main areas for improvement are checkout process optimization and feature discoverability.',
+        },
+    }
+
     return (
         <>
             <LemonModal
@@ -323,7 +404,7 @@ export function PersonsModal({
                             {
                                 key: 'summary',
                                 label: 'Summary',
-                                content: <div className="p-4">Summary content will go here</div>,
+                                content: <PersonSummariesTable data={totalModalData} />,
                             },
                         ]}
                     />
@@ -425,6 +506,62 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
             setExpanded(true)
             setTab('recordings')
         }
+    }
+
+    const personModalData: SummaryData = {
+        id: 1,
+        period: '2024-03-01 to 2024-03-15',
+        sessionsAnalyzed: 10,
+        keyInsights: 3,
+        pains: 1,
+        status: 'failure',
+        details: {
+            criticalIssues: [
+                {
+                    description: 'Repeatedly abandons upgrade flow after viewing pricing',
+                    sessions: [
+                        {
+                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
+                            timestamp: '2024-03-15 14:23:45',
+                            hasRecording: true,
+                            summary: 'User viewed pricing page for 2 minutes, then closed the modal without upgrading.',
+                        },
+                        {
+                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
+                            timestamp: '2024-03-12 11:15:22',
+                            hasRecording: true,
+                            summary: 'User compared different plan tiers for 3 minutes, then navigated away.',
+                        },
+                    ],
+                },
+            ],
+            commonJourneys: [
+                {
+                    name: 'Pricing Research Pattern',
+                    path: 'Dashboard → Billing → View Plans → Compare Features → Close',
+                },
+                {
+                    name: 'Regular Usage Pattern',
+                    path: 'Login → Dashboard → Analytics → Export Data → Logout',
+                },
+            ],
+            edgeCases: [
+                {
+                    description: 'Consistently uses free tier features despite frequent pricing checks',
+                    sessions: [
+                        {
+                            id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
+                            timestamp: '2024-03-10 16:30:22',
+                            hasRecording: true,
+                            summary:
+                                'User reached free tier limits, viewed upgrade options, but continued using free features.',
+                        },
+                    ],
+                },
+            ],
+            summary:
+                "User is an active free tier user who regularly researches pricing but hasn't converted to a paid plan, while attempting to upgrade multiple times.",
+        },
     }
 
     const matchedRecordings = actor.matched_recordings || []
@@ -549,7 +686,15 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                     </div>
                                 ),
                             },
-                            { key: 'summary', label: 'Summary', content: <PersonSummariesTable /> },
+                            {
+                                key: 'summary',
+                                label: 'Summary',
+                                content: (
+                                    <div className="px-4 pb-2 pt-4 bg-bg-light">
+                                        <PersonSummariesTable data={personModalData} />
+                                    </div>
+                                ),
+                            },
                         ]}
                     />
                 </div>
@@ -600,70 +745,14 @@ interface SummaryData {
     }
 }
 
-function PersonSummariesTable(): JSX.Element {
-    const sampleData: SummaryData = {
-        id: 1,
-        period: '2024-03-01 to 2024-03-15',
-        sessionsAnalyzed: 10,
-        keyInsights: 3,
-        pains: 1,
-        status: 'failure',
-        details: {
-            criticalIssues: [
-                {
-                    description: 'Repeatedly abandons upgrade flow after viewing pricing',
-                    sessions: [
-                        {
-                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
-                            timestamp: '2024-03-15 14:23:45',
-                            hasRecording: true,
-                            summary: 'User viewed pricing page for 2 minutes, then closed the modal without upgrading.',
-                        },
-                        {
-                            id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
-                            timestamp: '2024-03-12 11:15:22',
-                            hasRecording: true,
-                            summary: 'User compared different plan tiers for 3 minutes, then navigated away.',
-                        },
-                    ],
-                },
-            ],
-            commonJourneys: [
-                {
-                    name: 'Pricing Research Pattern',
-                    path: 'Dashboard → Billing → View Plans → Compare Features → Close',
-                },
-                {
-                    name: 'Regular Usage Pattern',
-                    path: 'Login → Dashboard → Analytics → Export Data → Logout',
-                },
-            ],
-            edgeCases: [
-                {
-                    description: 'Consistently uses free tier features despite frequent pricing checks',
-                    sessions: [
-                        {
-                            id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
-                            timestamp: '2024-03-10 16:30:22',
-                            hasRecording: true,
-                            summary:
-                                'User reached free tier limits, viewed upgrade options, but continued using free features.',
-                        },
-                    ],
-                },
-            ],
-            summary:
-                "User is an active free tier user who regularly researches pricing but hasn't converted to a paid plan, while attempting to upgrade multiple times.",
-        },
-    }
-
+function PersonSummariesTable({ data }: { data: SummaryData }): JSX.Element {
     return (
-        <div className="px-4 py-2 bg-bg-light">
+        <div>
             <div className="flex flex-col">
-                <div className="mb-2 mt-2">
-                    <LemonBanner type={sampleData.status === 'success' ? 'success' : 'error'} className="mb-4">
+                <div className="mb-2">
+                    <LemonBanner type={data.status === 'success' ? 'success' : 'error'} className="mb-4">
                         <div className="text-sm font-normal">
-                            <div>{sampleData.details.summary}</div>
+                            <div>{data.details.summary}</div>
                         </div>
                     </LemonBanner>
                     <LemonDivider />
@@ -674,11 +763,11 @@ function PersonSummariesTable(): JSX.Element {
                         <div className="flex items-center gap-2 mb-4">
                             <h4 className="text-lg font-semibold m-0">Critical Issues</h4>
                             <LemonTag type="danger" size="small">
-                                {sampleData.details.criticalIssues.length} issues
+                                {data.details.criticalIssues.length} issues
                             </LemonTag>
                         </div>
                         <div className="space-y-2">
-                            {sampleData.details.criticalIssues.map((issue, i) => (
+                            {data.details.criticalIssues.map((issue, i) => (
                                 <SessionSegmentCollapse
                                     key={i}
                                     isFailed={true}
@@ -734,11 +823,11 @@ function PersonSummariesTable(): JSX.Element {
                         <div className="flex items-center gap-2 mb-4">
                             <h4 className="text-lg font-semibold m-0">Common User Journeys</h4>
                             <LemonTag type="default" size="small">
-                                {sampleData.details.commonJourneys.length} patterns
+                                {data.details.commonJourneys.length} patterns
                             </LemonTag>
                         </div>
                         <div className="space-y-4">
-                            {sampleData.details.commonJourneys.map((journey, i) => (
+                            {data.details.commonJourneys.map((journey, i) => (
                                 <div key={i} className="bg-bg-light border rounded p-3">
                                     <div className="flex items-center gap-2 mb-2">
                                         <h3 className="text-sm font-medium mb-0">{journey.name}</h3>
@@ -763,11 +852,11 @@ function PersonSummariesTable(): JSX.Element {
                         <div className="flex items-center gap-2 mb-4">
                             <h4 className="text-lg font-semibold m-0">Interesting Edge Cases</h4>
                             <LemonTag type="default" size="small">
-                                {sampleData.details.edgeCases.length} cases
+                                {data.details.edgeCases.length} cases
                             </LemonTag>
                         </div>
                         <div className="space-y-2">
-                            {sampleData.details.edgeCases.map((edgeCase, i) => (
+                            {data.details.edgeCases.map((edgeCase, i) => (
                                 <SessionSegmentCollapse
                                     key={i}
                                     header={
