@@ -145,6 +145,8 @@ export const exportsLogic = kea<exportsLogicType>([
                             // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
                                 await downloadExportedAsset(response)
+                            } else if (response && response.exception) {
+                                lemonToast.error('Export failed! ' + response.exception)
                             }
                         } catch (error) {
                             lemonToast.error('Export failed!' + str(error))
