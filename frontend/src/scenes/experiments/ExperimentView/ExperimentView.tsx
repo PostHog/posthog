@@ -98,58 +98,49 @@ const VariantsTab = (): JSX.Element => {
 const experimentSummaryData = {
     id: 1,
     period: '2024-03-01 to 2024-03-15',
-    sessionsAnalyzed: 250,
-    keyInsights: 4,
+    sessionsAnalyzed: 2338,
+    keyInsights: 2,
     pains: 1,
-    status: 'success',
+    status: 'failure',
     details: {
         criticalIssues: [
             {
-                description: 'Personalization preferences unclear',
+                description: 'Personalization step may cause confusion or friction',
                 sessions: [
                     {
-                        id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
-                        timestamp: '2024-03-15 14:23:45',
+                        id: 'session-001',
+                        timestamp: '2024-03-10 10:00:00',
                         hasRecording: true,
-                        summary: 'Users spend time exploring personalization options but struggle to make selections',
-                    },
-                    {
-                        id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
-                        timestamp: '2024-03-12 11:15:22',
-                        hasRecording: true,
-                        summary: 'Some users skip personalization step entirely to reach signup faster',
+                        summary: 'Some users spent extra time on the personalization step and abandoned before completing signup.',
                     },
                 ],
             },
         ],
         commonJourneys: [
             {
-                name: 'Quick Signup Pattern',
-                path: 'Homepage → New Signup → Skip Personalization → Complete Signup',
+                name: 'Standard Signup (Control)',
+                path: 'Homepage → Signup → Complete Signup',
             },
             {
-                name: 'Exploratory Pattern',
-                path: 'Homepage → New Signup → Explore Options → Complete Signup',
-            },
-            {
-                name: 'Comparison Pattern',
-                path: 'Homepage → New Signup → Compare Options → Complete Signup',
+                name: 'Personalized Signup (Test)',
+                path: 'Homepage → Signup → Personalization → Complete Signup',
             },
         ],
         edgeCases: [
             {
-                description: 'Users requesting more personalization options',
+                description: 'Users skipping or rushing through personalization',
                 sessions: [
                     {
-                        id: '0196d2bd-515c-7230-9e15-a2a437f2e3e5',
-                        timestamp: '2024-03-11 09:45:12',
+                        id: 'session-002',
+                        timestamp: '2024-03-12 14:30:00',
                         hasRecording: true,
-                        summary: 'Users actively looking for more customization options in the new flow',
+                        summary: 'Some users quickly skipped or provided minimal input on personalization to finish signup.',
                     },
                 ],
             },
         ],
-        summary: 'New personalized signup flow shows promising results with 25% higher completion rate. Users appreciate the customization options but some prefer faster paths. Consider adding a "quick signup" option while maintaining personalization benefits.',
+        summary:
+            'The new personalized signup flow did not outperform the control. Conversion rate for the test variant was 90.03% vs 91.27% for control (Δ -1.36%, not significant). Most users completed signup, but the new flow may have introduced minor friction. Consider simplifying or making personalization optional.',
     },
 }
 
