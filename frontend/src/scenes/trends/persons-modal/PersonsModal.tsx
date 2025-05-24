@@ -743,7 +743,7 @@ interface SummaryData {
     }
 }
 
-function PersonSummariesTable({ data }: { data: SummaryData }): JSX.Element {
+export function PersonSummariesTable({ data }: { data: SummaryData }): JSX.Element {
     return (
         <div>
             <div className="flex flex-col">

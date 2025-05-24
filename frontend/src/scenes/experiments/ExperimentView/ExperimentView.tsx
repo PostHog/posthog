@@ -27,6 +27,7 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
+import { PersonSummariesTable } from 'scenes/trends/persons-modal/PersonsModal'
 
 const ResultsTab = (): JSX.Element => {
     const {
@@ -94,6 +95,64 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
+const experimentSummaryData = {
+    id: 1,
+    period: '2024-03-01 to 2024-03-15',
+    sessionsAnalyzed: 250,
+    keyInsights: 4,
+    pains: 1,
+    status: 'success',
+    details: {
+        criticalIssues: [
+            {
+                description: 'Personalization preferences unclear',
+                sessions: [
+                    {
+                        id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
+                        timestamp: '2024-03-15 14:23:45',
+                        hasRecording: true,
+                        summary: 'Users spend time exploring personalization options but struggle to make selections',
+                    },
+                    {
+                        id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
+                        timestamp: '2024-03-12 11:15:22',
+                        hasRecording: true,
+                        summary: 'Some users skip personalization step entirely to reach signup faster',
+                    },
+                ],
+            },
+        ],
+        commonJourneys: [
+            {
+                name: 'Quick Signup Pattern',
+                path: 'Homepage → New Signup → Skip Personalization → Complete Signup',
+            },
+            {
+                name: 'Exploratory Pattern',
+                path: 'Homepage → New Signup → Explore Options → Complete Signup',
+            },
+            {
+                name: 'Comparison Pattern',
+                path: 'Homepage → New Signup → Compare Options → Complete Signup',
+            },
+        ],
+        edgeCases: [
+            {
+                description: 'Users requesting more personalization options',
+                sessions: [
+                    {
+                        id: '0196d2bd-515c-7230-9e15-a2a437f2e3e5',
+                        timestamp: '2024-03-11 09:45:12',
+                        hasRecording: true,
+                        summary: 'Users actively looking for more customization options in the new flow',
+                    },
+                ],
+            },
+        ],
+        summary: 'New personalized signup flow shows promising results with 25% higher completion rate. Users appreciate the customization options but some prefer faster paths. Consider adding a "quick signup" option while maintaining personalization benefits.',
+    },
+}
+
 export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
 
@@ -122,6 +181,11 @@ export function ExperimentView(): JSX.Element {
                                     key: 'variants',
                                     label: 'Variants',
                                     content: <VariantsTab />,
+                                },
+                                {
+                                    key: 'summary',
+                                    label: 'Summary',
+                                    content: <PersonSummariesTable data={experimentSummaryData} />,
                                 },
                             ]}
                         />
