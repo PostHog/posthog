@@ -647,7 +647,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "key_scoped_teams": used_key.scoped_teams,
                     "session_requested": recording.session_id,
                     "recording_start_time": recording.start_time,
-                    "source": source or "listing",
+                    "source": source_log_label,
                 },
             )
 
