@@ -78,7 +78,7 @@ from posthog.exceptions_capture import capture_exception
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
-    labelnames=["api_key", "source"],
+    labelnames=["key_label", "source"],
 )
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
