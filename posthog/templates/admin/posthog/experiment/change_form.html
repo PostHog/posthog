@@ -10,10 +10,12 @@
                 {% for metric in shared_metrics_status %}
                     <li>
                         <a href="{{ metric.migrate_url }}" target="_blank">{{ metric.name }}</a>
-                        {% if metric.migrated %}
-                            <span style="color: green;">&#10003;</span>
-                        {% else %}
-                            <span style="color: red;">&#10007;</span>
+                        {% if metric.is_legacy %}
+                            {% if metric.migrated %}
+                                <span style="color: green;">&#10003;</span>
+                            {% else %}
+                                <span style="color: red;">&#10007;</span>
+                            {% endif %}
                         {% endif %}
                     </li>
                 {% endfor %}
