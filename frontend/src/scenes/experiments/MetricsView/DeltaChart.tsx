@@ -8,6 +8,13 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+} from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
 import { ChartEmptyState } from './ChartEmptyState'
@@ -140,7 +147,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
         colors,
         tooltip: { setTooltipData },
         credibleIntervalForVariant,
-        conversionRateForVariant,
         metricIndex,
         isSecondary,
         openVariantDeltaTimeseriesModal,
@@ -152,28 +158,8 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const interval = credibleIntervalForVariant(result, variant.key, metricType)
     const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
-    let delta: number
-    if (metricType === InsightType.TRENDS) {
-        const controlVariant = result.variants.find((v: any) => v.key === 'control')
-        const variantData = result.variants.find((v: any) => v.key === variant.key)
-
-        if (
-            !variantData?.count ||
-            !variantData?.absolute_exposure ||
-            !controlVariant?.count ||
-            !controlVariant?.absolute_exposure
-        ) {
-            delta = 0
-        } else {
-            const controlMean = controlVariant.count / controlVariant.absolute_exposure
-            const variantMean = variantData.count / variantData.absolute_exposure
-            delta = (variantMean - controlMean) / controlMean
-        }
-    } else {
-        const variantRate = conversionRateForVariant(result, variant.key)
-        const controlRate = conversionRateForVariant(result, 'control')
-        delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
-    }
+    const deltaResult = calculateDelta(result, variant.key, metricType)
+    const delta = deltaResult?.delta || 0
 
     // Calculate positioning
     const y = barPadding + (barHeight + barPadding) * index
@@ -451,12 +437,8 @@ export function DeltaChart({
 }): JSX.Element {
     // Get values from logic
     const {
-        credibleIntervalForVariant,
-        conversionRateForVariant,
         experimentId,
         experiment,
-        countDataForVariant,
-        exposureCountDataForVariant,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         featureFlags,
