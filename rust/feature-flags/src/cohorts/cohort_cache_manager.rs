@@ -105,12 +105,12 @@ impl CohortCacheManager {
 mod tests {
     use super::*;
     use crate::cohorts::cohort_models::Cohort;
-    use crate::team::team_models::Team;
     use crate::utils::test_utils::{
-        insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
-        setup_pg_writer_client,
+        insert_cohort_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
     };
     use common_database::Client;
+    use common_models::team_models::Team;
+    use common_models::test_utils::insert_new_team_in_pg;
     use common_types::TeamId;
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};

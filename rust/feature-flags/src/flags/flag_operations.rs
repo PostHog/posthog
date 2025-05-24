@@ -184,8 +184,10 @@ mod tests {
 
     use super::*;
     use crate::utils::test_utils::{
-        insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-        insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_reader_client,
+        insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, setup_pg_reader_client,
+    };
+    use common_models::test_utils::{
+        insert_new_team_in_pg, insert_new_team_in_redis, setup_invalid_pg_client,
         setup_redis_client,
     };
 

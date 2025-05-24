@@ -11,7 +11,6 @@ use crate::{
     },
     metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
     router,
-    team::team_models::Team,
 };
 use axum::{
     extract::State,
@@ -24,6 +23,7 @@ use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use common_metrics::inc;
+use common_models::team_models::Team;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use percent_encoding::percent_decode;
@@ -593,6 +593,7 @@ async fn handle_cookieless_distinct_id(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
         api::types::{
             FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue, LegacyFlagsResponse,
@@ -601,13 +602,11 @@ mod tests {
         flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
+            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
         },
     };
-
-    use super::*;
     use axum::http::HeaderMap;
+    use common_models::test_utils::insert_new_team_in_pg;
     use serde_json::{json, Value};
     use std::net::{Ipv4Addr, Ipv6Addr};
 

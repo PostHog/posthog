@@ -1378,10 +1378,11 @@ mod tests {
         properties::property_models::OperatorType,
         utils::test_utils::{
             add_person_to_cohort, create_test_flag, get_person_id_by_distinct_id,
-            insert_cohort_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
-            setup_pg_reader_client, setup_pg_writer_client,
+            insert_cohort_for_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
+            setup_pg_writer_client,
         },
     };
+    use common_models::test_utils::insert_new_team_in_pg;
 
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {

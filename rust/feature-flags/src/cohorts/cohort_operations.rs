@@ -476,10 +476,10 @@ mod tests {
     use crate::{
         cohorts::cohort_models::{CohortPropertyType, CohortValues},
         utils::test_utils::{
-            insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
+            insert_cohort_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
         },
     };
+    use common_models::test_utils::insert_new_team_in_pg;
     use serde_json::json;
 
     #[tokio::test]

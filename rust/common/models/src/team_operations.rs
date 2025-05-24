@@ -1,6 +1,6 @@
 use crate::{
-    api::errors::FlagError,
-    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+    errors::ModelError,
+    team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
@@ -8,12 +8,12 @@ use std::sync::Arc;
 use tracing::instrument;
 
 impl Team {
-    /// Validates a token, and returns a team if it exists.
+    /// Validates a token, and returns a team if it exists. This work for the project api key or a secret api key.
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         token: &str,
-    ) -> Result<Team, FlagError> {
+    ) -> Result<Team, ModelError> {
         tracing::info!(
             "Attempting to read team from Redis at key '{}{}'",
             TEAM_TOKEN_CACHE_PREFIX,
@@ -28,7 +28,7 @@ impl Team {
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
             tracing::error!("failed to parse data to team: {}", e);
-            FlagError::RedisDataParsingError
+            ModelError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
             // If `project_id` is 0, this means the payload is from before December 2024, which we correct for here
@@ -49,10 +49,10 @@ impl Team {
     pub async fn update_redis_cache(
         client: Arc<dyn RedisClient + Send + Sync>,
         team: &Team,
-    ) -> Result<(), FlagError> {
+    ) -> Result<(), ModelError> {
         let serialized_team = serde_json::to_string(&team).map_err(|e| {
             tracing::error!("Failed to serialize team: {}", e);
-            FlagError::RedisDataParsingError
+            ModelError::RedisDataParsingError
         })?;
 
         tracing::info!(
@@ -70,7 +70,7 @@ impl Team {
             .await
             .map_err(|e| {
                 tracing::error!("Failed to update Redis cache: {}", e);
-                FlagError::CacheUpdateError
+                ModelError::CacheUpdateError
             })?;
 
         Ok(())
@@ -79,14 +79,16 @@ impl Team {
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
         token: &str,
-    ) -> Result<Team, FlagError> {
+    ) -> Result<Team, ModelError> {
         let mut conn = client.get_connection().await?;
 
         let query = "SELECT 
             id, 
             uuid,
             name, 
-            api_token, 
+            api_token,
+            secret_api_token,
+            secret_api_token_backup,
             project_id, 
             cookieless_server_hash_mode, 
             timezone,
@@ -132,9 +134,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::utils::test_utils::{
-        insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
-        setup_redis_client,
+    use crate::test_utils::{
+        insert_new_team_in_pg, insert_new_team_in_redis, random_string,
+        setup_pg_reader_client_with_database_url_and_max_connections, setup_redis_client,
     };
 
     #[tokio::test]
@@ -160,7 +162,7 @@ mod tests {
         let client = setup_redis_client(None);
 
         match Team::from_redis(client.clone(), "banana").await {
-            Err(FlagError::TokenValidationError) => (),
+            Err(ModelError::TokenValidationError) => (),
             _ => panic!("Expected TokenValidationError"),
         };
     }
@@ -170,7 +172,7 @@ mod tests {
         let client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
 
         match Team::from_redis(client.clone(), "banana").await {
-            Err(FlagError::RedisUnavailable) => (),
+            Err(ModelError::RedisUnavailable) => (),
             _ => panic!("Expected RedisUnavailable"),
         };
     }
@@ -208,7 +210,7 @@ mod tests {
         let client = setup_redis_client(None);
 
         match Team::from_redis(client.clone(), team.api_token.as_str()).await {
-            Err(FlagError::RedisDataParsingError) => (),
+            Err(ModelError::RedisDataParsingError) => (),
             Err(other) => panic!("Expected DataParsingError, got {:?}", other),
             Ok(_) => panic!("Expected DataParsingError"),
         };
@@ -253,7 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_pg() {
-        let client = setup_pg_reader_client(None).await;
+        let client = setup_pg_reader_client_with_database_url_and_max_connections(None, None).await;
 
         let team = insert_new_team_in_pg(client.clone(), None)
             .await
@@ -275,11 +277,11 @@ mod tests {
         // TODO: Figure out a way such that `run_database_migrations` is called only once, and already called
         // before running these tests.
 
-        let client = setup_pg_reader_client(None).await;
+        let client = setup_pg_reader_client_with_database_url_and_max_connections(None, None).await;
         let target_token = "xxxx".to_string();
 
         match Team::from_pg(client.clone(), target_token.as_str()).await {
-            Err(FlagError::RowNotFound) => (),
+            Err(ModelError::RowNotFound) => (),
             _ => panic!("Expected RowNotFound"),
         };
     }
