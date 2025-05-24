@@ -92,9 +92,15 @@ services:
         image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:24.8.7.41}
         restart: on-failure
 
-    zookeeper:
-        image: zookeeper:3.7.0
+    clickhouse-keeper:
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:24.8.7.41}
         restart: on-failure
+        command: clickhouse-keeper --config-file=/etc/clickhouse-keeper/keeper_config.xml
+        volumes:
+            - ./docker/clickhouse-keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml
+            - clickhouse-keeper-data:/var/lib/clickhouse
+        expose:
+            - '9444'
 
     kafka:
         image: ghcr.io/posthog/kafka-container:v2.8.2
@@ -104,7 +110,7 @@ services:
             KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_ZOOKEEPER_CONNECT: clickhouse-keeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
         healthcheck:
             test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1

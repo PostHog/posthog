@@ -43,7 +43,7 @@ services:
         restart: on-failure
         depends_on:
             - kafka
-            - zookeeper
+            - clickhouse-keeper
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -54,20 +54,18 @@ services:
             - ./posthog/posthog/user_scripts:/var/lib/clickhouse/user_scripts
             - clickhouse-data:/var/lib/clickhouse
 
-    zookeeper:
+    clickhouse-keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: clickhouse-keeper
         volumes:
-            - zookeeper-datalog:/datalog
-            - zookeeper-data:/data
-            - zookeeper-logs:/logs
+            - clickhouse-keeper-data:/var/lib/clickhouse
     kafka:
         extends:
             file: docker-compose.base.yml
             service: kafka
         depends_on:
-            - zookeeper
+            - clickhouse-keeper
         environment:
             KAFKA_LOG_RETENTION_MS: 3600000
             KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
@@ -293,9 +291,7 @@ services:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
 volumes:
-    zookeeper-data:
-    zookeeper-datalog:
-    zookeeper-logs:
+    clickhouse-keeper-data:
     objectstorage:
     postgres-data:
     clickhouse-data:

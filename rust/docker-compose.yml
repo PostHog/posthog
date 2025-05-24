@@ -1,21 +1,25 @@
 version: '3'
 
 services:
-    zookeeper:
-        image: zookeeper:3.7.0
+    clickhouse-keeper:
+        image: clickhouse/clickhouse-server:24.8.7.41
         restart: on-failure
+        command: clickhouse-keeper --config-file=/etc/clickhouse-keeper/keeper_config.xml
+        volumes:
+            - ../docker/clickhouse-keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml
+            - clickhouse-keeper-data:/var/lib/clickhouse
 
     kafka:
         image: ghcr.io/posthog/kafka-container:v2.8.2
         restart: on-failure
         depends_on:
-            - zookeeper
+            - clickhouse-keeper
         environment:
             KAFKA_BROKER_ID: 1001
             KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_ZOOKEEPER_CONNECT: clickhouse-keeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
         ports:
             - '9092:9092'
@@ -55,12 +59,12 @@ services:
         ports:
             - '8080:8080'
         depends_on:
-            - zookeeper
+            - clickhouse-keeper
             - kafka
         environment:
             KAFKA_CLUSTERS_0_NAME: local
             KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-            KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+            KAFKA_CLUSTERS_0_ZOOKEEPER: clickhouse-keeper:2181
 
     db:
         container_name: db
@@ -99,3 +103,6 @@ services:
             - '18081:8081'
         volumes:
             - ./docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
+
+volumes:
+    clickhouse-keeper-data:

@@ -167,7 +167,7 @@
 
     <zookeeper>
         <node>
-            <host>zookeeper</host>
+            <host>clickhouse-keeper</host>
             <port>2181</port>
         </node>
     </zookeeper>
