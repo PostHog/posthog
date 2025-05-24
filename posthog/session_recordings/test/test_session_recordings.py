@@ -1377,12 +1377,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             ("blob", True, status.HTTP_200_OK),
-            ("blob_v2", True, status.HTTP_200_OK),
+            # not a 400, 404 because we didn't mock the right things for a 200
+            ("blob_v2", True, status.HTTP_404_NOT_FOUND),
             ("realtime", True, status.HTTP_200_OK),
             (None, True, status.HTTP_200_OK),  # No source parameter
             ("invalid_source", False, status.HTTP_400_BAD_REQUEST),
             ("", False, status.HTTP_400_BAD_REQUEST),
-            ("BLOB", False, status.HTTP_400_BAD_REQUEST),  # Case sensitive
+            ("BLOB", False, status.HTTP_400_BAD_REQUEST),  # Case-sensitive
             ("real-time", False, status.HTTP_400_BAD_REQUEST),
         ]
     )
@@ -1421,7 +1422,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
 
-        assert response.status_code == expected_status
+        assert (
+            response.status_code == expected_status
+        ), f"Expected status {expected_status}, got {response.status_code} for source '{source_value}'"
 
         if not is_valid:
             # For invalid sources, we expect a validation error
