@@ -145,78 +145,77 @@ export function PersonsModal({
         sessionsAnalyzed: 150,
         keyInsights: 5,
         pains: 2,
-        status: 'success',
+        status: 'failure',
         details: {
             criticalIssues: [
                 {
-                    description: 'High drop-off rate in checkout process',
+                    description: 'High drop-off at pricing comparison stage',
                     sessions: [
                         {
                             id: '0196d2be-108d-7a79-8048-e5234ad7bdc9',
                             timestamp: '2024-03-15 14:23:45',
                             hasRecording: true,
-                            summary: 'Multiple users abandon cart after viewing shipping costs',
+                            summary: 'Multiple users spend 2-3 minutes comparing plans but abandon before signup',
                         },
                         {
                             id: '0196d2be-108d-7a79-8048-e5234ad7bdc8',
                             timestamp: '2024-03-12 11:15:22',
                             hasRecording: true,
-                            summary: 'Users hesitate at payment method selection',
+                            summary: 'Users frequently switch between plan comparison and feature pages without proceeding',
                         },
                     ],
                 },
                 {
-                    description: 'Feature discovery issues',
+                    description: 'Feature discovery confusion',
                     sessions: [
                         {
                             id: '0196d2bd-515c-7230-9e15-a2a437f2e3e4',
                             timestamp: '2024-03-10 16:30:22',
                             hasRecording: true,
-                            summary: 'Users struggle to find advanced filtering options',
+                            summary: 'Users struggle to find key features during initial exploration',
                         },
                     ],
                 },
             ],
             commonJourneys: [
                 {
-                    name: 'Successful Purchase Flow',
-                    path: 'Home → Browse → Add to Cart → Checkout → Payment → Confirmation',
+                    name: 'Pricing Research Pattern',
+                    path: 'Homepage → Features → Pricing → Plan Comparison → Exit',
                 },
                 {
-                    name: 'Feature Exploration',
-                    path: 'Dashboard → Analytics → Reports → Export → Share',
+                    name: 'Feature Exploration Pattern',
+                    path: 'Homepage → Documentation → Features → Pricing → Exit',
                 },
                 {
-                    name: 'Account Management',
-                    path: 'Profile → Settings → Billing → Subscription → Update',
+                    name: 'Quick Exit Pattern',
+                    path: 'Homepage → Features → Exit',
                 },
             ],
             edgeCases: [
                 {
-                    description: 'Users combining multiple payment methods',
+                    description: 'Users comparing multiple pricing tiers',
                     sessions: [
                         {
                             id: '0196d2bd-515c-7230-9e15-a2a437f2e3e5',
                             timestamp: '2024-03-11 09:45:12',
                             hasRecording: true,
-                            summary: 'User attempted to split payment between credit card and PayPal',
+                            summary: 'Users frequently switch between different pricing tiers without clear decision criteria',
                         },
                     ],
                 },
                 {
-                    description: 'Unusual feature combinations',
+                    description: 'Feature comparison across competitors',
                     sessions: [
                         {
                             id: '0196d2bd-515c-7230-9e15-a2a437f2e3e6',
                             timestamp: '2024-03-13 15:20:33',
                             hasRecording: true,
-                            summary: 'User created complex automation using unexpected feature combinations',
+                            summary: 'Users actively compare features with competitor products during signup process',
                         },
                     ],
                 },
             ],
-            summary:
-                'Overall user engagement is positive with high feature adoption. Main areas for improvement are checkout process optimization and feature discoverability.',
+            summary: 'Users struggle with feature discovery, get stuck in pricing comparison, and fail to complete signup. High drop-off rates at key decision points indicate poor funnel optimization. Immediate action needed to simplify pricing presentation, improve feature visibility, and add clear decision-making guidance.',
         },
     }
 
@@ -559,8 +558,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     ],
                 },
             ],
-            summary:
-                "User is an active free tier user who regularly researches pricing but hasn't converted to a paid plan, while attempting to upgrade multiple times.",
+            summary: 'User shows strong interest in paid features but consistently abandons upgrade process. Despite multiple pricing page visits and feature comparisons, fails to complete signup. Immediate intervention needed to understand and address conversion blockers.',
         },
     }
 
