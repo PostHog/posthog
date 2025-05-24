@@ -76,13 +76,14 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def migrate_metric(self, request, object_id):
-        original = self.get_object(request, object_id)
-        if not original:
-            messages.error(request, "Metric not found")
-            return redirect("admin:posthog_experimentsavedmetric_changelist")
-
         try:
             with transaction.atomic():
+                original = ExperimentSavedMetric.objects.select_for_update().get(pk=object_id)
+
+                if original.metadata and original.metadata.get("migrated_to"):
+                    messages.warning(request, f"Metric already migrated to {original.metadata['migrated_to']}")
+                    return redirect("admin:posthog_experimentsavedmetric_change", original.metadata["migrated_to"])
+
                 new_metric = ExperimentSavedMetric()
                 new_metric.name = original.name
                 new_metric.team = original.team
@@ -98,6 +99,9 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
 
             messages.success(request, "Metric migrated successfully")
             return redirect("admin:posthog_experimentsavedmetric_change", new_metric.pk)
+        except ExperimentSavedMetric.DoesNotExist:
+            messages.error(request, "Metric not found")
+            return redirect("admin:posthog_experimentsavedmetric_changelist")
         except Exception as e:
             messages.error(request, f"Error migrating metric: {e}")
             return redirect("admin:posthog_experimentsavedmetric_change", object_id)

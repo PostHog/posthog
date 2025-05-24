@@ -134,13 +134,14 @@ class ExperimentAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def migrate_experiment(self, request, object_id):
-        original = self.get_object(request, object_id)
-        if not original:
-            messages.error(request, "Experiment not found")
-            return redirect("admin:posthog_experiment_changelist")
-
         try:
             with transaction.atomic():
+                original = Experiment.objects.select_for_update().get(pk=object_id)
+
+                if original.stats_config and original.stats_config.get("migrated_to"):
+                    messages.warning(request, f"Experiment already migrated to {original.stats_config['migrated_to']}")
+                    return redirect("admin:posthog_experiment_change", original.stats_config["migrated_to"])
+
                 new_experiment = Experiment()
 
                 # copy all fields... almost all...
@@ -202,6 +203,9 @@ class ExperimentAdmin(admin.ModelAdmin):
 
             messages.success(request, "Experiment migrated successfully")
             return redirect("admin:posthog_experiment_change", new_experiment.pk)
+        except Experiment.DoesNotExist:
+            messages.error(request, "Experiment not found")
+            return redirect("admin:posthog_experiment_changelist")
         except Exception as e:
             messages.error(request, f"Error migrating experiment: {e}")
             return redirect("admin:posthog_experiment_change", object_id)
