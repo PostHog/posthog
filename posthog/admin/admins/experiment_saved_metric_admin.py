@@ -60,7 +60,7 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
-        kind = obj.query.get("kind") if obj.query else None
+        kind = obj.query.get("kind") if obj and obj.query else None
         extra_context["show_migration"] = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
