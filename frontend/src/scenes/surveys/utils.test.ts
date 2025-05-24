@@ -195,6 +195,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 0,
+                score: '0.0',
                 total: 0,
             })
         })
@@ -223,6 +224,7 @@ describe('survey utils', () => {
                 detractors: 7,
                 passives: 4,
                 promoters: 6,
+                score: '-5.9',
                 total: 17,
             })
         })
@@ -239,6 +241,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 0,
+                score: '0.0',
                 total: 0,
             })
         })
@@ -255,6 +258,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 10,
+                score: '100.0',
                 total: 10,
             })
         })
@@ -271,6 +275,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 10,
                 promoters: 0,
+                score: '0.0',
                 total: 10,
             })
         })
@@ -287,6 +292,7 @@ describe('survey utils', () => {
                 detractors: 14,
                 passives: 0,
                 promoters: 0,
+                score: '-100.0',
                 total: 14,
             })
         })

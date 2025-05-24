@@ -1,0 +1,416 @@
+import { IconInfo } from '@posthog/icons'
+import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { dayjs } from 'lib/dayjs'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
+import {
+    NPS_DETRACTOR_LABEL,
+    NPS_DETRACTOR_VALUES,
+    NPS_PASSIVE_LABEL,
+    NPS_PASSIVE_VALUES,
+    NPS_PROMOTER_LABEL,
+    NPS_PROMOTER_VALUES,
+} from 'scenes/surveys/constants'
+import { QuestionProcessedData, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { NPSStackedBar } from 'scenes/surveys/surveyViewViz'
+import { calculateNpsBreakdownFromProcessedData, NPSBreakdown } from 'scenes/surveys/utils'
+
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    ChartDisplayType,
+    GraphType,
+    InsightLogicProps,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyQuestionType,
+} from '~/types'
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: `new-survey`,
+}
+
+function createNPSTrendSeries(
+    values: string[],
+    label: string,
+    questionIndex: number,
+    questionId?: string
+): {
+    event: string
+    kind: NodeKind.EventsNode
+    custom_name: string
+    properties: Array<{
+        type: PropertyFilterType.HogQL
+        key: string
+    }>
+} {
+    return {
+        event: SurveyEventName.SENT,
+        kind: NodeKind.EventsNode,
+        custom_name: label,
+        properties: [
+            {
+                type: PropertyFilterType.HogQL,
+                key: `getSurveyResponse(${questionIndex}, ${questionId ? `'${questionId}'` : ''}) in (${values.join(
+                    ','
+                )})`,
+            },
+        ],
+    }
+}
+
+function createSingleRatingTrendSeries(
+    ratingValue: string,
+    questionIndex: number,
+    questionId: string
+): {
+    event: string
+    kind: NodeKind.EventsNode
+    custom_name: string
+    properties: Array<{
+        type: PropertyFilterType.HogQL
+        key: string
+    }>
+} {
+    return {
+        event: SurveyEventName.SENT,
+        kind: NodeKind.EventsNode,
+        custom_name: `Rating ${ratingValue}`,
+        properties: [
+            {
+                type: PropertyFilterType.HogQL,
+                key: `getSurveyResponse(${questionIndex}, '${questionId}') = '${ratingValue}'`,
+            },
+        ],
+    }
+}
+
+const CHART_LABELS: Record<number, string[]> = {
+    10: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+    7: ['1', '2', '3', '4', '5', '6', '7'],
+    5: ['1', '2', '3', '4', '5'],
+    3: ['1', '2', '3'],
+}
+
+function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
+    return (
+        <div>
+            <div className="flex gap-2 items-center">
+                <div className="text-4xl font-bold">{npsBreakdown.score}</div>
+            </div>
+            <div className="mb-2 font-semibold text-secondary">
+                <Tooltip
+                    placement="bottom"
+                    title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can ge from -100 to 100."
+                >
+                    <IconInfo className="text-muted mr-1" />
+                    Latest NPS Score
+                </Tooltip>
+            </div>
+            {npsBreakdown && (
+                <div className="mt-2 mb-4 deprecated-space-y-2">
+                    <NPSStackedBar npsBreakdown={npsBreakdown} />
+                </div>
+            )}
+        </div>
+    )
+}
+
+function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: number; questionId: string }): JSX.Element {
+    const { dateRange, interval, compareFilter, defaultInterval, survey } = useValues(surveyLogic)
+    const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
+
+    return (
+        <div className="bg-surface-primary rounded">
+            <LemonCollapse
+                panels={[
+                    {
+                        key: 'nps-rating-over-time',
+                        header: 'NPS Trend Over Time',
+                        content: (
+                            <div className="flex flex-col gap-2">
+                                <div className="flex gap-2 justify-between items-center">
+                                    <div className="flex gap-2 items-center">
+                                        <DateFilter
+                                            dateFrom={dateRange?.date_from ?? undefined}
+                                            dateTo={dateRange?.date_to ?? undefined}
+                                            onChange={(fromDate, toDate) =>
+                                                setDateRange({
+                                                    date_from: fromDate,
+                                                    date_to: toDate,
+                                                })
+                                            }
+                                        />
+                                        <span>grouped by</span>
+                                        <IntervalFilterStandalone
+                                            interval={interval ?? defaultInterval}
+                                            onIntervalChange={setInterval}
+                                        />
+                                        <CompareFilter
+                                            compareFilter={compareFilter}
+                                            updateCompareFilter={(compareFilter) => setCompareFilter(compareFilter)}
+                                        />
+                                    </div>
+                                </div>
+                                <Query
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: {
+                                            kind: NodeKind.TrendsQuery,
+                                            interval: interval ?? defaultInterval,
+                                            compareFilter: compareFilter,
+                                            dateRange: dateRange ?? {
+                                                date_from: dayjs((survey as Survey).created_at).format('YYYY-MM-DD'),
+                                                date_to: survey.end_date
+                                                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                                                    : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                                            },
+                                            series: [
+                                                createNPSTrendSeries(
+                                                    NPS_PROMOTER_VALUES,
+                                                    NPS_PROMOTER_LABEL,
+                                                    questionIndex,
+                                                    questionId
+                                                ),
+                                                createNPSTrendSeries(
+                                                    NPS_PASSIVE_VALUES,
+                                                    NPS_PASSIVE_LABEL,
+                                                    questionIndex,
+                                                    questionId
+                                                ),
+                                                createNPSTrendSeries(
+                                                    NPS_DETRACTOR_VALUES,
+                                                    NPS_DETRACTOR_LABEL,
+                                                    questionIndex,
+                                                    questionId
+                                                ),
+                                            ],
+                                            properties: [
+                                                {
+                                                    type: PropertyFilterType.Event,
+                                                    key: SurveyEventProperties.SURVEY_ID,
+                                                    operator: PropertyOperator.Exact,
+                                                    value: survey.id,
+                                                },
+                                            ],
+                                            trendsFilter: {
+                                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                                display: ChartDisplayType.ActionsBar,
+                                            },
+                                        },
+                                    }}
+                                    readOnly
+                                />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+function RatingScoreOverTime({
+    questionIndex,
+    questionId,
+    scale,
+}: {
+    questionIndex: number
+    questionId: string
+    scale: 3 | 5 | 7
+}): JSX.Element {
+    const { dateRange, interval, compareFilter, defaultInterval, survey } = useValues(surveyLogic)
+    const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
+
+    const series: any[] = []
+    const formulaNumeratorParts: string[] = []
+    const formulaDenominatorParts: string[] = []
+    const seriesLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+    // For scales 3, 5, 7, the rating starts from 1
+    for (let i = 1; i <= scale; i++) {
+        const ratingValue = i.toString()
+        series.push(createSingleRatingTrendSeries(ratingValue, questionIndex, questionId))
+        const seriesLetter = seriesLetters[i - 1]
+        formulaNumeratorParts.push(`${i}*${seriesLetter}`)
+        formulaDenominatorParts.push(seriesLetter)
+    }
+
+    const formula = `(${formulaNumeratorParts.join('+')}) / (${formulaDenominatorParts.join('+')})`
+
+    return (
+        <div className="bg-surface-primary rounded">
+            <LemonCollapse
+                panels={[
+                    {
+                        key: 'average-rating-trend',
+                        header: `Average Rating Trend Over Time`,
+                        content: (
+                            <div>
+                                <div className="flex justify-between items-center p-2">
+                                    <div className="flex gap-2 items-center">
+                                        <DateFilter
+                                            dateFrom={dateRange?.date_from ?? undefined}
+                                            dateTo={dateRange?.date_to ?? undefined}
+                                            onChange={(fromDate, toDate) =>
+                                                setDateRange({
+                                                    date_from: fromDate,
+                                                    date_to: toDate,
+                                                })
+                                            }
+                                        />
+                                        <span>grouped by</span>
+                                        <IntervalFilterStandalone
+                                            interval={interval ?? defaultInterval}
+                                            onIntervalChange={setInterval}
+                                        />
+                                        <CompareFilter
+                                            compareFilter={compareFilter}
+                                            updateCompareFilter={(compareFilter) => setCompareFilter(compareFilter)}
+                                        />
+                                    </div>
+                                </div>
+                                <Query
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: {
+                                            kind: NodeKind.TrendsQuery,
+                                            interval: interval ?? defaultInterval,
+                                            compareFilter: compareFilter,
+                                            dateRange: dateRange ?? {
+                                                date_from: dayjs((survey as Survey).created_at).format('YYYY-MM-DD'),
+                                                date_to: survey.end_date
+                                                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                                                    : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                                            },
+                                            series: series,
+                                            properties: [
+                                                {
+                                                    type: PropertyFilterType.Event,
+                                                    key: SurveyEventProperties.SURVEY_ID,
+                                                    operator: PropertyOperator.Exact,
+                                                    value: survey.id,
+                                                },
+                                            ],
+                                            trendsFilter: {
+                                                formula: formula,
+                                                display: ChartDisplayType.ActionsBar,
+                                            },
+                                        },
+                                    }}
+                                    readOnly
+                                />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+export function RatingQuestionViz({ questionIndex }: { questionIndex: number }): JSX.Element | null {
+    const { survey, consolidatedSurveyResults, consolidatedSurveyResultsLoading } = useValues(surveyLogic)
+    const barColor = CHART_INSIGHTS_COLORS[0]
+    const question = survey.questions[questionIndex]
+
+    if (question.type !== SurveyQuestionType.Rating || !question.id) {
+        return null
+    }
+
+    const processedData: QuestionProcessedData | null = consolidatedSurveyResults
+        ? consolidatedSurveyResults.responsesByQuestion[question.id]
+        : null
+
+    if (consolidatedSurveyResultsLoading) {
+        return <div>loading surveys data</div>
+    }
+
+    if (!processedData) {
+        return <div>No responses yet (v2 query)</div>
+    }
+
+    const { data } = processedData
+
+    if (!data || !data.length) {
+        return <div>No responses yet</div>
+    }
+
+    // if scale is not 10, we need to skip the 0
+    const normalizeScaleData = question.scale !== 10 ? data.slice(1) : data
+
+    const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div>
+                <div className="font-semibold text-secondary">{`${
+                    question.scale === 10
+                        ? '0 - 10'
+                        : question.scale === 7
+                        ? '1 - 7'
+                        : question.scale === 5
+                        ? '1 - 5'
+                        : '1 - 3'
+                } rating`}</div>
+                <div className="text-xl font-bold mb-2">
+                    Question {questionIndex + 1}: {question.question}
+                </div>
+                <div className="h-50 border rounded pt-8">
+                    <div className="relative h-full w-full">
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <LineGraph
+                                inSurveyView={true}
+                                hideYAxis={true}
+                                showValuesOnSeries={true}
+                                labelGroupType={1}
+                                data-attr="survey-rating"
+                                type={GraphType.Bar}
+                                hideAnnotations={true}
+                                formula="-"
+                                tooltip={{
+                                    showHeader: false,
+                                    hideColorCol: true,
+                                }}
+                                datasets={[
+                                    {
+                                        id: 1,
+                                        label: 'Number of responses',
+                                        barPercentage: 0.8,
+                                        minBarLength: 2,
+                                        data: normalizeScaleData.map((d) => d.value),
+                                        backgroundColor: barColor,
+                                        borderColor: barColor,
+                                        hoverBackgroundColor: barColor,
+                                    },
+                                ]}
+                                labels={CHART_LABELS?.[question.scale] || ['1', '2', '3']}
+                            />
+                        </BindLogic>
+                    </div>
+                </div>
+                <div className="flex flex-row justify-between mt-1">
+                    <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
+                    <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
+                </div>
+            </div>
+            {npsBreakdown && <NPSBreakdownViz npsBreakdown={npsBreakdown} />}
+            {question.scale === 10 && <NPSRatingOverTime questionIndex={questionIndex} questionId={question.id} />}
+            {[3, 5, 7].includes(question.scale) && question.id && (
+                <RatingScoreOverTime
+                    questionIndex={questionIndex}
+                    questionId={question.id}
+                    scale={question.scale as 3 | 5 | 7}
+                />
+            )}
+        </div>
+    )
+}
