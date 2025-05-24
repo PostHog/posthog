@@ -9,7 +9,7 @@ use opentelemetry_proto::tonic::collector::trace::v1::{
 };
 
 use tonic::{Request, Response, Status};
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct Service {
@@ -71,6 +71,7 @@ impl LogsService for Service {
         for resource_logs in export_request.resource_logs {
             // Convert resource to string for storing in ClickHouse
             for scope_logs in resource_logs.scope_logs {
+                info!("inserting {} logs", scope_logs.log_records.len());
                 for log_record in scope_logs.log_records {
                     let row = match LogRow::new(
                         team_id,
@@ -85,15 +86,17 @@ impl LogsService for Service {
                         }
                     };
 
-                    if let Err(e) = insert.write(&row).await {
-                        error!("Failed to insert log into ClickHouse: {}", e);
-                        // Continue processing other logs even if one fails
+                    match insert.write(&row).await {
+                        Ok(()) => info!("added log to insert"),
+                        Err(e) => error!("Failed to insert log into ClickHouse: {}", e),
                     }
                 }
             }
         }
         if let Err(e) = insert.end().await {
             error!("Failed to end ClickHouse insert: {}", e);
+        } else {
+            info!("Successfully inserted logs");
         }
 
         // A successful OTLP export expects an ExportLogsServiceResponse.

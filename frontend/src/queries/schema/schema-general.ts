@@ -1978,7 +1978,7 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
-export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
@@ -1989,6 +1989,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     searchTerm?: string
     resource?: string
     severityLevels: LogSeverityLevel[]
+    filterGroup: PropertyGroupFilter
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {

@@ -23,6 +23,8 @@ from posthog.warehouse.api import (
     view_link,
 )
 import products.links.backend.api as link
+from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
