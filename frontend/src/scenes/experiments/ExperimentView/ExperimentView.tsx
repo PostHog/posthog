@@ -1,6 +1,7 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+import { PersonSummariesTable } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
@@ -27,7 +28,6 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
-import { PersonSummariesTable } from 'scenes/trends/persons-modal/PersonsModal'
 
 const ResultsTab = (): JSX.Element => {
     const {
@@ -99,8 +99,8 @@ const experimentSummaryData = {
     id: 1,
     period: '2024-03-01 to 2024-03-15',
     sessionsAnalyzed: 2338,
-    keyInsights: 2,
-    pains: 1,
+    keyInsights: 4,
+    pains: 3,
     status: 'failure',
     details: {
         criticalIssues: [
@@ -111,7 +111,37 @@ const experimentSummaryData = {
                         id: 'session-001',
                         timestamp: '2024-03-10 10:00:00',
                         hasRecording: true,
-                        summary: 'Some users spent extra time on the personalization step and abandoned before completing signup.',
+                        summary:
+                            'Some users spent extra time on the personalization step and abandoned before completing signup.',
+                    },
+                    {
+                        id: 'session-101',
+                        timestamp: '2024-03-11 09:12:00',
+                        hasRecording: true,
+                        summary:
+                            'Users hesitated at unclear questions in personalization, leading to drop-off or random answers.',
+                    },
+                ],
+            },
+            {
+                description: 'Users in both variants struggled with password requirements',
+                sessions: [
+                    {
+                        id: 'session-201',
+                        timestamp: '2024-03-13 15:45:00',
+                        hasRecording: true,
+                        summary: 'Several users failed to meet password criteria and had to retry multiple times.',
+                    },
+                ],
+            },
+            {
+                description: 'Mobile users experienced layout issues in the personalization step',
+                sessions: [
+                    {
+                        id: 'session-301',
+                        timestamp: '2024-03-14 17:20:00',
+                        hasRecording: true,
+                        summary: 'On mobile, some fields were cut off or hard to interact with, causing frustration.',
                     },
                 ],
             },
@@ -125,6 +155,14 @@ const experimentSummaryData = {
                 name: 'Personalized Signup (Test)',
                 path: 'Homepage → Signup → Personalization → Complete Signup',
             },
+            {
+                name: 'Personalization Drop-off',
+                path: 'Homepage → Signup → Personalization → Exit',
+            },
+            {
+                name: 'Password Retry Loop',
+                path: 'Homepage → Signup → (Password Error) → Retry → Complete Signup',
+            },
         ],
         edgeCases: [
             {
@@ -134,13 +172,26 @@ const experimentSummaryData = {
                         id: 'session-002',
                         timestamp: '2024-03-12 14:30:00',
                         hasRecording: true,
-                        summary: 'Some users quickly skipped or provided minimal input on personalization to finish signup.',
+                        summary:
+                            'Some users quickly skipped or provided minimal input on personalization to finish signup.',
+                    },
+                ],
+            },
+            {
+                description: 'Users using autofill for all fields',
+                sessions: [
+                    {
+                        id: 'session-401',
+                        timestamp: '2024-03-15 11:05:00',
+                        hasRecording: true,
+                        summary:
+                            'A subset of users used browser autofill, bypassing most friction but sometimes missing required personalization fields.',
                     },
                 ],
             },
         ],
         summary:
-            'The new personalized signup flow did not outperform the control. Conversion rate for the test variant was 90.03% vs 91.27% for control (Δ -1.36%, not significant). Most users completed signup, but the new flow may have introduced minor friction. Consider simplifying or making personalization optional.',
+            'The experiment confirmed that the personalized signup flow did not outperform control. Users struggled with unclear personalization questions, password requirements, and mobile layout issues. Many rushed or skipped personalization, reducing its value. Recommend simplifying the flow and making personalization optional.',
     },
 }
 
