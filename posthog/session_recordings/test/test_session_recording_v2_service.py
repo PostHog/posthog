@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase
 from freezegun import freeze_time
 
+from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 
@@ -71,27 +72,27 @@ class TestSessionRecordingV2Service(TestCase):
         blocks = list_blocks(self.recording)
         self.assertEqual(blocks, [])
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @freeze_time("2024-01-02T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_sorted_blocks(self, mock_replay_events):
-        mock_replay_events.return_value.get_metadata.return_value = {
-            "block_first_timestamps": [
+        mock_replay_events.return_value.list_blocks.return_value = RecordingBlockListing(
+            block_first_timestamps=[
                 datetime(2024, 1, 1, 12, 0),
                 datetime(2024, 1, 1, 12, 2),
                 datetime(2024, 1, 1, 12, 1),
             ],
-            "block_last_timestamps": [
+            block_last_timestamps=[
                 datetime(2024, 1, 1, 12, 1),
                 datetime(2024, 1, 1, 12, 3),
                 datetime(2024, 1, 1, 12, 2),
             ],
-            "block_urls": [
+            block_urls=[
                 "s3://bucket/key1",
                 "s3://bucket/key2",
                 "s3://bucket/key3",
             ],
-            "start_time": datetime(2024, 1, 1, 12, 0),
-        }
+            start_time=datetime(2024, 1, 1, 12, 0),
+        )
 
         blocks = list_blocks(self.recording)
 
