@@ -25,6 +25,7 @@ export const manifest: ProductManifest = {
         experiment: {
             icon: <IconTestTube />,
             href: (ref: string) => urls.experiment(ref),
+            iconColor: ['var(--product-experiments-primary)', 'var(--product-experiments-primary)'],
         },
     },
     treeItemsNew: [

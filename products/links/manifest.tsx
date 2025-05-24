@@ -36,6 +36,7 @@ export const manifest: ProductManifest = {
         link: {
             icon: <IconExternal />,
             href: (ref: string) => urls.link(ref),
+            iconColor: ['var(--product-links-primary)', 'var(--product-links-primary)'],
         },
     },
     treeItemsNew: [

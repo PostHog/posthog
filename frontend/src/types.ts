@@ -5381,6 +5381,7 @@ export interface CoreMemory {
 export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
+    iconColor?: [string, string]
 }
 
 export interface FileSystemFilterType {

@@ -85,18 +85,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
-    treeItemsProducts: [
-        {
-            path: 'Broadcasts',
-            href: urls.messagingBroadcasts(),
-            type: 'hog_function/broadcast',
-        },
-        {
-            path: 'Campaigns',
-            href: urls.messagingCampaigns(),
-            type: 'hog_function/campaign',
-        },
-    ],
+    treeItemsProducts: [],
     fileSystemFilterTypes: {
         broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
         campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },

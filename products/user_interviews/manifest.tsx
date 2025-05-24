@@ -31,6 +31,7 @@ export const manifest: ProductManifest = {
         user_interview: {
             icon: <IconChat />,
             href: (ref: string) => urls.userInterview(ref),
+            iconColor: ['var(--product-user-interviews-primary)', 'var(--product-user-interviews-primary)'],
         },
     },
     treeItemsProducts: [
