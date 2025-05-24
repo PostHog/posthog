@@ -1,7 +1,8 @@
+use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use std::{net::SocketAddr, str::FromStr};
 
-#[derive(Envconfig, Clone, Debug)]
+#[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
     pub address: SocketAddr,
@@ -26,6 +27,12 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub enable_metrics: bool,
+
+    #[envconfig(default = "clickhouse_events_json")]
+    pub events_topic: String,
+
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
 }
 
 impl Default for Config {
@@ -43,6 +50,16 @@ impl Config {
             external_link_redis_url: "redis://localhost:6379/".to_string(),
             internal_link_redis_url: "redis://localhost:6379/".to_string(),
             redis_internal_ttl_seconds: 86400,
+            events_topic: "clickhouse_events_json".to_string(),
+            kafka: KafkaConfig {
+                kafka_producer_linger_ms: 0,
+                kafka_producer_queue_mib: 50,
+                kafka_message_timeout_ms: 5000,
+                kafka_compression_codec: "none".to_string(),
+                kafka_hosts: "kafka:9092".to_string(),
+                kafka_tls: false,
+                kafka_producer_queue_messages: 1000,
+            },
             default_domain_for_public_store: "phog.gg".to_string(),
             enable_metrics: false,
         }

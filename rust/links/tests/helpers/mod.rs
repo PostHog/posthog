@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Once},
 };
 
+use links::state::State;
 use links::{config::Config, server::serve};
 use tokio::{net::TcpListener, sync::Notify};
 
@@ -27,8 +28,10 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
+        let state = State::from_config(&config).await.unwrap();
+
         tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
+            serve(state, listener, async move { notify.notified().await }).await
         });
 
         Self { addr, shutdown }

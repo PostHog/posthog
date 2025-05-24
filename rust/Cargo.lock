@@ -861,19 +861,19 @@ dependencies = [
  "rustversion",
  "serde",
  "sync_wrapper 0.1.2",
- "tower",
+ "tower 0.4.13",
  "tower-layer",
  "tower-service",
 ]
 
 [[package]]
 name = "axum"
-version = "0.7.5"
+version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a6c9af12842a67734c9a2e355436e5d03b22383ed60cf13cd0c18fbfe3dcbcf"
+checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
 dependencies = [
  "async-trait",
- "axum-core 0.4.3",
+ "axum-core 0.4.5",
  "axum-macros",
  "bytes",
  "futures-util",
@@ -895,7 +895,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper 1.0.1",
  "tokio",
- "tower",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -907,7 +907,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72188bed20deb981f3a4a9fe674e5980fd9e9c2bd880baa94715ad5d60d64c67"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "forwarded-header-value",
  "serde",
 ]
@@ -931,9 +931,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.4.3"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15c63fd72d41492dc4f497196f5da1fb04fb7529e631d73630d1b491e47a2e3"
+checksum = "09f2bd6146b97ae3359fa0cc6d6b376d9539582c7b4220f041a33ec24c226199"
 dependencies = [
  "async-trait",
  "bytes",
@@ -944,7 +944,7 @@ dependencies = [
  "mime",
  "pin-project-lite",
  "rustversion",
- "sync_wrapper 0.1.2",
+ "sync_wrapper 1.0.1",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -952,11 +952,10 @@ dependencies = [
 
 [[package]]
 name = "axum-macros"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00c055ee2d014ae5981ce1016374e8213682aa14d9bf40e48ab48b5f3ef20eaa"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
 dependencies = [
- "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.89",
@@ -967,7 +966,7 @@ name = "axum-test-helper"
 version = "0.4.0"
 source = "git+https://github.com/posthog/axum-test-helper.git#002d45d8bbbac04e6a474e9a850b7f023a87d32f"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "bytes",
  "http 1.1.0",
  "http-body 1.0.0",
@@ -975,7 +974,7 @@ dependencies = [
  "reqwest 0.11.24",
  "serde",
  "tokio",
- "tower",
+ "tower 0.4.13",
  "tower-service",
 ]
 
@@ -1062,7 +1061,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
- "axum 0.7.5",
+ "axum 0.7.9",
  "base64 0.22.1",
  "celes",
  "chrono",
@@ -1290,7 +1289,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
- "axum 0.7.5",
+ "axum 0.7.9",
  "axum-client-ip",
  "axum-test-helper",
  "base64 0.22.1",
@@ -1321,7 +1320,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tokio",
- "tower",
+ "tower 0.4.13",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
@@ -1621,7 +1620,7 @@ dependencies = [
 name = "common-metrics"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
@@ -1863,7 +1862,7 @@ dependencies = [
 name = "cyclotron-fetch"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-dns",
@@ -1893,7 +1892,7 @@ dependencies = [
 name = "cyclotron-janitor"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-kafka",
@@ -1932,7 +1931,7 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
- "axum 0.7.5",
+ "axum 0.7.9",
  "base64 0.22.1",
  "chrono",
  "common-alloc",
@@ -2383,7 +2382,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
- "axum 0.7.5",
+ "axum 0.7.9",
  "axum-client-ip",
  "base64 0.22.1",
  "bytes",
@@ -2421,7 +2420,7 @@ dependencies = [
  "test-case",
  "thiserror 1.0.69",
  "tokio",
- "tower",
+ "tower 0.4.13",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -2890,7 +2889,7 @@ dependencies = [
 name = "health"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "time",
  "tokio",
  "tracing",
@@ -2967,7 +2966,7 @@ dependencies = [
 name = "hook-api"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "common-alloc",
  "common-metrics",
  "envconfig",
@@ -2980,7 +2979,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tower",
+ "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -3009,7 +3008,7 @@ name = "hook-janitor"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "axum 0.7.5",
+ "axum 0.7.9",
  "common-alloc",
  "common-kafka",
  "common-metrics",
@@ -3034,7 +3033,7 @@ dependencies = [
 name = "hook-worker"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-dns",
@@ -3803,10 +3802,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.5",
+ "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-database",
+ "common-kafka",
  "common-metrics",
  "common-redis",
  "common-types",
@@ -3814,6 +3814,7 @@ dependencies = [
  "health",
  "once_cell",
  "rand 0.8.5",
+ "rdkafka",
  "reqwest 0.12.3",
  "rust_decimal",
  "serde",
@@ -3875,7 +3876,7 @@ name = "log-capture"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum 0.7.5",
+ "axum 0.7.9",
  "base64 0.22.1",
  "clickhouse",
  "common-alloc",
@@ -3893,7 +3894,7 @@ dependencies = [
  "tokio",
  "tonic 0.12.3",
  "tonic-web",
- "tower",
+ "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4943,7 +4944,7 @@ version = "0.1.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
- "axum 0.7.5",
+ "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-kafka",
@@ -5993,7 +5994,7 @@ dependencies = [
 name = "serve-metrics"
 version = "0.1.0"
 dependencies = [
- "axum 0.7.5",
+ "axum 0.7.9",
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
@@ -7203,7 +7204,7 @@ dependencies = [
  "prost 0.12.4",
  "tokio",
  "tokio-stream",
- "tower",
+ "tower 0.4.13",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -7217,7 +7218,7 @@ checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
 dependencies = [
  "async-stream",
  "async-trait",
- "axum 0.7.5",
+ "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
  "h2 0.4.2",
@@ -7233,7 +7234,7 @@ dependencies = [
  "socket2 0.5.9",
  "tokio",
  "tokio-stream",
- "tower",
+ "tower 0.4.13",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -7274,6 +7275,22 @@ dependencies = [
  "slab",
  "tokio",
  "tokio-util",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "pin-project-lite",
+ "sync_wrapper 1.0.1",
+ "tokio",
  "tower-layer",
  "tower-service",
  "tracing",

@@ -8,6 +8,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use links::config::Config;
+use links::state::State;
 
 common_alloc::used!();
 
@@ -29,6 +30,9 @@ async fn shutdown() {
 #[tokio::main]
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
+    let state = State::from_config(&config)
+        .await
+        .expect("Failed to create state");
 
     // Configure logging format:
     //   with_span_events: Log when spans are created/closed
@@ -50,6 +54,6 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await;
+    serve(state, listener, shutdown()).await;
     unreachable!("Server exited unexpectedly");
 }

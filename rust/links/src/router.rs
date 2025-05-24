@@ -3,45 +3,19 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use health::HealthRegistry;
-use std::{future::ready, sync::Arc};
+use std::future::ready;
 
-use common_database::Client as DatabaseClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
-use common_redis::Client as RedisClient;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
 
 use crate::api::endpoints::{external_redirect_url, external_store_url, internal_redirect_url};
+use crate::state::State;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub db_reader_client: Arc<dyn DatabaseClient + Send + Sync>,
-    pub external_redis_client: Arc<dyn RedisClient + Send + Sync>,
-    pub internal_redis_client: Arc<dyn RedisClient + Send + Sync>,
-    pub default_domain_for_public_store: String,
-}
-
-pub fn router<D, R>(
-    db_reader_client: Arc<D>,
-    external_redis_client: Arc<R>,
-    internal_redis_client: Arc<R>,
-    default_domain_for_public_store: String,
-    liveness: HealthRegistry,
-    enable_metrics: bool,
-) -> Router
-where
-    D: DatabaseClient + Send + Sync + 'static,
-    R: RedisClient + Send + Sync + 'static,
-{
-    let state = AppState {
-        db_reader_client,
-        external_redis_client,
-        internal_redis_client,
-        default_domain_for_public_store,
-    };
+pub fn router(state: State) -> Router {
+    let enable_metrics = state.enable_metrics;
 
     // Very permissive CORS policy, as old SDK versions
     // and reverse proxies might send funky headers.
@@ -51,6 +25,7 @@ where
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
+    let liveness = state.liveness.clone();
     let status_router = Router::new()
         .route("/_readiness", get(|| ready(StatusCode::OK)))
         .route("/_liveness", get(move || ready(liveness.get_status())));

@@ -10,6 +10,7 @@ async-trait = "0.1.88"
 axum = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
+common-kafka = { path = "../common/kafka" }
 common-metrics = { path = "../common/metrics" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
@@ -21,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["rust_decimal"] }
 rand = { workspace = true }
+rdkafka = { workspace = true }
 rust_decimal = "1.37.1"
 thiserror = { workspace = true }
 tokio = { workspace = true }
