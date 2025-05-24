@@ -53,7 +53,7 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
 
         # Get v1 and v2 snapshots using the shared utility functions
         v1_snapshots = await asyncio.to_thread(fetch_v1_snapshots, recording)
-        v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
+        v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording.session_id, recording.team)
 
         # Compare snapshots
         snapshot_differences = []

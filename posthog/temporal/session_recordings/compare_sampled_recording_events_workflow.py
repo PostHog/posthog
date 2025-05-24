@@ -97,7 +97,7 @@ async def compare_sampled_recording_events_activity(inputs: CompareSampledRecord
                 continue
 
             try:
-                v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
+                v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording.session_id, recording.team)
             except Exception as e:
                 await logger.awarn(
                     "Skipping session due to error when fetching v2 snapshots",

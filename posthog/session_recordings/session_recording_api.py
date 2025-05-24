@@ -710,7 +710,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         blob_prefix = ""
 
         if is_v2_enabled:
-            blocks = list_blocks(recording)
+            blocks = list_blocks(recording.session_id, recording.team)
             for i, block in enumerate(blocks):
                 sources.append(
                     {
@@ -927,7 +927,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         )
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
-            blocks = list_blocks(recording)
+            blocks = list_blocks(recording.session_id, recording.team)
             if not blocks:
                 raise exceptions.NotFound("Session recording not found")
 

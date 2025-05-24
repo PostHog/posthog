@@ -28,7 +28,7 @@ def _ch_client_local_reads_prod():
         client.disconnect()
 
 
-def _get_production_session_metadata_locally(
+def get_production_session_metadata_locally(
     events_obj: SessionReplayEvents,
     session_id: str,
     team: Team,
