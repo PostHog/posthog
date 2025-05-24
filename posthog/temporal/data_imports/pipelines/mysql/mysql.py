@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import math
 import re
 from collections.abc import Iterator
@@ -25,12 +26,70 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
 )
-from posthog.warehouse.models import IncrementalFieldType
-from posthog.warehouse.types import PartitionSettings
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+
+@config.config
+class MySQLSourceConfig(config.Config):
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+    schema: str
+    using_ssl: bool = True
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+def get_schemas(config: MySQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    """Get all tables from MySQL source schemas to sync."""
+
+    def inner(mysql_host: str, mysql_port: int):
+        ssl_ca: str | None = None
+
+        if config.using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        connection = pymysql.connect(
+            host=mysql_host,
+            port=mysql_port,
+            database=config.database,
+            user=config.user,
+            password=config.password,
+            connect_timeout=5,
+            ssl_ca=ssl_ca,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = collections.defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return inner(config.host, config.port)
 
 
 def _sanitize_identifier(identifier: str) -> str:

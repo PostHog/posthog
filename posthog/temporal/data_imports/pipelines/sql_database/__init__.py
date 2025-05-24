@@ -1,46 +1,43 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
-from typing import Optional, Union, Any
+import typing
 from collections.abc import Callable, Iterable
-
-from sqlalchemy import MetaData, Table, create_engine
-from sqlalchemy.engine import Engine
+from typing import Any, Optional, Union
+from urllib.parse import quote
 
 import dlt
-from dlt.sources import DltResource, DltSource
-from urllib.parse import quote
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from dlt.common.libs.pyarrow import pyarrow as pa
+from dlt.sources import DltResource, DltSource
 from dlt.sources.credentials import ConnectionStringCredentials
+from sqlalchemy import MetaData, Table, create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy_bigquery import BigQueryDialect, __all__
+from sqlalchemy_bigquery._types import _type_map
 
 from posthog.settings.utils import get_from_env
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.sql_database._json import BigQueryJSON
+from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
 from posthog.utils import str_to_bool
-from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.types import IncrementalFieldType
-
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
 
 from .helpers import (
     SelectAny,
-    table_rows,
-    engine_from_credentials,
-    TableBackend,
     SqlTableResourceConfiguration,
+    TableBackend,
     _detect_precision_hints_deprecated,
+    engine_from_credentials,
+    table_rows,
 )
 from .schema_types import (
-    default_table_adapter,
-    table_to_columns,
-    get_primary_key,
     ReflectionLevel,
     TTypeAdapter,
+    default_table_adapter,
+    get_primary_key,
+    table_to_columns,
 )
-
-from sqlalchemy_bigquery import BigQueryDialect, __all__
-from sqlalchemy_bigquery._types import _type_map
 
 # Workaround to get JSON support in the BigQuery Dialect
 BigQueryDialect.JSON = BigQueryJSON
@@ -49,7 +46,7 @@ __all__.append("JSON")
 
 
 def sql_source_for_type(
-    source_type: ExternalDataSource.Type,
+    source_type,
     host: str,
     port: int,
     user: str,
@@ -79,11 +76,11 @@ def sql_source_for_type(
 
     connect_args = []
 
-    if source_type == ExternalDataSource.Type.POSTGRES:
+    if source_type == "Postgres":
         credentials = ConnectionStringCredentials(
             f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
-    elif source_type == ExternalDataSource.Type.MYSQL:
+    elif source_type == "MySQL":
         query_params = ""
 
         if using_ssl:
@@ -99,7 +96,7 @@ def sql_source_for_type(
         # PlanetScale needs this to be set
         if host.endswith("psdb.cloud"):
             connect_args = ["SET workload = 'OLAP';"]
-    elif source_type == ExternalDataSource.Type.MSSQL:
+    elif source_type == "MSSQL":
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
         )
@@ -118,125 +115,6 @@ def sql_source_for_type(
     )
 
     return db_source
-
-
-def snowflake_source(
-    account_id: str,
-    user: Optional[str],
-    password: Optional[str],
-    passphrase: Optional[str],
-    private_key: Optional[str],
-    auth_type: str,
-    database: str,
-    warehouse: str,
-    schema: str,
-    table_names: list[str],
-    db_incremental_field_last_value: Optional[Any],
-    role: Optional[str] = None,
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
-) -> DltSource:
-    if incremental_field is not None and incremental_field_type is not None:
-        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
-            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
-        )
-    else:
-        incremental = None
-
-    if auth_type == "password" and user is not None and password is not None:
-        account_id = quote(account_id)
-        user = quote(user)
-        password = quote(password)
-        database = quote(database)
-        warehouse = quote(warehouse)
-        role = quote(role) if role else None
-
-        credentials = create_engine(
-            f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
-        )
-    else:
-        assert private_key is not None
-        assert user is not None
-
-        account_id = quote(account_id)
-        user = quote(user)
-        database = quote(database)
-        warehouse = quote(warehouse)
-        role = quote(role) if role else None
-
-        p_key = serialization.load_pem_private_key(
-            private_key.encode("utf-8"),
-            password=passphrase.encode() if passphrase is not None else None,
-            backend=default_backend(),
-        )
-
-        pkb = p_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-
-        credentials = create_engine(
-            f"snowflake://{user}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}",
-            connect_args={
-                "private_key": pkb,
-            },
-        )
-
-    db_source = sql_database(
-        credentials=credentials,
-        schema=schema,
-        table_names=table_names,
-        incremental=incremental,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-        chunk_size=DEFAULT_CHUNK_SIZE,
-    )
-
-    return db_source
-
-
-def bigquery_source(
-    dataset_id: str,
-    project_id: str,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
-    table_name: str,
-    bq_destination_table_id: str,
-    db_incremental_field_last_value: Optional[Any],
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
-) -> DltSource:
-    if incremental_field is not None and incremental_field_type is not None:
-        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
-            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
-        )
-    else:
-        incremental = None
-
-    credentials_info = {
-        "type": "service_account",
-        "project_id": project_id,
-        "private_key": private_key,
-        "private_key_id": private_key_id,
-        "client_email": client_email,
-        "token_uri": token_uri,
-    }
-
-    engine = create_engine(
-        f"bigquery://{project_id}/{dataset_id}?create_disposition=CREATE_IF_NEEDED&allowLargeResults=true&destination={bq_destination_table_id}",
-        credentials_info=credentials_info,
-    )
-
-    return sql_database(
-        credentials=engine,
-        schema=None,
-        table_names=[table_name],
-        incremental=incremental,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-        chunk_size=DEFAULT_CHUNK_SIZE,
-    )
 
 
 @dlt.source(max_table_nesting=0)

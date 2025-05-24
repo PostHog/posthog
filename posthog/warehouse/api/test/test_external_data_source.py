@@ -13,14 +13,6 @@ from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-)
-
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -29,6 +21,13 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_interval_to_sync_frequency,
 )
 
 
