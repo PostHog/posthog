@@ -23,7 +23,7 @@
             </div>
         {% endif %}
         <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">
-            <div class="info">This experiment uses a legacy engine and may need migration.</div>
+            <div class="info">This experiment uses the legacy engine and can be migrated.</div>
             <a class="button" style="padding:10px 15px;" href="{% url 'admin:experiment_migrate' object_id=original.pk %}">
                 Migrate Experiment
             </a>
