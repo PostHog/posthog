@@ -200,7 +200,7 @@ class ExperimentAdmin(admin.ModelAdmin):
                 original.stats_config["migrated_to"] = new_experiment.id
                 original.save(update_fields=["stats_config"])
 
-            messages.success(request, "Metric migrated successfully")
+            messages.success(request, "Experiment migrated successfully")
             return redirect("admin:posthog_experiment_change", new_experiment.pk)
         except Exception as e:
             messages.error(request, f"Error migrating metric: {e}")
