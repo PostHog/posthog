@@ -716,6 +716,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
+    captured_at?: ClickHouseTimestamp
     properties?: string
     elements_chain: string
     person_created_at?: ClickHouseTimestamp
@@ -790,6 +791,7 @@ export interface PreIngestionEvent {
     distinctId: string
     properties: Properties
     timestamp: ISOTimestamp
+    capturedAt?: ISOTimestamp
 }
 
 /** Parsed event structure after initial ingestion.
