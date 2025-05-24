@@ -43,13 +43,13 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     def migrated_links(self, saved_metric: ExperimentSavedMetric):
         if saved_metric.metadata and "migrated_from" in saved_metric.metadata:
             return format_html(
-                '<a href="{}">Migrated From {}</a>',
+                '<a href="{}">Migrated From: {}</a>',
                 reverse("admin:posthog_experimentsavedmetric_change", args=[saved_metric.metadata["migrated_from"]]),
                 saved_metric.metadata["migrated_from"],
             )
         if saved_metric.metadata and "migrated_to" in saved_metric.metadata:
             return format_html(
-                '<a href="{}">Migrated To {}</a>',
+                '<a href="{}">Migrated To: {}</a>',
                 reverse("admin:posthog_experimentsavedmetric_change", args=[saved_metric.metadata["migrated_to"]]),
                 saved_metric.metadata["migrated_to"],
             )

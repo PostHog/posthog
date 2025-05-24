@@ -1,3 +1,4 @@
+import copy
 from django.contrib import admin, messages
 from django.db import transaction
 from django.utils.html import format_html
@@ -44,6 +45,7 @@ class ExperimentAdmin(admin.ModelAdmin):
         "id",
         "name",
         "engine",
+        "migrated_links",
         "team_link",
         "created_at",
         "created_by",
@@ -67,6 +69,22 @@ class ExperimentAdmin(admin.ModelAdmin):
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
         if has_legacy_metric(all_metrics):
             return format_html('<span style="color: orange;">Legacy</span>')
+        return ""
+
+    @admin.display(description="")
+    def migrated_links(self, experiment: Experiment):
+        if experiment.stats_config and "migrated_from" in experiment.stats_config:
+            return format_html(
+                '<a href="{}">Migrated From: {}</a>',
+                reverse("admin:posthog_experiment_change", args=[experiment.stats_config["migrated_from"]]),
+                experiment.stats_config["migrated_from"],
+            )
+        if experiment.stats_config and "migrated_to" in experiment.stats_config:
+            return format_html(
+                '<a href="{}">Migrated To: {}</a>',
+                reverse("admin:posthog_experiment_change", args=[experiment.stats_config["migrated_to"]]),
+                experiment.stats_config["migrated_to"],
+            )
         return ""
 
     change_form_template = "admin/posthog/experiment/change_form.html"
@@ -103,14 +121,20 @@ class ExperimentAdmin(admin.ModelAdmin):
                 excluded_fields = ["id", "created_at", "key"]
                 for field in original._meta.fields:
                     if field.name not in excluded_fields:
-                        setattr(new_experiment, field.name, getattr(original, field.name))
+                        value = getattr(original, field.name)
+                        # Deep copy dicts to avoid shared references
+                        if isinstance(value, dict):
+                            value = copy.deepcopy(value)
+                        setattr(new_experiment, field.name, value)
 
                 # migrate metrics and secondary metrics
                 new_experiment.metrics = convert_legacy_metrics(original.metrics)
                 new_experiment.metrics_secondary = convert_legacy_metrics(original.metrics_secondary)
 
                 # update the migrated from relation
-                (new_experiment.stats_config or {}).update({"migrated_from": int(object_id)})
+                if new_experiment.stats_config is None:
+                    new_experiment.stats_config = {}
+                new_experiment.stats_config["migrated_from"] = int(object_id)
                 new_experiment.save()
 
                 # find the shared metrics "migrated to" and create new relationships
