@@ -20,6 +20,10 @@ FIVE_SECONDS = 5
 ONE_DAY_IN_SECONDS = 24 * 60 * 60
 
 
+def listing_cache_key(recording: SessionRecording) -> str:
+    return f"@posthog/v2-blob-snapshots/recording_block_listing_{recording.team.id}_{recording.session_id}"
+
+
 def within_the_last_day(start_time: datetime | None) -> bool:
     if start_time is None:
         return False
@@ -34,7 +38,7 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
     So that when a client ignores cache headers, or if they are paging through all blocks,
     then we don't hit ClickHouse too often.
     """
-    cache_key = f"recording_block_listing_{recording.team.id}_{recording.session_id}"
+    cache_key = listing_cache_key(recording)
     cached_block_listing = cache.get(cache_key)
     if cached_block_listing is not None:
         return cached_block_listing

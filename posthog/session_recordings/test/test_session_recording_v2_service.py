@@ -11,6 +11,7 @@ from posthog.session_recordings.session_recording_v2_service import (
     load_blocks,
     FIVE_SECONDS,
     ONE_DAY_IN_SECONDS,
+    listing_cache_key,
 )
 
 
@@ -139,7 +140,7 @@ class TestSessionRecordingV2Service(TestCase):
         result = load_blocks(self.recording)
 
         self.assertEqual(result, mock_blocks)
-        expected_cache_key = f"recording_block_listing_{self.team.id}_{self.recording.session_id}"
+        expected_cache_key = listing_cache_key(self.recording)
         mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=FIVE_SECONDS)
 
     @freeze_time("2024-01-02T13:00:00Z")  # More than 24 hours after recording start
@@ -158,7 +159,7 @@ class TestSessionRecordingV2Service(TestCase):
         result = load_blocks(self.recording)
 
         self.assertEqual(result, mock_blocks)
-        expected_cache_key = f"recording_block_listing_{self.team.id}_{self.recording.session_id}"
+        expected_cache_key = listing_cache_key(self.recording)
         mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=ONE_DAY_IN_SECONDS)
 
     @freeze_time("2024-01-01T12:00:00Z")
@@ -176,7 +177,7 @@ class TestSessionRecordingV2Service(TestCase):
         result = load_blocks(self.recording)
 
         self.assertEqual(result, cached_blocks)
-        expected_cache_key = f"recording_block_listing_{self.team.id}_{self.recording.session_id}"
+        expected_cache_key = listing_cache_key(self.recording)
         mock_cache.get.assert_called_once_with(expected_cache_key)
         mock_replay_events.return_value.list_blocks.assert_not_called()
         mock_cache.set.assert_not_called()
