@@ -6,6 +6,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.session_recordings.session_recording_extensions import persist_recording_v2
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 BLOCK1_EVENTS = (
@@ -40,16 +41,16 @@ class TestSessionRecordingExtensions(TestCase):
 
         # Mock list_blocks to return two blocks
         mock_list_blocks.return_value = [
-            {
-                "start_time": datetime(2024, 1, 1, 11, 0),
-                "end_time": datetime(2024, 1, 1, 11, 1),
-                "url": "s3://bucket/block1",
-            },
-            {
-                "start_time": datetime(2024, 1, 1, 11, 1),
-                "end_time": datetime(2024, 1, 1, 11, 2),
-                "url": "s3://bucket/block2",
-            },
+            RecordingBlock(
+                start_time=datetime(2024, 1, 1, 11, 0),
+                end_time=datetime(2024, 1, 1, 11, 1),
+                url="s3://bucket/block1",
+            ),
+            RecordingBlock(
+                start_time=datetime(2024, 1, 1, 11, 1),
+                end_time=datetime(2024, 1, 1, 11, 2),
+                url="s3://bucket/block2",
+            ),
         ]
 
         # Mock fetch_block to return events for each block
@@ -121,11 +122,11 @@ class TestSessionRecordingExtensions(TestCase):
 
         # Mock list_blocks to return one block
         mock_list_blocks.return_value = [
-            {
-                "start_time": datetime(2024, 1, 1, 11, 0),
-                "end_time": datetime(2024, 1, 1, 11, 1),
-                "url": "s3://bucket/block1",
-            }
+            RecordingBlock(
+                start_time=datetime(2024, 1, 1, 11, 0),
+                end_time=datetime(2024, 1, 1, 11, 1),
+                url="s3://bucket/block1",
+            )
         ]
 
         # Mock fetch_block to raise error
@@ -160,11 +161,11 @@ class TestSessionRecordingExtensions(TestCase):
 
         # Mock list_blocks to return one block
         mock_list_blocks.return_value = [
-            {
-                "start_time": datetime(2024, 1, 1, 11, 0),
-                "end_time": datetime(2024, 1, 1, 11, 1),
-                "url": "s3://bucket/block1",
-            }
+            RecordingBlock(
+                start_time=datetime(2024, 1, 1, 11, 0),
+                end_time=datetime(2024, 1, 1, 11, 1),
+                url="s3://bucket/block1",
+            )
         ]
 
         # Mock fetch_block to return sample events
