@@ -12,7 +12,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxQuestionSuggestionsLogic } from './maxQuestionSuggestionsLogic'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -20,10 +19,9 @@ interface QuestionInputProps {
 
 export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
-    const { question, threadLoading, inputDisabled, submissionDisabledReason, focusCounter } = useValues(maxLogic)
-    const { askMax, setQuestion, stopGeneration, focusInput } = useActions(maxLogic)
-    const { activeSuggestionGroup } = useValues(maxQuestionSuggestionsLogic)
-    const { setActiveGroup } = useActions(maxQuestionSuggestionsLogic)
+    const { question, threadLoading, inputDisabled, submissionDisabledReason, focusCounter, activeSuggestionGroup } =
+        useValues(maxLogic)
+    const { askMax, setQuestion, stopGeneration, focusInput, setActiveGroup } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
     const focusElementRef = useRef<HTMLDivElement | null>(null)

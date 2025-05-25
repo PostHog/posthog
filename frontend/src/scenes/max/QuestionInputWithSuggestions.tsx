@@ -1,23 +1,18 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from './maxLogic'
-import { maxQuestionSuggestionsLogic } from './maxQuestionSuggestionsLogic'
 import { QuestionInput } from './QuestionInput'
 
 export function QuestionInputWithSuggestions(): JSX.Element {
-    const { dataProcessingAccepted } = useValues(maxLogic)
-    const { askMax, setQuestion, focusInput } = useActions(maxLogic)
+    const { dataProcessingAccepted, activeSuggestionGroup, suggestionGroups } = useValues(maxLogic)
+    const { askMax, setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
-    const logic = useMountedLogic(maxQuestionSuggestionsLogic)
-    const { activeSuggestionGroup, suggestionGroups } = useValues(logic)
-    const { setActiveGroup } = useActions(logic)
 
     return (
         <DismissableLayer
