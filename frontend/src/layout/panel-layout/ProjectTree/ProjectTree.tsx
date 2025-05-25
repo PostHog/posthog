@@ -61,6 +61,7 @@ export function ProjectTree({
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
     const { setLastNewFolder, deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+
     const {
         fullFileSystemFiltered,
         treeTableKeys,

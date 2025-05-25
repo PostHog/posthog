@@ -1,5 +1,5 @@
-import { IconMegaphone } from '@posthog/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { IconCursor } from '@posthog/icons'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -63,12 +63,14 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         'hog_function/broadcast': {
-            icon: <IconMegaphone />,
+            icon: <IconCursor />,
             href: (ref: string) => urls.messagingBroadcast(ref),
+            iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
         },
         'hog_function/campaign': {
-            icon: <IconMegaphone />,
+            icon: <IconCursor />,
             href: (ref: string) => urls.messagingCampaign(ref),
+            iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
         },
     },
     treeItemsNew: [
@@ -85,7 +87,15 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Messaging',
+            type: 'hog_function/broadcast',
+            href: urls.messagingBroadcastNew(),
+            flag: FEATURE_FLAGS.MESSAGING,
+            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        },
+    ],
     fileSystemFilterTypes: {
         broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
         campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },

@@ -15,7 +15,7 @@ import {
     IconServer,
     IconWarning,
 } from '@posthog/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -165,6 +165,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             path: `Data/Source`,
             type: 'hog_function/source',
             href: urls.pipelineNodeNew(PipelineStage.Source),
+            // TODO: add visualOrder
         },
         {
             path: `Data/Destination`,
@@ -216,35 +217,48 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'aichat',
             href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-        },
+        } as FileSystemImport,
         {
             path: `Data pipelines`,
             type: 'hog_function',
             iconType: 'plug',
             href: urls.pipeline(),
-        },
+            visualOrder: PRODUCT_VISUAL_ORDER.dataPipeline,
+        } as FileSystemImport,
         {
             path: `SQL editor`,
             type: 'sql',
             href: urls.sqlEditor(),
-        },
+            visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
+        } as FileSystemImport,
         {
             path: 'Data warehouse',
             iconType: 'database',
             href: urls.sqlEditor(),
-        },
+            visualOrder: PRODUCT_VISUAL_ORDER.dataWarehouse,
+        } as FileSystemImport,
         {
             path: 'Error tracking',
             iconType: 'bug',
             href: urls.errorTracking(),
-        },
+            visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
+        } as FileSystemImport,
         {
             path: 'Heatmaps',
             iconType: 'cursorClick',
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
-        },
-    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+            visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
+        } as FileSystemImport,
+    ].sort((a, b) => {
+        if (a.visualOrder === -1) {
+            return -1
+        }
+        if (b.visualOrder === -1) {
+            return 1
+        }
+        return (a.visualOrder ?? 0) - (b.visualOrder ?? 0)
+    })
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

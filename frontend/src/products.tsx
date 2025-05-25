@@ -4,10 +4,10 @@
 
 import {
     IconChat,
+    IconCursor,
     IconDashboard,
     IconExternal,
     IconGraph,
-    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -345,8 +345,16 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.featureFlag(ref),
         iconColor: ['var(--product-feature-flags-primary)', 'var(--product-feature-flags-primary)'],
     },
-    'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
-    'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
+    'hog_function/broadcast': {
+        icon: <IconCursor />,
+        href: (ref: string) => urls.messagingBroadcast(ref),
+        iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
+    },
+    'hog_function/campaign': {
+        icon: <IconCursor />,
+        href: (ref: string) => urls.messagingCampaign(ref),
+        iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
+    },
     insight: {
         icon: <IconGraph />,
         href: (ref: string) => urls.insightView(ref as InsightShortId),
@@ -418,22 +426,72 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
-    { path: `Experiments`, type: 'experiment', href: urls.experiments() },
-    { path: `Feature flags`, type: 'feature_flag', href: urls.featureFlags() },
+    {
+        path: `Experiments`,
+        type: 'experiment',
+        href: urls.experiments(),
+        visualOrder: PRODUCT_VISUAL_ORDER.experiments,
+    },
+    {
+        path: `Feature flags`,
+        type: 'feature_flag',
+        href: urls.featureFlags(),
+        visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
+    },
     {
         path: 'LLM observability',
         iconType: 'ai',
         href: urls.llmObservabilityDashboard(),
         flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+        visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
     },
-    { path: 'Links', type: 'link', href: urls.links(), flag: FEATURE_FLAGS.LINKS },
-    { path: 'Logs', iconType: 'live', href: urls.logs(), flag: FEATURE_FLAGS.LOGS },
-    { path: 'Product analytics', type: 'insight', href: urls.insights() },
-    { path: 'Revenue analytics', iconType: 'piggyBank', href: urls.revenueAnalytics() },
-    { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
-    { path: 'Surveys', type: 'survey', href: urls.surveys() },
-    { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
-    { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
+    {
+        path: 'Links',
+        type: 'link',
+        href: urls.links(),
+        flag: FEATURE_FLAGS.LINKS,
+        visualOrder: PRODUCT_VISUAL_ORDER.links,
+    },
+    {
+        path: 'Logs',
+        iconType: 'live',
+        href: urls.logs(),
+        flag: FEATURE_FLAGS.LOGS,
+        visualOrder: PRODUCT_VISUAL_ORDER.logs,
+    },
+    {
+        path: 'Messaging',
+        type: 'hog_function/broadcast',
+        href: urls.messagingBroadcastNew(),
+        flag: FEATURE_FLAGS.MESSAGING,
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+    },
+    { path: 'Product analytics', type: 'insight', href: urls.insights(), visualOrder: 10 },
+    {
+        path: 'Revenue analytics',
+        iconType: 'piggyBank',
+        href: urls.revenueAnalytics(),
+        visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+    },
+    {
+        path: 'Session replay',
+        href: urls.replay(ReplayTabs.Home),
+        type: 'session_recording_playlist',
+        visualOrder: PRODUCT_VISUAL_ORDER.sessionReplay,
+    },
+    { path: 'Surveys', type: 'survey', href: urls.surveys(), visualOrder: PRODUCT_VISUAL_ORDER.surveys },
+    {
+        path: 'User interviews',
+        href: urls.userInterviews(),
+        type: 'user_interview',
+        visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
+    },
+    {
+        path: 'Web analytics',
+        iconType: 'pieChart',
+        href: urls.webAnalytics(),
+        visualOrder: PRODUCT_VISUAL_ORDER.webAnalytics,
+    },
 ]
 
 /** This const is auto-generated, as is the whole file */

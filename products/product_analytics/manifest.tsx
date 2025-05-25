@@ -118,6 +118,7 @@ export const manifest: ProductManifest = {
             path: 'Product analytics',
             type: 'insight',
             href: urls.insights(),
+            visualOrder: 10,
         },
     ],
     fileSystemFilterTypes: {

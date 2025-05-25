@@ -1,5 +1,6 @@
 import { IconRewindPlay } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
@@ -42,6 +43,7 @@ export const manifest: ProductManifest = {
             path: 'Session replay',
             href: urls.replay(ReplayTabs.Home),
             type: 'session_recording_playlist',
+            visualOrder: PRODUCT_VISUAL_ORDER.sessionReplay,
         },
     ],
     fileSystemFilterTypes: {

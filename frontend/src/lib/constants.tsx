@@ -275,6 +275,26 @@ export const FEATURE_FLAGS = {
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
+export const PRODUCT_VISUAL_ORDER = {
+    productAnalytics: 10,
+    webAnalytics: 20,
+    revenueAnalytics: 30,
+    sessionReplay: 40,
+    featureFlags: 50,
+    experiments: 60,
+    surveys: 70,
+    dataWarehouse: 80,
+    userInterviews: 90,
+    llmObservability: 100,
+    logs: 110,
+    errorTracking: 120,
+    sqlEditor: 130,
+    dataPipeline: 140,
+    heatmaps: 150,
+    links: 160,
+    messaging: 170,
+}
+
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'
 
