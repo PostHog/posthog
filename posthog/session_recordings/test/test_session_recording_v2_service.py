@@ -15,6 +15,7 @@ class TestSessionRecordingV2Service(TestCase):
         self.recording = Mock(spec=SessionRecording)
         self.recording.session_id = "test_id"
         self.recording.team = self.team
+        self.recording.start_time = datetime(2024, 1, 1, 12, 20)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
