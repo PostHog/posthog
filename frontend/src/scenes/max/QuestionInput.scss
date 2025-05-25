@@ -1,6 +1,6 @@
 .QuestionSuggestion {
     opacity: 0;
-    animation: QuestionSuggestion__slide-in-fade-down 50ms ease-out forwards;
+    animation: QuestionSuggestion__slide-in-fade-down 60ms ease-out forwards;
     animation-delay: calc(var(--index) * 25ms);
 }
 

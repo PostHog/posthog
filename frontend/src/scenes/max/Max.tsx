@@ -33,7 +33,7 @@ import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { QuestionInput } from './QuestionInput'
-import { QuestionSuggestions } from './QuestionSuggestions'
+import { QuestionInputWithSuggestions } from './QuestionInputWithSuggestions'
 import { Thread } from './Thread'
 
 export const scene: SceneExport = {
@@ -174,38 +174,33 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
                 // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                 // This makes the transition from one view into another just that bit smoother visually.
-                <div className="@container/max-welcome relative px-4 pb-7 grow grid grid-rows-[50dvh_minmax(calc(50dvh_-_5rem),auto)]">
-                    <div className="flex flex-col gap-4">
-                        {wasUserAutoEnrolled && (
-                            <LemonBanner
-                                type="info"
-                                className="mt-3"
-                                hideIcon={false}
-                                onClose={() => setWasUserAutoEnrolled(false)}
+                <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                    {wasUserAutoEnrolled && (
+                        <LemonBanner
+                            type="info"
+                            className="mt-3"
+                            hideIcon={false}
+                            onClose={() => setWasUserAutoEnrolled(false)}
+                        >
+                            PostHog AI feature preview{' '}
+                            <Link
+                                to={
+                                    combineUrl(currentLocation.pathname, currentLocation.search, {
+                                        ...currentLocation.hashParams,
+                                        panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
+                                    }).url
+                                }
                             >
-                                PostHog AI feature preview{' '}
-                                <Link
-                                    to={
-                                        combineUrl(currentLocation.pathname, currentLocation.search, {
-                                            ...currentLocation.hashParams,
-                                            panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
-                                        }).url
-                                    }
-                                >
-                                    activated
-                                </Link>
-                                !
-                            </LemonBanner>
-                        )}
-                        <div className="items-center justify-center flex flex-col gap-3 mt-auto">
-                            <Intro />
-                            <QuestionInput />
-                        </div>
+                                activated
+                            </Link>
+                            !
+                        </LemonBanner>
+                    )}
+                    <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <Intro />
+                        <QuestionInputWithSuggestions />
                     </div>
-                    <div className="flex flex-col justify-between w-[min(44rem,100%)] items-center justify-self-center gap-4 pt-6">
-                        <QuestionSuggestions />
-                        <HistoryPreview sidePanel={sidePanel} />
-                    </div>
+                    <HistoryPreview sidePanel={sidePanel} />
                 </div>
             ) : (
                 <>

@@ -360,6 +360,25 @@ ChatHistoryLoading.parameters = {
     },
 }
 
+export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxQuestionSuggestionsLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(3)
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestionsMobile.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
+}
+
 export const ThreadWithOpenedSuggestions: StoryFn = () => {
     const { setActiveGroup } = useActions(maxQuestionSuggestionsLogic)
 

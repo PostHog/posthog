@@ -1,6 +1,7 @@
+import './QuestionInput.scss'
+
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
-import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -38,7 +39,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
             textAreaRef.current.focus()
             textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
         }
-    }, [focusCounter])
+    }, [focusCounter]) // Update focus when focusCounter changes
 
     useEffect(() => {
         if (focusElementRef.current && activeSuggestionGroup) {
@@ -62,93 +63,91 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                 )}
             >
                 <div className="relative w-full">
-                    <DismissableLayer onDismiss={() => setActiveGroup(null)} disableOutsidePointerEvents={false}>
-                        <LemonTextArea
-                            ref={textAreaRef}
-                            value={question}
-                            onChange={(value) => setQuestion(value)}
-                            placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
-                            onPressEnter={() => {
-                                if (question && !submissionDisabledReason && !threadLoading) {
+                    <LemonTextArea
+                        ref={textAreaRef}
+                        value={question}
+                        onChange={(value) => setQuestion(value)}
+                        placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
+                        onPressEnter={() => {
+                            if (question && !submissionDisabledReason && !threadLoading) {
+                                askMax(question)
+                            }
+                        }}
+                        disabled={inputDisabled}
+                        minRows={1}
+                        maxRows={10}
+                        className={clsx('p-3 pr-12', isFloating && 'border-primary')}
+                    />
+                    <div className="absolute flex items-center right-2 bottom-[7px]">
+                        <LemonButton
+                            type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
+                            onClick={() => {
+                                if (threadLoading) {
+                                    stopGeneration()
+                                } else {
                                     askMax(question)
                                 }
                             }}
-                            disabled={inputDisabled}
-                            minRows={1}
-                            maxRows={10}
-                            className={clsx('p-3 pr-12', isFloating && 'border-primary')}
+                            tooltip={
+                                threadLoading ? (
+                                    "Let's bail"
+                                ) : (
+                                    <>
+                                        Let's go! <KeyboardShortcut enter />
+                                    </>
+                                )
+                            }
+                            disabledReason={submissionDisabledReason}
+                            size="small"
+                            icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
                         />
-                        <div className="absolute flex items-center right-2 bottom-[7px]">
-                            <LemonButton
-                                type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
-                                onClick={() => {
-                                    if (threadLoading) {
-                                        stopGeneration()
-                                    } else {
-                                        askMax(question)
-                                    }
-                                }}
-                                tooltip={
-                                    threadLoading ? (
-                                        "Let's bail"
-                                    ) : (
-                                        <>
-                                            Let's go! <KeyboardShortcut enter />
-                                        </>
-                                    )
+                    </div>
+                    {activeSuggestionGroup && !isFloating && (
+                        <ToggleGroup
+                            type="single"
+                            className="absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
+                            ref={focusElementRef}
+                            onValueChange={(index) => {
+                                const suggestion = activeSuggestionGroup.suggestions[Number(index)]
+                                if (!suggestion) {
+                                    return
                                 }
-                                disabledReason={submissionDisabledReason}
-                                size="small"
-                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
-                            />
-                        </div>
-                        {activeSuggestionGroup && !isFloating && (
-                            <ToggleGroup
-                                type="single"
-                                className="absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
-                                ref={focusElementRef}
-                                onValueChange={(index) => {
-                                    const suggestion = activeSuggestionGroup.suggestions[Number(index)]
-                                    if (!suggestion) {
-                                        return
-                                    }
 
-                                    if (suggestion.content) {
-                                        // Content requires to write something to continue
-                                        setQuestion(suggestion.content)
-                                        focusInput()
-                                    } else {
-                                        // Otherwise, just launch the generation
-                                        askMax(suggestion.label)
-                                    }
+                                if (suggestion.content) {
+                                    // Content requires to write something to continue
+                                    setQuestion(suggestion.content)
+                                    focusInput()
+                                } else {
+                                    // Otherwise, just launch the generation
+                                    askMax(suggestion.label)
+                                }
 
-                                    // Close suggestions after asking
-                                    setActiveGroup(null)
-                                }}
-                            >
-                                {activeSuggestionGroup.suggestions.map((suggestion, index) => (
-                                    <ToggleGroupItem
-                                        key={suggestion.label}
-                                        value={index.toString()}
-                                        tabIndex={0}
-                                        aria-label={`Select suggestion: ${suggestion.label}`}
-                                        asChild
+                                // Close suggestions after asking
+                                setActiveGroup(null)
+                            }}
+                        >
+                            {activeSuggestionGroup.suggestions.map((suggestion, index) => (
+                                <ToggleGroupItem
+                                    key={suggestion.label}
+                                    value={index.toString()}
+                                    tabIndex={0}
+                                    aria-label={`Select suggestion: ${suggestion.label}`}
+                                    asChild
+                                >
+                                    <LemonButton
+                                        className="QuestionSuggestion text-left"
+                                        role="button"
+                                        style={{ '--index': index } as React.CSSProperties}
+                                        size="small"
+                                        type="tertiary"
+                                        fullWidth
                                     >
-                                        <LemonButton
-                                            className="QuestionSuggestion text-left"
-                                            role="button"
-                                            style={{ '--index': index } as React.CSSProperties}
-                                            size="small"
-                                            type="tertiary"
-                                            fullWidth
-                                        >
-                                            {suggestion.label}
-                                        </LemonButton>
-                                    </ToggleGroupItem>
-                                ))}
-                            </ToggleGroup>
-                        )}
-                    </DismissableLayer>
+                                        <span className="font-normal ">{suggestion.label}</span>
+                                    </LemonButton>
+                                </ToggleGroupItem>
+                            ))}
+                        </ToggleGroup>
+                    )}
                 </div>
                 {tools.length > 0 && (
                     <div

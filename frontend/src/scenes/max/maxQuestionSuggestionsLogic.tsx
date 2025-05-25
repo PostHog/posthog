@@ -86,7 +86,7 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
                 label: 'What are the top referring domains?',
             },
             {
-                label: 'Calculate a conversion rate for <events or features>',
+                label: 'Calculate a conversion rate for events or features',
                 content: 'Calculate a conversion rate for ',
             },
         ],
@@ -119,7 +119,7 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
         icon: <IconPlug />,
         suggestions: [
             {
-                label: 'How can I set up the session replay in <a framework or language>',
+                label: 'How can I set up the session replay in a framework or language',
                 content: 'How can I set up the session replay in ',
             },
             {
@@ -154,7 +154,7 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
         icon: <IconRewindPlay />,
         suggestions: [
             {
-                label: 'Find recordings for <description>',
+                label: 'Find recordings for',
                 content: 'Find recordings for ',
             },
         ],
