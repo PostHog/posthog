@@ -78,7 +78,7 @@ from posthog.exceptions_capture import capture_exception
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
-    labelnames=["api_key", "source"],
+    labelnames=["key_label", "source"],
 )
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
@@ -628,14 +628,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
+        source_log_label = source or "listing"
         is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
-        if source:
-            SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             used_key = request.successful_authenticator.personal_api_key
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=used_key.value, source=source).inc()
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
             posthoganalytics.capture(
@@ -647,7 +647,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "key_scoped_teams": used_key.scoped_teams,
                     "session_requested": recording.session_id,
                     "recording_start_time": recording.start_time,
-                    "source": source,
+                    "source": source_log_label,
                 },
             )
 

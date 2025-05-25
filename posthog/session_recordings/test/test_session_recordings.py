@@ -1344,7 +1344,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "session_requested": session_id,
                 # none because it's all mock data
                 "recording_start_time": None,
-                "source": None,
+                "source": "listing",
             },
         )
 
