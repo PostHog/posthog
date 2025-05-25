@@ -247,10 +247,9 @@ export const cohortsModel = kea<cohortsModelType>([
             actions.startExport(exportCommand)
         },
         deleteCohort: async ({ cohort }) => {
-            const cleanedCohort = cleanCohortForDelete(cohort)
             await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
-                object: cleanedCohort,
+                object: cohort,
                 callback: (undo) => {
                     actions.loadCohorts()
                     if (cohort.id && cohort.id !== 'new') {
@@ -312,11 +311,3 @@ export const cohortsModel = kea<cohortsModelType>([
     }),
     permanentlyMount(),
 ])
-
-function cleanCohortForDelete(cohort: Partial<CohortType>): Pick<CohortType, 'id' | 'name' | 'description'> {
-    return {
-        id: cohort.id,
-        name: cohort.name,
-        description: cohort.description,
-    }
-}
