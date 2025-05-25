@@ -28,7 +28,13 @@ def within_the_last_day(start_time: datetime | None) -> bool:
 
 
 def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
-    cache_key = f"recording_block_listing_{recording.team.pk}_{recording.session_id}"
+    """
+    When API clients are requesting v2 recordings, there is a dependency on querying ClickHouse for the metadata
+    We can have a cache of differing length depending on the age of the recording.
+    So that when a client ignores cache headers, or if they are paging through all blocks,
+    then we don't hit ClickHouse too often.
+    """
+    cache_key = f"recording_block_listing_{recording.team.id}_{recording.session_id}"
     cached_block_listing = cache.get(cache_key)
     if cached_block_listing is not None:
         return cached_block_listing
