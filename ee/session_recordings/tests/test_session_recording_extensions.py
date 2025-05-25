@@ -39,7 +39,6 @@ class TestSessionRecordingExtensions(TestCase):
         mock_client.is_enabled.return_value = True
         mock_client.is_lts_enabled.return_value = True
 
-        # Mock list_blocks to return two blocks
         mock_list_blocks.return_value = [
             RecordingBlock(
                 start_time=datetime(2024, 1, 1, 11, 0),
