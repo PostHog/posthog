@@ -881,7 +881,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 label: 'What are the top referring domains?',
             },
             {
-                label: 'Calculate a conversion rate for events or features',
+                label: 'Calculate a conversion rate for events or actions',
                 content: 'Calculate a conversion rate for ',
             },
         ],
