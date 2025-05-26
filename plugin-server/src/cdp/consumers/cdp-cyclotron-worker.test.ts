@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, Team } from '../../types'
+import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { HOG_EXAMPLES } from '../_tests/examples'
@@ -24,7 +24,6 @@ jest.setTimeout(1000)
 describe('CdpCyclotronWorker', () => {
     let processor: CdpCyclotronWorker
     let hub: Hub
-    let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
     let invocation: HogFunctionInvocation
@@ -32,8 +31,6 @@ describe('CdpCyclotronWorker', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
-
         processor = new CdpCyclotronWorker(hub)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
