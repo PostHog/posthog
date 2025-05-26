@@ -8,6 +8,7 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-segment-worker.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
@@ -22,10 +23,7 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
-import {
-    startAsyncOnEventHandlerConsumer,
-    startAsyncWebhooksHandlerConsumer,
-} from './main/ingestion-queues/on-event-handler-consumer'
+import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
@@ -136,15 +134,6 @@ export class PluginServer {
                     const consumer = new IngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
-                })
-            }
-
-            if (capabilities.processAsyncOnEventHandlers) {
-                serviceLoaders.push(async () => {
-                    await initPlugins()
-                    return startAsyncOnEventHandlerConsumer({
-                        hub: hub,
-                    })
                 })
             }
 
@@ -277,6 +266,14 @@ export class PluginServer {
                 return serverCommands.service
             })
 
+            if (capabilities.cdpCyclotronWorkerSegment) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerSegment(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)
 
@@ -308,8 +305,8 @@ export class PluginServer {
             })
         }
 
-        process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
+        process.on('unhandledRejection', (error: Error | any) => {
+            logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
@@ -341,16 +338,21 @@ export class PluginServer {
             job.cancel()
         })
 
+        logger.info('💤', ' Shutting down services...')
         await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
 
         if (this.hub) {
+            logger.info('💤', ' Shutting down plugins...')
             // Wait *up to* 5 seconds to shut down VMs.
             await Promise.race([teardownPlugins(this.hub), delay(5000)])
 
+            logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
             await closeHub(this.hub)
         }
+
+        logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
     }

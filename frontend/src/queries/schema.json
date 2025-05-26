@@ -8811,8 +8811,23 @@
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
+                "end_date": {
+                    "type": ["string", "null"]
+                },
                 "experiment_id": {
                     "$ref": "#/definitions/integer"
+                },
+                "experiment_name": {
+                    "type": "string"
+                },
+                "exposure_criteria": {
+                    "$ref": "#/definitions/ExperimentExposureCriteria"
+                },
+                "feature_flag": {
+                    "type": "object"
+                },
+                "holdout": {
+                    "$ref": "#/definitions/ExperimentHoldoutType"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -8824,9 +8839,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentExposureQueryResponse"
+                },
+                "start_date": {
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["end_date", "experiment_name", "feature_flag", "kind", "start_date"],
             "type": "object"
         },
         "ExperimentExposureQueryResponse": {
@@ -9026,6 +9044,41 @@
                 "expected_loss",
                 "credible_intervals"
             ],
+            "type": "object"
+        },
+        "ExperimentHoldoutType": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": ["string", "null"]
+                },
+                "created_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/UserBasicType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "filters": {
+                    "type": "object"
+                },
+                "id": {
+                    "type": ["number", "null"]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
             "type": "object"
         },
         "ExperimentMeanMetric": {
@@ -9529,6 +9582,10 @@
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "visualOrder": {
+                    "description": "Order of object in tree",
+                    "type": "number"
                 }
             },
             "required": ["path"],
@@ -10316,6 +10373,9 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "displayIfCrossed": {
+                    "type": "boolean"
+                },
                 "displayLabel": {
                     "type": "boolean"
                 },
@@ -10489,6 +10549,10 @@
         },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
+        },
+        "HedgehogColorOptions": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+            "type": "string"
         },
         "HogCompileResponse": {
             "additionalProperties": false,
@@ -10830,6 +10894,9 @@
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
                 },
+                "convertToProjectTimezone": {
+                    "type": "boolean"
+                },
                 "customChannelTypeRules": {
                     "items": {
                         "$ref": "#/definitions/CustomChannelRule"
@@ -10843,6 +10910,9 @@
                     "type": "array"
                 },
                 "debug": {
+                    "type": "boolean"
+                },
+                "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },
                 "inCohortVia": {
@@ -12355,6 +12425,32 @@
                 }
             ]
         },
+        "MinimalHedgehogConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "accessories": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogColorOptions"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "use_as_profile": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
+        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -12734,6 +12830,31 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "PersistedFolder": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
             "type": "object"
         },
         "PersonPropertyFilter": {
@@ -16774,9 +16895,16 @@
                         "$ref": "#/definitions/RevenueAnalyticsEventItem"
                     },
                     "type": "array"
+                },
+                "goals": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGoal"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["base_currency", "events"],
+            "required": ["base_currency", "events", "goals"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -16801,6 +16929,22 @@
                 }
             },
             "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "type": "object"
+        },
+        "RevenueAnalyticsGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "due_date": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "due_date", "goal"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
@@ -18685,6 +18829,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "UserBasicType": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "hedgehog_config": {
+                    "$ref": "#/definitions/MinimalHedgehogConfig"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "is_email_verified": {},
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
+            "type": "object"
+        },
         "VectorSearchQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19164,6 +19337,9 @@
                 },
                 "previous": {
                     "type": "number"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 },
                 "value": {
                     "type": "number"

@@ -4,6 +4,8 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createContext, useContext, useState } from 'react'
 
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -16,6 +18,7 @@ import { GridLines } from './GridLines'
 import { MetricHeader } from './MetricHeader'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
+import { getDefaultMetricTitle } from './utils'
 import { VariantTooltip } from './VariantTooltip'
 import { generateViolinPath } from './violinUtils'
 
@@ -53,7 +56,7 @@ type DeltaChartContextType = {
     experimentId: ExperimentIdType
     experiment: Experiment
     variants: FunnelExperimentVariant[] | TrendExperimentVariant[]
-    hasEnoughDataForResults: boolean
+    hasMinimumExposureForResults: boolean
     featureFlags: Record<string, any>
     primaryMetricsLengthWithSharedMetrics: number
 
@@ -307,19 +310,14 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
 
 // Chart controls component
 function ChartControls(): JSX.Element {
-    const { metricIndex, isSecondary, primaryMetricsLengthWithSharedMetrics, hasEnoughDataForResults, setIsModalOpen } =
-        useDeltaChartContext()
+    const { metricIndex, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen } = useDeltaChartContext()
 
     return (
         <>
-            {hasEnoughDataForResults && (
-                <>
-                    {/* Chart is z-index 100, so we need to be above it */}
-                    <div className="absolute top-2 left-2 z-[102]">
-                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
-                    </div>
-                </>
-            )}
+            {/* Chart is z-index 100, so we need to be above it */}
+            <div className="absolute top-2 left-2 z-[102]">
+                <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+            </div>
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
                     className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
@@ -373,12 +371,12 @@ function ChartTooltips(): JSX.Element {
 
 // Main chart content component
 function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement> }): JSX.Element {
-    const { result, metric, hasEnoughDataForResults, resultsLoading, experiment, error, dimensions } =
+    const { result, metric, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
         useDeltaChartContext()
 
     const { chartHeight } = dimensions
 
-    if (result && hasEnoughDataForResults) {
+    if (result && hasMinimumExposureForResults) {
         return (
             <div className="relative w-full max-w-screen">
                 <ChartControls />
@@ -392,17 +390,40 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
 
     return (
         <div className="relative w-full max-w-screen">
-            <ChartControls />
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
-                hasEnoughDataForResults={hasEnoughDataForResults}
+                hasMinimumExposure={hasMinimumExposureForResults}
                 metric={metric}
                 error={error}
             />
         </div>
     )
 }
+
+/**
+ * High order function that takes an experiment and the primary status of the metric, and returns
+ * a function that, given a metric, returns the updated slice of the experiment object.
+ */
+const duplicateMetric =
+    (experiment: Experiment, isPrimary: boolean) =>
+    (metric: ExperimentMetric): Partial<Experiment> => {
+        const name = metric.name
+            ? `${metric.name} (copy)`
+            : metric.kind === NodeKind.ExperimentMetric
+            ? `${getDefaultMetricTitle(metric)} (copy)`
+            : undefined
+
+        const newMetric = { ...metric, id: undefined, name }
+        const metricsKey = isPrimary ? 'metrics' : 'metrics_secondary'
+        const metrics = [...experiment[metricsKey]]
+        const originalIndex = metrics.findIndex((m) => m === metric)
+        metrics.splice(originalIndex + 1, 0, newMetric)
+
+        return {
+            [metricsKey]: metrics,
+        }
+    }
 
 // Main DeltaChart component
 export function DeltaChart({
@@ -440,10 +461,10 @@ export function DeltaChart({
         secondaryMetricResultsLoading,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
-        hasEnoughDataForResults,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { openVariantDeltaTimeseriesModal } = useActions(experimentLogic)
+    const { openVariantDeltaTimeseriesModal, setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
 
     // Loading state
     const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
@@ -470,6 +491,8 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
+    const onDuplicateMetric = duplicateMetric(experiment, !isSecondary)
+
     // Metric title panel
     const metricTitlePanel = (
         <MetricHeader
@@ -477,6 +500,10 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
+            onDuplicateMetricClick={(metric) => {
+                setExperiment(onDuplicateMetric(metric))
+                updateExperimentMetrics()
+            }}
         />
     )
 
@@ -501,7 +528,7 @@ export function DeltaChart({
         experimentId: experimentId as ExperimentIdType, // Cast to ensure type compatibility
         experiment,
         variants,
-        hasEnoughDataForResults,
+        hasMinimumExposureForResults,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
 

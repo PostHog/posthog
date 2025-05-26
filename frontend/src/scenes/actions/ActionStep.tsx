@@ -146,7 +146,7 @@ function Option({
 }: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
-    item: keyof Pick<ActionStepType, 'href' | 'text' | 'selector' | 'url'>
+    item: keyof Pick<ActionStepType, 'href' | 'text' | 'selector' | 'url' | 'tag_name'>
     label: JSX.Element | string
     labelExtra?: JSX.Element | string
     placeholder?: string
@@ -248,6 +248,24 @@ function AutocaptureFields({
                     </>
                 }
             />
+            {step['tag_name'] ? (
+                <>
+                    <AndSeparator />
+                    <Option
+                        step={step}
+                        sendStep={sendStep}
+                        item="tag_name"
+                        label="Element matches tag name"
+                        caption={
+                            <span>
+                                Filtering by the tag name of the element. This field is deprecated and superseded by the
+                                HTML selector below. We recommend adding the tag name to the HTML selector field
+                                instead. This field will disappear when cleared.
+                            </span>
+                        }
+                    />
+                </>
+            ) : undefined}
             <AndSeparator />
             <Option
                 step={step}

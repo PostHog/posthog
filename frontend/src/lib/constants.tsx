@@ -167,7 +167,6 @@ export const FEATURE_FLAGS = {
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_CUSTOM_FONTS: 'surveys-custom-fonts', // owner: #team-surveys
     SURVEYS_PARTIAL_RESPONSES: 'surveys-partial-responses', // owner: #team-surveys
-    SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
@@ -272,8 +271,31 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-observability @peter-k
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
+    REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+
+export const PRODUCT_VISUAL_ORDER = {
+    productAnalytics: 10,
+    webAnalytics: 20,
+    revenueAnalytics: 30,
+    sessionReplay: 40,
+    featureFlags: 50,
+    experiments: 60,
+    surveys: 70,
+    dataWarehouse: 80,
+    userInterviews: 90,
+    llmObservability: 100,
+    logs: 110,
+    errorTracking: 120,
+    sqlEditor: 130,
+    dataPipeline: 140,
+    heatmaps: 150,
+    links: 160,
+    messaging: 170,
+    persons: 180,
+    groups: 190,
+}
 
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'

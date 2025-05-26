@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import math
 import re
 from collections.abc import Iterator
@@ -12,6 +13,7 @@ from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymysql.cursors import Cursor, SSCursor
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
@@ -24,12 +26,70 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
 )
-from posthog.warehouse.models import IncrementalFieldType
-from posthog.warehouse.types import PartitionSettings
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+
+@config.config
+class MySQLSourceConfig(config.Config):
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+    schema: str
+    using_ssl: bool = True
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+def get_schemas(config: MySQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    """Get all tables from MySQL source schemas to sync."""
+
+    def inner(mysql_host: str, mysql_port: int):
+        ssl_ca: str | None = None
+
+        if config.using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        connection = pymysql.connect(
+            host=mysql_host,
+            port=mysql_port,
+            database=config.database,
+            user=config.user,
+            password=config.password,
+            connect_timeout=5,
+            ssl_ca=ssl_ca,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = collections.defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return inner(config.host, config.port)
 
 
 def _sanitize_identifier(identifier: str) -> str:
@@ -72,6 +132,32 @@ def _build_query(
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+def _get_rows_to_sync(
+    cursor: Cursor, inner_query: str, inner_query_args: dict[str, Any], logger: FilteringBoundLogger
+) -> int:
+    try:
+        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+        cursor.execute(query, inner_query_args)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
 
 
 def _get_partition_settings(
@@ -322,8 +408,18 @@ def mysql_source(
         ssl_ca=ssl_ca,
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query, inner_query_args = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Fallback on checking for an `id` field on the table
@@ -376,4 +472,5 @@ def mysql_source(
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
+        rows_to_sync=rows_to_sync,
     )
