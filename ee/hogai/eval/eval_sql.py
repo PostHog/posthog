@@ -43,7 +43,9 @@ class SQLSyntaxCorrectness(Scorer):
     def _run_eval_sync(self, output, expected=None, **kwargs):
         query = output["query"]
         if not query or not hasattr(query, "query") or not query.query:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No SQL query"})
+            return Score(
+                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
+            )
         team = Team.objects.latest("created_at")
         hogql_context = HogQLContext(team=team, database=create_hogql_database(team=team))
         try:

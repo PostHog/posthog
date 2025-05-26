@@ -176,14 +176,16 @@ No interval
                     plan="""
 Events:
 - uploaded_file
-    - math operation: total count
+    - math operation: unique users
     - property filter 1:
         - entity: event
         - property name: $browser
         - property type: String
         - operator: equals
         - property value: Chrome
-    - property filter 2:
+- uploaded_file
+    - math operation: unique users
+    - property filter 1:
         - entity: event
         - property name: $browser
         - property type: String
@@ -241,8 +243,7 @@ Formula:
                         filterTestAccounts=True,
                         interval="day",
                         trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
+                            display="ActionsLineGraph", showLegend=True, formulas=["A/B"]
                         ),
                         series=[
                             AssistantTrendsEventsNode(
