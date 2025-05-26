@@ -63,7 +63,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                         onClick={() =>
                                             openSidePanel(
                                                 SidePanelTab.Docs,
-                                                'https://posthog.com/docs/cdp/destinations/meta-ads'
+                                                `https://posthog.com/docs/cdp/destinations/${target.name.toLowerCase()}`
                                             )
                                         }
                                         title={
@@ -103,7 +103,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                         onClick={() =>
                                             openSidePanel(
                                                 SidePanelTab.Docs,
-                                                'https://posthog.com/docs/cdp/destinations/meta-ads'
+                                                `https://posthog.com/docs/cdp/destinations/${target.name.toLowerCase()}`
                                             )
                                         }
                                     >
