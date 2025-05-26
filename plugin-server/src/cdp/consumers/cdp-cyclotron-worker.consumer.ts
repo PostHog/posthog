@@ -43,7 +43,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const logs: LogEntry[] = []
 
         while (!result || !result.finished) {
-            const nextInvocation = result?.invocation ?? invocation
+            const nextInvocation: HogFunctionInvocation = result?.invocation ?? invocation
 
             if (nextInvocation.queue === 'hog') {
                 result = this.hogExecutor.execute(nextInvocation)
