@@ -9579,6 +9579,10 @@
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "visualOrder": {
+                    "description": "Order of object in tree",
+                    "type": "number"
                 }
             },
             "required": ["path"],
@@ -10366,6 +10370,9 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "displayIfCrossed": {
+                    "type": "boolean"
+                },
                 "displayLabel": {
                     "type": "boolean"
                 },
@@ -10883,6 +10890,9 @@
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
+                },
+                "convertToProjectTimezone": {
+                    "type": "boolean"
                 },
                 "customChannelTypeRules": {
                     "items": {
@@ -12817,6 +12827,31 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "PersistedFolder": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
             "type": "object"
         },
         "PersonPropertyFilter": {
@@ -16857,9 +16892,16 @@
                         "$ref": "#/definitions/RevenueAnalyticsEventItem"
                     },
                     "type": "array"
+                },
+                "goals": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGoal"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["base_currency", "events"],
+            "required": ["base_currency", "events", "goals"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -16884,6 +16926,22 @@
                 }
             },
             "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "type": "object"
+        },
+        "RevenueAnalyticsGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "due_date": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "due_date", "goal"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
