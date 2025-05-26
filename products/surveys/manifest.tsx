@@ -17,7 +17,7 @@ export const manifest: ProductManifest = {
         survey: {
             icon: <IconMessage />,
             href: (ref: string) => urls.survey(ref),
-            iconColor: ['var(--product-surveys-primary)', 'var(--product-surveys-primary)'],
+            iconColor: ['var(--product-surveys-light)'],
         },
     },
     treeItemsNew: [

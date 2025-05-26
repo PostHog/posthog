@@ -65,12 +65,12 @@ export const manifest: ProductManifest = {
         'hog_function/broadcast': {
             icon: <IconCursor />,
             href: (ref: string) => urls.messagingBroadcast(ref),
-            iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
+            iconColor: ['var(--product-messaging-light)'],
         },
         'hog_function/campaign': {
             icon: <IconCursor />,
             href: (ref: string) => urls.messagingCampaign(ref),
-            iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
+            iconColor: ['var(--product-messaging-light)'],
         },
     },
     treeItemsNew: [
@@ -91,7 +91,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Messaging',
             type: 'hog_function/broadcast',
-            href: urls.messagingBroadcastNew(),
+            href: urls.messagingBroadcasts(),
             flag: FEATURE_FLAGS.MESSAGING,
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         },

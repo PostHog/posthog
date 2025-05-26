@@ -328,62 +328,58 @@ export const fileSystemTypes = {
     dashboard: {
         icon: <IconDashboard />,
         href: (ref: string) => urls.dashboard(ref),
-        iconColor: ['var(--product-dashboards-primary)', 'var(--product-dashboards-primary)'],
+        iconColor: ['var(--product-dashboards-light)'],
     },
     early_access_feature: {
         icon: <IconRocket />,
         href: (ref: string) => urls.earlyAccessFeature(ref),
-        iconColor: ['var(--product-early-access-features-primary)', 'var(--product-early-access-features-primary)'],
+        iconColor: ['var(--product-early-access-features-light)'],
     },
     experiment: {
         icon: <IconTestTube />,
         href: (ref: string) => urls.experiment(ref),
-        iconColor: ['var(--product-experiments-primary)', 'var(--product-experiments-primary)'],
+        iconColor: ['var(--product-experiments-light)'],
     },
     feature_flag: {
         icon: <IconToggle />,
         href: (ref: string) => urls.featureFlag(ref),
-        iconColor: ['var(--product-feature-flags-primary)', 'var(--product-feature-flags-primary)'],
+        iconColor: ['var(--product-feature-flags-light)'],
     },
     'hog_function/broadcast': {
         icon: <IconCursor />,
         href: (ref: string) => urls.messagingBroadcast(ref),
-        iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
+        iconColor: ['var(--product-messaging-light)'],
     },
     'hog_function/campaign': {
         icon: <IconCursor />,
         href: (ref: string) => urls.messagingCampaign(ref),
-        iconColor: ['var(--product-messaging-primary)', 'var(--product-messaging-primary)'],
+        iconColor: ['var(--product-messaging-light)'],
     },
     insight: {
         icon: <IconGraph />,
         href: (ref: string) => urls.insightView(ref as InsightShortId),
-        iconColor: ['var(--product-product-analytics-primary)', 'var(--product-product-analytics-primary)'],
+        iconColor: ['var(--product-product-analytics-light)'],
     },
-    link: {
-        icon: <IconExternal />,
-        href: (ref: string) => urls.link(ref),
-        iconColor: ['var(--product-links-primary)', 'var(--product-links-primary)'],
-    },
+    link: { icon: <IconExternal />, href: (ref: string) => urls.link(ref), iconColor: ['var(--product-links-light)'] },
     notebook: {
         icon: <IconNotebook />,
         href: (ref: string) => urls.notebook(ref),
-        iconColor: ['var(--product-notebooks-primary)', 'var(--product-notebooks-primary)'],
+        iconColor: ['var(--product-notebooks-light)'],
     },
     session_recording_playlist: {
         icon: <IconRewindPlay />,
         href: (ref: string) => urls.replayPlaylist(ref),
-        iconColor: ['var(--product-session-replay-primary)', 'var(--product-session-replay-primary)'],
+        iconColor: ['var(--product-session-replay-light)', 'var(--product-session-replay-dark)'],
     },
     survey: {
         icon: <IconMessage />,
         href: (ref: string) => urls.survey(ref),
-        iconColor: ['var(--product-surveys-primary)', 'var(--product-surveys-primary)'],
+        iconColor: ['var(--product-surveys-light)'],
     },
     user_interview: {
         icon: <IconChat />,
         href: (ref: string) => urls.userInterview(ref),
-        iconColor: ['var(--product-user-interviews-primary)', 'var(--product-user-interviews-primary)'],
+        iconColor: ['var(--product-user-interviews-light)'],
     },
 }
 
@@ -462,11 +458,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Messaging',
         type: 'hog_function/broadcast',
-        href: urls.messagingBroadcastNew(),
+        href: urls.messagingBroadcasts(),
         flag: FEATURE_FLAGS.MESSAGING,
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
     },
-    { path: 'Product analytics', type: 'insight', href: urls.insights(), visualOrder: 10 },
+    {
+        path: 'Product analytics',
+        type: 'insight',
+        href: urls.insights(),
+        visualOrder: PRODUCT_VISUAL_ORDER.productAnalytics,
+    },
     {
         path: 'Revenue analytics',
         iconType: 'piggyBank',

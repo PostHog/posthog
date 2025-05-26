@@ -1,6 +1,7 @@
 import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -73,7 +74,7 @@ export const manifest: ProductManifest = {
         insight: {
             icon: <IconGraph />,
             href: (ref: string) => urls.insightView(ref as InsightShortId),
-            iconColor: ['var(--product-product-analytics-primary)', 'var(--product-product-analytics-primary)'],
+            iconColor: ['var(--product-product-analytics-light)'],
         },
     },
     treeItemsNew: [
@@ -118,7 +119,7 @@ export const manifest: ProductManifest = {
             path: 'Product analytics',
             type: 'insight',
             href: urls.insights(),
-            visualOrder: 10,
+            visualOrder: PRODUCT_VISUAL_ORDER.productAnalytics,
         },
     ],
     fileSystemFilterTypes: {

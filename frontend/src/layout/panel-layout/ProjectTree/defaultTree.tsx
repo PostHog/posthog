@@ -27,20 +27,20 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-import { PipelineStage } from '~/types'
+import { FileSystemIconColor, PipelineStage } from '~/types'
 
-const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string] }> = {
+const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
         icon: <IconAI />,
-        iconColor: ['var(--product-max-ai-primary)', 'var(--product-max-ai-primary)'],
+        iconColor: ['var(--product-max-ai-light)'],
     },
     cursorClick: {
         icon: <IconApp />,
-        iconColor: ['var(--product-heatmaps-primary)', 'var(--product-heatmaps-primary)'],
+        iconColor: ['var(--product-heatmaps-light)', 'var(--product-heatmaps-dark)'],
     },
     database: {
         icon: <IconDatabase />,
-        iconColor: ['var(--product-data-warehouse-primary)', 'var(--product-data-warehouse-primary)'],
+        iconColor: ['var(--product-data-warehouse-light)'],
     },
     definitions: {
         icon: <IconApps />,
@@ -53,56 +53,45 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: [string, string
     },
     live: {
         icon: <IconLive />,
-        iconColor: ['var(--product-logs-primary)', 'var(--product-logs-primary)'],
+        iconColor: ['var(--product-logs-light)'],
     },
     notification: {
         icon: <IconNotification />,
-        iconColor: ['var(--product-notification-primary)', 'var(--product-notification-primary)'],
+        iconColor: ['var(--product-notification-light)'],
     },
     pieChart: {
         icon: <IconPieChart />,
-        iconColor: ['var(--product-web-analytics-primary)', 'var(--product-web-analytics-primary)'],
+        iconColor: ['var(--product-web-analytics-light)', 'var(--product-web-analytics-dark)'],
     },
     piggyBank: {
         icon: <IconPiggyBank />,
-        iconColor: ['var(--product-revenue-analytics-primary)', 'var(--product-revenue-analytics-primary)'],
+        iconColor: ['var(--product-revenue-analytics-light)', 'var(--product-revenue-analytics-dark)'],
     },
     plug: {
         icon: <IconPlug />,
-        iconColor: ['var(--product-data-pipeline-primary)', 'var(--product-data-pipeline-primary)'],
+        iconColor: ['var(--product-data-pipeline-light)'],
     },
     sql: {
         icon: <IconServer />,
-        iconColor: ['var(--product-data-warehouse-primary)', 'var(--product-data-warehouse-primary)'],
+        iconColor: ['var(--product-data-warehouse-light)'],
     },
     warning: {
         icon: <IconWarning />,
     },
     bug: {
         icon: <IconBug />,
-        iconColor: ['var(--product-error-tracking-primary)', 'var(--product-error-tracking-primary)'],
+        iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
     },
 }
 
-const getIconColor = (type?: string): [string, string] => {
-    const colorValue = (fileSystemTypes as unknown as Record<string, { iconColor?: string[] }>)[
+const getIconColor = (type?: string): FileSystemIconColor => {
+    const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
+    const iconTypeColor = type && iconTypes[type]?.iconColor
 
-    if (type && type in iconTypes) {
-        return iconTypes[type].iconColor || ['currentColor', 'currentColor']
-    }
-
-    if (!colorValue) {
-        return ['currentColor', 'currentColor']
-    }
-
-    // If no dark color, use light color
-    if (colorValue.length === 1) {
-        return [colorValue[0], colorValue[0]]
-    }
-
-    return [colorValue[0], colorValue[1]]
+    const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
+    return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
 }
 
 const ProductIconWrapper = ({ type, children }: { type?: string; children: React.ReactNode }): JSX.Element => {
@@ -165,7 +154,6 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             path: `Data/Source`,
             type: 'hog_function/source',
             href: urls.pipelineNodeNew(PipelineStage.Source),
-            // TODO: add visualOrder
         },
         {
             path: `Data/Destination`,
