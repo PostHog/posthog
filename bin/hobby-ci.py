@@ -126,7 +126,7 @@ class HobbyTester:
         self.droplet.create()
         return self.droplet
 
-    def test_deployment(self, timeout=20, retry_interval=15):
+    def test_deployment(self, timeout=30, retry_interval=15):
         if not self.hostname:
             return
         # timeout in minutes
