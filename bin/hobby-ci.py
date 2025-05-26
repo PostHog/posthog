@@ -67,9 +67,12 @@ class HobbyTester:
             "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
             "git clone https://github.com/PostHog/posthog.git \n"
             "cd posthog \n"
+            f'echo "Using branch: {self.branch}" \n'
             f"git checkout {self.branch} \n"
+            'echo "Current commit: $(git rev-parse HEAD)" \n'
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
+            f'echo "Installing PostHog version: {self.release_tag}" \n'
             f"./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
         )
 
