@@ -2190,6 +2190,53 @@ email@example.org,
         self.assertIsNotNone(cohort_data.get("id"))
 
 
+class TestCalculateCohortCommand(APIBaseTest):
+    def test_calculate_cohort_command_success(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 1",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch("posthog.management.commands.calculate_cohort.calculate_cohort_ch") as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the cohort is calculated
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            self.assertIn(f"Successfully calculated cohort {cohort.id}", out.getvalue())
+
+    def test_calculate_cohort_command_error(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 2",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch(
+            "posthog.management.commands.calculate_cohort.calculate_cohort_ch", side_effect=Exception("Test error 2")
+        ) as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the error was handled
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            output = out.getvalue()
+            self.assertIn("Error calculating cohort: Test error 2", output)
+            self.assertIn("Full traceback:", output)
+            self.assertIn("Exception: Test error 2", output)
+
+
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
