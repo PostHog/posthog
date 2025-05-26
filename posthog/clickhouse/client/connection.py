@@ -106,7 +106,7 @@ class ProxyClient:
             return result.result_set, column_types_driver_format
         return result.result_set
 
-    # Implement methods for session managment: https://peps.python.org/pep-0343/ so ProxyClient can be used in all places a clickhouse_driver.Client is.
+    # Implement methods for session management: https://peps.python.org/pep-0343/ so ProxyClient can be used in all places a clickhouse_driver.Client is.
     def __enter__(self):
         return self
 

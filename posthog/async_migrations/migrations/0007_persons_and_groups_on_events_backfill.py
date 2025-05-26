@@ -355,7 +355,7 @@ class Migration(AsyncMigrationDefinition):
         if incomplete_groups_data_ratio > threshold:
             incomplete_events_percentage = incomplete_groups_data_ratio * 100
             raise Exception(
-                f"Backfill did not work succesfully. ~{int(incomplete_events_percentage)}% of events did not get the correct data for groups."
+                f"Backfill did not work successfully. ~{int(incomplete_events_percentage)}% of events did not get the correct data for groups."
             )
 
     def _run_backfill_mutation(self, query_id):

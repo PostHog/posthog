@@ -333,7 +333,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if self.action == "retrieve":
             # NOTE: This is inefficient but it is such an edge case that it feels safer this way than
-            # Modifying our underyling permissions system too much.
+            # Modifying our underlying permissions system too much.
             try:
                 lookup_value = self.kwargs.get(self.lookup_field)
                 obj = Plugin.objects.get(pk=lookup_value)

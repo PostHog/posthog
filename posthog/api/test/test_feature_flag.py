@@ -5790,7 +5790,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         _create_person(
             team=self.team,
             distinct_ids=[f"person2"],
-            properties={"key": "vaalue"},
+            properties={"key": "value"},
         )
         _create_person(
             team=self.team,

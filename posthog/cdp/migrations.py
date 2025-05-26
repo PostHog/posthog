@@ -176,7 +176,7 @@ def migrate_legacy_plugins(
     if limit:
         legacy_plugin_ids = legacy_plugin_ids[:limit]
 
-    # Do this in batches of batch_size but loading the individual plugin configs as we are modfiying them in the loop
+    # Do this in batches of batch_size but loading the individual plugin configs as we are modifying them in the loop
 
     for i in range(0, len(legacy_plugin_ids), batch_size):
         batch = legacy_plugin_ids[i : i + batch_size]

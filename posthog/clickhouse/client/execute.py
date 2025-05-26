@@ -286,7 +286,7 @@ def _prepare_query(
     a working query without exporting to csv or similar), we need to
     do it manually.
 
-    We only want to try to substitue for SELECT queries, which
+    We only want to try to substitute for SELECT queries, which
     clickhouse_driver at this moment in time decides based on the
     below predicate.
     """

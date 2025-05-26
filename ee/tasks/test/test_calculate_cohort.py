@@ -169,7 +169,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_trends_cohort_arg_test(self, _insert_cohort_from_insight_filter):
-        # prior to 8124, subtitute parameters was called on insight cohorting which caused '%' in LIKE arguments to be interepreted as a missing parameter
+        # prior to 8124, subtitute parameters was called on insight cohorting which caused '%' in LIKE arguments to be interpreted as a missing parameter
 
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
         with freeze_time("2021-01-01 00:06:34"):

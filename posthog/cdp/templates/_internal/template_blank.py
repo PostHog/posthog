@@ -54,7 +54,7 @@ export function onEvent({ inputs, posthog }) {
     mappings=[],
     mapping_templates=[
         HogFunctionMappingTemplate(
-            name="Aquisition",
+            name="Acquisition",
             include_by_default=True,
             filters={"events": [{"id": "$pageview", "type": "events"}]},
             inputs_schema=[
