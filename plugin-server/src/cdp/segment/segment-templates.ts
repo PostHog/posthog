@@ -314,6 +314,29 @@ const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> 
           )
 }
 
+const getFieldType = (field: any) => {
+    if (field.choices) {
+        return 'choice'
+    }
+
+    if (field.type === 'object') {
+        if (typeof field.default !== 'undefined' && '@path' in field.default) {
+            return 'string'
+        }
+        return 'dictionary'
+    }
+
+    if (['number', 'integer', 'datetime', 'password'].includes(field.type)) {
+        return 'string'
+    }
+
+    if (typeof field.default === 'object' && '@path' in field.default) {
+        return 'string'
+    }
+
+    return field.type ?? 'string'
+}
+
 const translateInputsSchema = (
     inputs_schema: Record<string, any> | undefined,
     mapping?: Record<string, any> | undefined
@@ -326,17 +349,7 @@ const translateInputsSchema = (
         .map(([key, field]) => ({
             key,
             label: field.label,
-            type: field.choices
-                ? 'choice'
-                : field.type === 'object'
-                ? typeof field.default !== 'undefined' && '@path' in field.default
-                    ? 'string'
-                    : 'dictionary'
-                : ['number', 'integer', 'datetime', 'password'].includes(field.type)
-                ? 'string'
-                : typeof field.default === 'object' && '@path' in field.default
-                ? 'string'
-                : field.type ?? 'string',
+            type: getFieldType(field),
             description: field.description,
             default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
