@@ -4,17 +4,17 @@ import { urls } from 'scenes/urls'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Early Access Features',
+    name: 'Early access features',
     scenes: {
         EarlyAccessFeatures: {
-            name: 'Early Access Features',
+            name: 'Early access features',
             import: () => import('./frontend/EarlyAccessFeatures'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'EarlyAccessFeature',
         },
         EarlyAccessFeature: {
-            name: 'Early Access Features',
+            name: 'Early access feature',
             import: () => import('./frontend/EarlyAccessFeature'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',

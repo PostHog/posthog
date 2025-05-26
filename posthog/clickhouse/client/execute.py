@@ -24,6 +24,7 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
+from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -209,6 +210,11 @@ def sync_execute(
                 exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
             ).inc()
             err = wrap_query_error(e)
+            if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
+                workload = Workload.ONLINE
+                tags["clickhouse_exception_type"] = exception_type
+                tags["workload"] = str(workload)
+                continue
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
