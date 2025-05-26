@@ -156,11 +156,13 @@ export function VerifyEmail(): JSX.Element {
                                     <SurprisedHog className="w-full h-full" />
                                 </div>
                                 <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
-                                <p className="mb-6">
+
+                                <SupportButtons />
+
+                                <p className="text-xs text-muted mt-6">
                                     If you've already verified your email, then{' '}
                                     <Link to={urls.login()}>log in here</Link>.
                                 </p>
-                                <SupportButtons />
                             </>
                         ) : (
                             <Spinner className="text-4xl" />
