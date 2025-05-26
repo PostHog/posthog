@@ -6,6 +6,8 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Required for CREATE INDEX CONCURRENTLY
+
     dependencies = [
         ("posthog", "0742_exportedasset_exception"),
     ]
@@ -35,9 +37,10 @@ class Migration(migrations.Migration):
                 null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingrelease"
             ),
         ),
-        migrations.AddIndex(
-            model_name="errortrackingrelease",
-            index=models.Index(fields=["team_id", "hash_id"], name="posthog_err_team_id_e9f6b2_idx"),
+        # Replace the AddIndex operation with RunSQL for concurrent index creation
+        migrations.RunSQL(
+            sql='CREATE INDEX CONCURRENTLY "posthog_err_team_id_e9f6b2_idx" ON "posthog_errortrackingrelease" ("team_id", "hash_id");',
+            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_err_team_id_e9f6b2_idx";',
         ),
         migrations.AddConstraint(
             model_name="errortrackingrelease",
