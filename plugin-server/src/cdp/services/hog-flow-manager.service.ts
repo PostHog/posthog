@@ -85,14 +85,14 @@ export class HogFlowManagerService {
             return acc
         }, {})
 
-        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
+        const teamItems = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
 
-        if (!teamHogFunctions) {
+        if (!teamItems) {
             return result
         }
 
         // For each team, filter functions by type and collect their IDs
-        Object.entries(teamHogFunctions).forEach(([teamId, teamFns]) => {
+        Object.entries(teamItems).forEach(([teamId, teamFns]) => {
             if (teamFns) {
                 result[parseInt(teamId)] = teamFns.map((fn) => fn.id)
             }
