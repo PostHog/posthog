@@ -16,6 +16,7 @@ export type DestinationsFilters = {
     search?: string
     kind?: PipelineBackend | null
     showPaused?: boolean
+    showRequestable?: boolean
 }
 
 export interface DestinationsFiltersLogicProps {
@@ -36,14 +37,25 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     }),
     reducers(({ props }) => ({
         filters: [
-            {} as DestinationsFilters,
             {
-                setFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
+                showPaused: false,
+                showRequestable: false,
+            } as DestinationsFilters,
+            {
+                setFilters: (state, { filters }) => {
+                    const newState = {
+                        ...state,
+                        ...filters,
+                    }
+                    // Only show requestable destinations when searching
+                    if (filters.search !== undefined) {
+                        newState.showRequestable = filters.search.length > 0
+                    }
+                    return newState
+                },
                 resetFilters: () => ({
                     showPaused: true,
+                    showRequestable: false,
                 }),
             },
         ],

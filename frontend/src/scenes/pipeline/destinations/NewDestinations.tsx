@@ -1,4 +1,4 @@
-import { IconHandwave, IconPlusSmall } from '@posthog/icons'
+import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -34,13 +34,19 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
     const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic({ types }))
     const { canEnableDestination } = useValues(pipelineAccessLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
+    const { filters } = useValues(destinationsFiltersLogic({ types }))
     const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+
+    // Filter out requestable destinations unless showRequestable is true
+    const visibleDestinations = filteredDestinations.filter(
+        (destination) => destination.status !== 'requestable' || filters.showRequestable
+    )
 
     return (
         <>
             <LemonTable
-                dataSource={filteredDestinations}
+                dataSource={visibleDestinations}
                 size="small"
                 loading={loading}
                 columns={[
@@ -99,7 +105,8 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                     <LemonButton
                                         type="primary"
                                         data-attr={`request-${PipelineStage.Destination}`}
-                                        icon={<IconHandwave />}
+                                        icon={<IconMegaphone />}
+                                        className="whitespace-nowrap"
                                         onClick={() =>
                                             openSidePanel(
                                                 SidePanelTab.Docs,
@@ -107,7 +114,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                             )
                                         }
                                     >
-                                        Request
+                                        Notify me
                                     </LemonButton>
                                 )
                             }
