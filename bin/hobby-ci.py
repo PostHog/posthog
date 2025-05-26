@@ -9,6 +9,7 @@ import time
 
 import digitalocean
 import requests
+import urllib3
 
 
 DOMAIN = "posthog.cc"
@@ -21,7 +22,7 @@ class HobbyTester:
         name=None,
         region="sfo3",
         image="ubuntu-22-04-x64",
-        size="s-4vcpu-8gb",
+        size="s-8vcpu-16gb",
         release_tag="latest-release",
         branch=None,
         hostname=None,
@@ -133,23 +134,31 @@ class HobbyTester:
         # return true if success or false if failure
         print("Attempting to reach the instance")
         print(f"We will time out after {timeout} minutes")
+
+        # Suppress SSL warnings for staging Let's Encrypt certificates
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         url = f"https://{self.hostname}/_health"
         start_time = datetime.datetime.now()
+        attempt = 1
         while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
+            print(f"Trying to connect... (attempt {attempt})")
             try:
-                # verify is set False here because we are hitting the staging endoint for Let's Encrypt
+                # verify is set False here because we are hitting the staging endpoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
                 # This mitigates the chances of getting throttled or banned
-                r = requests.get(url, verify=False)
+                r = requests.get(url, verify=False, timeout=10)
             except Exception as e:
-                print(f"Host is probably not up. Received exception\n{e}")
+                print(f"Connection failed: {type(e).__name__}")
                 time.sleep(retry_interval)
+                attempt += 1
                 continue
             if r.status_code == 200:
                 print("Success - received heartbeat from the instance")
                 return True
-            print("Instance not ready - sleeping")
+            print(f"Instance not ready (HTTP {r.status_code}) - sleeping")
             time.sleep(retry_interval)
+            attempt += 1
         print("Failure - we timed out before receiving a heartbeat")
         return False
 
