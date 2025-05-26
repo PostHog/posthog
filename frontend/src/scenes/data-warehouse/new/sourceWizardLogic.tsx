@@ -52,7 +52,7 @@ const StripeCaption = (): JSX.Element => (
                 Under the <b>Billing</b> resource type, read for <b>Invoice</b>, <b>Price</b>, and <b>Subscription</b>
             </li>
             <li>
-                Under the <b>Connected</b> resource type, read for the <b>entire resoure</b>
+                Under the <b>Connected</b> resource type, read for the <b>entire resource</b>
             </li>
         </ul>
     </>
