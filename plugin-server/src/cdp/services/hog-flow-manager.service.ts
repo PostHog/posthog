@@ -64,16 +64,16 @@ export class HogFlowManagerService {
             return acc
         }, {})
 
-        const teamHogFunctionIds = await this.getHogFlowIdsForTeam(teamIds)
-        const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
-        const hogFunctions = await this.lazyLoader.getMany(allHogFunctionIds)
+        const teamItemIds = await this.getHogFlowIdsForTeam(teamIds)
+        const allIds = Object.values(teamItemIds).flat()
+        const items = await this.lazyLoader.getMany(allIds)
 
-        for (const fn of Object.values(hogFunctions)) {
-            if (!fn) {
+        for (const item of Object.values(items)) {
+            if (!item) {
                 continue
             }
-            result[fn.team_id] = result[fn.team_id] ?? []
-            result[fn.team_id].push(fn)
+            result[item.team_id] = result[item.team_id] ?? []
+            result[item.team_id].push(item)
         }
 
         return result
