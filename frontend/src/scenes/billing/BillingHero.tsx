@@ -166,13 +166,18 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
     }
 
     const showUpgradeOptions = billingPlan === BillingPlan.Free && !isManagedAccount
-    const copyVariation = startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]
+    const copyVariation =
+        (startupProgramLabel ? BADGE_CONFIG[startupProgramLabel] : BADGE_CONFIG[billingPlan]) ||
+        BADGE_CONFIG[BillingPlan.Paid]
+    const planBadge =
+        (startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]) ||
+        PLAN_BADGES[BillingPlan.Paid]
 
     return (
         <div className={`relative rounded-lg ${copyVariation.backgroundColor}`}>
             <div className="@container p-4 relative">
                 <img
-                    src={startupProgramLabel ? STARTUP_PROGRAM_BADGES[startupProgramLabel] : PLAN_BADGES[billingPlan]}
+                    src={planBadge}
                     alt={startupProgramLabel ? `${startupProgramLabel} plan badge` : `${billingPlan} plan badge`}
                     className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
                 />

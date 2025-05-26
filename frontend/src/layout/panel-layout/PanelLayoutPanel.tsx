@@ -219,7 +219,7 @@ export function PanelLayoutPanel({
                 </div>
             </div>
             <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
                 <div className="flex gap-1 p-1 items-center justify-between">
                     <SearchAutocomplete
                         inputPlaceholder={searchPlaceholder}

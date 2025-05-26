@@ -16,6 +16,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -228,7 +229,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     } else {
         nameElement = (
             <span className="flex items-center gap-1.5">
-                {breadcrumbName || <i>Unnamed</i>}
+                {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
         )
@@ -284,7 +285,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         )
     }
 
-    return breadcrumbContent
+    return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
 }
 
 interface HereProps {

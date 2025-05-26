@@ -425,6 +425,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         }
                                         return true
                                     })
+                                    .filter((addon) => {
+                                        const hideAddonFlag = `billing_hide_addon_${addon.type}`
+                                        return featureFlags[hideAddonFlag] !== true
+                                    })
                                     .map((addon, i) => {
                                         return <BillingProductAddon key={i} addon={addon} />
                                     })}

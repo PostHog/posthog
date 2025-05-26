@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -39,6 +39,7 @@ import {
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentExposureCriteria,
+    ExperimentExposureQueryResponse,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -2203,14 +2204,27 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         usesNewQueryRunner: [
-            (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                return !isLegacyExperiment(experiment)
+            (s) => [s.experiment, s.featureFlags],
+            (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
+                const hasLegacyMetrics = isLegacyExperiment(experiment)
+
+                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
+                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
+
+                if (hasExperimentMetrics) {
+                    return true
+                }
+
+                if (hasLegacyMetrics) {
+                    return false
+                }
+
+                return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.usesNewQueryRunner, s.experiment],
-            (exposures, usesNewQueryRunner, experiment): boolean => {
+            (s) => [s.exposures, s.usesNewQueryRunner],
+            (exposures: ExperimentExposureQueryResponse, usesNewQueryRunner: boolean): boolean => {
                 // Not relevant for old metrics
                 if (!usesNewQueryRunner) {
                     return true
@@ -2220,12 +2234,13 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                const variantKeys = experiment.parameters.feature_flag_variants?.map((variant) => variant.key) || []
-                for (const variant of variantKeys) {
-                    const exposure = exposures.total_exposures[variant]
-                    if (!exposure || exposure < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
-                        return false
-                    }
+                const total_experiment_exposures = Object.values(exposures.total_exposures).reduce(
+                    (acc, curr) => acc + curr,
+                    0
+                )
+
+                if (total_experiment_exposures < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
+                    return false
                 }
 
                 return true

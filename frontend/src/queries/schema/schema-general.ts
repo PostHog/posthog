@@ -766,8 +766,9 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
-    displayLabel?: boolean
     borderColor?: string
+    displayLabel?: boolean
+    displayIfCrossed?: boolean
 }
 
 export interface ChartAxis {
@@ -2045,6 +2046,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: string
     flag?: string
+    /** Order of object in tree */
+    visualOrder?: number
 }
 
 export interface PersistedFolder {
@@ -3003,6 +3006,12 @@ export interface RevenueAnalyticsEventItem {
     currencyAwareDecimal: boolean
 }
 
+export interface RevenueAnalyticsGoal {
+    name: string
+    due_date: string
+    goal: number
+}
+
 export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
@@ -3013,6 +3022,11 @@ export interface RevenueAnalyticsConfig {
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
+
+    /**
+     * @default []
+     */
+    goals: RevenueAnalyticsGoal[]
 }
 
 export interface PageURL {
