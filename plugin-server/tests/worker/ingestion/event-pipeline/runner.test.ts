@@ -24,7 +24,6 @@ import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
-import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
@@ -176,8 +175,6 @@ describe('EventPipelineRunner', () => {
 
         // @ts-expect-error TODO: Check why expect never
         jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
-
-        jest.mocked(processOnEventStep).mockResolvedValue(null)
     })
 
     describe('runEventPipeline()', () => {
@@ -322,17 +319,6 @@ describe('EventPipelineRunner', () => {
                     error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('prepareEventStep')
-            })
-
-            it('does not emit to dead letter queue for runAsyncHandlersStep', async () => {
-                const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
-                jest.mocked(processOnEventStep).mockRejectedValue(error)
-
-                expect(mockProducer.queueMessages).not.toHaveBeenCalled()
-                await runner.runEventPipeline(pipelineEvent)
-
-                expect(mockProducer.queueMessages).not.toHaveBeenCalled()
-                expect(pipelineStepDLQCounterSpy).not.toHaveBeenCalled()
             })
         })
 

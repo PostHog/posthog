@@ -11,6 +11,7 @@ import {
     personCacheOperationsCounter,
     personDatabaseOperationsPerBatchHistogram,
     personMethodCallsPerBatchHistogram,
+    totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
@@ -20,7 +21,8 @@ type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
     | 'createPerson'
-    | 'updatePersonDeprecated'
+    | 'updatePersonForUpdate'
+    | 'updatePersonForMerge'
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
@@ -32,7 +34,8 @@ const ALL_METHODS: MethodName[] = [
     'fetchForChecking',
     'fetchForUpdate',
     'createPerson',
-    'updatePersonDeprecated',
+    'updatePersonForUpdate',
+    'updatePersonForMerge',
     'deletePerson',
     'addDistinctId',
     'moveDistinctIds',
@@ -40,6 +43,10 @@ const ALL_METHODS: MethodName[] = [
     'addPersonlessDistinctId',
     'addPersonlessDistinctIdForMerge',
 ]
+
+type UpdateType = 'forUpdate' | 'forMerge'
+
+const ALL_UPDATE_TYPES: UpdateType[] = ['forUpdate', 'forMerge']
 
 export interface PersonsStoreOptions {
     personCacheEnabledForUpdates: boolean
@@ -93,6 +100,11 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 personDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
             }
 
+            const updateLatencyPerDistinctId = store.getUpdateLatencyPerDistinctIdSeconds()
+            for (const [updateType, latency] of updateLatencyPerDistinctId.entries()) {
+                totalPersonUpdateLatencyPerBatchHistogram.observe({ update_type: updateType }, latency)
+            }
+
             const cacheMetrics = store.getCacheMetrics()
             personCacheOperationsCounter.inc({ cache: 'update', operation: 'hit' }, cacheMetrics.updateCacheHits)
             personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, cacheMetrics.updateCacheMisses)
@@ -106,6 +118,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     private methodCounts: Map<MethodName, number>
     private cacheMetrics: CacheMetrics
     private databaseOperationCounts: Map<MethodName, number>
+    private updateLatencyPerDistinctIdSeconds: Map<UpdateType, number>
     /**
      * We maintain two separate person caches for different read patterns:
      *
@@ -140,8 +153,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             this.databaseOperationCounts.set(method, 0)
         }
 
+        this.updateLatencyPerDistinctIdSeconds = new Map()
+        for (const updateType of ALL_UPDATE_TYPES) {
+            this.updateLatencyPerDistinctIdSeconds.set(updateType, 0)
+        }
+
         this.personCache = new Map()
         this.personCheckCache = new Map()
+
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -224,17 +243,36 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         )
     }
 
-    async updatePersonDeprecated(
+    async updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        this.incrementCount('updatePersonDeprecated')
+        return this.updatePerson(person, update, tx, 'updatePersonForUpdate', 'forUpdate')
+    }
+
+    async updatePersonForMerge(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge')
+    }
+
+    private async updatePerson(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx: TransactionClient | undefined,
+        methodName: MethodName,
+        updateType: UpdateType
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        this.incrementCount(methodName)
         this.clearCache()
-        this.incrementDatabaseOperation('updatePersonDeprecated')
+        this.incrementDatabaseOperation(methodName)
         const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx)
-        observeLatencyByVersion(person, start, 'updatePersonDeprecated')
+        const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
+        this.recordUpdateLatency(updateType, (performance.now() - start) / 1000)
+        observeLatencyByVersion(person, start, methodName)
         return response
     }
 
@@ -320,6 +358,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return new Map(this.databaseOperationCounts)
     }
 
+    getUpdateLatencyPerDistinctIdSeconds(): Map<UpdateType, number> {
+        return this.updateLatencyPerDistinctIdSeconds
+    }
+
     // Private cache management methods
 
     private getCacheKey(teamId: number, distinctId: string): string {
@@ -385,5 +427,12 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     private incrementDatabaseOperation(operation: MethodName): void {
         this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
+    }
+
+    private recordUpdateLatency(updateType: UpdateType, latencySeconds: number): void {
+        this.updateLatencyPerDistinctIdSeconds.set(
+            updateType,
+            (this.updateLatencyPerDistinctIdSeconds.get(updateType) || 0) + latencySeconds
+        )
     }
 }
