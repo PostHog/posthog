@@ -8,6 +8,7 @@ import {
     IconDashboard,
     IconExternal,
     IconGraph,
+    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -18,7 +19,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -44,6 +45,7 @@ import {
     RecordingUniversalFilters,
     ReplayTabs,
 } from './types'
+import { PRODUCT_VISUAL_ORDER } from './lib/constants'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -427,12 +429,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.messagingBroadcasts(),
         type: 'hog_function/broadcast',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
     },
     {
         path: 'Campaigns',
         href: urls.messagingCampaigns(),
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
     },
     { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
     { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
@@ -455,6 +459,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.llmObservabilityDashboard(),
         flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
+        tags: ['beta'],
     },
     {
         path: 'Links',
@@ -462,6 +467,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.links(),
         flag: FEATURE_FLAGS.LINKS,
         visualOrder: PRODUCT_VISUAL_ORDER.links,
+        tags: ['alpha'],
     },
     {
         path: 'Logs',
@@ -469,6 +475,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.logs(),
         flag: FEATURE_FLAGS.LOGS,
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
+        tags: ['alpha'],
     },
     { path: 'Persons', iconType: 'cohort', href: urls.persons(), visualOrder: PRODUCT_VISUAL_ORDER.persons },
     {
@@ -482,6 +489,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'piggyBank',
         href: urls.revenueAnalytics(),
         visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+        tags: ['beta'],
     },
     {
         path: 'Session replay',
