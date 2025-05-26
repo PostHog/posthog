@@ -83,6 +83,7 @@ export class CyclotronJobQueueKafka {
                         key: Buffer.from(x.id),
                         topic: `cdp_cyclotron_${x.queue}`,
                         headers: {
+                            // NOTE: Later we should remove hogFunctionId as it is no longer used
                             hogFunctionId: x.functionId,
                             functionId: x.functionId,
                             teamId: x.teamId.toString(),
@@ -92,7 +93,7 @@ export class CyclotronJobQueueKafka {
                         logger.error('🔄', 'Error producing kafka message', {
                             error: String(e),
                             teamId: x.teamId,
-                            hogFunctionId: x.functionId,
+                            functionId: x.functionId,
                             payloadSizeKb: value.length / 1024,
                         })
 
