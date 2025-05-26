@@ -71,7 +71,6 @@ export class HogFlowExecutorService {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow)
             invocations.push(invocation)
-            return
         })
 
         return {
