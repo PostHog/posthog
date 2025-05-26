@@ -29,11 +29,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     )
     return (
         <>
-            {/* TODO: Genericize this */}
-            <PageHeader
-                caption="Transform your incoming events before they are stored in PostHog or sent on to Destinations."
-                buttons={newButton}
-            />
+            <PageHeader buttons={newButton} />
             <ProductIntroduction
                 productName="Pipeline transformations"
                 thingName="transformation"
