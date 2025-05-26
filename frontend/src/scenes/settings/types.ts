@@ -12,7 +12,7 @@ export type SettingsLogicProps = {
     settingId?: SettingId
 }
 
-export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
+export const SettingLevelIds = ['environment', 'project', 'organization', 'account'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
@@ -50,7 +50,7 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-proxy'
     | 'organization-danger-zone'
-    | 'user-profile'
+    | 'ac-profile'
     | 'user-api-keys'
     | 'user-customization'
     | 'user-danger-zone'
