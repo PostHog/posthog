@@ -747,7 +747,7 @@ export const maxLogic = kea<maxLogicType>([
 
         suggestionGroups: [
             () => [], // Kea selector typing hint
-            (): SuggestionGroup[] => QUESTION_SUGGESTIONS_DATA,
+            (): readonly SuggestionGroup[] => QUESTION_SUGGESTIONS_DATA,
         ],
 
         activeSuggestionGroup: [
@@ -851,7 +851,7 @@ function getScrollableContainer(element?: Element | null): HTMLElement | null {
     return scrollableEl
 }
 
-export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
+export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'SQL',
         icon: <IconHogQL />,
@@ -956,4 +956,4 @@ export const QUESTION_SUGGESTIONS_DATA: SuggestionGroup[] = [
         url: productUrls.replay(),
         tooltip: 'Max can find session recordings for you.',
     },
-] as const
+]
