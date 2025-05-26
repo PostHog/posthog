@@ -70,11 +70,6 @@ export class HogFlowExecutorService {
             }
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow)
-
-            if (!invocation) {
-                return
-            }
-
             invocations.push(invocation)
             return
         })
