@@ -9581,6 +9581,7 @@
                     "type": "string"
                 },
                 "visualOrder": {
+                    "description": "Order of object in tree",
                     "type": "number"
                 }
             },
