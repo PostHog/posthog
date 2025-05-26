@@ -483,7 +483,7 @@ def str_to_optional_int(s: str | int | None) -> int | None:
     """A converter to return a str to optional int."""
     if isinstance(s, int):
         return s
-    elif s is None or s == "":
+    elif s is None or s.strip() == "":
         return None
     else:
         return int(s)
