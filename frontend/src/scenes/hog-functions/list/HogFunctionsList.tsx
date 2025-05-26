@@ -13,20 +13,22 @@ import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
+import { humanizeHogFunctionType } from '../hog-function-utils'
 
 export function HogFunctionList({
     extraControls,
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
-        hogFunctionListLogic(props)
-    )
+    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction, hiddenHogFunctions } =
+        useValues(hogFunctionListLogic(props))
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(
         hogFunctionListLogic(props)
     )
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
+
+    const humanizedType = humanizeHogFunctionType(props.type)
 
     useEffect(() => loadHogFunctions(), [])
 
@@ -101,14 +103,7 @@ export function HogFunctionList({
                             width: 0,
                             render: (_, hogFunction) => {
                                 return (
-                                    <Link
-                                        to={urls.pipelineNode(
-                                            // TODO: metrics page for emails
-                                            PipelineStage.Destination,
-                                            `hog-${hogFunction.id}`,
-                                            PipelineNodeTab.Metrics
-                                        )}
-                                    >
+                                    <Link to={urls.hogFunction(hogFunction.id) + '?tab=metrics'}>
                                         <HogFunctionMetricSparkLine id={hogFunction.id} />
                                     </Link>
                                 )
@@ -172,6 +167,13 @@ export function HogFunctionList({
                                 No destinations matching filters.{' '}
                                 <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
                             </>
+                        )
+                    }
+                    footer={
+                        hiddenHogFunctions.length > 0 && (
+                            <div className="text-secondary">
+                                {hiddenHogFunctions.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
+                            </div>
                         )
                     }
                 />
