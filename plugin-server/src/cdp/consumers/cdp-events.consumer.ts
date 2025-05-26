@@ -163,8 +163,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         globals
                     )
 
-                    this.hogFunctionMonitoringService.produceAppMetrics(metrics, 'hog_flow')
-                    this.hogFunctionMonitoringService.produceLogs(logs, 'hog_flow')
+                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
 
                     return invocations
                 })
@@ -177,7 +177,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFlow.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
-                    this.hogFunctionMonitoringService.produceAppMetric(
+                    this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,

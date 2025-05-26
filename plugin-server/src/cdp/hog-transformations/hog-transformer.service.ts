@@ -58,8 +58,7 @@ export class HogTransformerService {
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
     private cachedStates: Record<string, HogWatcherState> = {}
-
-    private invocationResults: HogFunctionInvocationResult[] = []
+    private invocationResults: CyclotronJobInvocationResult[] = []
 
     constructor(hub: Hub) {
         this.hub = hub
