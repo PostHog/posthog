@@ -29,28 +29,24 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         return True
 
     def _get_filters(self, table_name: str):
-        current_date_expr = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=[table_name, "day_bucket"]),
-                    right=ast.Constant(
-                        value=(
-                            self.runner.query_compare_to_date_range.date_from()
-                            if self.runner.query_compare_to_date_range
-                            else self.runner.query_date_range.date_from()
-                        )
-                    ),
+        filter_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=[table_name, "day_bucket"]),
+                right=ast.Constant(
+                    value=(
+                        self.runner.query_compare_to_date_range.date_from()
+                        if self.runner.query_compare_to_date_range
+                        else self.runner.query_date_range.date_from()
+                    )
                 ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=[table_name, "day_bucket"]),
-                    right=ast.Constant(value=self.runner.query_date_range.date_to()),
-                ),
-            ]
-        )
-
-        filter_exprs = [current_date_expr]
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=[table_name, "day_bucket"]),
+                right=ast.Constant(value=self.runner.query_date_range.date_to()),
+            ),
+        ]
 
         if self.runner.query.properties:
             supported_properties = [
