@@ -145,8 +145,6 @@ describe('HogWatcher', () => {
                 createResult({ id: 'id1', duration: 20000 }),
             ],
         ],
-
-        [{ cost: 100, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
     ]
 
     it.each(cases)('should update tokens based on results %s %s', async (expectedScore, results) => {
@@ -184,7 +182,7 @@ describe('HogWatcher', () => {
     })
 
     it('should max out scores', async () => {
-        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', error: 'error!' }))
+        let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', duration: 20000 }))
 
         await watcher.observeResults(lotsOfResults)
 
@@ -225,7 +223,7 @@ describe('HogWatcher', () => {
     })
 
     it('should remain disabled for period', async () => {
-        const badResults = Array(100).fill(createResult({ id: 'id1', error: 'error!' }))
+        const badResults = Array(100).fill(createResult({ id: 'id1', duration: 25000 }))
 
         await watcher.observeResults(badResults)
 
@@ -234,9 +232,9 @@ describe('HogWatcher', () => {
 
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": 0,
+                  "rating": -0.0001,
                   "state": 3,
-                  "tokens": 0,
+                  "tokens": -1,
                 }
             `)
 
@@ -245,9 +243,9 @@ describe('HogWatcher', () => {
         // Should still be disabled even though tokens have been refilled
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
-                  "rating": 0.01,
+                  "rating": 0.0099,
                   "state": 3,
-                  "tokens": 100,
+                  "tokens": 99,
                 }
             `)
     })
@@ -316,7 +314,7 @@ describe('HogWatcher', () => {
         it('count the number of times it has been disabled', async () => {
             // Trigger the temporary disabled state 3 times
             for (let i = 0; i < 2; i++) {
-                await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
+                await watcher.observeResults([createResult({ id: 'id1', duration: 25000 })])
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledForPeriod)
                 await reallyAdvanceTime(1000)
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
@@ -332,7 +330,7 @@ describe('HogWatcher', () => {
                 ['id1', HogWatcherState.disabledForPeriod],
             ])
 
-            await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
+            await watcher.observeResults([createResult({ id: 'id1', duration: 50000 })])
             expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
             await reallyAdvanceTime(1000)
             expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)

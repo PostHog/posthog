@@ -198,10 +198,6 @@ export class HogWatcherService {
                 cost += costForTimings
             }
 
-            if (result.error) {
-                cost += this.hub.CDP_WATCHER_COST_ERROR
-            }
-
             costs[result.invocation.hogFunction.id] = cost
         })
 
