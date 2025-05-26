@@ -54,6 +54,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         surveyID,
         billingProductLoading,
         isSessionReplayWithAddons,
+        visibleAddons,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -405,33 +406,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </LemonBanner>
                             )}
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons
-                                    // TODO: enhanced_persons: remove this filter
-                                    .filter((addon) => {
-                                        if (addon.inclusion_only) {
-                                            if (featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
-                                                return false
-                                            }
-                                        }
-                                        return true
-                                    })
-                                    .filter((addon) => {
-                                        if (
-                                            product.type === 'platform_and_support' &&
-                                            addon.legacy_product &&
-                                            !addon.subscribed
-                                        ) {
-                                            return false
-                                        }
-                                        return true
-                                    })
-                                    .filter((addon) => {
-                                        const hideAddonFlag = `billing_hide_addon_${addon.type}`
-                                        return featureFlags[hideAddonFlag] !== true
-                                    })
-                                    .map((addon, i) => {
-                                        return <BillingProductAddon key={i} addon={addon} />
-                                    })}
+                                {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
+                                    return <BillingProductAddon key={i} addon={addon} />
+                                })}
                             </div>
                         </div>
                     )}
