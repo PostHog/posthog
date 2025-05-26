@@ -11,7 +11,7 @@ import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } f
 import { playlistLogic } from '../playlist/playlistLogic'
 import { countColumn } from '../saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { SavedFiltersEmptyState } from './SavedFiltersEmptyState'
+import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function SavedFilters({
     setFilters,
@@ -19,11 +19,16 @@ export function SavedFilters({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    const { savedFilters, paginationSavedFilters, savedFiltersSearch } = useValues(savedFiltersLogic)
+    const { savedFilters, paginationSavedFilters, savedFiltersSearch, savedFiltersLoading } =
+        useValues(savedFiltersLogic)
     const { deletePlaylist, setSavedFiltersSearch } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
     const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
+
+    if (savedFiltersLoading && !savedFiltersSearch) {
+        return <SavedFiltersLoadingState />
+    }
 
     if (savedFilters.results?.length === 0 && !savedFiltersSearch) {
         return <SavedFiltersEmptyState />
