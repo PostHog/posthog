@@ -336,7 +336,15 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             (metricResult: { automaticConversionRateDecimal: number }) =>
                 metricResult?.automaticConversionRateDecimal ?? null,
         ],
-        variance: [(s) => [s.metric, s.averageEventsPerUser, s.averagePropertyValuePerUser], calculateVariance],
+        variance: [
+            (s) => [s.metric, s.averageEventsPerUser, s.averagePropertyValuePerUser],
+            (metric: ExperimentMetric, averageEventsPerUser: number, averagePropertyValuePerUser: number) =>
+                /**
+                 * we need this to satify kea's typegen.
+                 * Do not dispair, this will be removed.
+                 */
+                calculateVariance(metric, averageEventsPerUser, averagePropertyValuePerUser),
+        ],
         standardDeviation: [(s) => [s.variance], (variance: number) => (variance ? Math.sqrt(variance) : null)],
         numberOfVariants: [
             (s) => [s.experiment],
@@ -354,7 +362,32 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 s.conversionRateInputType,
                 s.numberOfVariants,
             ],
-            calculateRecommendedSampleSize,
+            (
+                metric: ExperimentMetric,
+                minimumDetectableEffect: number,
+                variance: number,
+                averageEventsPerUser: number,
+                averagePropertyValuePerUser: number,
+                automaticConversionRateDecimal: number,
+                manualConversionRate: number,
+                conversionRateInputType: string,
+                numberOfVariants: number
+            ): number | null =>
+                /**
+                 * we need this to satify kea's typegen.
+                 * Do not dispair, this will be removed.
+                 */
+                calculateRecommendedSampleSize(
+                    metric,
+                    minimumDetectableEffect,
+                    variance,
+                    averageEventsPerUser,
+                    averagePropertyValuePerUser,
+                    automaticConversionRateDecimal,
+                    manualConversionRate,
+                    conversionRateInputType as ConversionRateInputType,
+                    numberOfVariants
+                ),
         ],
         recommendedRunningTime: [
             (s) => [s.recommendedSampleSize, s.uniqueUsers],
