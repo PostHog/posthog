@@ -34,7 +34,13 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=[table_name, "day_bucket"]),
-                    right=ast.Constant(value=self.runner.query_date_range.date_from()),
+                    right=ast.Constant(
+                        value=(
+                            self.runner.query_compare_to_date_range.date_from()
+                            if self.runner.query_compare_to_date_range
+                            else self.runner.query_date_range.date_from()
+                        )
+                    ),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
