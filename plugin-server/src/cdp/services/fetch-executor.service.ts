@@ -113,7 +113,7 @@ export class FetchExecutorService {
         // If we've exceeded retries, return all failures in trace
         return {
             invocation: cloneInvocation(invocation, {
-                queue: 'hog',
+                queue: params.return_queue,
                 queueParameters: {
                     response: response
                         ? {
