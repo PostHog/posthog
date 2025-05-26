@@ -69,11 +69,17 @@ class HobbyTester:
             "cd posthog \n"
             f'echo "Using branch: {self.branch}" \n'
             f"git checkout {self.branch} \n"
-            'echo "Current commit: $(git rev-parse HEAD)" \n'
+            "CURRENT_COMMIT=$(git rev-parse HEAD) \n"
+            'echo "Current commit: $CURRENT_COMMIT" \n'
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
-            f'echo "Installing PostHog version: {self.release_tag}" \n'
-            f"./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
+            f'if [ "{self.branch}" != "main" ] && [ "{self.branch}" != "master" ] && [ -n "{self.branch}" ]; then \n'
+            f'    echo "Using commit hash for feature branch deployment" \n'
+            f"    ./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
+            f"else \n"
+            f'     echo "Installing PostHog version: {self.release_tag}" \n'
+            f"    ./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
+            f"fi \n"
         )
 
     def block_until_droplet_is_started(self):
