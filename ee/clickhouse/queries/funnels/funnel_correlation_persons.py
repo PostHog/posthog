@@ -170,7 +170,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         extra_fields: Optional[list[str]] = None,
     ):
         if not self._filter.correlation_property_values:
-            raise ValidationError("Property Correlation expects atleast one Property to get persons for")
+            raise ValidationError("Property Correlation expects at least one Property to get persons for")
 
         (
             funnel_persons_query,

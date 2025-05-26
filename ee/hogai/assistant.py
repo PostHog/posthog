@@ -353,7 +353,7 @@ class Assistant:
                 if tool_call.name == "search_documentation":
                     return ReasoningMessage(content="Checking PostHog docs")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
-                # when the tool has been removed from the backend since the user's frontent was loaded
+                # when the tool has been removed from the backend since the user's frontend was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
                     content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"

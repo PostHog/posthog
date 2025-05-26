@@ -132,7 +132,7 @@ class RootNode(AssistantNode):
         tool_names = self._get_contextual_tools(config).keys()
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         if not is_editing_insight:
-            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
+            # This is the default tool, which can be overridden by the MaxTool based tool with the same name
             available_tools.append(create_and_query_insight)
         for tool_name in tool_names:
             try:

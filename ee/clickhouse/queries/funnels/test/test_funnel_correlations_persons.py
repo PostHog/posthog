@@ -539,7 +539,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             event_uuid="51111111-1111-1111-1111-111111111111",
         )
         _create_event(
-            event="insight loaded",  # Interupting event
+            event="insight loaded",  # Interrupting event
             distinct_id="user_2",
             team=self.team,
             timestamp=(timezone.now() + timedelta(minutes=3)),
