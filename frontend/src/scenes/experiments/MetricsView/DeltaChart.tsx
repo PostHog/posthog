@@ -8,6 +8,7 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
 import {
     calculateDelta,
     conversionRateForVariant,
@@ -15,7 +16,6 @@ import {
     credibleIntervalForVariant,
     exposureCountDataForVariant,
 } from '../experimentCalculations'
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
 import { ChartEmptyState } from './ChartEmptyState'
