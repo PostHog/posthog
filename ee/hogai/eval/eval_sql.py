@@ -1,8 +1,9 @@
 from ee.hogai.graph import InsightsAssistantGraph
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 from ee.models.assistant import Conversation
-from posthog.hogql.database.database import create_hogql_database
+from posthog.errors import InternalCHQueryError
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
 from .conftest import MaxEval
 import pytest
@@ -11,9 +12,6 @@ from braintrust_core.score import Scorer
 from asgiref.sync import sync_to_async
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
-from posthog.hogql.context import HogQLContext
 from posthog.schema import AssistantHogQLQuery, HumanMessage, NodeKind, VisualizationMessage
 from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
 
@@ -26,31 +24,29 @@ class SQLSyntaxCorrectness(Scorer):
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
         query = output["query"]
-        if not query or not hasattr(query, "query") or not query.query:
+        if not query or not getattr(query, "query", None):
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
         team = await Team.objects.alatest("created_at")
-        hogql_context = HogQLContext(team=team, database=await sync_to_async(create_hogql_database)(team=team))
         try:
-            # Try to parse and print the query
-            print_ast(parse_select(query.query), context=hogql_context, dialect="clickhouse")
-        except BaseHogQLError as e:
+            # Try to parse, print, and run the query
+            await sync_to_async(HogQLQueryRunner(query.model_dump(), team).calculate)()
+        except (BaseHogQLError, InternalCHQueryError) as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"SQL syntax error: {str(e)}"})
         else:
             return Score(name=self._name(), score=1.0)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         query = output["query"]
-        if not query or not hasattr(query, "query") or not query.query:
+        if not query or not getattr(query, "query", None):
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
         team = Team.objects.latest("created_at")
-        hogql_context = HogQLContext(team=team, database=create_hogql_database(team=team))
         try:
-            # Try to parse and print the query
-            print_ast(parse_select(query.query), context=hogql_context, dialect="clickhouse")
+            # Try to parse, print, and run the query
+            HogQLQueryRunner(query.model_dump(), team).calculate()
         except BaseHogQLError as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"SQL syntax error: {str(e)}"})
         else:
