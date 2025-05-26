@@ -118,7 +118,7 @@ export class HogFunctionMonitoringService {
                             result.logs.map((logEntry) => ({
                                 ...logEntry,
                                 team_id: result.invocation.teamId,
-                                log_source: 'hog_function',
+                                log_source: source,
                                 log_source_id: result.invocation.functionId,
                                 instance_id: result.invocation.id,
                             })),
