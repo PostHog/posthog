@@ -8,12 +8,12 @@ import { useEffect } from 'react'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
+import { HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
+import { humanizeHogFunctionType } from '../hog-function-utils'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
-import { humanizeHogFunctionType } from '../hog-function-utils'
 
 export function HogFunctionList({
     extraControls,
@@ -114,10 +114,10 @@ export function HogFunctionList({
                             key: 'enabled',
                             sorter: (a) => (a.enabled ? 1 : -1),
                             width: 0,
-                            render: function RenderStatus(_, destination) {
+                            render: function RenderStatus(_, hogFunction) {
                                 return (
                                     <>
-                                        {destination.enabled ? (
+                                        {hogFunction.enabled ? (
                                             <LemonTag type="success" className="uppercase">
                                                 Active
                                             </LemonTag>
@@ -132,24 +132,24 @@ export function HogFunctionList({
                         },
                         {
                             width: 0,
-                            render: function Render(_, destination) {
+                            render: function Render(_, hogFunction) {
                                 return (
                                     <More
                                         overlay={
                                             <LemonMenuOverlay
                                                 items={[
                                                     {
-                                                        label: destination.enabled ? 'Pause' : 'Unpause',
-                                                        onClick: () => toggleEnabled(destination, !destination.enabled),
+                                                        label: hogFunction.enabled ? 'Pause' : 'Unpause',
+                                                        onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
                                                         disabledReason:
-                                                            !canEnableHogFunction(destination) && !destination.enabled
-                                                                ? 'Data pipelines add-on is required for enabling new destinations'
+                                                            !canEnableHogFunction(hogFunction) && !hogFunction.enabled
+                                                                ? `Data pipelines add-on is required for enabling new ${humanizedType}`
                                                                 : undefined,
                                                     },
                                                     {
                                                         label: 'Delete',
                                                         status: 'danger' as const, // for typechecker happiness
-                                                        onClick: () => deleteHogFunction(destination),
+                                                        onClick: () => deleteHogFunction(hogFunction),
                                                     },
                                                 ]}
                                             />
@@ -164,14 +164,14 @@ export function HogFunctionList({
                             'No destinations found'
                         ) : (
                             <>
-                                No destinations matching filters.{' '}
+                                No {humanizedType}s matching filters.{' '}
                                 <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
                             </>
                         )
                     }
                     footer={
                         hiddenHogFunctions.length > 0 && (
-                            <div className="text-secondary">
+                            <div className="p-3 text-secondary">
                                 {hiddenHogFunctions.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                             </div>
                         )
