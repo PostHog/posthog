@@ -176,16 +176,19 @@ export class HogTransformerService {
 
                         // If the function is in a degraded state, skip it
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
-                            this.hogFunctionMonitoringService.produceAppMetric({
-                                team_id: event.team_id,
-                                app_source_id: hogFunction.id,
-                                metric_kind: 'failure',
-                                metric_name:
-                                    functionState === HogWatcherState.disabledForPeriod
-                                        ? 'disabled_temporarily'
-                                        : 'disabled_permanently',
-                                count: 1,
-                            })
+                            this.hogFunctionMonitoringService.produceAppMetric(
+                                {
+                                    team_id: event.team_id,
+                                    app_source_id: hogFunction.id,
+                                    metric_kind: 'failure',
+                                    metric_name:
+                                        functionState === HogWatcherState.disabledForPeriod
+                                            ? 'disabled_temporarily'
+                                            : 'disabled_permanently',
+                                    count: 1,
+                                },
+                                'hog_function'
+                            )
                             continue
                         }
                     }
@@ -196,7 +199,8 @@ export class HogTransformerService {
                     // Check if function has filters - if not, always apply
                     if (hogFunction.filters?.bytecode) {
                         const filterResults = filterFunctionInstrumented({
-                            hogFunction,
+                            fn: hogFunction,
+                            filters: hogFunction.filters,
                             filterGlobals,
                             eventUuid: globals.event?.uuid,
                         })

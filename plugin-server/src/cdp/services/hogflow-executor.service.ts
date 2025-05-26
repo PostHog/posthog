@@ -35,7 +35,7 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     constructor(private config: PluginsServerConfig) {}
 
-    buildHogFunctionInvocations(
+    buildHogFlowInvocations(
         hogFlows: HogFlow[],
         triggerGlobals: HogFunctionInvocationGlobals
     ): {

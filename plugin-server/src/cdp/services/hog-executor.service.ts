@@ -164,7 +164,7 @@ export class HogExecutorService {
             filterGlobals: HogFunctionFilterGlobals
         ) => {
             const filterResults = filterFunctionInstrumented({
-                hogFunction,
+                fn: hogFunction,
                 filters,
                 filterGlobals,
                 eventUuid: triggerGlobals.event.uuid,

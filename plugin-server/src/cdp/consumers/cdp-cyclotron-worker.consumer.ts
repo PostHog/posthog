@@ -100,13 +100,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             // TODO: Move this to the fetch consumer?
             if (item.invocation.queue === 'fetch') {
                 // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                this.hogFunctionMonitoringService.produceAppMetric({
-                    team_id: item.invocation.teamId,
-                    app_source_id: item.invocation.functionId,
-                    metric_kind: 'other',
-                    metric_name: 'fetch',
-                    count: 1,
-                })
+                this.hogFunctionMonitoringService.produceAppMetric(
+                    {
+                        team_id: item.invocation.teamId,
+                        app_source_id: item.invocation.functionId,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                    'hog_function'
+                )
             }
         })
     }

@@ -44,9 +44,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
-        const invocationsToBeQueued = await this.runWithHeartbeat(() =>
-            this.createHogFunctionInvocations(invocationGlobals)
-        )
+        const invocationsToBeQueued = [
+            ...(await this.runWithHeartbeat(() => this.createHogFunctionInvocations(invocationGlobals))),
+            ...(await this.runWithHeartbeat(() => this.createHogFlowInvocations(invocationGlobals))),
+        ]
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
@@ -84,8 +85,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         globals
                     )
 
-                    this.hogFunctionMonitoringService.produceAppMetrics(metrics)
-                    this.hogFunctionMonitoringService.produceLogs(logs)
+                    this.hogFunctionMonitoringService.produceAppMetrics(metrics, 'hog_function')
+                    this.hogFunctionMonitoringService.produceLogs(logs, 'hog_function')
 
                     return invocations
                 })
@@ -98,16 +99,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
-                    this.hogFunctionMonitoringService.produceAppMetric({
-                        team_id: item.teamId,
-                        app_source_id: item.functionId,
-                        metric_kind: 'failure',
-                        metric_name:
-                            state === HogWatcherState.disabledForPeriod
-                                ? 'disabled_temporarily'
-                                : 'disabled_permanently',
-                        count: 1,
-                    })
+                    this.hogFunctionMonitoringService.produceAppMetric(
+                        {
+                            team_id: item.teamId,
+                            app_source_id: item.functionId,
+                            metric_kind: 'failure',
+                            metric_name:
+                                state === HogWatcherState.disabledForPeriod
+                                    ? 'disabled_temporarily'
+                                    : 'disabled_permanently',
+                            count: 1,
+                        },
+                        'hog_function'
+                    )
                     return
                 }
 
@@ -128,10 +132,77 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     metric_kind: 'other',
                     metric_name: 'masked',
                     count: 1,
-                }))
+                })),
+                'hog_function'
             )
 
             return notMaskedInvocations
+        })
+    }
+
+    /**
+     * Finds all matching hog flows for the given globals.
+     * Filters them for their disabled state as well as masking configs
+     */
+    protected async createHogFlowInvocations(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<CyclotronJobInvocation[]> {
+        return await this.runInstrumented('handleEachBatch.queueMatchingFlows', async () => {
+            // TODO: Add back in group enrichment if necessary
+            // await this.groupsManager.enrichGroups(invocationGlobals)
+
+            const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+            const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
+
+            const possibleInvocations = (
+                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
+                    const teamHogFlows = hogFlowsByTeam[globals.project.id]
+
+                    const { invocations, metrics, logs } = this.hogFlowExecutor.buildHogFlowInvocations(
+                        teamHogFlows,
+                        globals
+                    )
+
+                    this.hogFunctionMonitoringService.produceAppMetrics(metrics, 'hog_flow')
+                    this.hogFunctionMonitoringService.produceLogs(logs, 'hog_flow')
+
+                    return invocations
+                })
+            ).flat()
+
+            const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFlow.id))
+            const validInvocations: CyclotronJobInvocation[] = []
+
+            // Iterate over adding them to the list and updating their priority
+            possibleInvocations.forEach((item) => {
+                const state = states[item.hogFlow.id].state
+                if (state >= HogWatcherState.disabledForPeriod) {
+                    this.hogFunctionMonitoringService.produceAppMetric(
+                        {
+                            team_id: item.teamId,
+                            app_source_id: item.functionId,
+                            metric_kind: 'failure',
+                            metric_name:
+                                state === HogWatcherState.disabledForPeriod
+                                    ? 'disabled_temporarily'
+                                    : 'disabled_permanently',
+                            count: 1,
+                        },
+                        'hog_flow'
+                    )
+                    return
+                }
+
+                if (state === HogWatcherState.degraded) {
+                    item.queuePriority = 2
+                }
+
+                validInvocations.push(item)
+            })
+
+            // TODO: Add back in Masking options
+
+            return validInvocations
         })
     }
 

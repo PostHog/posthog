@@ -57,9 +57,9 @@ export class HogFunctionMonitoringService {
         )
     }
 
-    produceAppMetric(metric: MinimalAppMetric) {
+    produceAppMetric(metric: MinimalAppMetric, source: 'hog_function' | 'hog_flow') {
         const appMetric: AppMetricType = {
-            app_source: 'hog_function',
+            app_source: source,
             ...metric,
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
         }
@@ -73,15 +73,15 @@ export class HogFunctionMonitoringService {
         })
     }
 
-    produceAppMetrics(metrics: MinimalAppMetric[]) {
-        metrics.forEach((metric) => this.produceAppMetric(metric))
+    produceAppMetrics(metrics: MinimalAppMetric[], source: 'hog_function' | 'hog_flow') {
+        metrics.forEach((metric) => this.produceAppMetric(metric, source))
     }
 
-    produceLogs(logEntries: LogEntry[]) {
+    produceLogs(logEntries: LogEntry[], source: 'hog_function' | 'hog_flow') {
         const logs = fixLogDeduplication(
             logEntries.map((logEntry) => ({
                 ...logEntry,
-                log_source: 'hog_function',
+                log_source: source,
             }))
         )
 
@@ -100,14 +100,18 @@ export class HogFunctionMonitoringService {
             func: async () => {
                 await Promise.all(
                     results.map(async (result) => {
+                        const source = 'hogFunction' in result.invocation ? 'hog_function' : 'hog_flow'
                         if (result.finished || result.error) {
-                            this.produceAppMetric({
-                                team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.functionId,
-                                metric_kind: result.error ? 'failure' : 'success',
-                                metric_name: result.error ? 'failed' : 'succeeded',
-                                count: 1,
-                            })
+                            this.produceAppMetric(
+                                {
+                                    team_id: result.invocation.teamId,
+                                    app_source_id: result.invocation.functionId,
+                                    metric_kind: result.error ? 'failure' : 'success',
+                                    metric_name: result.error ? 'failed' : 'succeeded',
+                                    count: 1,
+                                },
+                                source
+                            )
                         }
 
                         this.produceLogs(
@@ -117,11 +121,12 @@ export class HogFunctionMonitoringService {
                                 log_source: 'hog_function',
                                 log_source_id: result.invocation.functionId,
                                 instance_id: result.invocation.id,
-                            }))
+                            })),
+                            source
                         )
 
                         if (result.metrics) {
-                            this.produceAppMetrics(result.metrics)
+                            this.produceAppMetrics(result.metrics, source)
                         }
 
                         // Clear the logs so we don't pass them on to the next invocation
