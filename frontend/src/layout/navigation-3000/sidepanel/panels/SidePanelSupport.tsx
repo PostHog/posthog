@@ -53,7 +53,12 @@ const SupportResponseTimesTable = ({
     const { supportPlans } = useValues(billingLogic)
 
     const platformAndSupportProduct = billing?.products?.find((p) => p.type === 'platform_and_support')
-    const hasPlatformAndSupportAddon = platformAndSupportProduct?.addons?.find((a) => !!a.subscribed)
+    // Note(@zach): This is a legacy check that we can remove after migrating users off it.
+    const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
+        (a) => a.current_plan && a.plan_key?.includes('enterprise')
+    )
+    const hasPlatformAndSupportAddon =
+        platformAndSupportProduct?.addons?.find((a) => !!a.subscribed) || hasLegacyEnterprisePlan
 
     // Check for expired trials
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -64,7 +69,7 @@ const SupportResponseTimesTable = ({
     // Get support response time feature from plan
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name.replace(' add-on', '') === planName)
+        const plan = supportPlans?.find((p) => p.name === planName)
 
         // Return the support_response_time feature if found
         return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
@@ -95,7 +100,9 @@ const SupportResponseTimesTable = ({
         ...(platformAndSupportProduct?.addons?.map((addon) => {
             return {
                 name: addon.name,
-                current_plan: addon.subscribed && !hasActiveTrial,
+                // Note(@zach): This is a legacy check that we can remove after migrating users off it.
+                current_plan:
+                    (addon.subscribed || (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) && !hasActiveTrial,
                 features: [getResponseTimeFeature(addon.name) || { note: '1 business day' }],
                 plan_key: addon.type,
                 legacy_product: addon.legacy_product,
