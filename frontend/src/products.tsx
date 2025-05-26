@@ -8,7 +8,6 @@ import {
     IconDashboard,
     IconExternal,
     IconGraph,
-    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -35,6 +34,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 
+import { PRODUCT_VISUAL_ORDER } from './lib/constants'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
 import {
     ActionType,
@@ -45,7 +45,6 @@ import {
     RecordingUniversalFilters,
     ReplayTabs,
 } from './types'
-import { PRODUCT_VISUAL_ORDER } from './lib/constants'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -335,7 +334,7 @@ export const fileSystemTypes = {
     early_access_feature: {
         icon: <IconRocket />,
         href: (ref: string) => urls.earlyAccessFeature(ref),
-        iconColor: ['var(--product-early-access-features-light)'],
+        iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
     },
     experiment: {
         icon: <IconTestTube />,
