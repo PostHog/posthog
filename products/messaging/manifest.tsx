@@ -89,10 +89,15 @@ export const manifest: ProductManifest = {
     ],
     treeItemsProducts: [
         {
-            path: 'Messaging',
-            type: 'hog_function/broadcast',
+            path: 'Broadcasts',
             href: urls.messagingBroadcasts(),
-            flag: FEATURE_FLAGS.MESSAGING,
+            type: 'hog_function/broadcast',
+            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        },
+        {
+            path: 'Campaigns',
+            href: urls.messagingCampaigns(),
+            type: 'hog_function/campaign',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         },
     ],

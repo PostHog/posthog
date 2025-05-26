@@ -293,6 +293,8 @@ export const PRODUCT_VISUAL_ORDER = {
     heatmaps: 150,
     links: 160,
     messaging: 170,
+    persons: 180,
+    groups: 190,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -423,6 +423,20 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Broadcasts',
+        href: urls.messagingBroadcasts(),
+        type: 'hog_function/broadcast',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+    },
+    {
+        path: 'Campaigns',
+        href: urls.messagingCampaigns(),
+        type: 'hog_function/campaign',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+    },
+    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
+    { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
+    {
         path: `Experiments`,
         type: 'experiment',
         href: urls.experiments(),
@@ -434,6 +448,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.featureFlags(),
         visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
     },
+    { path: 'Group analytics', iconType: 'cohort', href: urls.groups(0), visualOrder: PRODUCT_VISUAL_ORDER.groups },
     {
         path: 'LLM observability',
         iconType: 'ai',
@@ -455,13 +470,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.LOGS,
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
     },
-    {
-        path: 'Messaging',
-        type: 'hog_function/broadcast',
-        href: urls.messagingBroadcasts(),
-        flag: FEATURE_FLAGS.MESSAGING,
-        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-    },
+    { path: 'Persons', iconType: 'cohort', href: urls.persons(), visualOrder: PRODUCT_VISUAL_ORDER.persons },
     {
         path: 'Product analytics',
         type: 'insight',
