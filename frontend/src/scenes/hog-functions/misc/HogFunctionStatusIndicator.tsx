@@ -35,8 +35,7 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
         description: (
             <>
                 The function has been disabled indefinitely due to too many slow or failed requests. Please check your
-                config. <br />
-                Updating your function will move it re-enable it.
+                config. Updating your function will re-enable it.
             </>
         ),
     },
