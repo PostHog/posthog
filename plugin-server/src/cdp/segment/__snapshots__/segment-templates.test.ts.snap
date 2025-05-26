@@ -1848,7 +1848,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Product Details",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.search_index}",
@@ -2010,7 +2010,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Product Details",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.search_index}",
@@ -2269,7 +2269,7 @@ exports[`segment templates template segment-algolia-insights matches expected re
           "label": "Filters",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.search_index}",
@@ -2827,7 +2827,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -3297,7 +3297,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$raw_user_agent}",
@@ -3741,7 +3741,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4202,7 +4202,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4715,7 +4715,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Addresses",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4749,7 +4749,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Email Marketing Consent",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4763,7 +4763,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Metafield",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -4777,7 +4777,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "SMS Marketing Consent",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "saveUser",
@@ -4932,7 +4932,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -5106,7 +5106,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -5285,7 +5285,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -5522,7 +5522,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -5759,7 +5759,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -5996,7 +5996,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6233,7 +6233,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6470,7 +6470,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Checkout Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6702,7 +6702,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6734,7 +6734,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Collection Product Variants",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -6904,7 +6904,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -6924,7 +6924,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Search Results",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.query}",
@@ -7090,7 +7090,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -7251,7 +7251,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -7425,7 +7425,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -7615,7 +7615,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Cart Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -7648,7 +7648,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Form Elements",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "choices": [
@@ -7717,7 +7717,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Line items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -7875,7 +7875,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Discount Applications",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -7888,7 +7888,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Discount Codes",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.email ?? person.properties.email}",
@@ -8182,7 +8182,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Additional Fields",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "saveOrder",
@@ -11717,7 +11717,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Line Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{[event.properties.coupon]}",
@@ -11972,7 +11972,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "UTMs",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -11985,7 +11985,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Devices",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{person.properties.totalSpent}",
@@ -14733,7 +14733,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "label": "Cart items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "updateCart",
@@ -14818,7 +14818,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "label": "Cart items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.total}",
@@ -18071,7 +18071,7 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.event}",
@@ -19377,7 +19377,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.query}",
@@ -19622,7 +19622,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -19873,7 +19873,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20109,7 +20109,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20345,7 +20345,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20572,7 +20572,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -20799,7 +20799,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": {
@@ -21038,7 +21038,7 @@ exports[`segment templates template segment-moloco-rmp matches expected result 1
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$pathname}",
@@ -21295,7 +21295,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21401,7 +21401,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21507,7 +21507,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -21613,7 +21613,7 @@ exports[`segment templates template segment-optimizely-data-platform matches exp
           "label": "Product details",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.order_id}",
@@ -26841,7 +26841,7 @@ exports[`segment templates template segment-recombee matches expected result 1`]
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.timestamp}",
@@ -27885,7 +27885,7 @@ exports[`segment templates template segment-revx matches expected result 1`] = `
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "{event.properties.$geoip_latitude}",
@@ -29575,7 +29575,7 @@ exports[`segment templates template segment-stackadapt-cloud matches expected re
           "label": "Products",
           "required": false,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "forwardEvent",
@@ -30150,7 +30150,7 @@ exports[`segment templates template segment-topsort matches expected result 1`] 
           "label": "Items",
           "required": true,
           "secret": false,
-          "type": "dictionary",
+          "type": "string",
         },
         {
           "default": "purchase",
