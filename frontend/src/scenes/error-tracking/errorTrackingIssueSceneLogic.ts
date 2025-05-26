@@ -82,7 +82,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     }),
 
-    selectors({
+    selectors(({ asyncActions }) => ({
         breadcrumbs: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
@@ -96,14 +96,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
-                        onRename: issue
-                            ? async (name: string) => {
-                                  const mounted = errorTrackingIssueSceneLogic.findMounted({ id: issue.id })
-                                  if (mounted) {
-                                      await mounted.asyncActions.updateName(name)
-                                  }
-                              }
-                            : undefined,
+                        onRename: async (name: string) => {
+                            return await asyncActions.updateName(name)
+                        },
                     },
                 ]
             },
@@ -137,7 +132,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
-    }),
+    })),
 
     loaders(({ values, actions, props }) => ({
         issue: {
