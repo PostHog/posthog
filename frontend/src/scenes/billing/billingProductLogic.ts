@@ -224,7 +224,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return false
                 }
 
-                const parentProduct = billing.products.find((product: any) =>
+                const parentProduct = billing?.products.find((product: any) =>
                     product.addons.find((a: BillingProductV2AddonType) => a.type === addon.type)
                 )
                 if (!parentProduct) {
