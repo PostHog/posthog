@@ -128,6 +128,15 @@ export class FetchExecutorService {
             }),
             finished: false,
             logs: [],
+            metrics: [
+                {
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.hogFunction.id,
+                    metric_kind: 'other',
+                    metric_name: 'fetch',
+                    count: 1,
+                },
+            ],
         }
     }
 
@@ -184,6 +193,15 @@ export class FetchExecutorService {
             }),
             finished: false,
             logs: [],
+            metrics: [
+                {
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.hogFunction.id,
+                    metric_kind: 'other',
+                    metric_name: 'fetch',
+                    count: 1,
+                },
+            ],
         }
     }
 }

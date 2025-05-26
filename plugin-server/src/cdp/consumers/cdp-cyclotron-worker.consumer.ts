@@ -7,7 +7,6 @@ import {
     HogFunctionAppMetric,
     HogFunctionInvocation,
     HogFunctionInvocationJobQueue,
-    HogFunctionInvocationLogEntry,
     HogFunctionInvocationResult,
     HogFunctionTypeType,
     LogEntry,
@@ -45,6 +44,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
         while (!result || !result.finished) {
             const nextInvocation = result?.invocation ?? invocation
+
             if (nextInvocation.queue === 'hog') {
                 result = this.hogExecutor.execute(nextInvocation)
                 // Heartbeat and free the event loop to handle health checks
@@ -58,6 +58,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 }
                 result = await this.fetchExecutor.execute(nextInvocation)
                 performedAsyncRequest = true
+            } else {
+                throw new Error(`Unhandled queue: ${nextInvocation.queue}`)
             }
 
             result?.logs?.forEach((log) => {
@@ -119,18 +121,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
-        invocations.forEach((item) => {
-            if (item.invocation.queue === 'fetch') {
-                // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                this.hogFunctionMonitoringService.queueAppMetric({
-                    team_id: item.invocation.teamId,
-                    app_source_id: item.invocation.hogFunction.id,
-                    metric_kind: 'other',
-                    metric_name: 'fetch',
-                    count: 1,
-                })
-            }
-        })
     }
 
     public async start() {
