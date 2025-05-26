@@ -1934,9 +1934,6 @@ importers:
       '@types/react':
         specifier: '*'
         version: 17.0.52
-      '@xyflow/react':
-        specifier: '*'
-        version: 12.6.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       clsx:
         specifier: '*'
         version: 1.2.1
@@ -7112,9 +7109,6 @@ packages:
   '@types/d3-drag@3.0.1':
     resolution: {integrity: sha512-o1Va7bLwwk6h03+nSM8dpaGEYnoIG19P0lKqlic8Un36ymh9NSkNFX1yiXMKNMx8rJ0Kfnn2eovuFaL6Jvj0zA==}
 
-  '@types/d3-drag@3.0.7':
-    resolution: {integrity: sha512-HE3jVKlzU9AaMazNufooRJ5ZpWmLIoc90A37WU2JMmeq28w1FQqCZswHZ3xR+SuxYftzHq6WU6KJHvqxKzTxxQ==}
-
   '@types/d3-dsv@3.0.0':
     resolution: {integrity: sha512-o0/7RlMl9p5n6FQDptuJVMxDf/7EDEv2SYEO/CwdG2tr1hTfUVi0Iavkk2ax+VpaQ/1jVhpnj5rq1nj8vwhn2A==}
 
@@ -7163,9 +7157,6 @@ packages:
   '@types/d3-scale@4.0.2':
     resolution: {integrity: sha512-Yk4htunhPAwN0XGlIwArRomOjdoBFXC3+kCxK2Ubg7I9shQlVSJy/pG/Ht5ASN+gdMIalpk8TJ5xV74jFsetLA==}
 
-  '@types/d3-selection@3.0.11':
-    resolution: {integrity: sha512-bhAXu23DJWsrI45xafYpkQ4NtcKMwWnAC/vKrd2l+nxMFuvOT3XMYTIj2opv8vq8AO5Yh7Qac/nSeP/3zjTK0w==}
-
   '@types/d3-selection@3.0.3':
     resolution: {integrity: sha512-Mw5cf6nlW1MlefpD9zrshZ+DAWL4IQ5LnWfRheW6xwsdaWOb6IRRu2H7XPAQcyXEx1D7XQWgdoKR83ui1/HlEA==}
 
@@ -7187,14 +7178,8 @@ packages:
   '@types/d3-transition@3.0.2':
     resolution: {integrity: sha512-jo5o/Rf+/u6uerJ/963Dc39NI16FQzqwOc54bwvksGAdVfvDrqDpVeq95bEvPtBwLCVZutAEyAtmSyEMxN7vxQ==}
 
-  '@types/d3-transition@3.0.9':
-    resolution: {integrity: sha512-uZS5shfxzO3rGlu0cC3bjmMFKsXv+SmZZcgp0KD22ts4uGXp5EVYGzu/0YdwZeKmddhcAccYtREJKkPfXkZuCg==}
-
   '@types/d3-zoom@3.0.1':
     resolution: {integrity: sha512-7s5L9TjfqIYQmQQEUcpMAcBOahem7TRoSO/+Gkz02GbMVuULiZzjF2BOdw291dbO2aNon4m2OdFsRGaCq2caLQ==}
-
-  '@types/d3-zoom@3.0.8':
-    resolution: {integrity: sha512-iqMC4/YlFCSlO8+2Ii1GGGliCAY4XdeG748w5vQUbevlbDu0zSjH/+jojorQVBK/se0j6DUFNPBGSqD3YWYnDw==}
 
   '@types/d3@7.4.3':
     resolution: {integrity: sha512-lZXZ9ckh5R8uiFVt8ogUNf+pIrK4EsWrx2Np75WvF/eTpJ0FMHNhjXk8CKEx/+gpHbNQyJWehbFaTvqmHWB3ww==}
@@ -7747,15 +7732,6 @@ packages:
 
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
-
-  '@xyflow/react@12.6.0':
-    resolution: {integrity: sha512-YzsSK4SlpC6e9Ki1g6O9B1UH7xvz/bzWF+tJ+vWDD8Am5xJmFn0jYnCEuqvzvH8dRKb1NFBmyuqEGqWN39xXsA==}
-    peerDependencies:
-      react: '>=17'
-      react-dom: '>=17'
-
-  '@xyflow/system@0.0.57':
-    resolution: {integrity: sha512-1YpBo0WgmZLR5wQw9Jvk3Tu0gISi/oYc4uSimrDuAsA/G2rGleulLrKkM59uuT/QU5m6DYC2VdBDAzjSNMGuBA==}
 
   '@yarnpkg/esbuild-plugin-pnp@3.0.0-rc.15':
     resolution: {integrity: sha512-kYzDJO5CA9sy+on/s2aIW0411AklfCi8Ck/4QDivOqsMKpStZA2SsR+X27VTggGwpStWaLrjJcDcdDMowtG8MA==}
@@ -8678,9 +8654,6 @@ packages:
 
   cjs-module-lexer@1.4.3:
     resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
-
-  classcat@5.0.5:
-    resolution: {integrity: sha512-JhZUT7JFcQy/EzW605k/ktHtncoo9vnyW/2GspNYwFlN1C/WmjuV/xtS04e9SOkL2sTdw0VAZ2UGCcQ9lR6p6w==}
 
   classnames@2.5.1:
     resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
@@ -16393,11 +16366,6 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
 
-  use-sync-external-store@1.5.0:
-    resolution: {integrity: sha512-Rb46I4cGGVBmjamjphe8L/UnvJD+uPPtTkNvX5mZgqdbavhI4EbgIWJiIHXJ8bc/i9EQGPRh4DwEURJ552Do0A==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
@@ -16837,21 +16805,6 @@ packages:
 
   zod@3.24.1:
     resolution: {integrity: sha512-muH7gBL9sI1nciMZV67X5fTKKBLtwpZ5VBp1vsOQzj1MhrBZ4wlVCm3gedKZWLp0Oyel8sIGfeiz54Su+OVT+A==}
-
-  zustand@4.5.6:
-    resolution: {integrity: sha512-ibr/n1hBzLLj5Y+yUcU7dYw8p6WnIVzdJbnX+1YpaScvZVF2ziugqHs+LAmHw4lWO9c/zRj+K1ncgWDQuthEdQ==}
-    engines: {node: '>=12.7.0'}
-    peerDependencies:
-      '@types/react': '>=16.8'
-      immer: '>=9.0.6'
-      react: '>=16.8'
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      immer:
-        optional: true
-      react:
-        optional: true
 
   zxcvbn@4.4.2:
     resolution: {integrity: sha512-Bq0B+ixT/DMyG8kgX2xWcI5jUvCwqrMxSFam7m0lAf78nf04hv6lNCsyLYdyYTrCVMqNDY/206K7eExYCeSyUQ==}
@@ -23751,10 +23704,6 @@ snapshots:
     dependencies:
       '@types/d3-selection': 3.0.3
 
-  '@types/d3-drag@3.0.7':
-    dependencies:
-      '@types/d3-selection': 3.0.11
-
   '@types/d3-dsv@3.0.0': {}
 
   '@types/d3-ease@3.0.0': {}
@@ -23797,8 +23746,6 @@ snapshots:
     dependencies:
       '@types/d3-time': 3.0.0
 
-  '@types/d3-selection@3.0.11': {}
-
   '@types/d3-selection@3.0.3': {}
 
   '@types/d3-shape@1.3.8':
@@ -23819,19 +23766,10 @@ snapshots:
     dependencies:
       '@types/d3-selection': 3.0.3
 
-  '@types/d3-transition@3.0.9':
-    dependencies:
-      '@types/d3-selection': 3.0.11
-
   '@types/d3-zoom@3.0.1':
     dependencies:
       '@types/d3-interpolate': 3.0.1
       '@types/d3-selection': 3.0.3
-
-  '@types/d3-zoom@3.0.8':
-    dependencies:
-      '@types/d3-interpolate': 3.0.1
-      '@types/d3-selection': 3.0.11
 
   '@types/d3@7.4.3':
     dependencies:
@@ -24509,27 +24447,6 @@ snapshots:
   '@xtuc/ieee754@1.2.0': {}
 
   '@xtuc/long@4.2.2': {}
-
-  '@xyflow/react@12.6.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
-    dependencies:
-      '@xyflow/system': 0.0.57
-      classcat: 5.0.5
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-      zustand: 4.5.6(@types/react@17.0.52)(react@18.2.0)
-    transitivePeerDependencies:
-      - '@types/react'
-      - immer
-
-  '@xyflow/system@0.0.57':
-    dependencies:
-      '@types/d3-drag': 3.0.7
-      '@types/d3-selection': 3.0.11
-      '@types/d3-transition': 3.0.9
-      '@types/d3-zoom': 3.0.8
-      d3-drag: 3.0.0
-      d3-selection: 3.0.0
-      d3-zoom: 3.0.0
 
   '@yarnpkg/esbuild-plugin-pnp@3.0.0-rc.15(esbuild@0.18.20)':
     dependencies:
@@ -25697,8 +25614,6 @@ snapshots:
       safe-buffer: 5.2.1
 
   cjs-module-lexer@1.4.3: {}
-
-  classcat@5.0.5: {}
 
   classnames@2.5.1: {}
 
@@ -35428,10 +35343,6 @@ snapshots:
     dependencies:
       react: 18.2.0
 
-  use-sync-external-store@1.5.0(react@18.2.0):
-    dependencies:
-      react: 18.2.0
-
   util-deprecate@1.0.2: {}
 
   util-extend@1.0.3: {}
@@ -35985,12 +35896,5 @@ snapshots:
   yocto-queue@1.0.0: {}
 
   zod@3.24.1: {}
-
-  zustand@4.5.6(@types/react@17.0.52)(react@18.2.0):
-    dependencies:
-      use-sync-external-store: 1.5.0(react@18.2.0)
-    optionalDependencies:
-      '@types/react': 17.0.52
-      react: 18.2.0
 
   zxcvbn@4.4.2: {}

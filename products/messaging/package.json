@@ -3,7 +3,6 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
-        "@xyflow/react": "*",
         "clsx": "*",
         "fuse.js": "*",
         "kea": "*",
