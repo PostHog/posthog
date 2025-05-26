@@ -33,20 +33,20 @@ You'll need to set env vars OPENAI_API_KEY and ANTHROPIC_API_KEY in order to hac
         name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
         description: str = "What this tool does"
         thinking_message: str = "What to show while tool is working"
-        root_system_prompt_template: str = "Context about the tool state: {context_var}" 
+        root_system_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
 
         def _run_impl(self, parameter_name: str) -> tuple[str, Any]:
             # Implement tool logic here
             # Access context with self.context (must have context_var from template)
-            
+
             # Optional: Use LLM to process inputs or generate structured outputs
             model = (
                 ChatOpenAI(model="gpt-4o", temperature=0.2)
                 .with_structured_output(OutputType)
                 .with_retry()
             )
-            
+
             # Process and return results as (message, structured_data)
             return "Tool execution completed", result_data
     ```
@@ -65,7 +65,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 function YourComponent() {
     return (
         <MaxTool
-            name="your_tool_name"  // Must match backend tool name - enforced by the AssistantContextualTool enum
+            name="your_tool_name" // Must match backend tool name - enforced by the AssistantContextualTool enum
             displayName="Human-friendly name"
             context={{
                 // Context data passed to backend - can be empty if there truly is no context
@@ -73,7 +73,7 @@ function YourComponent() {
             }}
             callback={(toolOutput) => {
                 // Handle structured output from tool
-                updateUIWithToolResults(toolOutput);
+                updateUIWithToolResults(toolOutput)
             }}
             initialMaxPrompt="Optional initial prompt for Max"
             onMaxOpen={() => {
@@ -99,9 +99,9 @@ If you've got any requests for Max, including around tools, let us know at #team
 
 ## Best practices for LLM-based tools
 
-- Provide comprehensive context about current state from the frontend
-- Test with diverse inputs and edge cases
-- Keep prompts clear and structured with explicit rules
-- Allow users to both get things done from scratch, and refine what's already there
+-   Provide comprehensive context about current state from the frontend
+-   Test with diverse inputs and edge cases
+-   Keep prompts clear and structured with explicit rules
+-   Allow users to both get things done from scratch, and refine what's already there
 
 For a _lot_ of great detail on prompting, check out the [GPT-4.1 prompting guide](https://cookbook.openai.com/examples/gpt4-1_prompting_guide). While somewhat GPT-4.1 specific, those principles largely apply to LLMs overall.

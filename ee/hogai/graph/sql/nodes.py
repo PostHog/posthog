@@ -5,16 +5,17 @@ from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNo
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ..schema_generator.utils import SchemaGeneratorOutput
 from ..taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from .prompts import SQL_REACT_SYSTEM_PROMPT
+from .prompts import SQL_REACT_SYSTEM_PROMPT, description_for_table
 from .toolkit import SQL_SCHEMA, SQLTaxonomyAgentToolkit
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import HOGQL_EXAMPLE_MESSAGE, IDENTITY_MESSAGE, SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import create_hogql_database, serialize_database, DatabaseSchemaTable
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.schema import AssistantHogQLQuery
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 
 
 class SQLPlannerNode(TaxonomyAgentPlannerNode):
@@ -52,11 +53,9 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         serialized_database = serialize_database(self.hogql_context)
         schema_description = "\n\n".join(
             (
-                f"Table `{table_name}` with fields:\n"
-                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+                self._schema_description_for_table(table_name, table)
                 for table_name, table in serialized_database.items()
-                # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                if self._should_include_table_in_schema(table_name, table)
             )
         )
 
@@ -74,6 +73,28 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
             template_format="mustache",
         )
         return super()._run_with_prompt(state, prompt, config=config)
+
+    def _schema_description_for_table(self, table_name: str, table: DatabaseSchemaTable) -> str:
+        # Initial header
+        schema_description = f"Table `{table_name}`\n"
+
+        # Optional description extracted from the table
+        description = description_for_table(table)
+        if description:
+            schema_description += f"When to use this table: {description}\n"
+
+        # Each individual field with their type
+        schema_description += "Fields:\n"
+        schema_description += "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+
+        return schema_description
+
+    def _should_include_table_in_schema(self, table_name: str, table: DatabaseSchemaTable) -> bool:
+        return (
+            table_name in ["events", "groups", "persons"]  # Core relevant tables
+            or table_name in self.hogql_context.database.get_warehouse_tables()  # DWH tables are always relevant
+            or isinstance(table, RevenueAnalyticsBaseView)  # Include RA views to power revenue-related questions
+        )
 
     def _parse_output(self, output):  # type: ignore
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore

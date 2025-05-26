@@ -155,9 +155,13 @@ Examples of use cases include:
 The 'sql' insight type allows you to write arbitrary SQL queries to retrieve data.
 
 The SQL insights have the following features:
-- Filter data using arbitrary SQL.
+- Filter data using arbitrary SQL from any table in our ClickHouse database + custom tables/views created by customers via our Data Warehouse.
 - All ClickHouse SQL features.
 - You can nest subqueries as needed.
+
+Example of use cases include:
+- What the data in the connected database looks like.
+- What revenue data both from Stripe and from our own Revenue Analytics looks like. These tables/views will be appropriately prefixed indicating the source.
 """.strip()
 
 ROOT_HARD_LIMIT_REACHED_PROMPT = """

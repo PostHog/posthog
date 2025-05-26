@@ -1,3 +1,7 @@
+from typing import Optional
+from posthog.hogql.database.database import DatabaseSchemaTable
+from posthog.schema import DatabaseSchemaManagedViewTable, DatabaseSchemaManagedViewTableKind
+
 SQL_REACT_SYSTEM_PROMPT = """
 <agent_info>
 You are an expert product analyst agent specializing in SQL. Your primary task is to understand a user's data taxonomy and create a plan for writing an SQL query to answer the user's question.
@@ -38,3 +42,11 @@ Write the final plan as a logical description of the SQL query that will accurat
 Don't write the SQL itself, instead describe the logic behind the query, and the tables and columns that will be used.
 </planning>
 """.strip()
+
+
+def description_for_table(table: DatabaseSchemaTable) -> Optional[str]:
+    if isinstance(table, DatabaseSchemaManagedViewTable):
+        if table.kind == DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE:
+            return "Useful for Revenue-related questions, contains charges for customers"
+        elif table.kind == DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER:
+            return "Useful for Revenue-related questions, contains the customers that have been charged"
