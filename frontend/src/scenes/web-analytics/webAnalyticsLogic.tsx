@@ -12,6 +12,9 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -28,6 +31,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DatabaseSchemaDataWarehouseTable,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -51,6 +55,7 @@ import {
     Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
+    ExternalDataSource,
     FilterLogicalOperator,
     InsightLogicProps,
     InsightType,
@@ -115,6 +120,7 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
+    MARKETING = 'MARKETING',
 }
 
 export enum ProductTab {
@@ -122,6 +128,7 @@ export enum ProductTab {
     WEB_VITALS = 'web-vitals',
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
+    MARKETING = 'marketing',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -168,6 +175,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
+    [TileId.MARKETING]: 16,
 }
 
 export interface BaseTile {
@@ -391,6 +399,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
+            dataWarehouseSceneLogic,
+            ['dataWarehouseTablesBySourceType'],
+            databaseTableListLogic,
+            ['database', 'managedViews', 'dataWarehouseTables'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
         ],
     })),
     actions({
@@ -720,6 +734,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        enabledDataWarehouseSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources?: { results: ExternalDataSource[] }): ExternalDataSource[] => {
+                return dataWarehouseSources?.results?.filter((source) => source.revenue_analytics_enabled) ?? []
+            },
+        ],
+        dataWarehouseTables_2: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables?: DatabaseSchemaDataWarehouseTable[]): DatabaseSchemaDataWarehouseTable[] => {
+                return dataWarehouseTables ?? []
+            },
+        ],
         breadcrumbs: [
             (s) => [s.productTab],
             (productTab: ProductTab): Breadcrumb[] => {
@@ -744,6 +770,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         key: Scene.WebAnalyticsPageReports,
                         name: `Page reports`,
                         path: urls.webAnalyticsPageReports(),
+                    })
+                }
+
+                if (productTab === ProductTab.MARKETING) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsMarketing,
+                        name: `Marketing`,
+                        path: urls.webAnalyticsMarketing(),
                     })
                 }
 
@@ -1187,6 +1221,84 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 ),
                                 loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
                                 dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                            },
+                        },
+                    ]
+                }
+
+                if (productTab === ProductTab.MARKETING) {
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.MARKETING,
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                                orderWhenLargeClassName: 'xxl:order-1',
+                            },
+                            title: 'Marketing Costs',
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                embedded: true,
+                                hidePersonsModal: true,
+                                hideTooltipOnScroll: true,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    series: [
+                                        {
+                                            kind: NodeKind.DataWarehouseNode,
+                                            id: 'bigquery.google_ads_test1.google_ads_2',
+                                            name: 'bigquery.google_ads_test1.google_ads_2',
+                                            custom_name: 'Google Ads Cost',
+                                            id_field: 'id',
+                                            distinct_id_field: 'id',
+                                            timestamp_field: 'date',
+                                            table_name: 'bigquery.google_ads_test1.google_ads_2',
+                                            math: PropertyMathType.Sum,
+                                            math_property: 'cost',
+                                        },
+                                        {
+                                            kind: NodeKind.DataWarehouseNode,
+                                            id: 'bigquery.google_ads_test1.linkedin_ads',
+                                            name: 'bigquery.google_ads_test1.linkedin_ads',
+                                            custom_name: 'LinkedIn Ads Cost',
+                                            id_field: 'id',
+                                            distinct_id_field: 'id',
+                                            timestamp_field: 'daily',
+                                            table_name: 'bigquery.google_ads_test1.linkedin_ads',
+                                            math: PropertyMathType.Sum,
+                                            math_property: 'costinusd',
+                                        },
+                                        {
+                                            kind: NodeKind.DataWarehouseNode,
+                                            id: 'bigquery.google_ads_test1.bing_ads',
+                                            name: 'bigquery.google_ads_test1.bing_ads',
+                                            custom_name: 'Bing Ads Cost',
+                                            id_field: 'id',
+                                            distinct_id_field: 'id',
+                                            timestamp_field: 'daily',
+                                            table_name: 'bigquery.google_ads_test1.bing_ads',
+                                            math: PropertyMathType.Sum,
+                                            math_property: 'spend',
+                                        },
+                                    ],
+                                    interval: 'week',
+                                    dateRange: {
+                                        date_from: 'all',
+                                        date_to: null,
+                                    },
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsLineGraph,
+                                        aggregationAxisFormat: 'numeric',
+                                        aggregationAxisPrefix: '$',
+                                    },
+                                },
+                            },
+                            insightProps: createInsightProps(TileId.MARKETING),
+                            canOpenInsight: true,
+                            canOpenModal: false,
+                            docs: {
+                                title: 'Marketing Costs',
+                                description: 'Track cost from your Google Ads, LinkedIn Ads, and Bing Ads campaigns.',
                             },
                         },
                     ]
@@ -2465,6 +2577,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
+            } else if (productTab === ProductTab.MARKETING) {
+                basePath = '/web/marketing'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
@@ -2524,7 +2638,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTab = ProductTab.ANALYTICS
             }
 
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
+            if (
+                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
+                    productTab
+                )
+            ) {
                 return
             }
 

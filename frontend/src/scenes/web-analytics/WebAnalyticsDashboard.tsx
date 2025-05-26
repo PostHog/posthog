@@ -434,6 +434,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             tabs={[
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]
+                                    ? [{ key: ProductTab.MARKETING, label: 'Marketing' }]
+                                    : []),
                                 ...pageReportsTab(featureFlags),
                             ]}
                         />
