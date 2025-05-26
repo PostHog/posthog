@@ -144,7 +144,7 @@ describe('CdpCyclotronWorker', () => {
                 "Suspending function due to async function call 'fetch'. Payload: 1239 bytes. Event: uuid",
             ])
 
-            // Now invoke the it again
+            // Now invoke the result again
 
             const results2 = await processor.processInvocations([result.invocation])
             const result2 = results2[0]
