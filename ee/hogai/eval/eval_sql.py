@@ -32,8 +32,10 @@ class SQLSyntaxCorrectness(Scorer):
         try:
             # Try to parse, print, and run the query
             await sync_to_async(HogQLQueryRunner(query.model_dump(), team).calculate)()
-        except (BaseHogQLError, InternalCHQueryError) as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"SQL syntax error: {str(e)}"})
+        except BaseHogQLError as e:
+            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
+        except InternalCHQueryError as e:
+            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
         else:
             return Score(name=self._name(), score=1.0)
 
@@ -48,7 +50,9 @@ class SQLSyntaxCorrectness(Scorer):
             # Try to parse, print, and run the query
             HogQLQueryRunner(query.model_dump(), team).calculate()
         except BaseHogQLError as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"SQL syntax error: {str(e)}"})
+            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
+        except InternalCHQueryError as e:
+            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
         else:
             return Score(name=self._name(), score=1.0)
 
