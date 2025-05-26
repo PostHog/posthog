@@ -256,7 +256,7 @@ export class CdpApi {
                             errors.push(response.error)
                         }
 
-                        await this.hogFunctionMonitoringService.processInvocationResults([response])
+                        await this.hogFunctionMonitoringService.queueInvocationResults([response])
                     }
                 }
 

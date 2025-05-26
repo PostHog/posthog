@@ -14,7 +14,7 @@ export type HogBytecode = any[]
 
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
-    id: string
+    id: string | null
     name?: string | null
     order?: number
     properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter)[]

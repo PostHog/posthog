@@ -74,19 +74,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
             // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
             return Promise.allSettled([
-                this.hogFunctionMonitoringService.processInvocationResults(invocationResults).catch((err) => {
-                    captureException(err)
-                    logger.error('Error processing invocation results', { err })
-                }),
-
+                this.hogFunctionMonitoringService
+                    .queueInvocationResults(invocationResults)
+                    .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
+                    .catch((err) => {
+                        captureException(err)
+                        logger.error('Error processing invocation results', { err })
+                    }),
                 this.hogWatcher.observeResults(invocationResults).catch((err) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
-                }),
-
-                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
-                    captureException(err)
-                    logger.error('Error producing queued messages for monitoring', { err })
                 }),
             ])
         })
@@ -100,7 +97,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             // TODO: Move this to the fetch consumer?
             if (item.invocation.queue === 'fetch') {
                 // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                this.hogFunctionMonitoringService.produceAppMetric(
+                this.hogFunctionMonitoringService.queueAppMetric(
                     {
                         team_id: item.invocation.teamId,
                         app_source_id: item.invocation.functionId,

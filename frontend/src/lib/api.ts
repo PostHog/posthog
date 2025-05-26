@@ -25,6 +25,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    PersistedFolder,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -429,6 +430,14 @@ class ApiRequest {
 
     public fileSystemShortcutDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystemShortcut(projectId).addPathComponent(id)
+    }
+
+    // # Persisted folder
+    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
+    }
+    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # Plugins
@@ -1431,6 +1440,18 @@ const api = {
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
+        },
+    },
+
+    persistedFolder: {
+        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
+            return await new ApiRequest().persistedFolder().get()
+        },
+        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
+            return await new ApiRequest().persistedFolder().create({ data })
+        },
+        async delete(id: PersistedFolder['id']): Promise<void> {
+            return await new ApiRequest().persistedFolderDetail(id).delete()
         },
     },
 

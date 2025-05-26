@@ -25,7 +25,7 @@ const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[]
     return {
         events: [
             {
-                id: 'All events',
+                id: null,
                 name: 'All events',
                 type: 'events',
                 order: 0,

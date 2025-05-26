@@ -224,7 +224,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw e
                     })
 
-                    const parsedSnapshots = await parseEncodedSnapshots(response, props.sessionRecordingId)
+                    // sorting is very cheap for already sorted lists
+                    const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
+                        (a, b) => a.timestamp - b.timestamp
+                    )
                     return { snapshots: parsedSnapshots, source }
                 },
             },

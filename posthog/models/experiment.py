@@ -47,6 +47,7 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
+    deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
@@ -92,7 +93,7 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
-        base_qs = cls.objects.filter(team=team)
+        base_qs = cls.objects.filter(team=team).exclude(deleted=True)
         return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:

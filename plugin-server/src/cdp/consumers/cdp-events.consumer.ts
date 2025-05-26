@@ -85,8 +85,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         globals
                     )
 
-                    this.hogFunctionMonitoringService.produceAppMetrics(metrics, 'hog_function')
-                    this.hogFunctionMonitoringService.produceLogs(logs, 'hog_function')
+                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
+                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
 
                     return invocations
                 })
@@ -99,7 +99,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
-                    this.hogFunctionMonitoringService.produceAppMetric(
+                    this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,
@@ -125,7 +125,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // Now we can filter by masking configs
             const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
 
-            this.hogFunctionMonitoringService.produceAppMetrics(
+            this.hogFunctionMonitoringService.queueAppMetrics(
                 masked.map((item) => ({
                     team_id: item.teamId,
                     app_source_id: item.functionId,

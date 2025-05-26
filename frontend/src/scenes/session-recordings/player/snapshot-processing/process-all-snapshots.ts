@@ -39,16 +39,19 @@ export function processAllSnapshots(
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
 
+    let metaCount = 0
+    let fullSnapshotCount = 0
+
     // we loop over this data as little as possible,
     // since it could be large and processed more than once,
     // so we need to do as little as possible, as fast as possible
-    let needToPatchMeta = false
-
     for (const source of sources) {
         const sourceKey = keyForSource(source)
-        const sourceSnapshots = snapshotsBySource?.[sourceKey]?.snapshots || []
+        // sorting is very cheap for already sorted lists
+        const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
+            (a, b) => a.timestamp - b.timestamp
+        )
 
-        let sawMeta = false
         for (const snapshot of sourceSnapshots) {
             const { delay: _delay, ...delayFreeSnapshot } = snapshot
 
@@ -60,21 +63,14 @@ export function processAllSnapshots(
             }
             seenHashes.add(key)
 
-            // we need to know if it is worth patching any meta-events into the data
-            if (sawMeta) {
-                if (snapshot.type === EventType.FullSnapshot) {
-                    // meta / full pair found 👍
-                    sawMeta = false
-                } else {
-                    // we had a meta-event not followed by a full snapshot
-                    needToPatchMeta = true
-                }
-            } else if (snapshot.type === EventType.Meta) {
-                sawMeta = true
+            if (snapshot.type === EventType.Meta) {
+                metaCount += 1
             }
 
             // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
+                fullSnapshotCount += 1
+
                 const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
                 if (
@@ -103,10 +99,11 @@ export function processAllSnapshots(
         }
     }
 
-    // Sort by timestamp
+    // sorting is very cheap for already sorted lists
     result.sort((a, b) => a.timestamp - b.timestamp)
 
-    // Second pass: patch meta-events on the sorted array
+    // Optional second pass: patch meta-events on the sorted array
+    const needToPatchMeta = fullSnapshotCount > 0 && fullSnapshotCount > metaCount
     return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
 }
 
