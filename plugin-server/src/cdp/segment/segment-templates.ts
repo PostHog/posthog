@@ -236,8 +236,11 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         }
     }
 
-    if (['boolean', 'string'].includes(typeof defaultVal)) {
+    if (['string'].includes(typeof defaultVal)) {
         return defaultVal
+    }
+    if (['boolean'].includes(typeof defaultVal)) {
+        return defaultVal ? 'true' : 'false'
     }
     if (typeof defaultVal === 'object') {
         if (defaultVal && '@path' in defaultVal) {
@@ -335,7 +338,7 @@ const getFieldType = (field: any) => {
         return 'dictionary'
     }
 
-    if (['number', 'integer', 'datetime', 'password'].includes(field.type)) {
+    if (['number', 'integer', 'datetime', 'password', 'boolean'].includes(field.type)) {
         return 'string'
     }
 

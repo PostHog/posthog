@@ -2859,22 +2859,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field.",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -2931,13 +2931,13 @@ exports[`segment templates template segment-amplitude matches expected result 1`
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": false,
+          "default": "false",
           "description": "When enabled, track revenue with each product within the event. When disabled, track total revenue once for the event.",
           "key": "trackRevenuePerProduct",
           "label": "Track Revenue Per Product",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{person.id}",
@@ -3282,22 +3282,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -3761,22 +3761,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field.",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -4216,22 +4216,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field.",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -4447,7 +4447,7 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "label": "Is Paying",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -4477,22 +4477,22 @@ exports[`segment templates template segment-amplitude matches expected result 1`
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "Enabling this setting will set the Device manufacturer, Device Model and OS Name properties based on the user agent string provided in the userAgent field",
           "key": "userAgentParsing",
           "label": "User Agent Parsing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "Enabling this setting will send user_agent based on the raw user agent string provided in the userAgent field",
           "key": "includeRawUserAgent",
           "label": "Include Raw User Agent",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -7471,7 +7471,7 @@ exports[`segment templates template segment-angler-ai matches expected result 1`
           "label": "Buyer Accepts Marketing",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{event.properties.checkout_id}",
@@ -10839,7 +10839,7 @@ exports[`segment templates template segment-fullstory-cloud matches expected res
           "label": "Use Recent Session",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -11440,7 +11440,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Guest",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{event.properties.extra}",
@@ -11644,7 +11644,7 @@ exports[`segment templates template segment-gameball matches expected result 1`]
           "label": "Guest",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "event.context.campaign",
@@ -13845,31 +13845,31 @@ exports[`segment templates template segment-insider-cloud matches expected resul
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": true,
+          "default": "true",
           "description": "If true, Email will be sent as identifier to Insider.",
           "key": "email_as_identifier",
           "label": "Treat Email as Identifier",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "If true, Phone Number will be sent as identifier to Insider",
           "key": "phone_number_as_identifier",
           "label": "Treat Phone Number as Identifier",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "If enabled, new data for array fields will be appended to the existing values in Insider.",
           "key": "append_arrays",
           "label": "Append Array Fields",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{person.properties.age}",
@@ -13986,7 +13986,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "GDPR Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -13995,7 +13995,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "Email Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14004,7 +14004,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "SMS Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14013,7 +14013,7 @@ exports[`segment templates template segment-insider-cloud matches expected resul
           "label": "Whatsapp Opt-in",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": undefined,
@@ -14337,13 +14337,13 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "type": "string",
         },
         {
-          "default": false,
+          "default": "false",
           "description": "If you'd like to merge (rather than overwrite) a user profile's top-level objects with the values provided for them in the request body, set mergeNestedObjects to true.",
           "key": "mergeNestedObjects",
           "label": "Merge Nested Objects",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "updateUser",
@@ -14382,7 +14382,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "default": {
             "dataFields": "{person.properties}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "mergeNestedObjects": false,
+            "mergeNestedObjects": "false",
             "phoneNumber": "{person.properties.phone}",
             "userId": "{person.id}",
           },
@@ -14448,7 +14448,7 @@ exports[`segment templates template segment-iterable matches expected result 1`]
           "default": {
             "dataFields": "{person.properties}",
             "email": "{event.properties.email ?? person.properties.email}",
-            "mergeNestedObjects": false,
+            "mergeNestedObjects": "false",
             "phoneNumber": "{person.properties.phone}",
             "userId": "{person.id}",
           },
@@ -17298,13 +17298,13 @@ exports[`segment templates template segment-mixpanel matches expected result 1`]
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": true,
+          "default": "true",
           "description": "When enabled, send "Product Purchased" with each product within the event.",
           "key": "generatePurchaseEventPerProduct",
           "label": "Generate Purchase Event Per Product",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": "{person.id ?? event.distinct_id}",
@@ -22232,13 +22232,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -22509,13 +22509,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -22786,13 +22786,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23063,13 +23063,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23340,13 +23340,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23617,13 +23617,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -23894,13 +23894,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
@@ -24171,13 +24171,13 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": true,
+          "default": "true",
           "description": "When action_source is web or offline, it defines whether the user has opted out of tracking for web conversion events. While when action_source is app_android or app_ios, it defines whether the user has enabled Limit Ad Tracking on their iOS device, or opted out of Ads Personalization on their Android device.",
           "key": "opt_out",
           "label": "Opt Out",
           "required": false,
           "secret": false,
-          "type": "boolean",
+          "type": "string",
         },
         {
           "default": {
