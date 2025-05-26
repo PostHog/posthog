@@ -40,6 +40,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.COUNTRY,
         WebStatsBreakdown.INITIAL_PAGE,
         WebStatsBreakdown.PAGE,
+        WebStatsBreakdown.EXIT_PAGE,
     ]
 
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
@@ -57,7 +58,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         query_str = f"""
         SELECT
-            entry_path as `context.columns.breakdown_value`,
+            entry_pathname as `context.columns.breakdown_value`,
             tuple(
                 uniqMergeIf(persons_uniq_state, {current_period_filter}),
                 uniqMergeIf(persons_uniq_state, {previous_period_filter})
@@ -90,9 +91,9 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 sumMergeIf(p.pageviews_count_state, {current_period_filter}),
                 sumMergeIf(p.pageviews_count_state, {previous_period_filter})
             ) as `context.columns.views`,
-            any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`,
+            any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
         FROM
-            web_paths_daily p
+            web_stats_daily p
         LEFT JOIN ({self._bounce_rate_query()}) bounces
             ON p.pathname = bounces.`context.columns.breakdown_value`
         GROUP BY `context.columns.breakdown_value`
@@ -180,6 +181,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return "utm_content"
             case WebStatsBreakdown.COUNTRY:
-                return "country"
-            case WebStatsBreakdown.INITIAL_PAGE:
-                return "entry_path"
+                return "country_name"
+            case WebStatsBreakdown.CITY:
+                return "city_name"
+            case WebStatsBreakdown.REGION:
+                return "region_code"
+            case WebStatsBreakdown.EXIT_PAGE:
+                return "end_pathname"
