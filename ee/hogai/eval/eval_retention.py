@@ -117,9 +117,11 @@ def eval_retention(call_node):
                 input="Show user retention",
                 expected=PlanAndQueryOutput(
                     plan="""
-Returning event: $pageview
-Target event: $pageview
-Period: Week
+Activation:
+- event: $pageview
+
+Retention:
+- event: $pageview
 """,
                     query=AssistantRetentionQuery(
                         dateRange={"date_from": "-11w", "date_to": None},
@@ -137,9 +139,11 @@ Period: Week
                 input="Show monthly retention for users who sign up and then come back to view a dashboard",
                 expected=PlanAndQueryOutput(
                     plan="""
-Returning event: signed_up
-Target event: viewed_dashboard
-Period: Month
+Activation:
+- event: signed_up
+
+Retention:
+- event: viewed_dashboard
 """,
                     query=AssistantRetentionQuery(
                         dateRange={"date_from": "-11M", "date_to": None},
@@ -157,15 +161,19 @@ Period: Month
                 input="daily retention for Chrome users who sign up and then make a purchase",
                 expected=PlanAndQueryOutput(
                     plan="""
-Returning event: signed_up
+Activation:
+- event: signed_up
+
+Retention:
+- event: purchased
+
+Filters:
     - property filter 1:
         - entity: event
         - property name: $browser
         - property type: String
         - operator: equals
         - property value: Chrome
-Target event: purchased
-Period: Day
 """,
                     query=AssistantRetentionQuery(
                         dateRange={"date_from": "-14d", "date_to": None},
@@ -194,12 +202,16 @@ Period: Day
                 # Tricky one, as AssistantRetentionQuery doesn't support `breakdownFilter` as of 2025-05-22!
                 expected=PlanAndQueryOutput(
                     plan="""
-Returning event: signed_up
-Target event: purchased
-Period: Week
+Activation:
+- event: signed_up
+
+Retention:
+- event: purchased
+
 Breakdown by:
     - entity: event
     - property name: $browser
+
 Time period: last 3 months
 """,
                     query=AssistantRetentionQuery(
@@ -218,9 +230,11 @@ Time period: last 3 months
                 input="what's the retention for users who view the pricing page and then upgrade their plan?",
                 expected=PlanAndQueryOutput(
                     plan="""
-Returning event: viewed_pricing_page
-Target event: upgraded_plan
-Period: Week
+Activation:
+- event: viewed_pricing_page
+
+Retention:
+- event: upgraded_plan
 """,
                     query=AssistantRetentionQuery(
                         dateRange={"date_from": "-11w", "date_to": None},
