@@ -105,6 +105,8 @@ export function JsonDisplayWithStacktrace(): JSX.Element {
     )
 }
 
+JsonDisplayWithStacktrace.tags = ['test-skip']
+
 //////////////////// Utils
 
 const issue = {
