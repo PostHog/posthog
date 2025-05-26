@@ -218,8 +218,10 @@ export class HogExecutorService {
         }
 
         hogFunctions.forEach((hogFunction) => {
+            // If we have a template, we want to use that mappings instead of the function mappings
+            const mappings = hogFunction.template?.mapping_templates ?? hogFunction.mappings
             // Check for non-mapping functions first
-            if (!hogFunction.mappings) {
+            if (!mappings) {
                 if (!_filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) {
                     return
                 }
@@ -235,7 +237,7 @@ export class HogExecutorService {
                 return
             }
 
-            hogFunction.mappings.forEach((mapping) => {
+            mappings.forEach((mapping) => {
                 // For mappings we want to match against both the mapping filters and the global filters
                 if (
                     !_filterHogFunction(hogFunction, hogFunction.filters, filterGlobals) ||
@@ -383,7 +385,9 @@ export class HogExecutorService {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
-            const invocationInput = invocation.vmState ?? invocation.hogFunction.bytecode
+            // If we have a template, we want to use that bytecode instead of the function bytecode
+            const invocationInput =
+                invocation.vmState ?? invocation.hogFunction.template?.bytecode ?? invocation.hogFunction.bytecode
 
             const eventId = invocation?.globals?.event?.uuid || 'Unknown event'
 
@@ -609,7 +613,9 @@ export class HogExecutorService {
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
         const values: string[] = []
 
-        hogFunction.inputs_schema?.forEach((schema) => {
+        const inputsSchema = hogFunction.template?.inputs_schema ?? hogFunction.inputs_schema
+
+        inputsSchema?.forEach((schema) => {
             if (schema.secret || schema.type === 'integration') {
                 const value = inputs[schema.key]
                 if (typeof value === 'string') {

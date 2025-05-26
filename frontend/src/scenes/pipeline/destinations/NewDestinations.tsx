@@ -1,4 +1,4 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconHandwave, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -6,6 +6,8 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -33,6 +35,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
     const { canEnableDestination } = useValues(pipelineAccessLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
     const { user } = useValues(userLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <>
@@ -54,6 +57,25 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                             return a.name.localeCompare(b.name)
                         },
                         render: function RenderName(_, target) {
+                            if (target.status === 'requestable') {
+                                return (
+                                    <LemonTableLink
+                                        onClick={() =>
+                                            openSidePanel(
+                                                SidePanelTab.Docs,
+                                                'https://posthog.com/docs/cdp/destinations/meta-ads'
+                                            )
+                                        }
+                                        title={
+                                            <>
+                                                {target.name}
+                                                {target.status && <DestinationTag status={target.status} />}
+                                            </>
+                                        }
+                                        description={target.description}
+                                    />
+                                )
+                            }
                             return (
                                 <LemonTableLink
                                     to={canEnableDestination(target) ? target.url : undefined}
@@ -72,6 +94,23 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
+                            if (target.status === 'requestable') {
+                                return (
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr={`request-${PipelineStage.Destination}`}
+                                        icon={<IconHandwave />}
+                                        onClick={() =>
+                                            openSidePanel(
+                                                SidePanelTab.Docs,
+                                                'https://posthog.com/docs/cdp/destinations/meta-ads'
+                                            )
+                                        }
+                                    >
+                                        Request
+                                    </LemonButton>
+                                )
+                            }
                             return canEnableDestination(target) ? (
                                 <LemonButton
                                     type="primary"

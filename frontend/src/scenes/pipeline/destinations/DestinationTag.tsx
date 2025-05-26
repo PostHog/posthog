@@ -15,6 +15,8 @@ export function DestinationTag({ status }: DestinationTagProps): JSX.Element | n
             return <LemonTag type="completion">Beta</LemonTag>
         case 'stable':
             return null
+        case 'requestable':
+            return <LemonTag type="highlight">Requestable</LemonTag>
         default:
             return status ? <LemonTag type="highlight">{capitalizeFirstLetter(status)}</LemonTag> : null
     }
