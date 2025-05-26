@@ -58,4 +58,54 @@ describe('maxLogic', () => {
         // Check that askMax has been called with "Foo" (via sidePanelStateLogic automatically)
         expect(askMaxSpy).toHaveBeenCalledWith('Foo')
     })
+
+    it('manages suggestion group selection correctly', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            activeSuggestionGroupIndex: null,
+            activeSuggestionGroup: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveGroup(1)
+        })
+            .toDispatchActions(['setActiveGroup'])
+            .toMatchValues({
+                activeSuggestionGroupIndex: 1,
+                activeSuggestionGroup: expect.objectContaining({
+                    label: 'Product Analytics',
+                    suggestions: expect.arrayContaining([
+                        expect.objectContaining({
+                            label: 'Create a funnel of the Pirate Metrics (AARRR)',
+                        }),
+                    ]),
+                }),
+            })
+
+        // Test setting to null clears the selection
+        logic.actions.setActiveGroup(null)
+
+        await expectLogic(logic).toMatchValues({
+            activeSuggestionGroupIndex: null,
+            activeSuggestionGroup: undefined,
+        })
+
+        // Test setting to a different index
+        logic.actions.setActiveGroup(0)
+
+        await expectLogic(logic).toMatchValues({
+            activeSuggestionGroupIndex: 0,
+            activeSuggestionGroup: expect.objectContaining({
+                label: 'SQL',
+                suggestions: expect.arrayContaining([
+                    expect.objectContaining({
+                        label: 'Generate an SQL query to',
+                        content: 'Generate an SQL query to ',
+                    }),
+                ]),
+            }),
+        })
+    })
 })
