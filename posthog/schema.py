@@ -1094,7 +1094,7 @@ class FileSystemEntry(BaseModel):
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
-    visualOrder: Optional[int] = Field(default=None, description="Order of object in tree")
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
 class FileSystemImport(BaseModel):
