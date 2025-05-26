@@ -14,7 +14,7 @@ import { HogFunctionMonitoringService } from '../services/hog-function-monitorin
 import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
-import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
+import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -195,7 +195,7 @@ export class HogTransformerService {
 
                     // Check if function has filters - if not, always apply
                     if (hogFunction.filters?.bytecode) {
-                        const filterResults = checkHogFunctionFilters({
+                        const filterResults = filterFunctionInstrumented({
                             hogFunction,
                             filterGlobals,
                             eventUuid: globals.event?.uuid,

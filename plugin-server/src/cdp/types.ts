@@ -228,7 +228,7 @@ export type CyclotronInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -280,8 +280,8 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 }
 
 export type HogFlowInvocationContext = {
-    personId: string
-    event: any // TODO: Type better
+    personId?: string
+    event?: any // TODO: Type better
     variables: Record<string, any>
     currentActionId?: string
 }
@@ -289,6 +289,8 @@ export type HogFlowInvocationContext = {
 export type HogFlow = {
     // Primary key is id + version
     id: string
+    name: string
+    description: string
     team_id: number
     version: number
     status: 'active' | 'draft' | 'archived'
@@ -296,11 +298,7 @@ export type HogFlow = {
     trigger:
         | {
               type: 'event'
-              filters: any // HogFunctionFilters
-          }
-        | {
-              type: 'pre-processed-event'
-              filters: any // HogFunctionFilters
+              filters: HogFunctionFilters
           }
         | {
               type: 'schedule'

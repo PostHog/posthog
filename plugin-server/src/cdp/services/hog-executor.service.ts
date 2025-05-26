@@ -23,7 +23,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
-import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
+import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
 export const MAX_ASYNC_STEPS = 5
@@ -163,7 +163,7 @@ export class HogExecutorService {
             filters: HogFunctionType['filters'],
             filterGlobals: HogFunctionFilterGlobals
         ) => {
-            const filterResults = checkHogFunctionFilters({
+            const filterResults = filterFunctionInstrumented({
                 hogFunction,
                 filters,
                 filterGlobals,
