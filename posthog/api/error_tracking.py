@@ -115,15 +115,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
                 activity="updated",
                 detail=Detail(
                     name=instance.name,
-                    changes=[
-                        Change(
-                            type="ErrorTrackingIssue",
-                            field="status",
-                            before=status_before,
-                            after=status_after,
-                            action="changed",
-                        )
-                    ],
+                    changes=changes,
                 ),
             )
 
