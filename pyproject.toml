@@ -141,11 +141,11 @@ dependencies = [
     "langchain-perplexity>=0.1.1",
     "opentelemetry-sdk==1.33.1",
     "opentelemetry-instrumentation-django==0.54b1",
-    "opentelemetry-instrumentation-asgi>=0.54b1",
-    "opentelemetry-instrumentation-redis>=0.54b1",
-    "opentelemetry-instrumentation-psycopg>=0.54b1",
-    "opentelemetry-instrumentation-aiokafka>=0.54b1",
-    "opentelemetry-instrumentation-kafka-python>=0.54b1",
+    "opentelemetry-instrumentation-asgi==0.54b1",
+    "opentelemetry-instrumentation-redis==0.54b1",
+    "opentelemetry-instrumentation-psycopg==0.54b1",
+    "opentelemetry-instrumentation-aiokafka==0.54b1",
+    "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
 ]
 
