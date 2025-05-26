@@ -177,6 +177,13 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 }
             },
         ],
+
+        hiddenHogFunctions: [
+            (s) => [s.sortedHogFunctions, s.filteredHogFunctions],
+            (sortedHogFunctions, filteredHogFunctions): HogFunctionType[] => {
+                return sortedHogFunctions.filter((hogFunction) => !filteredHogFunctions.includes(hogFunction))
+            },
+        ],
     }),
 
     actionToUrl(({ props, values }) => {

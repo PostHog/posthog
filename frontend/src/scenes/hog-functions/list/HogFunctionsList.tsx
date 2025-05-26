@@ -12,17 +12,21 @@ import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
+import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 
 export function HogFunctionList({
     extraControls,
+    hideFeedback = false,
     ...props
-}: HogFunctionListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
+}: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
         hogFunctionListLogic(props)
     )
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(
         hogFunctionListLogic(props)
     )
+
+    const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     useEffect(() => loadHogFunctions(), [])
 
@@ -37,6 +41,11 @@ export function HogFunctionList({
                         onChange={(e) => setFilters({ search: e })}
                     />
                 )}
+                {!hideFeedback ? (
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
+                        Can't find what you're looking for?
+                    </Link>
+                ) : null}
                 <div className="flex-1" />
                 {typeof props.forceFilters?.showPaused !== 'boolean' && (
                     <LemonCheckbox

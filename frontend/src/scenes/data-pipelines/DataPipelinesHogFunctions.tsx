@@ -3,6 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { hogFunctionListLogic } from 'scenes/hog-functions/list/hogFunctionListLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
@@ -16,13 +17,14 @@ export type DataPipelinesHogFunctionsProps = {
 }
 
 export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelinesHogFunctionsProps): JSX.Element {
+    const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
     const { hogFunctions } = useValues(hogFunctionListLogic({ logicKey, type: kind }))
 
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">
-            New {kind}
+            New {humanizedKind}
         </LemonButton>
     )
     return (
@@ -44,7 +46,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
             <div>
                 <HogFunctionList logicKey={logicKey} type={kind} extraControls={<>{newButton}</>} />
                 <div>
-                    <h2 className="mt-4">Create a new {kind}</h2>
+                    <h2 className="mt-4">Create a new {humanizedKind}</h2>
                     <HogFunctionTemplateList defaultFilters={{}} type={kind} />
                 </div>
             </div>

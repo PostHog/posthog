@@ -74,6 +74,7 @@ export function DataPipelinesOverview(): JSX.Element {
                                 </LemonButton>
                             </>
                         }
+                        hideFeedback={true}
                     />
                 </div>
                 <div>
@@ -94,6 +95,7 @@ export function DataPipelinesOverview(): JSX.Element {
                                 </LemonButton>
                             </>
                         }
+                        hideFeedback={true}
                     />
                 </div>
             </div>
