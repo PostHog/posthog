@@ -5,6 +5,7 @@ import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
+import { HogFlowManagerService } from '../services/hog-flow-manager.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
@@ -19,6 +20,7 @@ export interface TeamIDWithConfig {
 
 export abstract class CdpConsumerBase {
     hogFunctionManager: HogFunctionManagerService
+    hogFlowManager: HogFlowManagerService
     hogExecutor: HogExecutorService
     hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
@@ -37,6 +39,7 @@ export abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
