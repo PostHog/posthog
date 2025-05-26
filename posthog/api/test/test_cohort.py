@@ -2198,7 +2198,6 @@ class TestCalculateCohortCommand(APIBaseTest):
             name="Test Cohort 1",
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
-
         # Call the command
         from django.core.management import call_command
         from io import StringIO
