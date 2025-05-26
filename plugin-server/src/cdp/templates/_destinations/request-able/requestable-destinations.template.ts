@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types' // Assuming this path is correct for your project structure
+import { HogFunctionTemplate } from '../../types'
 
 export const apptimizeTemplate: HogFunctionTemplate = {
     free: true,
