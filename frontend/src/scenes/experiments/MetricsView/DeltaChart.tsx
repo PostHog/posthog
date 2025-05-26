@@ -8,6 +8,7 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
 import { ChartEmptyState } from './ChartEmptyState'
@@ -128,6 +129,13 @@ function useChartDimensions(variants: any[]): ChartDimensions {
     }
 }
 
+function hasEnoughDataForResults(variantExposureCount: number, variantMetricValue: number): boolean {
+    return (
+        variantExposureCount >= EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS &&
+        variantMetricValue > EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS
+    )
+}
+
 // Individual variant bar component
 function VariantBar({ variant, index }: { variant: any; index: number }): JSX.Element {
     const {
@@ -153,6 +161,8 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
 
     let delta: number
+    let hasEnoughData: boolean
+
     if (metricType === InsightType.TRENDS) {
         const controlVariant = result.variants.find((v: any) => v.key === 'control')
         const variantData = result.variants.find((v: any) => v.key === variant.key)
@@ -164,15 +174,24 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             !controlVariant?.absolute_exposure
         ) {
             delta = 0
+            hasEnoughData = false
         } else {
             const controlMean = controlVariant.count / controlVariant.absolute_exposure
             const variantMean = variantData.count / variantData.absolute_exposure
             delta = (variantMean - controlMean) / controlMean
+            hasEnoughData = hasEnoughDataForResults(variantData.absolute_exposure, variantData.count)
         }
     } else {
         const variantRate = conversionRateForVariant(result, variant.key)
         const controlRate = conversionRateForVariant(result, 'control')
         delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+        const variantData = result.variants.find((v: any) => v.key === variant.key)
+        if (!variantData) {
+            hasEnoughData = false
+        } else {
+            const total_exposures = variantData.failure_count + variantData.success_count
+            hasEnoughData = hasEnoughDataForResults(total_exposures, variantData.success_count)
+        }
     }
 
     // Calculate positioning
@@ -200,83 +219,139 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
             }}
             className={featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES] ? 'cursor-pointer' : ''}
         >
-            {/* Add variant name using VariantTag */}
-            <foreignObject
-                x={x1 - 8} // Keep same positioning as the text element
-                y={y + barHeight / 2 - 10}
-                width="90"
-                height="16"
-                transform="translate(-90, 0)" // Move left to accommodate tag width
-            >
-                <VariantTag
-                    className="justify-end mt-0.5"
-                    experimentId={experimentId as ExperimentIdType}
-                    variantKey={variant.key}
-                    fontSize={10}
-                    muted
-                />
-            </foreignObject>
-
-            {/* Violin plot */}
-            {variant.key === 'control' ? (
-                <path
-                    d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
-                    fill={colors.BAR_CONTROL}
-                    stroke={colors.BOUNDARY_LINES}
-                    strokeWidth={1}
-                    strokeDasharray="2,2"
-                />
-            ) : (
+            {/* Conditional rendering based on hasEnoughData */}
+            {hasEnoughData ? (
                 <>
-                    <defs>
-                        <linearGradient
-                            id={`gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'}`}
-                            x1="0"
-                            x2="1"
-                            y1="0"
-                            y2="0"
-                        >
-                            {lower < 0 && upper > 0 ? (
-                                <>
-                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_NEGATIVE}
-                                    />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_POSITIVE}
-                                    />
-                                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
-                                </>
-                            ) : (
-                                <stop
-                                    offset="100%"
-                                    stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
-                                />
-                            )}
-                        </linearGradient>
-                    </defs>
-                    <path
-                        d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
-                        fill={`url(#gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'})`}
+                    {/* Add variant name using VariantTag */}
+                    <foreignObject
+                        x={x1 - 8} // Keep same positioning as the text element
+                        y={y + barHeight / 2 - 10}
+                        width="90"
+                        height="16"
+                        transform="translate(-90, 0)" // Move left to accommodate tag width
+                    >
+                        <VariantTag
+                            className="justify-end mt-0.5"
+                            experimentId={experimentId as ExperimentIdType}
+                            variantKey={variant.key}
+                            fontSize={10}
+                            muted
+                        />
+                    </foreignObject>
+                    {variant.key === 'control' ? (
+                        <path
+                            d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                            fill={colors.BAR_CONTROL}
+                            stroke={colors.BOUNDARY_LINES}
+                            strokeWidth={1}
+                            strokeDasharray="2,2"
+                        />
+                    ) : (
+                        <>
+                            <defs>
+                                <linearGradient
+                                    id={`gradient-${metricIndex}-${variant.key}-${
+                                        isSecondary ? 'secondary' : 'primary'
+                                    }`}
+                                    x1="0"
+                                    x2="1"
+                                    y1="0"
+                                    y2="0"
+                                >
+                                    {lower < 0 && upper > 0 ? (
+                                        <>
+                                            <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
+                                            <stop
+                                                offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                stopColor={colors.BAR_NEGATIVE}
+                                            />
+                                            <stop
+                                                offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                stopColor={colors.BAR_POSITIVE}
+                                            />
+                                            <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
+                                        </>
+                                    ) : (
+                                        <stop
+                                            offset="100%"
+                                            stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
+                                        />
+                                    )}
+                                </linearGradient>
+                            </defs>
+                            <path
+                                d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
+                                fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                    isSecondary ? 'secondary' : 'primary'
+                                })`}
+                            />
+                        </>
+                    )}
+
+                    {/* Delta marker */}
+                    <g transform={`translate(${deltaX}, 0)`}>
+                        <line
+                            x1={0}
+                            y1={y}
+                            x2={0}
+                            y2={y + barHeight}
+                            stroke={
+                                variant.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT
+                            }
+                            strokeWidth={2}
+                            vectorEffect="non-scaling-stroke"
+                            shapeRendering="crispEdges"
+                        />
+                    </g>
+                </>
+            ) : (
+                /* Show "Not enough data" text when hasEnoughData is false */
+                <>
+                    {/* Move foreignObject for variant tag to left of 0 point */}
+                    <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
+                        <VariantTag
+                            className="justify-end mt-0.5"
+                            experimentId={experimentId as ExperimentIdType}
+                            variantKey={variant.key}
+                            fontSize={10}
+                            muted
+                        />
+                    </foreignObject>
+
+                    {/* First draw a solid background to cover grid lines */}
+                    <rect
+                        x={valueToX(0) - 50}
+                        y={y + barHeight / 2 - 8}
+                        width="100"
+                        height="16"
+                        rx="3"
+                        ry="3"
+                        fill="var(--bg-light)"
                     />
+                    {/* Add grey background rectangle for the text */}
+                    <rect
+                        x={valueToX(0) - 50}
+                        y={y + barHeight / 2 - 8}
+                        width="100"
+                        height="16"
+                        rx="3"
+                        ry="3"
+                        fill="var(--border-light)"
+                        strokeWidth="0"
+                    />
+                    {/* Center "Not enough data yet" text on the 0 point */}
+                    <text
+                        x={valueToX(0)}
+                        y={y + barHeight / 2}
+                        fontSize="10"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="var(--muted)"
+                    >
+                        Not enough data yet
+                    </text>
                 </>
             )}
-
-            {/* Delta marker */}
-            <g transform={`translate(${deltaX}, 0)`}>
-                <line
-                    x1={0}
-                    y1={y}
-                    x2={0}
-                    y2={y + barHeight}
-                    stroke={variant.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT}
-                    strokeWidth={2}
-                    vectorEffect="non-scaling-stroke"
-                    shapeRendering="crispEdges"
-                />
-            </g>
         </g>
     )
 }
@@ -296,13 +371,19 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight: `${chartHeight}px` }} // Dynamic height based on variant count
             >
-                {/* Vertical grid lines */}
-                <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                {/* Create a group for the background elements */}
+                <g className="grid-lines-layer">
+                    {/* Vertical grid lines */}
+                    <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                </g>
 
-                {/* Render variant bars */}
-                {variants.map((variant, index) => (
-                    <VariantBar key={variant.key} variant={variant} index={index} />
-                ))}
+                {/* Create a group for the variant bars with higher priority */}
+                <g className="variant-bars-layer">
+                    {/* Render variant bars */}
+                    {variants.map((variant, index) => (
+                        <VariantBar key={variant.key} variant={variant} index={index} />
+                    ))}
+                </g>
             </svg>
         </div>
     )

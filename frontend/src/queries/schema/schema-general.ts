@@ -2046,6 +2046,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: string
     flag?: string
+    /** Order of object in tree */
+    visualOrder?: number
 }
 
 export interface PersistedFolder {
