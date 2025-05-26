@@ -38,9 +38,9 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
     const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
-    // Filter out requestable destinations unless showRequestable is true
+    // Filter out coming soon destinations unless showComingSoon is true
     const visibleDestinations = filteredDestinations.filter(
-        (destination) => destination.status !== 'requestable' || filters.showRequestable
+        (destination) => destination.status !== 'coming_soon' || filters.showComingSoon
     )
 
     return (
@@ -63,7 +63,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                             return a.name.localeCompare(b.name)
                         },
                         render: function RenderName(_, target) {
-                            if (target.status === 'requestable') {
+                            if (target.status === 'coming_soon') {
                                 return (
                                     <LemonTableLink
                                         onClick={() =>
@@ -100,7 +100,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
-                            if (target.status === 'requestable') {
+                            if (target.status === 'coming_soon') {
                                 return (
                                     <LemonButton
                                         type="primary"

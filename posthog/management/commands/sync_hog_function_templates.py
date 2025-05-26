@@ -27,7 +27,7 @@ class Command(BaseCommand):
 
     def should_include_python_template(self, template):
         """Determine if a Python template should be included based on test mode"""
-        if template.id.startswith("requestable-"):
+        if template.id.startswith("coming-soon-"):
             return False
 
         if not settings.TEST:
@@ -37,7 +37,7 @@ class Command(BaseCommand):
 
     def should_include_nodejs_template(self, template_data):
         """Determine if a Node.js template should be included based on test mode"""
-        if template_data.get("id", "").startswith("requestable-"):
+        if template_data.get("id", "").startswith("coming-soon-"):
             return False
 
         if not settings.TEST:

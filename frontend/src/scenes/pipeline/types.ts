@@ -78,7 +78,7 @@ export type NewDestinationItemType = {
     description: string
     backend: PipelineBackend
     free: boolean
-    status?: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'requestable'
+    status?: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
 }
 
 export type NewDestinationFilters = {

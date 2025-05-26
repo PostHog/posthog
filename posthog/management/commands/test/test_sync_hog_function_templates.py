@@ -248,20 +248,20 @@ class TestSyncHogFunctionTemplates:
         assert template_count == 1
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
-    def test_excludes_requestable_templates(self, mock_get_hog_function_templates):
-        """Test that templates with requestable- prefix are excluded from syncing."""
-        # Mock Node.js API response with a requestable template
+    def test_excludes_coming_soon_templates(self, mock_get_hog_function_templates):
+        """Test that templates with coming-soon- prefix are excluded from syncing."""
+        # Mock Node.js API response with a coming-soon template
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = [
             {
-                "id": "requestable-wootric",
+                "id": "coming-soon-wootric",
                 "name": "Test Wootric",
                 "description": "Test template",
                 "type": "transformation",
                 "hog": "return event",
                 "inputs_schema": [],
-                "status": "beta",
+                "status": "coming_soon",
                 "free": True,
                 "category": ["Custom"],
             }
@@ -271,8 +271,8 @@ class TestSyncHogFunctionTemplates:
         # Run the command
         call_command("sync_hog_function_templates")
 
-        # Verify that the requestable template was not synced
-        assert not DBHogFunctionTemplate.objects.filter(template_id="requestable-wootric").exists()
+        # Verify that the coming soon template was not synced
+        assert not DBHogFunctionTemplate.objects.filter(template_id="coming-soon-wootric").exists()
 
         # Verify that other test templates were still synced
         assert DBHogFunctionTemplate.objects.filter(template_id__in=TEST_INCLUDE_PYTHON_TEMPLATE_IDS).exists()
