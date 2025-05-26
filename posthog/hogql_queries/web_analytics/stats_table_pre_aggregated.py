@@ -155,7 +155,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 column = "context.columns.visitors"
             elif field == WebAnalyticsOrderByFields.VIEWS:
                 column = "context.columns.views"
-            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE:
+            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE and self.runner.query.breakdownBy in [
+                WebStatsBreakdown.INITIAL_PAGE,
+                WebStatsBreakdown.PAGE,
+            ]:
                 column = "context.columns.bounce_rate"
 
             if column:
