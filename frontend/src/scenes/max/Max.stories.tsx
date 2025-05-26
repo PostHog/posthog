@@ -367,3 +367,38 @@ ThreadWithOpenedSuggestions.parameters = {
         waitForLoadersToDisappear: false,
     },
 }
+
+export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+        },
+        post: {
+            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const { conversation } = useValues(maxLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const logic = maxThreadLogic({ conversationId: 'poem', conversation })
+    const { threadRaw } = useValues(logic)
+    const { askMax } = useActions(logic)
+
+    useEffect(() => {
+        setConversationId('poem')
+    }, [setConversationId])
+
+    const messagesSet = threadRaw.length > 0
+    useEffect(() => {
+        if (messagesSet) {
+            askMax('This message must be on the top of the container')
+        }
+    }, [messagesSet, askMax])
+
+    return <Template className="h-[800px]" />
+}
+ThreadScrollsToBottomOnNewMessages.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
