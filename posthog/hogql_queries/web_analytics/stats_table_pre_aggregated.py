@@ -8,7 +8,7 @@ from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFiel
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
-# While we don't offer a property endpoint or definition, keep those in sync with frontend/src/scenes/web-analytics/WebPropertyFilters.tsx
+# Keep those in sync with frontend/src/scenes/web-analytics/WebPropertyFilters.tsx
 STATS_TABLE_SUPPORTED_FILTERS = {
     "$entry_pathname": "entry_pathname",
     "$pathname": "pathname",

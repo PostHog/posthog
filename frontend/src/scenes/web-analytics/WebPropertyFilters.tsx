@@ -22,6 +22,7 @@ export const WebPropertyFilters = (): JSX.Element => {
         ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
     ]
 
+    // Keep in sync with posthog/hogql_queries/web_analytics/stats_table_pre_aggregated.py
     const webAnalyticsPropertyAllowList = preAggregatedEnabled
         ? {
               [TaxonomicFilterGroupType.EventProperties]: [
