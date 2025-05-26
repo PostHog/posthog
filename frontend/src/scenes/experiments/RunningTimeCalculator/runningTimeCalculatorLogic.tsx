@@ -334,9 +334,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             }
             actions.loadMetricResult()
         },
-        setExposureEstimateConfig: () => {
-            actions.loadMetricResult()
-        },
         setManualConversionRate: () => {
             /**
              * We listen for changes in the manual conversion rate and update the exposure estimate config
