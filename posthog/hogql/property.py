@@ -264,17 +264,18 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
     if not team.path_cleaning_filters:
         return path_expr
 
+    result_expr = path_expr
     for replacement in team.path_cleaning_filter_models():
-        path_expr = ast.Call(
+        result_expr = ast.Call(
             name="replaceRegexpAll",
             args=[
-                path_expr,
+                result_expr,
                 ast.Constant(value=replacement.regex),
                 ast.Constant(value=replacement.alias),
             ],
         )
 
-    return path_expr
+    return result_expr
 
 
 def property_to_expr(
