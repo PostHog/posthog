@@ -86,7 +86,7 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
 }
 
 /**
- * NOTE: This is a consumer to take care of legacy plugins.
+ * NOTE: This is a consumer to take care of segment plugins.
  */
 
 export class SegmentDestinationExecutorService {
