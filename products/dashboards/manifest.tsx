@@ -23,6 +23,7 @@ export const manifest: ProductManifest = {
         dashboard: {
             icon: <IconDashboard />,
             href: (ref: string) => urls.dashboard(ref),
+            iconColor: ['var(--product-dashboards-light)'],
         },
     },
     treeItemsNew: [
