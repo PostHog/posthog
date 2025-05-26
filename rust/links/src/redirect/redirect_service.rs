@@ -88,7 +88,6 @@ impl RedirectServiceTrait for ExternalRedirectService {
         short_code: &str,
         short_link_domain: &str,
     ) -> Result<String, RedirectError> {
-        // Try to get from cache manager
         match self
             .cache_manager
             .get_cached_url(short_code, short_link_domain)

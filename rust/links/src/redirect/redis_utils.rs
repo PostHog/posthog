@@ -14,7 +14,7 @@ impl RedisRedirectKeyPrefix {
     }
 
     pub fn get_redis_key_for_url(&self, short_link_domain: &str, short_code: &str) -> String {
-        let key = format!("{}-{}-{}", self.get_prefix(), short_link_domain, short_code);
+        let key = format!("{}:{}:{}", self.get_prefix(), short_link_domain, short_code);
         key
     }
 }
@@ -35,7 +35,7 @@ mod tests {
         let short_code = "abc123";
         let key =
             RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(short_link_domain, short_code);
-        assert_eq!(key, "internal-example.com-abc123");
+        assert_eq!(key, "internal:example.com:abc123");
     }
 
     #[test]
@@ -44,6 +44,6 @@ mod tests {
         let short_code = "xyz789";
         let key =
             RedisRedirectKeyPrefix::External.get_redis_key_for_url(short_link_domain, short_code);
-        assert_eq!(key, "external-example.com-xyz789");
+        assert_eq!(key, "external:example.com:xyz789");
     }
 }
