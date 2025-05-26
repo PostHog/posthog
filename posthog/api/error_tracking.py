@@ -82,9 +82,29 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         status_before = instance.status
         status_updated = "status" in validated_data and status_after != status_before
 
+        name_after = validated_data.get("name")
+        name_before = instance.name
+        name_updated = "name" in validated_data and name_after != name_before
+
         updated_instance = super().update(instance, validated_data)
 
+        changes = []
         if status_updated:
+            changes.append(
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="status",
+                    before=status_before,
+                    after=status_after,
+                    action="changed",
+                )
+            )
+        if name_updated:
+            changes.append(
+                Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
+            )
+
+        if changes:
             log_activity(
                 organization_id=team.organization.id,
                 team_id=team.id,
