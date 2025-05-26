@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -12,6 +12,7 @@ import { HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
+import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 
@@ -29,6 +30,7 @@ export function HogFunctionList({
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
+    const canChangeShowPaused = typeof props.forceFilters?.showPaused !== 'boolean'
 
     useEffect(() => loadHogFunctions(), [])
 
@@ -49,7 +51,7 @@ export function HogFunctionList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                {typeof props.forceFilters?.showPaused !== 'boolean' && (
+                {canChangeShowPaused && (
                     <LemonCheckbox
                         label="Show paused"
                         bordered
@@ -115,19 +117,7 @@ export function HogFunctionList({
                             sorter: (a) => (a.enabled ? 1 : -1),
                             width: 0,
                             render: function RenderStatus(_, hogFunction) {
-                                return (
-                                    <>
-                                        {hogFunction.enabled ? (
-                                            <LemonTag type="success" className="uppercase">
-                                                Active
-                                            </LemonTag>
-                                        ) : (
-                                            <LemonTag type="default" className="uppercase">
-                                                Paused
-                                            </LemonTag>
-                                        )}
-                                    </>
-                                )
+                                return <HogFunctionStatusIndicator hogFunction={hogFunction} />
                             },
                         },
                         {
@@ -172,7 +162,17 @@ export function HogFunctionList({
                     footer={
                         hiddenHogFunctions.length > 0 && (
                             <div className="p-3 text-secondary">
-                                {hiddenHogFunctions.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
+                                {hiddenHogFunctions.length} hidden.{' '}
+                                <Link
+                                    onClick={() => {
+                                        resetFilters()
+                                        if (canChangeShowPaused) {
+                                            setFilters({ showPaused: true })
+                                        }
+                                    }}
+                                >
+                                    Show all
+                                </Link>
                             </div>
                         )
                     }

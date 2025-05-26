@@ -35,8 +35,8 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
         description: (
             <>
                 The function has been disabled indefinitely due to too many slow or failed requests. Please check your
-                config. Updating your function will move it back to the "degraded" state for testing. If it performs
-                well, it will then be moved to the healthy.
+                config. <br />
+                Updating your function will move it re-enable it.
             </>
         ),
     },
@@ -79,7 +79,7 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
         <LemonDropdown
             overlay={
                 <>
-                    <div className="p-2 deprecated-space-y-2">
+                    <div className="p-2 deprecated-space-y-2 max-w-120">
                         <h2 className="flex gap-2 items-center m-0">
                             Function status - <LemonTag type={tagType}>{display}</LemonTag>
                         </h2>
