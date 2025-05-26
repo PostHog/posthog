@@ -2,31 +2,19 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
-    FunnelsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
-    NodeKind,
-    TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    CountPerActorMathType,
-    Experiment,
-    ExperimentMetricMathType,
-    FunnelVizType,
-    PropertyMathType,
-} from '~/types'
+import { AnyPropertyFilter, Experiment, ExperimentMetricMathType } from '~/types'
 
+import { getFunnelQuery, getSumQuery, getTotalCountQuery } from './metricQueryUtils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
@@ -36,159 +24,6 @@ export const VARIANCE_SCALING_FACTOR_SUM = 0.25
 export enum ConversionRateInputType {
     MANUAL = 'manual',
     AUTOMATIC = 'automatic',
-}
-
-// Creates the correct identifier properties for a series item based on metric type
-const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Record<string, any> => {
-    if (isExperimentMeanMetric(metric)) {
-        const { source } = metric
-
-        if (source.kind === NodeKind.EventsNode) {
-            return {
-                kind: NodeKind.EventsNode,
-                event: source.event,
-            }
-        }
-
-        if (source.kind === NodeKind.ActionsNode) {
-            return {
-                kind: NodeKind.ActionsNode,
-                id: source.id,
-            }
-        }
-
-        if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
-            return {
-                kind: NodeKind.ExperimentDataWarehouseNode,
-                table_name: source.table_name,
-            }
-        }
-    }
-
-    if (isExperimentFunnelMetric(metric)) {
-        /**
-         * For multivariate funnels, we select the last step
-         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
-         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
-         */
-        const step = metric.series.at(-1)!
-
-        if (step.kind === NodeKind.EventsNode) {
-            return {
-                kind: NodeKind.EventsNode,
-                event: step.event,
-            }
-        }
-
-        if (step.kind === NodeKind.ActionsNode) {
-            return {
-                kind: NodeKind.ActionsNode,
-                id: step.id,
-            }
-        }
-    }
-
-    throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
-}
-
-const getTotalCountQuery = (
-    metric: ExperimentMetric,
-    experiment: Experiment,
-    eventConfig: EventConfig | null
-): TrendsQuery => {
-    const baseProps = getSeriesItemProps(metric)
-
-    return {
-        kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: eventConfig?.event ?? '$pageview',
-                properties: eventConfig?.properties ?? [],
-                math: BaseMathType.UniqueUsers,
-            },
-            {
-                ...baseProps,
-                math: CountPerActorMathType.Average,
-            },
-        ],
-        trendsFilter: {},
-        filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-    } as TrendsQuery
-}
-
-const getSumQuery = (
-    metric: ExperimentMetric,
-    experiment: Experiment,
-    eventConfig: EventConfig | null
-): TrendsQuery => {
-    const baseProps = getSeriesItemProps(metric)
-    const mathProperty =
-        metric.metric_type === ExperimentMetricType.MEAN
-            ? {
-                  math_property: metric.source.math_property,
-                  math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-              }
-            : {}
-
-    return {
-        kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: eventConfig?.event ?? '$pageview',
-                properties: eventConfig?.properties ?? [],
-                math: BaseMathType.UniqueUsers,
-            },
-            {
-                ...baseProps,
-                math: PropertyMathType.Sum,
-                ...mathProperty,
-            },
-        ],
-        trendsFilter: {},
-        filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-    } as TrendsQuery
-}
-
-const getFunnelQuery = (
-    metric: ExperimentMetric,
-    eventConfig: EventConfig | null,
-    experiment: Experiment
-): FunnelsQuery => {
-    const baseProps = getSeriesItemProps(metric)
-
-    return {
-        kind: NodeKind.FunnelsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: eventConfig?.event ?? '$pageview',
-                properties: eventConfig?.properties ?? [],
-            },
-            baseProps,
-        ],
-        funnelsFilter: {
-            funnelVizType: FunnelVizType.Steps,
-        },
-        filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-        interval: 'day',
-    } as FunnelsQuery
 }
 
 export interface RunningTimeCalculatorLogicProps {
