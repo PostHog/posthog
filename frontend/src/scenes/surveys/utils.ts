@@ -240,7 +240,7 @@ export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
 }
 
-const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 export function getSurveyStartDateForQuery(survey: Survey): string {
     return survey.start_date
