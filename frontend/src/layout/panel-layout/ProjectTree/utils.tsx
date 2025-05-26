@@ -33,6 +33,15 @@ export function protocolTitle(str: string): string {
     return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
 }
 
+export function splitProtocolPath(url: string): [string, string] {
+    const folders = url ? splitPath(url) : []
+    const urlWithProtocol = folders.length > 0 && folders[0].endsWith(':') && url.startsWith(`${folders[0]}//`)
+    if (urlWithProtocol) {
+        return [folders[0] + '//', joinPath(folders.slice(1))]
+    }
+    return ['products://', url]
+}
+
 export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
     const parts = splitPath(url)
     if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
@@ -50,6 +59,7 @@ export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
     const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
     const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+
     if (parentA === parentB) {
         if (a.type === 'folder' && b.type !== 'folder') {
             return -1
@@ -263,7 +273,10 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
     }
-    sortNodes(rootNodes)
+    if (root !== 'products://') {
+        sortNodes(rootNodes)
+    }
+
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
             folderNode.children.push({
