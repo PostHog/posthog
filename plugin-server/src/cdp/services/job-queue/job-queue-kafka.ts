@@ -57,7 +57,7 @@ export class CyclotronJobQueueKafka {
     }
 
     public isHealthy() {
-        return this.kafkaConsumer!.isHealthy()
+        return this.kafkaConsumer?.isHealthy() ?? false
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {
