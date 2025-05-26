@@ -758,6 +758,7 @@ class DataWarehouseEventsModifier(BaseModel):
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+    REVENUE_ANALYTICS_ITEM = "revenue_analytics_item"
 
 
 class DatabaseSchemaSchema(BaseModel):
