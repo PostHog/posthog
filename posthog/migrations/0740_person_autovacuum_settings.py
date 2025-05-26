@@ -6,7 +6,7 @@ from django.conf import settings
 
 def get_person_autovacuum_params():
     # Default values for person table
-    params = {}
+    params: dict[str, float] = {}
 
     # Adjust based on deployment
     deployment = settings.CLOUD_DEPLOYMENT
@@ -59,7 +59,7 @@ def get_person_autovacuum_params():
 
 def get_persondistinctid_autovacuum_params():
     # Default values for persondistinctid table
-    params = {}
+    params: dict[str, float] = {}
 
     # Adjust based on deployment
     deployment = settings.CLOUD_DEPLOYMENT
