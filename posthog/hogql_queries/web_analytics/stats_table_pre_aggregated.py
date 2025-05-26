@@ -8,20 +8,25 @@ from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFiel
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
-# We can enable more filters here, but keeping the same as web_overview while we test in
+# Keep those in sync with frontend/src/scenes/web-analytics/WebPropertyFilters.tsx
 STATS_TABLE_SUPPORTED_FILTERS = {
+    "$entry_pathname": "entry_pathname",
+    "$pathname": "pathname",
+    "$end_pathname": "end_pathname",
     "$host": "host",
     "$device_type": "device_type",
-    # "$browser": "browser",
-    # "$os": "os",
-    # "$viewport": "viewport",
-    # "$referring_domain": "referring_domain",
-    # "$utm_source": "utm_source",
-    # "$utm_medium": "utm_medium",
-    # "$utm_campaign": "utm_campaign",
-    # "$utm_term": "utm_term",
-    # "$utm_content": "utm_content",
-    # "$country": "country",
+    "$browser": "browser",
+    "$os": "os",
+    "$referring_domain": "referring_domain",
+    "$entry_utm_source": "utm_source",
+    "$entry_utm_medium": "utm_medium",
+    "$entry_utm_campaign": "utm_campaign",
+    "$entry_utm_term": "utm_term",
+    "$entry_utm_content": "utm_content",
+    "$geoip_country_name": "country_name",
+    "$geoip_country_code": "country_code",
+    "$geoip_city_name": "city_name",
+    "$geoip_subdivision_1_code": "region_code",
 }
 
 
@@ -150,7 +155,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 column = "context.columns.visitors"
             elif field == WebAnalyticsOrderByFields.VIEWS:
                 column = "context.columns.views"
-            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE:
+            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE and self.runner.query.breakdownBy in [
+                WebStatsBreakdown.INITIAL_PAGE,
+                WebStatsBreakdown.PAGE,
+            ]:
                 column = "context.columns.bounce_rate"
 
             if column:
