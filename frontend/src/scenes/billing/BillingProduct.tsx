@@ -85,6 +85,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     // If the feature flag `billing_hide_product_{product.type}` is true,
     // don't show the product in the billing page.
     const hideProductFlag = `billing_hide_product_${product.type}`
+    // @ts-expect-error - this is a dynamic feature flag
     if (featureFlags[hideProductFlag] === true) {
         return null
     }
@@ -385,6 +386,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             }
                                         }
                                         return true
+                                    })
+                                    .filter((addon) => {
+                                        const hideAddonFlag = `billing_hide_addon_${addon.type}`
+                                        // @ts-expect-error - this is a dynamic feature flag
+                                        return featureFlags[hideAddonFlag] !== true
                                     })
                                     .map((addon, i) => {
                                         return <BillingProductAddon key={i} addon={addon} />
