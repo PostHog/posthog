@@ -2196,7 +2196,7 @@ class TestCalculateCohortCommand(APIBaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort 1",
-            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person_2"}]}],
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
 
         # Call the command
@@ -2217,7 +2217,7 @@ class TestCalculateCohortCommand(APIBaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort 2",
-            groups=[{"properties": [{"key": "$some_prop_2", "value": "something_2", "type": "person_2"}]}],
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
         # Call the command
         from django.core.management import call_command
