@@ -50,7 +50,7 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-proxy'
     | 'organization-danger-zone'
-    | 'ac-profile'
+    | 'user-profile'
     | 'user-api-keys'
     | 'user-customization'
     | 'user-danger-zone'
