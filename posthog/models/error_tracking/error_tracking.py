@@ -87,7 +87,8 @@ class ErrorTrackingRelease(UUIDModel):
     # id of the model
     hash_id = models.TextField(null=False, blank=False)
     created_at = models.DateTimeField(auto_now_add=True)
-    name = models.TextField(null=False, blank=False)
+    version = models.TextField(null=False, blank=False)
+    project = models.TextField(null=False, blank=False)  # For now, we may spin this out to a dedicated model later
 
     # Releases can have some metadata attached to them (like id, name, version,
     # commit, whatever), which we put onto exceptions if they're
