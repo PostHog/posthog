@@ -2621,6 +2621,19 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-perplexity"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "openai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/22/19/5a19364dcb67b2a818ee25b98f23f8b167cc42a0facec8a9c051d43b7b72/langchain_perplexity-0.1.1.tar.gz", hash = "sha256:eb802b6c8db45e6add7562a91550cde225e4dfb0f74880a67884f64ef81e533d", size = 10058 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/0d/95da0b2103e2ad10e24e312475649e16ac7f0f4e4e867050cbcbe9a80a8d/langchain_perplexity-0.1.1-py3-none-any.whl", hash = "sha256:e2d61b797a37f2709039ae5a05bf12eca72372f83b5aa3916e995aac92c011f1", size = 8638 },
+]
+
+[[package]]
 name = "langchain-text-splitters"
 version = "0.3.8"
 source = { registry = "https://pypi.org/simple" }
@@ -3114,15 +3127,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/54/6b/5ccee69c5cda7bb1749d5332cf86c7e73ef6cbd78706a91502fdb7c1ef33/mistralai-1.6.0.tar.gz", hash = "sha256:0616b55b694871f0a7d1a4283a53cb904089de7fbfcac1d2c0470d1c77ef879d", size = 138674 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/b2/7bbf5e3607b04e745548dd8c17863700ca77746ab5e0cfdcac83a74d7afc/mistralai-1.6.0-py3-none-any.whl", hash = "sha256:6a4f4d6b5c9fff361741aa5513cd2917a81be520deeb0d33e963d1c31eae8c19", size = 288701 },
-]
-
-[[package]]
-name = "monotonic"
-version = "1.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ea/ca/8e91948b782ddfbd194f323e7e7d9ba12e5877addf04fb2bf8fca38e86ac/monotonic-1.6.tar.gz", hash = "sha256:3a55207bcfed53ddd5c5bae174524062935efed17792e9de2ad0205ce9ad63f7", size = 7615 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/67/7e8406a29b6c45be7af7740456f7f37025f0506ae2e05fb9009a53946860/monotonic-1.6-py2.py3-none-any.whl", hash = "sha256:68687e19a14f11f26d140dd5c86f3dba4bf5df58003000ed467e0e2a69bca96c", size = 8154 },
 ]
 
 [[package]]
@@ -3760,6 +3764,7 @@ dependencies = [
     { name = "langchain" },
     { name = "langchain-community" },
     { name = "langchain-openai" },
+    { name = "langchain-perplexity" },
     { name = "langgraph" },
     { name = "lxml" },
     { name = "lzstring" },
@@ -3959,6 +3964,7 @@ requires-dist = [
     { name = "langchain", specifier = "==0.3.25" },
     { name = "langchain-community", specifier = "==0.3.23" },
     { name = "langchain-openai", specifier = "==0.3.16" },
+    { name = "langchain-perplexity", specifier = ">=0.1.1" },
     { name = "langgraph", specifier = "==0.4.1" },
     { name = "lxml", specifier = "==5.2.1" },
     { name = "lzstring", specifier = "==1.0.4" },
@@ -3978,7 +3984,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=3.24.1" },
+    { name = "posthoganalytics", specifier = ">=4.2.0" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4099,19 +4105,18 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "3.24.1"
+version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
     { name = "distro" },
-    { name = "monotonic" },
     { name = "python-dateutil" },
     { name = "requests" },
     { name = "six" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/b7/f6617e31ae91929e71712b63e0d47a1703f8c15b8181e1ae85df85a00ff8/posthoganalytics-3.24.1.tar.gz", hash = "sha256:38aecaee8d2b9f63fa1d19ab22d35eb3128ee525d3800e464cadf2f3495e5666", size = 72226 }
+sdist = { url = "https://files.pythonhosted.org/packages/61/05/90dd1ab541498c72864b0395f1b0b3dd3970c3a6cba93b9a540903ceb1f0/posthoganalytics-4.2.0.tar.gz", hash = "sha256:8638da531a3b232bf935b84e138353c643a5cd68a70a078f56f004e7a765956a", size = 80332 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/3a/a77494779f1e229922584bd3ed944e0b5ef00829720448d90da689f337c0/posthoganalytics-3.24.1-py2.py3-none-any.whl", hash = "sha256:e93b6f34e787f2e3cddce1a1913abc4be167b978c07385491f1dbfc3d9aeb392", size = 86501 },
+    { url = "https://files.pythonhosted.org/packages/88/5f/91a2a96e803a56aabecdae7d572fb0a31dba61288b1520b950e6e9e3977c/posthoganalytics-4.2.0-py2.py3-none-any.whl", hash = "sha256:d77c3fc7ea43e637f8add48bfb8f297ad53b1c201716549a6306c0bd591f0852", size = 97514 },
 ]
 
 [[package]]

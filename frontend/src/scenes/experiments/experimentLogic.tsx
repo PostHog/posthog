@@ -39,6 +39,7 @@ import {
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentExposureCriteria,
+    ExperimentExposureQueryResponse,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -74,7 +75,12 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
+import {
+    featureFlagEligibleForExperiment,
+    isLegacyExperiment,
+    percentageDistribution,
+    transformFiltersForWinningVariant,
+} from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -1447,9 +1453,21 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
+                    const { experiment, usesNewQueryRunner } = values
+
+                    if (!usesNewQueryRunner) {
+                        return
+                    }
+
                     const query = {
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
+                        experiment_name: experiment.name,
+                        exposure_criteria: experiment.exposure_criteria,
+                        feature_flag: experiment.feature_flag,
+                        start_date: experiment.start_date,
+                        end_date: experiment.end_date,
+                        holdout: experiment.holdout,
                     }
                     return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
@@ -2174,40 +2192,41 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         compatibleSharedMetrics: [
-            (s) => [s.sharedMetrics, s.shouldUseExperimentMetrics],
-            (sharedMetrics: SharedMetric[], shouldUseExperimentMetrics: boolean): SharedMetric[] => {
+            (s) => [s.sharedMetrics, s.usesNewQueryRunner],
+            (sharedMetrics: SharedMetric[], usesNewQueryRunner: boolean): SharedMetric[] => {
                 if (!sharedMetrics) {
                     return []
                 }
-                if (shouldUseExperimentMetrics) {
+                if (usesNewQueryRunner) {
                     return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
                 }
                 return sharedMetrics.filter((metric) => metric.query.kind !== NodeKind.ExperimentMetric)
             },
         ],
-        shouldUseExperimentMetrics: [
+        usesNewQueryRunner: [
             (s) => [s.experiment, s.featureFlags],
             (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
+                const hasLegacyMetrics = isLegacyExperiment(experiment)
+
                 const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
                 const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
-                const hasLegacyMetrics = allMetrics.some(
-                    (query) =>
-                        query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery
-                )
+
                 if (hasExperimentMetrics) {
                     return true
                 }
+
                 if (hasLegacyMetrics) {
                     return false
                 }
+
                 return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.shouldUseExperimentMetrics, s.experiment],
-            (exposures, shouldUseExperimentMetrics, experiment): boolean => {
+            (s) => [s.exposures, s.usesNewQueryRunner],
+            (exposures: ExperimentExposureQueryResponse, usesNewQueryRunner: boolean): boolean => {
                 // Not relevant for old metrics
-                if (!shouldUseExperimentMetrics) {
+                if (!usesNewQueryRunner) {
                     return true
                 }
 
@@ -2215,12 +2234,13 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                const variantKeys = experiment.parameters.feature_flag_variants?.map((variant) => variant.key) || []
-                for (const variant of variantKeys) {
-                    const exposure = exposures.total_exposures[variant]
-                    if (!exposure || exposure < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
-                        return false
-                    }
+                const total_experiment_exposures = Object.values(exposures.total_exposures).reduce(
+                    (acc, curr) => acc + curr,
+                    0
+                )
+
+                if (total_experiment_exposures < EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS) {
+                    return false
                 }
 
                 return true
