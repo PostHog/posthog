@@ -173,7 +173,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     })),
 
-    selectors(({ asyncActions, props }) => ({
+    selectors(({ actions, props }) => ({
         breadcrumbs: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
@@ -188,7 +188,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
                         onRename: async (name: string) => {
-                            return await asyncActions.updateIssueName({ id: props.id, name })
+                            return actions.updateIssueName(props.id, name)
                         },
                     },
                 ]
