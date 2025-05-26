@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -66,6 +66,8 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         setFilters: (filters: Partial<HogFunctionListFilters>) => ({ filters }),
         resetFilters: true,
         addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
+        setReorderModalOpen: (open: boolean) => ({ open }),
+        saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
     }),
     reducers(({ props }) => ({
         filters: [
@@ -81,6 +83,12 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 }),
             },
         ],
+        reorderModalOpen: [
+            false as boolean,
+            {
+                setReorderModalOpen: (_, { open }) => open,
+            },
+        ],
     })),
     loaders(({ values, actions, props }) => ({
         hogFunctions: [
@@ -89,6 +97,9 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 loadHogFunctions: async () => {
                     return (await api.hogFunctions.list({ filters: values.filters?.filters, types: [props.type] }))
                         .results
+                },
+                saveHogFunctionOrder: async ({ newOrders }) => {
+                    return await api.hogFunctions.rearrange(newOrders)
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
@@ -141,6 +152,12 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 return enabledFirst
             },
         ],
+        enabledHogFunctions: [
+            (s) => [s.hogFunctions],
+            (hogFunctions): HogFunctionType[] => {
+                return hogFunctions.filter((hogFunction) => hogFunction.enabled)
+            },
+        ],
         hogFunctionsFuse: [
             (s) => [s.hogFunctions],
             (hogFunctions): Fuse => {
@@ -185,6 +202,16 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             },
         ],
     }),
+
+    listeners(({ actions }) => ({
+        saveHogFunctionOrderSuccess: () => {
+            actions.setReorderModalOpen(false)
+            lemonToast.success('Order updated successfully')
+        },
+        saveHogFunctionOrderFailure: () => {
+            lemonToast.error('Failed to update order')
+        },
+    })),
 
     actionToUrl(({ props, values }) => {
         if (!props.syncFiltersWithUrl) {
