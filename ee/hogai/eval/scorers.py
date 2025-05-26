@@ -86,6 +86,8 @@ class PlanCorrectness(LLMClassifier):
             name="plan_correctness",
             prompt_template="""
 You will be given expected and actual generated plans to provide a taxonomy to answer the user's question with a {{query_kind}} insight.
+By taxonomy, we mean the set of events, actions, math operations, property filters, cohort filters, and other project-specific elements that are used to answer the question.
+
 Compare the plans to determine whether the taxonomy of the actual plan matches the expected plan.
 Do not apply general knowledge about {{query_kind}} insights.
 
@@ -110,13 +112,17 @@ Actual generated plan:
 </output_plan>
 
 </input_vs_output>
+
 How would you rate the correctness of the plan? Choose one:
 - perfect: The plan fully matches the expected plan and addresses the user question.
 - near_perfect: The plan mostly matches the expected plan with at most one immaterial detail missed from the user question.
 - slightly_off: The plan mostly matches the expected plan with minor discrepancies.
 - somewhat_misaligned: The plan has some correct elements but misses key aspects of the expected plan or question.
 - strongly_misaligned: The plan does not match the expected plan or fails to address the user question.
-- useless: The plan is incomprehensible.""".strip(),
+- useless: The plan is incomprehensible.
+
+Details matter greatly here - including math types or property types - so be harsh.
+""".strip(),
             choice_scores={
                 "perfect": 1.0,
                 "near_perfect": 0.9,
@@ -217,7 +223,8 @@ How would you rate the alignment of the generated query with the plan? Choose on
 - somewhat_misaligned: The generated query has some correct elements, but misses key aspects of the plan.
 - strongly_misaligned: The generated query does not match the plan and fails to address the user question.
 - useless: The generated query is basically incomprehensible.
-""".strip(),
+
+Details matter greatly here - including math types or property types - so be harsh.""".strip(),
             choice_scores={
                 "perfect": 1.0,
                 "near_perfect": 0.9,
@@ -248,7 +255,9 @@ class TimeRangeRelevancy(LLMClassifier):
         return super()._run_eval_sync(output, expected, **kwargs)
 
     def __init__(self, query_kind: NodeKind, **kwargs):
-        prompt_template = """You will be given an original user question and the generated query (or query components) to answer that question.
+        super().__init__(
+            name="time_range_relevancy",
+            prompt_template="""You will be given an original user question and the generated query (or query components) to answer that question.
 Your goal is to determine if the time range, interval, or period in the generated query is relevant and correct based on the user's question.
 
 <evaluation_criteria>
@@ -293,10 +302,7 @@ How would you rate the time range relevancy of the generated query? Choose one:
 - strongly_misaligned: The query's time components do not match the question's time requirements at all.
 - not_applicable: The user's question has no time component, and the query correctly omits time filters or uses a broad default that doesn't interfere.
 - useless: The query's time components are incomprehensible or completely wrong.
-"""
-        super().__init__(
-            name="time_range_relevancy",
-            prompt_template=prompt_template,
+""".strip(),
             choice_scores={
                 "perfect": 1.0,
                 "near_perfect": 0.9,
