@@ -53,14 +53,14 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(source.job_inputs))
         schemas_to_sync = list(schemas.keys())
 
-    if source.source_type == ExternalDataSource.Type.MYSQL:
+    elif source.source_type == ExternalDataSource.Type.MYSQL:
         if not source.job_inputs:
             return
 
         schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(source.job_inputs))
         schemas_to_sync = list(schemas.keys())
 
-    if source.source_type == ExternalDataSource.Type.MSSQL:
+    elif source.source_type == ExternalDataSource.Type.MSSQL:
         if not source.job_inputs:
             return
 
