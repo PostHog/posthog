@@ -47,6 +47,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
+        updateName: (name: string) => ({ name }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
     }),
 
@@ -66,6 +67,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateStatus: (state, { status }) => {
                 return state ? { ...state, status } : null
             },
+            updateName: (state, { name }) => {
+                return state ? { ...state, name } : null
+            },
         },
         summary: {},
         lastSeen: {
@@ -78,7 +82,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     }),
 
-    selectors({
+    selectors(({ asyncActions }) => ({
         breadcrumbs: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
@@ -92,6 +96,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
+                        onRename: async (name: string) => {
+                            return await asyncActions.updateName(name)
+                        },
                     },
                 ]
             },
@@ -125,7 +132,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
-    }),
+    })),
 
     loaders(({ values, actions, props }) => ({
         issue: {
@@ -198,6 +205,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateAssignee: async ({ assignee }) => {
                 posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
                 await api.errorTracking.assignIssue(props.id, assignee)
+            },
+            updateName: async ({ name }) => {
+                posthog.capture('error_tracking_issue_name_updated', { name, issue_id: props.id })
+                await api.errorTracking.updateIssue(props.id, { name })
             },
         }
     }),
