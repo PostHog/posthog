@@ -205,6 +205,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'aichat',
             href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
+            visualOrder: PRODUCT_VISUAL_ORDER.aiChat,
         } as FileSystemImport,
         {
             path: `Data pipelines`,

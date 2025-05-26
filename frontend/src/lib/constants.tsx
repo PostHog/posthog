@@ -284,6 +284,7 @@ export const PRODUCT_VISUAL_ORDER = {
     featureFlags: 50,
     experiments: 60,
     surveys: 70,
+    aiChat: 71,
     dataWarehouse: 80,
     userInterviews: 90,
     llmObservability: 100,
