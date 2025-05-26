@@ -10,8 +10,9 @@ import { maxThreadLogic } from './maxThreadLogic'
 
 export function QuestionSuggestions(): JSX.Element {
     const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted, tools } = useValues(maxLogic)
-    const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
-    const { coreMemoryLoading, coreMemory } = useValues(maxSettingsLogic)
+    const { shuffleVisibleSuggestions } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
+    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     if (tools.length > 0) {
