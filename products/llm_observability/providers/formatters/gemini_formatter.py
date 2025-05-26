@@ -2,7 +2,7 @@ import base64
 from anthropic.types import MessageParam
 from google.genai.types import Part, Content, Blob, ContentListUnion
 from typing import cast
-from products.editor.backend.providers.formatters.anthropic_typeguards import (
+from products.llm_observability.providers.formatters.anthropic_typeguards import (
     is_base64_image_param,
     is_image_block_param,
     is_text_block_param,

@@ -413,9 +413,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'csp-reporting',
-                title: 'CSP reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 component: <CSPReportingSettings />,
-                flag: 'CSP_REPORTING',
             },
         ],
     },
