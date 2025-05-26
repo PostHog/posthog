@@ -28,7 +28,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew, IconSync } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
@@ -63,7 +63,23 @@ import {
 
 export function Thread(): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadHumanMessageCount } = useValues(maxThreadLogic)
+
+    const prevThreadLength = useRef(threadHumanMessageCount)
+    const shouldFocusHumanMessage = threadHumanMessageCount && streamingActive
+    if (prevThreadLength.current !== threadHumanMessageCount) {
+        prevThreadLength.current = threadHumanMessageCount
+    }
+
+    useLayoutEffect(() => {
+        if (shouldFocusHumanMessage) {
+            Array.from(document.querySelectorAll('[data-message-type="human"]')).at(-1)?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+                inline: 'nearest',
+            })
+        }
+    }, [shouldFocusHumanMessage])
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
@@ -80,10 +96,13 @@ export function Thread(): JSX.Element | null {
             ) : threadGrouped.length > 0 ? (
                 threadGrouped.map((group, index) => (
                     <MessageGroup
-                        key={index}
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
                         messages={group}
                         index={index}
                         isFinal={index === threadGrouped.length - 1}
+                        streamingActive={streamingActive}
+                        totalConversationLength={threadGrouped.length}
                     />
                 ))
             ) : (
@@ -131,17 +150,34 @@ interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
     index: number
+    streamingActive: boolean
+    totalConversationLength: number
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
+function MessageGroup({
+    messages,
+    isFinal: isFinalGroup,
+    totalConversationLength,
+    streamingActive,
+}: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { tools } = useValues(maxGlobalLogic)
 
+    const streamingWasActive = useRef(streamingActive)
+    if (streamingActive) {
+        streamingWasActive.current = true
+    }
+
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
     const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
+    const applyFixedSpacing =
+        groupType === 'ai' && streamingWasActive.current && isFinalGroup && totalConversationLength > 1
 
     return (
-        <MessageGroupContainer groupType={groupType}>
+        <MessageGroupContainer
+            groupType={groupType}
+            className={applyFixedSpacing ? 'min-h-[calc(100dvh_-_2.5rem_-_4.25rem)]' : undefined}
+        >
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
@@ -260,11 +296,12 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words',
+                'flex flex-col gap-px w-full break-words scroll-mt-12',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
             ref={ref}
+            data-message-type={type}
         >
             <div
                 className={twMerge(
@@ -360,7 +397,7 @@ function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element 
     )
 }
 
-function VisualizationAnswer({
+const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
@@ -458,7 +495,7 @@ function VisualizationAnswer({
                   </MessageTemplate>
               </>
           )
-}
+})
 
 function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxThreadLogic)

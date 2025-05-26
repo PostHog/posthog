@@ -35,13 +35,7 @@ import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import {
-    isAssistantMessage,
-    isAssistantToolCallMessage,
-    isHumanMessage,
-    isReasoningMessage,
-    isVisualizationMessage,
-} from './utils'
+import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -363,18 +357,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
 
-        addMessage: (payload) => {
-            if (isHumanMessage(payload.message) || isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
-            }
-        },
-
-        replaceMessage: (payload) => {
-            if (isVisualizationMessage(payload.message)) {
-                actions.scrollThreadToBottom()
-            }
-        },
-
         completeThreadGeneration: () => {
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
@@ -475,6 +457,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         threadMessageCount: [
             (s) => [s.threadRaw],
             (threadRaw) => threadRaw.filter((message) => !isReasoningMessage(message)).length,
+        ],
+
+        threadHumanMessageCount: [
+            (s) => [s.threadRaw],
+            (threadRaw) => threadRaw.filter((message) => isHumanMessage(message)).length,
         ],
 
         formPending: [
