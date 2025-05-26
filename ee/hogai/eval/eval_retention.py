@@ -80,7 +80,34 @@ def eval_retention(call_node):
                 query_kind=NodeKind.RETENTION_QUERY,
                 json_schema=RETENTION_SCHEMA,
                 evaluation_criteria="""
-PLACEHOLDER
+1. Returning event alignment: Verify that the returning event in `retentionFilter.returningEntity.name` exactly matches the returning event specified in the plan.
+2. Target event alignment: Verify that the target event in `retentionFilter.targetEntity.name` exactly matches the target event specified in the plan.
+3. Period configuration: Ensure the retention period in `retentionFilter.period` matches what's specified in the plan:
+   - "Day" for daily retention
+   - "Week" for weekly retention
+   - "Month" for monthly retention
+   - Default to "Week" when not specified in the plan
+4. Total intervals: Verify that `retentionFilter.totalIntervals` is set appropriately based on the period:
+   - For daily: typically 14 intervals (14 days)
+   - For weekly: typically 11 intervals (11 weeks)
+   - For monthly: typically 11 intervals (11 months)
+   - Should align with date range when specified in the plan
+5. Property filters on returning entity: Check that property filters from the plan are correctly implemented on the returning event:
+   - Property names, values, and operators must match exactly
+   - Filter types (event, person, group) must be correct
+   - Properties should be applied to `returningEntity.properties` when specified for the returning event
+6. Property filters on target entity: Check that property filters from the plan are correctly implemented on the target event:
+   - Property names, values, and operators must match exactly
+   - Filter types (event, person, group) must be correct
+   - Properties should be applied to `targetEntity.properties` when specified for the target event
+7. Date range alignment: Verify that the date range matches the period and intervals:
+   - Daily retention: date_from should be "-{totalIntervals}d"
+   - Weekly retention: date_from should be "-{totalIntervals}w"
+   - Monthly retention: date_from should be "-{totalIntervals}M"
+   - Custom time periods from plan should be respected
+8. Breakdown limitations: Note that retention queries currently don't support breakdown filters in the schema, so breakdown mentions in the plan cannot be fully implemented (this should not be heavily penalized as it's a schema limitation).
+9. Missing implementation: Heavily penalize when key plan elements are missing (e.g., wrong events, incorrect period, missing property filters on correct entities).
+10. Unnecessary fields: Penalize inclusion of fields not mentioned in the plan or that don't align with the retention intent.
 """.strip(),
             ),
             TimeRangeRelevancy(query_kind=NodeKind.RETENTION_QUERY),
