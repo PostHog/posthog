@@ -215,9 +215,9 @@ const renderUsageLimitMessage = (
                             </p>
                         )}
                         <p className="mb-4 text-xs italic text-secondary">
-                            Need unlimited projects? Check out the{' '}
+                            Need unlimited projects? Check out on or our{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
-                                Teams addon
+                                platform add-ons
                             </Link>
                             .
                         </p>
