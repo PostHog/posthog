@@ -98,7 +98,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         name: exceptionType,
                         onRename: issue
                             ? async (name: string) => {
-                                  await errorTrackingIssueSceneLogic({ id: issue.id }).asyncActions.updateName(name)
+                                  const mounted = errorTrackingIssueSceneLogic.findMounted({ id: issue.id })
+                                  if (mounted) {
+                                      await mounted.asyncActions.updateName(name)
+                                  }
                               }
                             : undefined,
                     },
