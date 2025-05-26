@@ -716,9 +716,6 @@ importers:
       '@types/react-virtualized':
         specifier: ^9.21.23
         version: 9.21.26
-      '@xyflow/react':
-        specifier: ^12.6.0
-        version: 12.6.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       ajv:
         specifier: ^8.12.0
         version: 8.12.0
