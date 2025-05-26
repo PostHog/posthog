@@ -53,6 +53,7 @@ class QueryDateRange:
         now: datetime,
         earliest_timestamp_fallback: Optional[datetime] = None,
         interval_count: Optional[int] = None,
+        timezone_info: Optional[ZoneInfo] = None,
     ) -> None:
         self._team = team
         self._date_range = date_range
@@ -60,6 +61,7 @@ class QueryDateRange:
         self._interval_count = interval_count or 1
         self._now_without_timezone = now
         self._earliest_timestamp_fallback = earliest_timestamp_fallback
+        self._timezone_info = timezone_info or self._team.timezone_info
 
         # Hour intervals have strange behaviour in clickhouse:
         # From the docs:
@@ -84,7 +86,7 @@ class QueryDateRange:
         if self._date_range and self._date_range.date_to:
             date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
-                self._team.timezone_info,
+                self._timezone_info,
                 always_truncate=False,
                 now=self.now_with_timezone,
             )
@@ -115,7 +117,7 @@ class QueryDateRange:
         elif self._date_range and isinstance(self._date_range.date_from, str):
             date_from = relative_date_parse(
                 self._date_range.date_from,
-                self._team.timezone_info,
+                self._timezone_info,
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
@@ -134,7 +136,7 @@ class QueryDateRange:
 
     @cached_property
     def now_with_timezone(self) -> datetime:
-        return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
+        return self._now_without_timezone.astimezone(self._timezone_info)
 
     def format_date(self, datetime) -> str:
         return datetime.strftime("%Y-%m-%d %H:%M:%S")
@@ -272,7 +274,7 @@ class QueryDateRange:
 
         _date_from, delta_mapping, _position = relative_date_parse_with_delta_mapping(
             self._date_range.date_from,
-            self._team.timezone_info,
+            self._timezone_info,
             always_truncate=True,
             now=self.now_with_timezone,
         )

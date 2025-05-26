@@ -21,6 +21,9 @@ from .memory.nodes import (
     MemoryCollectorToolsNode,
     MemoryInitializerInterruptNode,
     MemoryInitializerNode,
+    MemoryOnboardingEnquiryInterruptNode,
+    MemoryOnboardingEnquiryNode,
+    MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
 from .query_executor.nodes import QueryExecutorNode
@@ -310,6 +313,7 @@ class AssistantGraph(BaseAssistantGraph):
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
+            "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
             "end": AssistantNodeName.END,
         }
         root_node = RootNode(self._team)
@@ -330,35 +334,70 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 
-    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+    def add_memory_onboarding(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.ROOT,
+        insights_next_node: AssistantNodeName = AssistantNodeName.INSIGHTS_SUBGRAPH,
+    ):
         builder = self._graph
         self._has_start_node = True
 
         memory_onboarding = MemoryOnboardingNode(self._team)
         memory_initializer = MemoryInitializerNode(self._team)
         memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
+        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team)
+        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(self._team)
+        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team)
 
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt)
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY, memory_onboarding_enquiry)
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, memory_onboarding_enquiry_interrupt)
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, memory_onboarding_finalize)
 
         builder.add_conditional_edges(
             AssistantNodeName.START,
-            memory_onboarding.should_run,
-            path_map={True: AssistantNodeName.MEMORY_ONBOARDING, False: next_node},
+            memory_onboarding.should_run_onboarding_at_start,
+            {
+                "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
+                "continue": next_node,
+            },
         )
+
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_ONBOARDING,
             memory_onboarding.router,
-            path_map={"continue": next_node, "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER},
+            path_map={
+                "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER,
+                "onboarding_enquiry": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+            },
         )
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
             memory_initializer.router,
-            path_map={"continue": next_node, "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT},
+            path_map={
+                "continue": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+                "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+            },
         )
-        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, next_node)
-
+        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY)
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+            memory_onboarding_enquiry.router,
+            path_map={
+                "continue": AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+                "interrupt": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT,
+            },
+        )
+        builder.add_edge(
+            AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
+        )
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+            memory_onboarding_finalize.router,
+            path_map={"continue": next_node, "insights": insights_next_node},
+        )
         return self
 
     def add_memory_collector(
@@ -415,7 +454,7 @@ class AssistantGraph(BaseAssistantGraph):
     def compile_full_graph(self):
         return (
             self.add_title_generator()
-            .add_memory_initializer()
+            .add_memory_onboarding()
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
