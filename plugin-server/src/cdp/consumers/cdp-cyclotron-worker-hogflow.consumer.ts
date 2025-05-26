@@ -15,7 +15,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return await this.runManyWithHeartbeat(loadedInvocations, (item) => this.hogFlowExecutor.execute(item))
     }
 
-    // TODO: Move this to an abstract function??
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationHogFlow[]> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
 
