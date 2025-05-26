@@ -1,6 +1,6 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
-import * as comingSoonDestinations from './_destinations/coming-soon/coming-soon-destinations.template'
+import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
@@ -15,7 +15,7 @@ import { template as removeNullPropertiesTemplate } from './_transformations/rem
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { HogFunctionTemplate } from './types'
 
-export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = Object.values(comingSoonDestinations)
+export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     webhookTemplate,
@@ -53,5 +53,6 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
+    ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
 ]
