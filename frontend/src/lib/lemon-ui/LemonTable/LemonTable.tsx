@@ -45,7 +45,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Status of each row. Defaults no status. */
     rowStatus?: 'highlighted' | ((record: T, rowIndex: number) => 'highlighted' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
-    onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
+    onRow?: (record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
     size?: 'small' | 'middle'
     /** Whether this table already is inset, meaning it needs reduced horizontal padding (0.5rem instead of 1rem). */

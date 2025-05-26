@@ -109,13 +109,13 @@ export const productRedirects: Record<
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
     EarlyAccessFeatures: {
-        name: 'Early Access Features',
+        name: 'Early access features',
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
     EarlyAccessFeature: {
-        name: 'Early Access Features',
+        name: 'Early access feature',
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
@@ -198,7 +198,8 @@ export const productUrls = {
     ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
-    experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
+    experimentsSharedMetric: (id: string | number, action?: string): string =>
+        action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
@@ -395,7 +396,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Persons', iconType: 'cohort', href: urls.persons() },
     { path: 'Product analytics', type: 'insight', href: urls.insights() },
     { path: 'Revenue analytics', iconType: 'piggyBank', href: urls.revenueAnalytics() },
-    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
     { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
@@ -404,6 +404,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsDataManagement = (): FileSystemImport[] => [
+    { path: 'Actions', iconType: 'rocket', href: urls.actions() },
+    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
+    { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
+]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({

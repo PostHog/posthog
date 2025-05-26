@@ -23,4 +23,11 @@ export const manifest: ProductManifest = {
         },
     ],
     treeItemsProducts: [],
+    treeItemsDataManagement: [
+        {
+            path: 'Cohorts',
+            type: 'cohort',
+            href: urls.cohorts(),
+        },
+    ],
 }

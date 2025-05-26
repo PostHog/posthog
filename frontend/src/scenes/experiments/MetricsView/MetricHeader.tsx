@@ -1,7 +1,9 @@
-import { IconPencil } from '@posthog/icons'
+import { IconCopy, IconPencil } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
 import { MetricTitle } from './MetricTitle'
@@ -12,11 +14,13 @@ export const MetricHeader = ({
     metric,
     metricType,
     isPrimaryMetric,
+    onDuplicateMetricClick,
 }: {
     metricIndex: number
     metric: any
     metricType: any
     isPrimaryMetric: boolean
+    onDuplicateMetricClick: (metric: ExperimentMetric) => void
 }): JSX.Element => {
     /**
      * This is a bit overkill, since primary and secondary metric dialogs are
@@ -42,23 +46,39 @@ export const MetricHeader = ({
                         <span className="mr-1">{metricIndex + 1}.</span>
                         <MetricTitle metric={metric} metricType={metricType} />
                     </div>
-                    <LemonButton
-                        className="flex-shrink-0"
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconPencil fontSize="12" />}
-                        onClick={() => {
-                            const openModal = isPrimaryMetric
-                                ? metric.isSharedMetric
-                                    ? openPrimarySharedMetricModal
-                                    : openPrimaryMetricModal
-                                : metric.isSharedMetric
-                                ? openSecondarySharedMetricModal
-                                : openSecondaryMetricModal
+                    <div className="flex gap-1">
+                        <LemonButton
+                            className="flex-shrink-0"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconPencil fontSize="12" />}
+                            tooltip="Edit"
+                            onClick={() => {
+                                const openModal = isPrimaryMetric
+                                    ? metric.isSharedMetric
+                                        ? openPrimarySharedMetricModal
+                                        : openPrimaryMetricModal
+                                    : metric.isSharedMetric
+                                    ? openSecondarySharedMetricModal
+                                    : openSecondaryMetricModal
 
-                            openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
-                        }}
-                    />
+                                openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
+                            }}
+                        />
+                        <LemonButton
+                            className="flex-shrink-0"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCopy fontSize="12" />}
+                            tooltip="Duplicate"
+                            onClick={() => {
+                                if (metric.isSharedMetric) {
+                                    return
+                                }
+                                onDuplicateMetricClick(metric)
+                            }}
+                        />
+                    </div>
                 </div>
                 <div className="deprecated-space-x-1">
                     <LemonTag type="muted" size="small">
