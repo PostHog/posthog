@@ -213,7 +213,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     </div>
                 ) : (
                     <>
-                        <Thread />
+                        <Thread sidePanel={sidePanel} />
                         <QuestionInput isFloating />
                     </>
                 )}

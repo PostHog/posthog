@@ -61,16 +61,21 @@ import {
     isVisualizationMessage,
 } from './utils'
 
-export function Thread(): JSX.Element | null {
+export interface ThreadProps {
+    sidePanel?: boolean
+}
+
+export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadHumanMessageCount } = useValues(maxThreadLogic)
 
+    // Remember the last count of human messages. Order matters here.
     const prevThreadLength = useRef(threadHumanMessageCount)
     const shouldFocusHumanMessage = threadHumanMessageCount && streamingActive
     if (prevThreadLength.current !== threadHumanMessageCount) {
         prevThreadLength.current = threadHumanMessageCount
     }
-
+    // Scroll synchronously with the render into the last human message
     useLayoutEffect(() => {
         if (shouldFocusHumanMessage) {
             Array.from(document.querySelectorAll('[data-message-type="human"]')).at(-1)?.scrollIntoView({
@@ -103,6 +108,7 @@ export function Thread(): JSX.Element | null {
                         isFinal={index === threadGrouped.length - 1}
                         streamingActive={streamingActive}
                         totalConversationLength={threadGrouped.length}
+                        sidePanel={sidePanel}
                     />
                 ))
             ) : (
@@ -152,6 +158,7 @@ interface MessageGroupProps {
     index: number
     streamingActive: boolean
     totalConversationLength: number
+    sidePanel?: boolean
 }
 
 function MessageGroup({
@@ -159,6 +166,7 @@ function MessageGroup({
     isFinal: isFinalGroup,
     totalConversationLength,
     streamingActive,
+    sidePanel,
 }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { tools } = useValues(maxGlobalLogic)
@@ -176,7 +184,10 @@ function MessageGroup({
     return (
         <MessageGroupContainer
             groupType={groupType}
-            className={applyFixedSpacing ? 'min-h-[calc(100dvh_-_2.5rem_-_4.25rem)]' : undefined}
+            className={clsx({
+                'min-h-[calc(100dvh_-_11rem)]': sidePanel && applyFixedSpacing,
+                'min-h-[calc(100dvh_-_12.25rem)] lg:min-h-[calc(100dvh_-_11.5rem)]': !sidePanel && applyFixedSpacing,
+            })}
         >
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
