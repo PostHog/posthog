@@ -328,7 +328,6 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_country_code) AS country_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
-                argMinMerge(raw_sessions.initial_geoip_time_zone) AS timezone,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
