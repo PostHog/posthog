@@ -61,6 +61,8 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     RetentionPeriod,
+    TeamPublicType,
+    TeamType,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -170,6 +172,22 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
 }
 
+// To enable a tile here, you must update the QueryRunner to support it
+// or make sure it can load in a decent time (which event-only tiles usually do).
+// We filter them here to enable a faster experience for the user as the
+// tiles that don't support pre-aggregated tables take a longer time to load
+// and will effectively block other queries to load because of the concurrencyController
+export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
+    TileId.OVERVIEW,
+    TileId.PATHS,
+    TileId.SOURCES,
+    TileId.DEVICES,
+
+    // Not 100% supported yet but they are fast enough that we can show them
+    TileId.GRAPHS,
+    TileId.GEOGRAPHY,
+]
+
 export interface BaseTile {
     tileId: TileId
     layout: WebTileLayout
@@ -278,7 +296,8 @@ export enum GeographyTab {
 }
 
 export enum ActiveHoursTab {
-    NORMAL = 'NORMAL',
+    UNIQUE = 'UNIQUE',
+    TOTAL_EVENTS = 'TOTAL_EVENTS',
 }
 
 export enum ConversionGoalWarning {
@@ -719,6 +738,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        preAggregatedEnabled: [
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                return (
+                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.productTab],
             (productTab: ProductTab): Breadcrumb[] => {
@@ -756,7 +784,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         activeHoursTab: [
             (s) => [s._activeHoursTab],
-            (activeHoursTab: string | null) => activeHoursTab || ActiveHoursTab.NORMAL,
+            (activeHoursTab: string | null) => activeHoursTab || ActiveHoursTab.UNIQUE,
         ],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
@@ -895,6 +923,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.isGreaterThanMd,
                 () => values.currentTeam,
                 () => values.tileVisualizations,
+                () => values.preAggregatedEnabled,
             ],
             (
                 productTab,
@@ -913,7 +942,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 featureFlags,
                 isGreaterThanMd,
                 currentTeam,
-                tileVisualizations
+                tileVisualizations,
+                preAggregatedEnabled
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -1852,25 +1882,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               setTabId: actions.setActiveHoursTab,
                               tabs: [
                                   {
-                                      id: ActiveHoursTab.NORMAL,
-                                      title: 'Active hours',
-                                      linkText: 'Active hours',
+                                      id: ActiveHoursTab.UNIQUE,
+                                      title: 'Active Hours',
+                                      linkText: 'Unique users',
                                       canOpenModal: true,
                                       query: {
-                                          kind: NodeKind.EventsHeatMapQuery,
-                                          source: {
-                                              kind: NodeKind.EventsNode,
-                                              event: '$pageview',
-                                              name: '$pageview',
-                                              math: BaseMathType.UniqueUsers,
-                                          },
-                                          properties: webAnalyticsFilters,
+                                          kind: NodeKind.CalendarHeatmapQuery,
+                                          series: [
+                                              {
+                                                  kind: NodeKind.EventsNode,
+                                                  event: '$pageview',
+                                                  name: '$pageview',
+                                                  math: BaseMathType.UniqueUsers,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                          ],
                                           dateRange,
                                           conversionGoal,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
-                                          title: 'Active hours',
+                                          title: 'Active hours - Unique users',
                                           description: (
                                               <>
                                                   <div>
@@ -1890,7 +1922,52 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               </>
                                           ),
                                       },
-                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.NORMAL),
+                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.UNIQUE),
+                                  },
+                                  {
+                                      id: ActiveHoursTab.TOTAL_EVENTS,
+                                      title: 'Active Hours',
+                                      linkText: 'Total pageviews',
+                                      canOpenModal: true,
+                                      query: {
+                                          kind: NodeKind.CalendarHeatmapQuery,
+                                          series: [
+                                              {
+                                                  kind: NodeKind.EventsNode,
+                                                  event: '$pageview',
+                                                  name: '$pageview',
+                                                  math: BaseMathType.TotalCount,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                          ],
+                                          dateRange,
+                                          conversionGoal,
+                                      },
+                                      docs: {
+                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                          title: 'Active hours - Total pageviews',
+                                          description: (
+                                              <>
+                                                  <div>
+                                                      <p>
+                                                          Active hours displays a heatmap showing the total number of
+                                                          pageviews, broken down by hour of the day and day of the week.
+                                                      </p>
+                                                      <p>
+                                                          Note: It is expected that selecting a time range longer than 7
+                                                          days will include additional occurrences of weekdays and
+                                                          hours, potentially increasing the user counts in those
+                                                          buckets. The recommendation is to select 7 closed days or
+                                                          multiple of 7 closed day ranges.
+                                                      </p>
+                                                  </div>
+                                              </>
+                                          ),
+                                      },
+                                      insightProps: createInsightProps(
+                                          TileId.ACTIVE_HOURS,
+                                          ActiveHoursTab.TOTAL_EVENTS
+                                      ),
                                   },
                               ],
                           }
@@ -2060,7 +2137,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                 ]
-                return allTiles.filter(isNotNil)
+                return allTiles
+                    .filter(isNotNil)
+                    .filter((tile) =>
+                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                    )
             },
         ],
 

@@ -214,6 +214,7 @@ export const ELEMENTS = {
         'IconTriangleDownFilled',
         'IconTriangleUp',
         'IconTriangleUpFilled',
+        'IconShortcut',
         'IconStar',
         'IconStarFilled',
         'IconStarHalfFilled',

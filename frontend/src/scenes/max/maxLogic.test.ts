@@ -20,7 +20,7 @@ describe('maxLogic', () => {
 
     it("doesn't mount sidePanelStateLogic if it's not already mounted", async () => {
         // Mount maxLogic after setting up the sidePanelStateLogic state
-        logic = maxLogic({ conversationId: 'test-id' })
+        logic = maxLogic()
         logic.mount()
 
         // Check that sidePanelStateLogic was not mounted
@@ -33,7 +33,7 @@ describe('maxLogic', () => {
         sidePanelStateLogic.mount()
 
         // Mount maxLogic after setting up the sidePanelStateLogic state
-        logic = maxLogic({ conversationId: 'test-id' })
+        logic = maxLogic()
         logic.mount()
 
         // Check that the question has been set to "Foo" (via sidePanelStateLogic automatically)
@@ -49,7 +49,7 @@ describe('maxLogic', () => {
 
         // Spy on askMax action
         // Must create the logic first to spy on its actions
-        logic = maxLogic({ conversationId: 'test-id' })
+        logic = maxLogic()
         const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
 
         // Only mount maxLogic after setting up the router and sidePanelStateLogic

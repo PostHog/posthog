@@ -8,7 +8,7 @@ import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
+import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -46,10 +46,14 @@ import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurve
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
+    buildPartialResponsesFilter,
     calculateNpsBreakdown,
     calculateNpsScore,
     createAnswerFilterHogQLExpression,
+    DATE_FORMAT,
     getResponseFieldWithId,
+    getSurveyEndDateForQuery,
+    getSurveyStartDateForQuery,
     isSurveyRunning,
     sanitizeHTML,
     sanitizeSurveyAppearance,
@@ -57,7 +61,7 @@ import {
     validateColor,
 } from './utils'
 
-export type SurveyBaseStatTuple = [string, number, number, string | null, string | null]
+export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 
@@ -173,20 +177,6 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
-const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
-
-function getSurveyStartDateForQuery(survey: Survey): string {
-    return survey.start_date
-        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
-        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
-}
-
-function getSurveyEndDateForQuery(survey: Survey): string {
-    return survey.end_date
-        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
-        : dayjs().utc().endOf('day').format(DATE_FORMAT)
-}
-
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -252,7 +242,7 @@ export const surveyLogic = kea<surveyLogicType>([
             filters,
             reloadResults,
         }),
-        setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
+        setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
@@ -287,6 +277,13 @@ export const surveyLogic = kea<surveyLogicType>([
                                     value: currentFilterForQuestion?.value ?? [],
                                 }
                             }),
+                            false
+                        )
+                        actions.setDateRange(
+                            {
+                                date_from: getSurveyStartDateForQuery(survey),
+                                date_to: getSurveyEndDateForQuery(survey),
+                            },
                             false
                         )
                         return survey
@@ -361,10 +358,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
                 const answerFilterCondition = values.answerFilterHogQLExpression
                     ? values.answerFilterHogQLExpression.slice(4)
@@ -382,20 +375,15 @@ export const surveyLogic = kea<surveyLogicType>([
                             if(count() > 0, max(timestamp), null) as last_seen
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
-                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${
-                        SurveyEventName.SENT
-                    }')
+                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             AND {filters} -- Apply property filters here to the main query
                             -- Main condition for handling partial responses and answer filters:
                             AND (
                                 event != '${SurveyEventName.DISMISSED}'
                                 OR
-                                COALESCE(JSONExtractBool(properties, '${
-                                    SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED
-                                }'), False) = False
+                                COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
                             )
                             AND (
                                 -- Include non-'sent' events directly
@@ -404,13 +392,8 @@ export const surveyLogic = kea<surveyLogicType>([
                                 -- Include 'sent' events only if they meet the outer query's answer filter AND are in the unique list (old or latest partial/complete)
                                 (
                                     (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events in the outer query
-                                    AND
                                     -- Check if the event's UUID is in the list generated by the subquery
-                                    ${
-                                        values.isPartialResponsesEnabled
-                                            ? `uniqueSurveySubmissionsFilter('${props.id}')`
-                                            : '1=1'
-                                    }
+                                    ${values.partialResponsesFilter}
                                 )
                             )
                         GROUP BY event
@@ -430,10 +413,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
                 const answerFilterCondition =
                     values.answerFilterHogQLExpression === ''
@@ -443,6 +422,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING DISMISSED AND SENT COUNT
                         SELECT count()
                         FROM (
                             SELECT person_id
@@ -450,8 +430,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             WHERE team_id = ${teamLogic.values.currentTeamId}
                               AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                               AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                              AND timestamp >= '${startDate}'
-                              AND timestamp <= '${endDate}'
+                              ${values.timestampFilter}
                               AND (
                                 event != '${SurveyEventName.DISMISSED}'
                                 OR
@@ -484,10 +463,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -498,15 +473,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             AND {filters}
-                            ${
-                                values.isPartialResponsesEnabled
-                                    ? `AND uniqueSurveySubmissionsFilter('${survey.id}')`
-                                    : ''
-                            }
+                            ${values.partialResponsesFilter}
                         GROUP BY survey_response
                     `,
                     filters: {
@@ -544,30 +514,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
                         -- QUERYING NPS RECURRING RESPONSES
                         SELECT
-                            JSONExtractString(properties, '${
-                                SurveyEventProperties.SURVEY_ITERATION
-                            }') AS survey_iteration,
+                            JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ITERATION}') AS survey_iteration,
                             getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
-                            ${
-                                values.isPartialResponsesEnabled
-                                    ? `AND uniqueSurveySubmissionsFilter('${survey.id}')`
-                                    : ''
-                            }
+                            ${values.partialResponsesFilter}
                             AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
@@ -635,10 +596,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
                 const question = values.survey.questions[questionIndex]
-                const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -649,14 +606,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
-                            ${
-                                values.isPartialResponsesEnabled
-                                    ? `AND uniqueSurveySubmissionsFilter('${survey.id}')`
-                                    : ''
-                            }
+                            ${values.partialResponsesFilter}
                             AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
@@ -688,8 +640,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
 
                 // Use a WITH clause to ensure we're only counting each response once
                 const query: HogQLQuery = {
@@ -704,15 +654,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event == '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             AND {filters}
-                            ${
-                                values.isPartialResponsesEnabled
-                                    ? `AND uniqueSurveySubmissionsFilter('${survey.id}')`
-                                    : ''
-                            }
+                            ${values.partialResponsesFilter}
                         GROUP BY choice
                         ORDER BY count() DESC
                     `,
@@ -755,8 +700,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
 
                 // For open text responses, we need to check both formats in the WHERE clause
                 const ids = getResponseFieldWithId(questionIndex, question?.id)
@@ -778,15 +721,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         WHERE event == '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
                             AND ${responseCondition}
-                            AND timestamp >= '${startDate}'
-                            AND timestamp <= '${endDate}'
+                            ${values.timestampFilter}
                             ${values.answerFilterHogQLExpression}
                             AND {filters}
-                            ${
-                                values.isPartialResponsesEnabled
-                                    ? `AND uniqueSurveySubmissionsFilter('${survey.id}')`
-                                    : ''
-                            }
+                            ${values.partialResponsesFilter}
                         LIMIT 20
                     `,
                     filters: {
@@ -887,12 +825,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.start_date) {
                     activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
                 }
-
-                const dateRange = {
-                    date_from: getSurveyStartDateForQuery(values.survey as Survey),
-                    date_to: getSurveyEndDateForQuery(values.survey as Survey),
-                }
-                actions.setDateRange(dateRange)
             },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
@@ -941,6 +873,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 reloadAllSurveyResults()
             },
             setAnswerFilters: ({ reloadResults }) => {
+                if (reloadResults) {
+                    reloadAllSurveyResults()
+                }
+            },
+            setDateRange: ({ reloadResults }) => {
                 if (reloadResults) {
                     reloadAllSurveyResults()
                 }
@@ -1244,6 +1181,60 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!enabledFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES]
             },
         ],
+        timestampFilter: [
+            (s) => [s.survey, s.dateRange],
+            (survey: Survey, dateRange: SurveyDateRange): string => {
+                // If no date range provided, use the survey's default date range
+                if (!dateRange) {
+                    return `AND timestamp >= '${getSurveyStartDateForQuery(survey)}'
+                AND timestamp <= '${getSurveyEndDateForQuery(survey)}'`
+                }
+
+                // ----- Handle FROM date -----
+                // Parse the date string to a dayjs object
+                let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
+
+                // Use survey start date as lower bound if needed
+                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
+                if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
+                    fromDateDayjs = surveyStartDayjs
+                }
+
+                // Fall back to survey start date if no valid from date
+                const fromDate = fromDateDayjs
+                    ? fromDateDayjs.utc().format(DATE_FORMAT)
+                    : getSurveyStartDateForQuery(survey)
+
+                // ----- Handle TO date -----
+                // Parse the date string or use current time
+                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
+
+                // Use survey end date as upper bound if it exists
+                const toDate = survey.end_date
+                    ? getSurveyEndDateForQuery(survey)
+                    : toDateDayjs.utc().format(DATE_FORMAT)
+
+                return `AND timestamp >= '${fromDate}'
+                AND timestamp <= '${toDate}'`
+            },
+        ],
+        partialResponsesFilter: [
+            (s) => [s.isPartialResponsesEnabled, s.survey],
+            (isPartialResponsesEnabled: boolean, survey: Survey): string => {
+                if (isPartialResponsesEnabled && survey.enable_partial_responses) {
+                    return buildPartialResponsesFilter(survey)
+                }
+                /**
+                 * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.
+                 * So we return all responses that don't have it.
+                 * For posthog-js > 1.240, we use the $survey_completed property.
+                 */
+                return `AND (
+                            NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
+                            OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
+                        )`
+            },
+        ],
         isAdaptiveLimitFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1372,12 +1363,13 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression, s.isPartialResponsesEnabled],
+            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression, s.partialResponsesFilter, s.dateRange],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
                 answerFilterHogQLExpression: string,
-                isPartialResponsesEnabled: boolean
+                partialResponsesFilter: string,
+                dateRange: SurveyDateRange
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -1385,11 +1377,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
-                const where = [`event == '${SurveyEventName.SENT}'`]
-
-                if (isPartialResponsesEnabled) {
-                    where.push(`uniqueSurveySubmissionsFilter('${survey.id}')`)
-                }
+                const where = [`event == '${SurveyEventName.SENT}'`, partialResponsesFilter.replace(/^AND\s+/, '')]
 
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
@@ -1417,8 +1405,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where,
-                        after: startDate,
-                        before: endDate,
+                        after: dateRange?.date_from || startDate,
+                        before: dateRange?.date_to || endDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,

@@ -1,9 +1,9 @@
 import logging
 import os
+from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import Enum
 from functools import cache
-from collections.abc import Mapping
 
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
@@ -22,6 +22,8 @@ class Workload(Enum):
     ONLINE = "ONLINE"
     # Historical exports, other long-running processes where latency is less critical
     OFFLINE = "OFFLINE"
+    # Logs queries
+    LOGS = "LOGS"
 
 
 class NodeRole(Enum):
@@ -168,6 +170,15 @@ def get_client_from_pool(
         ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
             return get_http_client(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False)
 
+        if workload == Workload.LOGS:
+            return get_http_client(
+                host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+                database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+                user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+                password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+                secure=settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+            )
+
         return get_http_client()
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
@@ -203,6 +214,15 @@ def get_pool(
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return make_ch_pool(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False, user=user, password=password)
+
+    if workload == Workload.LOGS:
+        return make_ch_pool(
+            host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+            user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+            password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+            secure=settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+        )
 
     return make_ch_pool(user=user, password=password)
 

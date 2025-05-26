@@ -59,6 +59,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .link import Link
 from .message_template import MessageTemplate
 from .messaging import MessagingRecord
 from .notebook import Notebook
@@ -92,6 +93,8 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+
+# Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 __all__ = [
@@ -140,6 +143,7 @@ __all__ = [
     "GroupTypeMapping",
     "HogFunction",
     "HogFunctionTemplate",
+    "Link",
     "HostDefinition",
     "Insight",
     "InsightCachingState",

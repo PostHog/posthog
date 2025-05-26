@@ -4,17 +4,17 @@ import { urls } from 'scenes/urls'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Early Access Features',
+    name: 'Early access features',
     scenes: {
         EarlyAccessFeatures: {
-            name: 'Early Access Features',
+            name: 'Early access features',
             import: () => import('./frontend/EarlyAccessFeatures'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'EarlyAccessFeature',
         },
         EarlyAccessFeature: {
-            name: 'Early Access Features',
+            name: 'Early access feature',
             import: () => import('./frontend/EarlyAccessFeature'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
@@ -42,14 +42,17 @@ export const manifest: ProductManifest = {
         {
             path: `Early access feature`,
             type: 'early_access_feature',
-            href: () => urls.earlyAccessFeature('new'),
+            href: urls.earlyAccessFeature('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: 'Early access features',
-            icon: <IconRocket />,
-            href: () => urls.earlyAccessFeatures(),
+            type: 'early_access_feature',
+            href: urls.earlyAccessFeatures(),
         },
     ],
+    fileSystemFilterTypes: {
+        early_access_feature: { name: 'Early access features' },
+    },
 }

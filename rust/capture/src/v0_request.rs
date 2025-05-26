@@ -13,7 +13,13 @@ use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
     token::validate_token,
-    utils::{decode_base64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE},
+    utils::{
+        decode_base64,
+        decompress_lz64,
+        is_likely_base64,
+        Base64Option,
+        //MAX_PAYLOAD_SNIPPET_SIZE,
+    },
 };
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +56,19 @@ pub struct EventQuery {
 
     #[serde(alias = "_")]
     sent_at: Option<i64>,
+
+    // If true, return 204 No Content on success
+    #[serde(default, deserialize_with = "deserialize_beacon")]
+    pub beacon: bool,
+}
+
+fn deserialize_beacon<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<i32> = Option::deserialize(deserializer)?;
+    let result = value.is_some_and(|v| v == 1);
+    Ok(result)
 }
 
 impl EventQuery {
@@ -245,7 +264,8 @@ impl RawRequest {
         if is_mirror_deploy {
             let truncate_at: usize = payload
                 .char_indices()
-                .nth(MAX_PAYLOAD_SNIPPET_SIZE)
+                //.nth(MAX_PAYLOAD_SNIPPET_SIZE)
+                .nth(1024) // TODO(eli): temporary for odd /engage payload inspection
                 .map(|(n, _)| n)
                 .unwrap_or(0);
             let payload_snippet = &payload[0..truncate_at];
@@ -294,54 +314,6 @@ impl RawRequest {
         }
         None
     }
-}
-
-fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
-    // with lz64 the payload is a Base64 string that must be decoded prior to decompression
-    let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
-    let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
-        Some(v) => v,
-        None => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
-                .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
-                payload_snippet = payload_snippet,
-                "decompress_lz64: failed decompress to UTF16"
-            );
-            return Err(CaptureError::RequestDecodingError(String::from(
-                "decompress_lz64: failed decompress to UTF16",
-            )));
-        }
-    };
-
-    // the decompressed data is UTF16 so we need to convert it to UTF8 to
-    // obtain the JSON event batch payload we've come to know and love
-    let decompressed = match String::from_utf16(&decomp_utf16) {
-        Ok(result) => result,
-        Err(e) => {
-            error!(
-                "decompress_lz64: failed UTF16 to UTF8 conversion, got: {}",
-                e
-            );
-            return Err(CaptureError::RequestDecodingError(String::from(
-                "decompress_lz64: failed UTF16 to UTF8 conversion",
-            )));
-        }
-    };
-
-    if decompressed.len() > limit {
-        error!(
-            "lz64 request payload size limit exceeded: {}",
-            decompressed.len()
-        );
-        report_dropped_events("event_too_big", 1);
-        return Err(CaptureError::EventTooBig(String::from(
-            "lz64 request payload size limit exceeded",
-        )));
-    }
-
-    Ok(decompressed)
 }
 
 #[instrument(skip_all, fields(events = events.len()))]

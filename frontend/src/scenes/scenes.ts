@@ -442,6 +442,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.Links]: {
+        projectBased: true,
+        name: 'Links',
+    },
+    [Scene.Link]: {
+        projectBased: true,
+    },
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
@@ -479,6 +486,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataPipelinesNew]: {
         projectBased: true,
         name: 'New data pipeline',
+    },
+    [Scene.Game368]: {
+        name: '368 Hedgehogs',
+        projectBased: true,
     },
     ...productConfiguration,
 }
@@ -620,6 +631,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
+    [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
     [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
@@ -676,6 +688,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.links()]: [Scene.Links, 'links'],
+    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],

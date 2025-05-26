@@ -1,4 +1,4 @@
-import { IconArrowUpRight, IconPlus } from '@posthog/icons'
+import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
@@ -21,10 +21,39 @@ export interface ConvertProps {
     recent?: boolean
     users?: Record<string, UserBasicType>
     foldersFirst?: boolean
+    allShortcuts?: boolean
 }
 
-export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
-    return item.type === 'folder' ? `${root}-folder/${item.path}` : `${root}/${item.id || item.path}`
+export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
+    const root = protocol.replace(/\/+/, '').replace(':', '')
+    return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
+}
+
+export function protocolTitle(str: string): string {
+    return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
+}
+
+export function splitProtocolPath(url: string): [string, string] {
+    const folders = url ? splitPath(url) : []
+    const urlWithProtocol = folders.length > 0 && folders[0].endsWith(':') && url.startsWith(`${folders[0]}//`)
+    if (urlWithProtocol) {
+        return [folders[0] + '//', joinPath(folders.slice(1))]
+    }
+    return ['products://', url]
+}
+
+export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
+    const parts = splitPath(url)
+    if (parts[0]?.endsWith(':') && url.startsWith(`${parts[0]}//`)) {
+        if (parts.length > 1) {
+            return parts[parts.length - 1]
+        }
+        return protocolTitle(parts[0].slice(0, -1))
+    }
+    if (parts.length > 0) {
+        return parts[parts.length - 1]
+    }
+    return defaultName
 }
 
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
@@ -41,17 +70,13 @@ export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): num
     return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
 }
 
-export function wrapWithShortcutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
-    if (item.shortcut) {
-        return (
-            <div className="relative">
-                {icon}
-                <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
-            </div>
-        )
-    }
-
-    return icon
+export function wrapWithShortcutIcon(icon: React.ReactNode): JSX.Element {
+    return (
+        <div className="relative">
+            {icon}
+            <IconShortcut className="icon-shortcut absolute bottom-[-0.15rem] left-[-0.25rem] [&_path]:fill-white" />
+        </div>
+    )
 }
 
 export function convertFileSystemEntryToTreeDataItem({
@@ -65,23 +90,21 @@ export function convertFileSystemEntryToTreeDataItem({
     recent,
     users,
     foldersFirst = true,
+    allShortcuts = false,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
-        const itemName = pathSplit.pop()!
-        const nodeId = getItemId(item)
+        const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
+        const nodeId = getItemId(item, root)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
+        const icon = iconForType('iconType' in item ? item.iconType : item.type)
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
             displayName,
-            icon: item._loading ? (
-                <Spinner />
-            ) : (
-                wrapWithShortcutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
-            ),
+            icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
         }
@@ -109,7 +132,7 @@ export function convertFileSystemEntryToTreeDataItem({
     const markIndeterminateFolders = (path: string): void => {
         const parts = splitPath(path)
         for (let i = 0; i < parts.length; i++) {
-            indeterminateFolders[`${root}-folder/${joinPath(parts.slice(0, i + 1))}`] = true
+            indeterminateFolders[`${root}${joinPath(parts.slice(0, i + 1))}`] = true
         }
     }
 
@@ -119,7 +142,7 @@ export function convertFileSystemEntryToTreeDataItem({
             (node) => node.record?.path === fullPath && node.record?.type === 'folder'
         )
         if (!folderNode) {
-            const id = `${root}-folder/${fullPath}`
+            const id = `${root}${fullPath}`
             folderNode = {
                 id,
                 name: folderName,
@@ -302,6 +325,10 @@ export function joinPath(path: string[]): string {
 
 export function escapePath(path: string): string {
     return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
+}
+
+export function unescapePath(path: string): string {
+    return path.replace(/\\\//g, '/').replace(/\\\\/g, '\\')
 }
 
 export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {

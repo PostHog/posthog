@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
 import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
@@ -39,6 +39,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
         return () => {
             editingSurvey(false)
             setSelectedPageIndex(0)
+            lemonToast.dismiss(LOADING_SURVEY_RESULTS_TOAST_ID)
         }
     }, [editingSurvey, setSelectedPageIndex])
 

@@ -1,4 +1,3 @@
-import { IconPeople } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -22,8 +21,8 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Group analytics',
-            icon: <IconPeople />,
-            href: () => urls.groups(0),
+            iconType: 'cohort',
+            href: urls.groups(0),
         },
     ],
 }

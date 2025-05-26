@@ -19,14 +19,15 @@ export const manifest: ProductManifest = {
         {
             path: `Cohort`,
             type: 'cohort',
-            href: () => urls.cohort('new'),
+            href: urls.cohort('new'),
         },
     ],
-    treeItemsProducts: [
+    treeItemsProducts: [],
+    treeItemsDataManagement: [
         {
             path: 'Cohorts',
-            icon: <IconPeople />,
-            href: () => urls.cohorts(),
+            type: 'cohort',
+            href: urls.cohorts(),
         },
     ],
 }

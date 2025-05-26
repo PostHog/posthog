@@ -156,6 +156,10 @@ function LoadingDetails({
 }): JSX.Element {
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
+    const cpuUtilization =
+        (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (pollResponse?.status?.query_progress?.time_elapsed || 1) /
+        10000
 
     return (
         <>
@@ -173,9 +177,7 @@ function LoadingDetails({
                         <span>{humanizeBytes(bytesRead || 0)} </span>
                         <span>({humanizeBytes(bytesPerSecond || 0)}/s)</span>
                         <br />
-                        <span>
-                            Memory usage {humanizeBytes(pollResponse?.status?.query_progress?.memory_usage || 0)}
-                        </span>
+                        <span>CPU {humanFriendlyNumber(cpuUtilization, 0)}%</span>
                     </>
                 )}
             </p>

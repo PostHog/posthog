@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     api::CaptureError,
+    prometheus::report_dropped_events,
     v0_request::{Compression, EventFormData, EventQuery},
 };
 
@@ -102,25 +103,6 @@ pub fn extract_compression(
     }
 }
 
-pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
-    match serde_urlencoded::from_bytes::<EventFormData>(payload) {
-        Ok(form) => Ok(form),
-
-        Err(e) => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
-                .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
-                form_data = form_data_snippet,
-                "failed to decode urlencoded form body: {}", e
-            );
-            Err(CaptureError::RequestDecodingError(String::from(
-                "invalid urlencoded form data",
-            )))
-        }
-    }
-}
-
 // have we decoded sufficiently have a urlencoded data payload of the expected form yet?
 pub fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
     [
@@ -174,4 +156,71 @@ pub fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureE
             )))
         }
     }
+}
+
+pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
+    match serde_urlencoded::from_bytes::<EventFormData>(payload) {
+        Ok(form) => Ok(form),
+
+        Err(e) => {
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                form_data = form_data_snippet,
+                "failed to decode urlencoded form body: {}", e
+            );
+            Err(CaptureError::RequestDecodingError(String::from(
+                "invalid urlencoded form data",
+            )))
+        }
+    }
+}
+
+pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
+    // with lz64 the payload is a Base64 string that must be decoded prior to decompression
+    let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
+    let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
+        Some(v) => v,
+        None => {
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                payload_snippet = payload_snippet,
+                "decompress_lz64: failed decompress to UTF16"
+            );
+            return Err(CaptureError::RequestDecodingError(String::from(
+                "decompress_lz64: failed decompress to UTF16",
+            )));
+        }
+    };
+
+    // the decompressed data is UTF16 so we need to convert it to UTF8 to
+    // obtain the JSON event batch payload we've come to know and love
+    let decompressed = match String::from_utf16(&decomp_utf16) {
+        Ok(result) => result,
+        Err(e) => {
+            error!(
+                "decompress_lz64: failed UTF16 to UTF8 conversion, got: {}",
+                e
+            );
+            return Err(CaptureError::RequestDecodingError(String::from(
+                "decompress_lz64: failed UTF16 to UTF8 conversion",
+            )));
+        }
+    };
+
+    if decompressed.len() > limit {
+        error!(
+            "lz64 request payload size limit exceeded: {}",
+            decompressed.len()
+        );
+        report_dropped_events("event_too_big", 1);
+        return Err(CaptureError::EventTooBig(String::from(
+            "lz64 request payload size limit exceeded",
+        )));
+    }
+
+    Ok(decompressed)
 }

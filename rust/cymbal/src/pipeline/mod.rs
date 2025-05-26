@@ -4,7 +4,8 @@ use billing::apply_billing_limits;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clean::clean_set_props;
 use common_kafka::{
-    kafka_messages::ingest_warning::IngestionWarning, kafka_producer::send_iter_to_kafka,
+    kafka_consumer::Offset, kafka_messages::ingest_warning::IngestionWarning,
+    kafka_producer::send_iter_to_kafka,
 };
 use common_types::{CapturedEvent, ClickHouseEvent};
 
@@ -13,6 +14,7 @@ use geoip::add_geoip;
 use person::add_person_properties;
 use prep::prepare_events;
 use serde::Deserialize;
+use tracing::error;
 
 use crate::{
     app_context::{AppContext, FilterMode},
@@ -46,10 +48,21 @@ pub enum IncomingEvent {
 
 pub async fn handle_batch(
     buffer: Vec<IncomingEvent>,
+    offsets: &[Offset], // Used purely for debugging
     context: Arc<AppContext>,
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
+    let log_err = |err: PipelineFailure| {
+        let (index, err) = (err.index, err.error);
+        let offset = &offsets[index];
+        error!("Error handling event: {:?}; offset: {:?}", err, offset);
+        err
+    };
+
     let billing_limits_time = common_metrics::timing_guard(BILLING_LIMITS_TIME, &[]);
-    let buffer = apply_billing_limits(buffer, &context).await?;
+    let buffer = apply_billing_limits(buffer, &context)
+        .await
+        .map_err(log_err)
+        .unwrap();
     billing_limits_time.label("outcome", "success").fin();
 
     // We grab the start count after applying billing limits, because we
@@ -57,11 +70,14 @@ pub async fn handle_batch(
     let start_count = buffer.len();
 
     let team_lookup_time = common_metrics::timing_guard(TEAM_LOOKUP_TIME, &[]);
-    let teams_lut = do_team_lookups(context.clone(), &buffer).await?;
+    let teams_lut = do_team_lookups(context.clone(), &buffer)
+        .await
+        .map_err(log_err)
+        .unwrap();
     team_lookup_time.label("outcome", "success").fin();
 
     let prepare_time = common_metrics::timing_guard(PREPARE_EVENTS_TIME, &[]);
-    let buffer = prepare_events(buffer, teams_lut)?;
+    let buffer = prepare_events(buffer, teams_lut).map_err(log_err).unwrap();
     prepare_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
@@ -80,12 +96,18 @@ pub async fn handle_batch(
     // We do exception processing before person processing so we can drop based on issue
     // suppression before doing the more expensive pipeline stage
     let exception_time = common_metrics::timing_guard(EXCEPTION_PROCESSING_TIME, &[]);
-    let buffer = do_exception_handling(buffer, context.clone()).await?;
+    let buffer = do_exception_handling(buffer, context.clone())
+        .await
+        .map_err(log_err)
+        .unwrap();
     exception_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
     let person_time = common_metrics::timing_guard(PERSON_PROCESSING_TIME, &[]);
-    let buffer = add_person_properties(buffer, context.clone()).await?;
+    let buffer = add_person_properties(buffer, context.clone())
+        .await
+        .map_err(log_err)
+        .unwrap();
     person_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
