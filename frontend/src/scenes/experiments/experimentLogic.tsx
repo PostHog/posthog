@@ -117,6 +117,7 @@ export const DEFAULT_MDE = 30
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
+    action?: string | null
 }
 
 interface MetricLoadingConfig {
@@ -199,7 +200,7 @@ const loadMetrics = async ({
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => props.experimentId || 'new'),
+    key((props) => `${props.experimentId ?? 'new'}=${props.action}`),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
@@ -594,12 +595,6 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 setExperimentMissing: () => true,
-            },
-        ],
-        editingExistingExperiment: [
-            false,
-            {
-                setEditExperiment: (_, { editing }) => editing,
             },
         ],
         flagImplementationWarning: [
@@ -1486,6 +1481,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
+        action: [() => [(_, props) => props.action], (action: 'create' | 'duplicate') => action],
         getInsightType: [
             () => [],
             () =>
@@ -1970,6 +1966,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         actions.loadExposures()
                     }
                 }
+            }
+        },
+        '/experiments/:id/:action': ({ id }, _, __, currentLocation, previousLocation) => {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            if (id && didPathChange) {
+                actions.loadExperiment()
             }
         },
     })),

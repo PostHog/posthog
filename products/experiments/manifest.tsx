@@ -12,11 +12,15 @@ export const manifest: ProductManifest = {
     urls: {
         experiment: (
             id: string | number,
+            action?: string | null,
             options?: {
                 metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
                 name?: string
             }
-        ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
+        ): string => {
+            const baseUrl = action ? `/experiments/${id}/${action}` : `/experiments/${id}`
+            return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+        },
         experiments: (): string => '/experiments',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
         experimentsSharedMetric: (id: string | number, action?: string): string =>
