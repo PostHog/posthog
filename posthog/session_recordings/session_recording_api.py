@@ -665,7 +665,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 response = self._stream_blob_to_client(recording, request)
         elif source == "blob_v2":
             blob_key = request.GET.get("blob_key")
-            if blob_key:
+            start_blob_key = request.GET.get("start_blob_key")
+            end_blob_key = request.GET.get("end_blob_key")
+            if blob_key or (start_blob_key or end_blob_key):
                 response = self._stream_blob_v2_to_client(recording, request, timer)
             else:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
@@ -918,15 +920,32 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         """Stream a v2 session recording blob to the client.
 
         The blob_key is the block index in the metadata arrays.
+        The start_blob_key and end_blob_key are used to fetch a range of blocks.
         """
+
         blob_key = request.GET.get("blob_key", "")
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a blob key")
+        start_blob_key = request.GET.get("start_blob_key", "")
+        end_blob_key = request.GET.get("end_blob_key", "")
+
+        if not blob_key and not start_blob_key:
+            raise exceptions.ValidationError("Must provide a single blob key or start and end blob keys")
+        if blob_key and (start_blob_key or end_blob_key):
+            raise exceptions.ValidationError("Must provide a single blob key or start and end blob keys, not both")
+        if start_blob_key and not end_blob_key:
+            raise exceptions.ValidationError("Must provide both start_blob_key and end_blob_key")
+        if end_blob_key and not start_blob_key:
+            raise exceptions.ValidationError("Must provide both start_blob_key and end_blob_key")
 
         try:
-            block_index = int(blob_key)
+            min_blob_key = int(start_blob_key or blob_key)
+            max_blob_key = int(end_blob_key or blob_key)
         except ValueError:
             raise exceptions.ValidationError("Blob key must be an integer")
+
+        # TODO should we validate the range is positive and all above zero?
+        max_blobs_allowed = 20 if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication) else 100
+        if max_blob_key - min_blob_key > max_blobs_allowed:
+            raise exceptions.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with timer("list_blocks__stream_blob_v2_to_client"):
@@ -934,24 +953,26 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 if not blocks:
                     raise exceptions.NotFound("Session recording not found")
 
-            if block_index >= len(blocks):
+            if max_blob_key >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
+            decompressed_blocks = []
             with timer("fetch_block__stream_blob_v2_to_client"):
-                block = blocks[block_index]
-                try:
-                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block.url)
-                except BlockFetchError:
-                    logger.exception(
-                        "Failed to fetch block",
-                        recording_id=recording.session_id,
-                        team_id=self.team.id,
-                        block_index=block_index,
-                    )
-                    raise exceptions.APIException("Failed to load recording block")
+                for block_index in range(min_blob_key, max_blob_key + 1):
+                    block = blocks[block_index]
+                    try:
+                        decompressed_blocks.append(session_recording_v2_object_storage.client().fetch_block(block.url))
+                    except BlockFetchError:
+                        logger.exception(
+                            "Failed to fetch block",
+                            recording_id=recording.session_id,
+                            team_id=self.team.id,
+                            block_index=block_index,
+                        )
+                        raise exceptions.APIException("Failed to load recording block")
 
             response = HttpResponse(
-                content=decompressed_block,
+                content="\n".join(decompressed_blocks),
                 content_type="application/jsonl",
             )
 
