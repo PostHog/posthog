@@ -48,6 +48,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         if (modifiedVal.includes('event.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.traits', 'person.properties')
         }
+        if (modifiedVal.includes('event.name')) {
+            modifiedVal = modifiedVal.replaceAll('event.name', 'event.event')
+        }
         if (modifiedVal.includes('event.context.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
         }
@@ -282,7 +285,39 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
     return JSON.stringify(defaultVal)
 }
 
-const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): HogFunctionInputSchemaType[] => {
+const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> | undefined) => {
+    const checkOverride = (defaultVal: any, fieldKey: string, nested: boolean = false) => {
+        if (mapping) {
+            if (nested) {
+                if (key in mapping && fieldKey in mapping[key] && !mapping[key][fieldKey]['@template']) {
+                    return mapping[key][fieldKey]
+                }
+            } else {
+                if (fieldKey === 'dataFields') {
+                    console.log('using mapping for that part', defaultVal, key, fieldKey, mapping[fieldKey])
+                }
+                if (fieldKey in mapping && !mapping[fieldKey]['@template']) {
+                    return mapping[fieldKey]
+                }
+            }
+        }
+        return defaultVal
+    }
+
+    return field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
+        ? translateInputs(checkOverride(field.default, key), field.multiple)
+        : Object.fromEntries(
+              Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
+                  const defaultVal = (field.default as Record<string, object>) ?? {}
+                  return [key, translateInputs(checkOverride(defaultVal[key], key, true), multiple)]
+              })
+          )
+}
+
+const translateInputsSchema = (
+    inputs_schema: Record<string, any> | undefined,
+    mapping?: Record<string, any> | undefined
+): HogFunctionInputSchemaType[] => {
     if (!inputs_schema) {
         return []
     }
@@ -303,15 +338,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
                 ? 'string'
                 : field.type ?? 'string',
             description: field.description,
-            default:
-                field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
-                    ? translateInputs(field.default, field.multiple)
-                    : Object.fromEntries(
-                          Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
-                              const defaultVal = (field.default as Record<string, object>) ?? {}
-                              return [key, translateInputs(defaultVal[key], multiple)]
-                          })
-                      ),
+            default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
             secret: field.type === 'password' ? true : false,
             ...(field.choices ? { choices: field.choices } : {}),
@@ -420,7 +447,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                             ...(preset.partnerAction in destination.actions
                                 ? translateInputsSchema(
                                       destination.actions[preset.partnerAction as keyof typeof destination.actions]
-                                          .fields
+                                          .fields,
+                                      preset.mapping
                                   )
                                 : []),
                             {
