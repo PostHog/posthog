@@ -276,11 +276,12 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 } else {
                     return `{${multiple ? '[' : ''}${val} ?? ${fallbackVal}${multiple ? ']' : ''}}`
                 }
-            } else {
-                return JSON.stringify(defaultVal)
             }
+        } else if (defaultVal && '@arrayPath' in defaultVal) {
+            let val = defaultVal['@arrayPath'][0]
+            val = val.replace('$.', 'event.')
+            return normalizeValue(val)
         }
-        return JSON.stringify(defaultVal)
     }
     return JSON.stringify(defaultVal)
 }
@@ -304,14 +305,19 @@ const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> 
         return defaultVal
     }
 
-    return field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
-        ? translateInputs(checkOverride(field.default, key), field.multiple)
-        : Object.fromEntries(
-              Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
-                  const defaultVal = (field.default as Record<string, object>) ?? {}
-                  return [key, translateInputs(checkOverride(defaultVal[key], key, true), multiple)]
-              })
-          )
+    if (
+        field.type === 'object' &&
+        (typeof field.default === 'undefined' || !('@path' in field.default || '@arrayPath' in field.default))
+    ) {
+        return Object.fromEntries(
+            Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
+                const defaultVal = (field.default as Record<string, object>) ?? {}
+                return [key, translateInputs(checkOverride(defaultVal[key], key, true), multiple)]
+            })
+        )
+    } else {
+        return translateInputs(checkOverride(field.default, key), field.multiple)
+    }
 }
 
 const getFieldType = (field: any) => {
@@ -321,6 +327,9 @@ const getFieldType = (field: any) => {
 
     if (field.type === 'object') {
         if (typeof field.default !== 'undefined' && '@path' in field.default) {
+            return 'string'
+        }
+        if (typeof field.default !== 'undefined' && '@arrayPath' in field.default) {
             return 'string'
         }
         return 'dictionary'
