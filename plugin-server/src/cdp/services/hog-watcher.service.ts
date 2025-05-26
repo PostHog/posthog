@@ -5,6 +5,7 @@ import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionTiming,
@@ -177,9 +178,9 @@ export class HogWatcherService {
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
 
-        const costs: Record<HogFunctionType['id'], number> = {}
+        const costs: Record<CyclotronJobInvocation['functionId'], number> = {}
         // Create a map to store the function types
-        const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
+        const functionTypes: Record<CyclotronJobInvocation['functionId'], HogFunctionType['type']> = {}
 
         results.forEach((result) => {
             if (!isHogFunctionResult(result)) {
@@ -187,6 +188,7 @@ export class HogWatcherService {
             }
 
             let cost = (costs[result.invocation.functionId] = costs[result.invocation.functionId] || 0)
+            functionTypes[result.invocation.functionId] = result.invocation.hogFunction.type
 
             if (result.finished) {
                 // Calculate cost based on individual timings, not the total
