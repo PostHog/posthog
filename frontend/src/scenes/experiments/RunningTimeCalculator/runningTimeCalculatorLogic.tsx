@@ -341,7 +341,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             (metric: ExperimentMetric, averageEventsPerUser: number, averagePropertyValuePerUser: number) =>
                 /**
                  * we need this to satify kea's typegen.
-                 * Do not dispair, this will be removed.
+                 * Do not despair, this will be removed.
                  */
                 calculateVariance(metric, averageEventsPerUser, averagePropertyValuePerUser),
         ],
@@ -375,7 +375,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             ): number | null =>
                 /**
                  * we need this to satify kea's typegen.
-                 * Do not dispair, this will be removed.
+                 * Do not despair, this will be removed.
                  */
                 calculateRecommendedSampleSize(
                     metric,
