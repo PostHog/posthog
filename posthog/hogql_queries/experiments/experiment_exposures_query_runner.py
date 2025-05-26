@@ -143,7 +143,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             if hasattr(exposure_config, "properties") and exposure_config.properties:
                 for property in exposure_config.properties:
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+            if exposure_property_filters:
+                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
 
         # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
         if event == "$feature_flag_called":
@@ -253,8 +254,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         For initial dates with no data, adds entries with zero exposures for each variant.
         """
         date_range = self._get_date_range()
+
+        # for draft experiments, return an empty result
         if not date_range.date_from:
-            raise ValidationError("Start date is required for experiment exposure data")
+            return []
+
         start_date = datetime.fromisoformat(date_range.date_from).date()
         end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
 

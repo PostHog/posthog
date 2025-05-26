@@ -16,7 +16,13 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, getTreeItemsGames, getTreeItemsNew, getTreeItemsProducts } from '~/products'
+import {
+    fileSystemTypes,
+    getTreeItemsDataManagement,
+    getTreeItemsGames,
+    getTreeItemsNew,
+    getTreeItemsProducts,
+} from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
@@ -77,11 +83,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
 export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
-    {
-        path: 'Actions',
-        iconType: 'rocket',
-        href: urls.actions(),
-    },
+    ...getTreeItemsDataManagement(),
     {
         path: 'Event definitions',
         iconType: 'database',
@@ -96,11 +98,6 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
         path: 'Annotations',
         iconType: 'notification',
         href: urls.annotations(),
-    },
-    {
-        path: 'Cohorts',
-        type: 'cohort',
-        href: urls.cohorts(),
     },
     {
         path: 'Ingestion warnings',

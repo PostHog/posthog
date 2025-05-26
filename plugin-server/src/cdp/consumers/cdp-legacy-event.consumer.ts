@@ -43,18 +43,25 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             person_id: undefined,
         }
 
-        await runOnEvent(this.hub, event)
+        return await runOnEvent(this.hub, event)
     }
 
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<{ backgroundTask: Promise<any>; invocations: HogFunctionInvocation[] }> {
         if (invocationGlobals.length) {
-            await Promise.all(
+            const results = await Promise.all(
                 invocationGlobals.map((x) => {
                     return this.runInstrumented('cdpLegacyEventsConsumer.processEvent', () => this.processEvent(x))
                 })
             )
+
+            // Schedule the background work
+            for (const subtasks of results) {
+                for (const { backgroundTask } of subtasks) {
+                    void this.promiseScheduler.schedule(backgroundTask)
+                }
+            }
         }
 
         return {

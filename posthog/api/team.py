@@ -171,21 +171,26 @@ TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     events = serializers.JSONField(required=False)
+    goals = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events"]
+        fields = ["base_currency", "events", "goals"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
         if instance.events:
             repr["events"] = [event.model_dump() for event in instance.events]
+        if instance.goals:
+            repr["goals"] = [goal.model_dump() for goal in instance.goals]
         return repr
 
     def to_internal_value(self, data):
         internal_value = super().to_internal_value(data)
         if "events" in internal_value:
             internal_value["_events"] = internal_value["events"]
+        if "goals" in internal_value:
+            internal_value["_goals"] = internal_value["goals"]
         return internal_value
 
 

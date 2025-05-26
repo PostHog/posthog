@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -11,7 +12,6 @@ import { captureException } from '../../utils/posthog'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const counterParseError = new Counter({
@@ -193,8 +193,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
+        logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        logger.info('💤', 'Stopping cyclotron job queue...')
+        await this.cyclotronJobQueue.stop()
+        logger.info('💤', 'Stopping consumer...')
         await super.stop()
+        logger.info('💤', 'Consumer stopped!')
     }
 
     public isHealthy() {

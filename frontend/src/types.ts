@@ -1067,7 +1067,6 @@ export type SessionRecordingSnapshotParams =
 export interface SessionRecordingSnapshotSourceResponse {
     source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
     snapshots?: RecordingSnapshot[]
-    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionRecordingSnapshotResponse {
@@ -1083,9 +1082,6 @@ export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
     blob_keys?: string[]
-    // used for a debug signal only for PostHog team, controlled by a feature flag
-    // DO NOT RELY ON THIS FOR NON DEBUG PURPOSES
-    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionPlayerData {
@@ -4291,13 +4287,6 @@ export interface OrganizationResourcePermissionType {
     created_by: UserBaseType | null
 }
 
-export interface RecordingReportLoadTimes {
-    metadata: number
-    snapshots: number
-    events: number
-    firstPaint: number
-}
-
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
 
 export type PromptButtonType = 'primary' | 'secondary'
@@ -5409,6 +5398,7 @@ export interface ProductManifest {
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
+    treeItemsDataManagement?: FileSystemImport[]
     fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
