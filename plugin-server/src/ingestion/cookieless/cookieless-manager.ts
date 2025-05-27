@@ -260,272 +260,6 @@ export class CookielessManager {
         return buf
     }
 
-    async processEvent(event: PluginEvent): Promise<PluginEvent | undefined> {
-        // if events aren't using this mode, skip all processing
-        if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-            return event
-        }
-
-        // if the killswitch is enabled, drop the event
-        if (this.config.disabled) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'cookieless_disabled_killswitch',
-                })
-                .inc()
-            return undefined
-        }
-
-        try {
-            return await runInstrumentedFunction({
-                func: () => this.cookielessServerHashStepInner(event as PluginEvent & { properties: Properties }),
-                statsKey: 'cookieless.process_event',
-            })
-        } catch (e) {
-            // Drop the event if there are any errors.
-            // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
-            // errors to interfere with the processing of other events.
-            // Fail close rather than open, as events in this mode relying on this processing step to remove Personal Data.
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'cookieless_error_fail_close',
-                })
-                .inc()
-
-            if (e instanceof RedisOperationError) {
-                cookielessRedisErrorCounter.labels({
-                    operation: e.operation,
-                })
-            }
-
-            return undefined
-        }
-    }
-
-    async cookielessServerHashStepInner(
-        event: PluginEvent & { properties: Properties }
-    ): Promise<PluginEvent | undefined> {
-        // if the team isn't allowed to use this mode, drop the event
-        const team = await this.teamManager.getTeamForEvent(event)
-        if (!team?.cookieless_server_hash_mode) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'cookieless_disabled_team',
-                })
-                .inc()
-            return undefined
-        }
-        const teamTimeZone = team.timezone
-        const teamId = team.id
-
-        const timestamp = event.timestamp ?? event.sent_at ?? event.now
-
-        // drop some events that aren't valid in this mode
-        if (!timestamp) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'cookieless_no_timestamp',
-                })
-                .inc()
-            return undefined
-        }
-        const { $session_id: sessionId, $device_id: deviceId } = event.properties
-        if (sessionId != null || deviceId != null) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: sessionId != null ? 'cookieless_with_session_id' : 'cookieless_with_device_id',
-                })
-                .inc()
-            return undefined
-        }
-
-        if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'cookieless_unsupported_event_type',
-                })
-                .inc()
-            return undefined
-        }
-
-        // if it's an identify event, it must have the sentinel distinct id
-        if (event.event === '$identify' && event.properties['$anon_distinct_id'] !== COOKIELESS_SENTINEL_VALUE) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'cookieless_missing_sentinel',
-                })
-                .inc()
-            return undefined
-        }
-
-        const { userAgent, ip, host, timezone: eventTimeZone, timestampMs, hashExtra } = getProperties(event, timestamp)
-        if (!userAgent || !ip || !host) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: !userAgent
-                        ? 'cookieless_missing_ua'
-                        : !ip
-                        ? 'cookieless_missing_ip'
-                        : 'cookieless_missing_host',
-                })
-                .inc()
-            return undefined
-        }
-
-        if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless || this.config.forceStatelessMode) {
-            if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
-                // identifies and post-identify events are not valid in the stateless mode, drop the event
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_stateless_unsupported_identify',
-                    })
-                    .inc()
-                return undefined
-            }
-
-            const hashValue = await this.doHashForDay({
-                timestampMs,
-                eventTimeZone,
-                teamTimeZone,
-                teamId,
-                ip,
-                host,
-                userAgent,
-                hashExtra,
-            })
-            const distinctId = hashToDistinctId(hashValue)
-            const newEvent = {
-                ...event,
-                distinct_id: distinctId,
-                properties: {
-                    ...event.properties,
-                    $device_id: distinctId,
-                    $session_id: createStatelessSessionId(timestampMs, eventTimeZone, teamTimeZone, hashValue),
-                },
-            }
-            stripPIIProperties(newEvent)
-            return newEvent
-        } else {
-            // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
-            // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
-
-            // Find the base hash value, before we take the number of identifies into account
-            const baseHashValue = await this.doHashForDay({
-                timestampMs,
-                eventTimeZone,
-                teamTimeZone,
-                teamId,
-                ip,
-                host,
-                userAgent,
-                hashExtra,
-            })
-
-            const newEvent = { ...event }
-            const newProperties: Properties = { ...event.properties, $distinct_id: undefined }
-
-            newProperties['$device_id'] = baseHashToDeviceId(baseHashValue)
-            const identifiesRedisKey = getRedisIdentifiesKey(baseHashValue, teamId)
-
-            let hashValue: Buffer
-            if (event.event === '$identify') {
-                // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
-
-                // add this identify event id to redis
-                const numIdentifies = await this.redisHelpers.redisSAddAndSCard(identifiesRedisKey, event.uuid)
-
-                // we want the number of identifies that happened before this one
-                hashValue = await this.doHashForDay({
-                    timestampMs,
-                    eventTimeZone,
-                    teamTimeZone,
-                    teamId,
-                    ip,
-                    host,
-                    userAgent,
-                    n: numIdentifies - 1,
-                    hashExtra,
-                })
-
-                // set the distinct id to the new hash value
-                newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
-            } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
-                const numIdentifies = await this.redisHelpers.redisSCard(identifiesRedisKey)
-                hashValue = await this.doHashForDay({
-                    timestampMs,
-                    eventTimeZone,
-                    teamTimeZone,
-                    teamId,
-                    ip,
-                    host,
-                    userAgent,
-                    n: numIdentifies,
-                    hashExtra,
-                })
-                // event before identify has been called, distinct id is the sentinel and needs to be replaced
-                newEvent.distinct_id = hashToDistinctId(hashValue)
-            } else {
-                const numIdentifies = await this.redisHelpers.redisSCard(identifiesRedisKey)
-
-                // this event is after identify has been called, so subtract 1 from the numIdentifies
-                hashValue = await this.doHashForDay({
-                    timestampMs,
-                    eventTimeZone,
-                    teamTimeZone,
-                    teamId,
-                    ip,
-                    host,
-                    userAgent,
-                    n: numIdentifies - 1,
-                    hashExtra,
-                })
-            }
-
-            const sessionRedisKey = getRedisSessionsKey(hashValue, teamId)
-            // do we have a session id for this user already?
-            const sessionInfoBuffer = await this.redisHelpers.redisGetBuffer(
-                sessionRedisKey,
-                'cookielessServerHashStep'
-            )
-            let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
-
-            // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
-            if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > this.config.sessionInactivityMs) {
-                const sessionId = new UUID7(timestampMs)
-                sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
-                await this.redisHelpers.redisSetBuffer(
-                    sessionRedisKey,
-                    sessionStateToBuffer(sessionState),
-                    'cookielessServerHashStep',
-                    this.config.sessionTtlSeconds
-                )
-            } else {
-                // otherwise, update the timestamp
-                await this.redisHelpers.redisSetBuffer(
-                    sessionRedisKey,
-                    sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
-                    'cookielessServerHashStep',
-                    this.config.sessionTtlSeconds
-                )
-            }
-
-            newProperties['$session_id'] = sessionState.sessionId.toString()
-
-            newEvent.properties = newProperties
-            stripPIIProperties(newEvent)
-            return newEvent
-        }
-    }
-
     async doBatch(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
         if (this.config.disabled) {
             // cookieless is globally disabled, don't any processing just drop all cookieless events
@@ -563,6 +297,30 @@ export class CookielessManager {
             }
 
             // only cookieless events past this point
+
+            if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
+                // $alias and $merge events are not supported in cookieless mode, drop them
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'cookieless_disallowed_event',
+                    })
+                    .inc()
+                continue
+            }
+            if (
+                event.event === '$identify' &&
+                team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless
+            ) {
+                // $identify events are not supported in stateless cookieless mode, drop them
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'cookieless_stateless_disallowed_identify',
+                    })
+                    .inc()
+                continue
+            }
 
             if (
                 team.cookieless_server_hash_mode == null ||
@@ -668,11 +426,11 @@ export class CookielessManager {
                     $device_id: deviceId,
                     $session_id: sessionId,
                 }
-                eventWithProcessing.event = {
+                eventWithProcessing.event = stripPIIProperties({
                     ...eventWithProcessing.event,
                     distinct_id: distinctId,
                     properties: newProperties,
-                }
+                })
                 // the event is fully processed, no need to add create secondPass object
             }
         }
@@ -716,7 +474,7 @@ export class CookielessManager {
                 n = identifiesCacheItem.identifyEventIds.size
             } else {
                 // identified event, we want the number of identifies from before this user was identified
-                n = identifiesCacheItem.identifyEventIds.size
+                n = identifiesCacheItem.identifyEventIds.size - 1
             }
 
             const hashValue = await this.doHashForDay({
@@ -800,7 +558,7 @@ export class CookielessManager {
                 newEvent.distinct_id = distinctId
             }
 
-            eventWithProcessing.event = newEvent
+            eventWithProcessing.event = stripPIIProperties(newEvent)
         }
 
         // write identifies to redis
@@ -1013,7 +771,7 @@ export function createStatelessSessionId(
     return new UUID7(timestampOfStartOfDay, fakeRandomBytes)
 }
 
-export function stripPIIProperties(event: PluginEvent) {
+export function stripPIIProperties(event: PipelineEvent) {
     if (event.properties) {
         // we use these properties in the hash, but they should not be written to disk if explicit consent was not given
         delete event.properties['$ip']
