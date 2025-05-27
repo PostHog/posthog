@@ -13,6 +13,15 @@ from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
@@ -50,13 +59,17 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "client_secret": "sk_test_123",
                     "schemas": [
-                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
+                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -112,13 +125,17 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "client_secret": "sk_test_123",
                     "schemas": [
-                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
+                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -134,13 +151,17 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "client_secret": "sk_test_123",
                     "schemas": [
-                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
+                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -157,13 +178,17 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "client_secret": "sk_test_123",
                     "schemas": [
-                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
+                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
                 "prefix": "test_",
@@ -180,13 +205,17 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "client_secret": "sk_test_123",
                     "schemas": [
-                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
+                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
                 "prefix": "test_",
@@ -205,49 +234,49 @@ class TestExternalDataSource(APIBaseTest):
                     "client_secret": "sk_test_123",
                     "schemas": [
                         {
-                            "name": "BalanceTransaction",
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Subscription",
+                            "name": STRIPE_SUBSCRIPTION_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Customer",
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Product",
+                            "name": STRIPE_PRODUCT_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Price",
+                            "name": STRIPE_PRICE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Invoice",
+                            "name": STRIPE_INVOICE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Charge",
+                            "name": STRIPE_CHARGE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
@@ -268,43 +297,43 @@ class TestExternalDataSource(APIBaseTest):
                     "client_secret": "sk_test_123",
                     "schemas": [
                         {
-                            "name": "BalanceTransaction",
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Subscription",
+                            "name": STRIPE_SUBSCRIPTION_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Customer",
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Product",
+                            "name": STRIPE_PRODUCT_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Price",
+                            "name": STRIPE_PRICE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Invoice",
+                            "name": STRIPE_INVOICE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
                         },
                         {
-                            "name": "Charge",
+                            "name": STRIPE_CHARGE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field_type": "integer",
@@ -325,43 +354,43 @@ class TestExternalDataSource(APIBaseTest):
                     "client_secret": "sk_test_123",
                     "schemas": [
                         {
-                            "name": "BalanceTransaction",
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                         },
                         {
-                            "name": "Subscription",
+                            "name": STRIPE_SUBSCRIPTION_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                         },
                         {
-                            "name": "Customer",
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                         },
                         {
-                            "name": "Product",
+                            "name": STRIPE_PRODUCT_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                         },
                         {
-                            "name": "Price",
+                            "name": STRIPE_PRICE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                         },
                         {
-                            "name": "Invoice",
+                            "name": STRIPE_INVOICE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
                         },
                         {
-                            "name": "Charge",
+                            "name": STRIPE_CHARGE_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "incremental",
                             "incremental_field": "created",
@@ -1053,9 +1082,9 @@ class TestExternalDataSource(APIBaseTest):
         assert "auth_type" in ssh_tunnel
         assert ssh_tunnel["auth_type"]["selection"] == "username_password"
         assert ssh_tunnel["auth_type"]["username"] == "testuser"
-        assert ssh_tunnel["auth_type"]["password"] == "testpass"
-        assert ssh_tunnel["auth_type"]["passphrase"] == "testphrase"
-        assert ssh_tunnel["auth_type"]["private_key"] == "testkey"
+        assert ssh_tunnel["auth_type"]["password"] is None
+        assert ssh_tunnel["auth_type"]["passphrase"] is None
+        assert ssh_tunnel["auth_type"]["private_key"] is None
 
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""

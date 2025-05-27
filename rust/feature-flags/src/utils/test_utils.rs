@@ -1,5 +1,4 @@
 use crate::{
-    client::database::{get_pool, Client, CustomDatabaseError},
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
@@ -9,6 +8,7 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
+use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};

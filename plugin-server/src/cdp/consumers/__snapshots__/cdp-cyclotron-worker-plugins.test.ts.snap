@@ -1,8 +1,9 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] = `
+exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 2`] = `
 [
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_app_metrics2_test",
     "value": {
@@ -16,6 +17,7 @@ exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] 
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-1>",
     "topic": "log_entries_test",
     "value": {

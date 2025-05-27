@@ -1,4 +1,5 @@
-import { ExceptionAttributes, getExceptionAttributes } from 'scenes/error-tracking/utils'
+import { ExceptionAttributes } from './types'
+import { getExceptionAttributes, getExceptionList } from './utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -47,47 +48,28 @@ describe('Error Display', () => {
             $exception_personURL: 'https://app.posthog.com/person/f6kW3HXaha6dAvHZiOmgrcAXK09682P6nNPxvfjqM9c',
             $exception_type: 'Error',
         }
-        const result = getExceptionAttributes(eventProperties)
-        expect(result).toEqual({
-            browser: 'Chrome',
-            browserVersion: '92.0.4515',
-            value: 'There was an error creating the support ticket with zendesk.',
-            exceptionList: [
-                {
-                    mechanism: {
-                        handled: true,
-                        type: 'generic',
-                    },
-                    stacktrace: {
-                        frames: [
-                            {
-                                colno: 220,
-                                filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
-                                function: 'submitZendeskTicket',
-                                in_app: true,
-                                lineno: 25,
-                            },
-                        ],
-                    },
-                    type: 'Error',
-                    value: 'There was an error creating the support ticket with zendesk.',
+        const result = getExceptionList(eventProperties)
+        expect(result).toEqual([
+            {
+                mechanism: {
+                    handled: true,
+                    type: 'generic',
                 },
-            ],
-            synthetic: undefined,
-            handled: true,
-            type: 'Error',
-            lib: 'posthog-js',
-            libVersion: '1.0.0',
-            level: undefined,
-            os: 'Windows',
-            osVersion: '10',
-            ingestionErrors: undefined,
-            fingerprintRecords: [],
-            url: undefined,
-            runtime: 'web',
-            sentryUrl:
-                'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
-        })
+                stacktrace: {
+                    frames: [
+                        {
+                            colno: 220,
+                            filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
+                            function: 'submitZendeskTicket',
+                            in_app: true,
+                            lineno: 25,
+                        },
+                    ],
+                },
+                type: 'Error',
+                value: 'There was an error creating the support ticket with zendesk.',
+            },
+        ])
     })
 
     it('can read sentry message', () => {
@@ -119,12 +101,10 @@ describe('Error Display', () => {
             browser: 'Chrome',
             browserVersion: '92.0.4515',
             value: 'the message sent into sentry captureMessage',
-            exceptionList: [],
             ingestionErrors: undefined,
             handled: false,
             synthetic: undefined,
             type: undefined,
-            fingerprintRecords: [],
             url: undefined,
             runtime: 'web',
             lib: 'posthog-js',
@@ -183,32 +163,9 @@ describe('Error Display', () => {
             level: undefined,
             os: 'Windows',
             osVersion: '10',
-            fingerprintRecords: [],
             url: undefined,
             runtime: 'web',
             sentryUrl: undefined,
-            exceptionList: [
-                {
-                    mechanism: {
-                        handled: true,
-                        type: 'generic',
-                        synthetic: false,
-                    },
-                    stacktrace: {
-                        frames: [
-                            {
-                                colno: 220,
-                                filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
-                                function: 'submitZendeskTicket',
-                                in_app: true,
-                                lineno: 25,
-                            },
-                        ],
-                    },
-                    type: 'Error',
-                    value: 'There was an error creating the support ticket with zendesk2.',
-                },
-            ],
             ingestionErrors: undefined,
             handled: true,
         })

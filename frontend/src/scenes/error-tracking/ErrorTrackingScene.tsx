@@ -18,17 +18,19 @@ import { InsightLogicProps } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
+import { ErrorFilters } from './components/ErrorFilters'
+import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
+import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
+import { StatusIndicator } from './components/Indicator'
+import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { RuntimeIcon } from './components/RuntimeIcon'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import { DateRangeFilter, ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
-import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
-import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { useSparklineData } from './hooks/use-sparkline-data'
-import { StatusIndicator } from './issue/Indicator'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
+import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -36,7 +38,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
+    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -65,11 +67,11 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                <ErrorTrackingFilters>
-                    <DateRangeFilter />
-                    <FilterGroup />
-                    <InternalAccountsFilter />
-                </ErrorTrackingFilters>
+                <ErrorFilters.Root>
+                    <ErrorFilters.DateRange />
+                    <ErrorFilters.FilterGroup />
+                    <ErrorFilters.InternalAccounts />
+                </ErrorFilters.Root>
                 <LemonDivider className="mt-2" />
                 <ErrorTrackingListOptions />
                 <Query query={query} context={context} />
@@ -79,9 +81,12 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange, volumeResolution } = useValues(errorTrackingSceneLogic)
+    const { dateRange } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const data = useSparklineData(record.aggregations.volumeRange, dateRange, volumeResolution)
+    if (!record.aggregations) {
+        throw new Error('No aggregations found')
+    }
+    const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
@@ -117,7 +122,7 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { assignIssue } = useActions(errorTrackingDataNodeLogic)
+    const { updateIssueAssignee } = useActions(issueActionsLogic)
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
@@ -165,7 +170,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <span>|</span>
                     <AssigneeSelect
                         assignee={record.assignee}
-                        onChange={(assignee) => assignIssue(record.id, assignee)}
+                        onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
                     >
                         {(anyAssignee) => (
                             <div

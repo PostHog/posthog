@@ -14,13 +14,17 @@ export const manifest: ProductManifest = {
         notebook: {
             icon: <IconNotebook />,
             href: (ref: string) => urls.notebook(ref),
+            iconColor: ['var(--product-notebooks-light)'],
         },
     },
     treeItemsNew: [
         {
             path: `Notebook`,
             type: 'notebook',
-            href: () => urls.notebook('new'),
+            href: urls.notebook('new'),
         },
     ],
+    fileSystemFilterTypes: {
+        notebook: { name: 'Notebooks' },
+    },
 }

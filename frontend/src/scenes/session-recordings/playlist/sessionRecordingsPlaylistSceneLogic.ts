@@ -4,7 +4,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -16,6 +15,7 @@ import {
     summarizePlaylistFilters,
     updatePlaylist,
 } from 'scenes/session-recordings/playlist/playlistUtils'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -45,7 +45,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     key((props) => props.shortId),
     connect(() => ({
         values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
-        actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
     actions({
         updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>, silent = false) => ({
@@ -186,7 +186,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 },
                 {
                     key: ReplayTabs.Playlists,
-                    name: 'Playlists',
+                    name: 'Collections',
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {

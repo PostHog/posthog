@@ -63,29 +63,6 @@ def currency_expression_for_events(
     return ast.Constant(value=config.base_currency)
 
 
-# Given the base config, check that we're looking at the right event and match the right currency to it
-def currency_expression_for_all_events(config: TeamRevenueAnalyticsConfig) -> ast.Expr:
-    if not config.events:
-        return ast.Constant(value=None)
-
-    exprs: list[ast.Expr] = []
-    for event in config.events:
-        # Only interested in the comparison expr, not the value expr
-        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-            config, event, do_currency_conversion=False
-        )
-        exprs.extend(
-            [
-                comparison_expr,
-                currency_expression_for_events(config, event),
-            ]
-        )
-
-    exprs.append(ast.Constant(value=None))
-
-    return ast.Call(name="multiIf", args=exprs)
-
-
 # Tuple of (comparison_expr, value_expr) that can be used to:
 # - Check whether the event is the one we're looking for
 # - Convert the revenue to the base currency if needed
@@ -138,32 +115,6 @@ def revenue_comparison_and_value_exprs_for_events(
         )
 
     return (comparison_expr, value_expr)
-
-
-# This returns an expression that you can add to a `where` clause
-# selecting from the `events` table to get the revenue for it
-def revenue_expression_for_events(
-    config: Union[TeamRevenueAnalyticsConfig, None],
-    do_currency_conversion: bool = True,
-    amount_expr: ast.Expr | None = None,
-) -> ast.Expr:
-    if not config or not config.events:
-        return ast.Constant(value=None)
-
-    exprs: list[ast.Expr] = []
-    for event in config.events:
-        comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-            config,
-            event,
-            do_currency_conversion=do_currency_conversion,
-            amount_expr=amount_expr,
-        )
-        exprs.extend([comparison_expr, value_expr])
-
-    # Else clause, make sure there's a None at the end
-    exprs.append(ast.Constant(value=None))
-
-    return ast.Call(name="multiIf", args=exprs)
 
 
 # This sums up the revenue from all events in the group

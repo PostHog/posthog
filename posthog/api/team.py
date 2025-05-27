@@ -34,7 +34,8 @@ from posthog.models.product_intent.product_intent import ProductIntentSerializer
 from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -90,6 +91,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
+            "secret_api_token",
+            "secret_api_token_backup",
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
@@ -168,21 +171,26 @@ TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     events = serializers.JSONField(required=False)
+    goals = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events"]
+        fields = ["base_currency", "events", "goals"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
         if instance.events:
             repr["events"] = [event.model_dump() for event in instance.events]
+        if instance.goals:
+            repr["goals"] = [goal.model_dump() for goal in instance.goals]
         return repr
 
     def to_internal_value(self, data):
         internal_value = super().to_internal_value(data)
         if "events" in internal_value:
             internal_value["_events"] = internal_value["events"]
+        if "goals" in internal_value:
+            internal_value["_goals"] = internal_value["goals"]
         return internal_value
 
 
@@ -207,6 +215,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
+            "secret_api_token",
+            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -230,6 +240,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
+            "secret_api_token",
+            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -684,6 +696,30 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
@@ -806,9 +842,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response({"success": True}, status=200)
 
+    @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
+    def event_ingestion_restrictions(self, request, **kwargs):
+        team = self.get_object()
+        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+        data = [
+            {
+                "restriction_type": restriction.restriction_type,
+                "distinct_ids": restriction.distinct_ids,
+            }
+            for restriction in restrictions
+        ]
+        return response.Response(data)
+
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action == "reset_token" else None
+        team = self.get_object() if self.action in actions_that_require_current_team else None
         return UserPermissions(cast(User, self.request.user), team)
 
 

@@ -77,6 +77,31 @@ jobs:
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/plugin-server lint
 
+    build:
+        name: Plugin Server Build
+        needs: changes
+        if: needs.changes.outputs.plugin-server == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-server prepare
+
+            - name: Check builds correctly
+              run: pnpm --filter=@posthog/plugin-server build
+
     tests:
         name: Plugin Server Tests (${{matrix.shard}}/3)
         needs: changes
@@ -183,6 +208,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
@@ -190,6 +216,7 @@ jobs:
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
@@ -208,6 +235,7 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             RELOAD_PLUGIN_JITTER_MAX_MS: 0
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 

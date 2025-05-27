@@ -3,6 +3,7 @@
 exports[`HogTransformer transformEvent should execute multiple transformations and produce messages 1`] = `
 [
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_app_metrics2_test",
     "value": {
@@ -16,6 +17,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-1>",
     "topic": "log_entries_test",
     "value": {
@@ -29,6 +31,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-1>",
     "topic": "log_entries_test",
     "value": {
@@ -42,6 +45,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-1>",
     "topic": "log_entries_test",
     "value": {
@@ -55,6 +59,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_app_metrics2_test",
     "value": {
@@ -68,6 +73,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-3>",
     "topic": "log_entries_test",
     "value": {
@@ -81,6 +87,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-3>",
     "topic": "log_entries_test",
     "value": {
@@ -94,6 +101,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_app_metrics2_test",
     "value": {
@@ -107,6 +115,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-5>",
     "topic": "log_entries_test",
     "value": {
@@ -120,6 +129,7 @@ exports[`HogTransformer transformEvent should execute multiple transformations a
     },
   },
   {
+    "headers": undefined,
     "key": "<REPLACED-UUID-5>",
     "topic": "log_entries_test",
     "value": {

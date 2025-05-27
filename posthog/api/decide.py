@@ -465,7 +465,7 @@ def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
                 "id": flag_value.id,
                 "payload": flag_value.match.payload,
                 "version": flag_value.version,
-                "description": flag_value.description,
+                "description": None,
             },
         }
 

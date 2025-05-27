@@ -456,7 +456,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
-        with task_chain_context(parallelism=4) if chained_tile_refresh_enabled else nullcontext():
+        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             for order, tile in enumerate(sorted_tiles):
                 self.context.update(
                     {

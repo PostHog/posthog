@@ -169,6 +169,12 @@ export function ProjectNotice(): JSX.Element | null {
                 children: 'Reload page',
             },
         },
+
+        event_ingestion_restriction: {
+            message:
+                'Event ingestion restrictions have been applied to a token in this project. Please contact support.',
+            type: 'warning',
+        },
     }
 
     const relevantNotice = NOTICES[projectNoticeVariant]

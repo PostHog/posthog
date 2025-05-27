@@ -17,11 +17,14 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid from 'react-data-grid'
+import { DataGridProps } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -40,6 +43,7 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
+import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import TabScroller from './TabScroller'
@@ -49,6 +53,69 @@ interface RowDetailsModalProps {
     onClose: () => void
     row: Record<string, any> | null
     columns: string[]
+}
+
+const CLICKHOUSE_TYPES = [
+    'UUID',
+    'String',
+    'Nothing',
+    'DateTime64',
+    'DateTime32',
+    'DateTime',
+    'Date',
+    'Date32',
+    'UInt8',
+    'UInt16',
+    'UInt32',
+    'UInt64',
+    'Float8',
+    'Float16',
+    'Float32',
+    'Float64',
+    'Int8',
+    'Int16',
+    'Int32',
+    'Int64',
+    'Tuple',
+    'Array',
+    'Map',
+    'Bool',
+    'Decimal',
+    'FixedString',
+]
+
+const cleanClickhouseType = (type: string | undefined): string | undefined => {
+    if (!type) {
+        return undefined
+    }
+
+    // Replace newline characters followed by empty space
+    type = type.replace(/\n\s+/, '')
+
+    if (type.startsWith('Nullable(')) {
+        type = type.replace('Nullable(', '')
+        type = type.substring(0, type.length - 1)
+    }
+
+    if (type.startsWith('Array(')) {
+        const tokenifiedType = type.split(/(\W)/)
+        type = tokenifiedType
+            .filter((n) => {
+                if (n === 'Nullable') {
+                    return true
+                }
+
+                // Is a single character and not alpha-numeric
+                if (n.length === 1 && !/^[a-z0-9]+$/i.test(n)) {
+                    return true
+                }
+
+                return CLICKHOUSE_TYPES.includes(n)
+            })
+            .join('')
+    }
+
+    return type.replace(/\(.+\)+/, '')
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
@@ -222,7 +289,7 @@ export function OutputPane(): JSX.Element {
     const columns = useMemo(() => {
         const types = response?.types
 
-        const baseColumns = [
+        const baseColumns: DataGridProps<Record<string, any>>['columns'] = [
             {
                 key: '__details',
                 name: '',
@@ -258,13 +325,24 @@ export function OutputPane(): JSX.Element {
                 const isLongContent = maxContentLength > 100
                 const finalWidth = isLongContent ? 600 : undefined
 
+                const baseColumn = {
+                    key: column,
+                    name: (
+                        <>
+                            {column}{' '}
+                            {type && (
+                                <span className="text-[10px] font-medium italic">{cleanClickhouseType(type)}</span>
+                            )}
+                        </>
+                    ),
+                    resizable: true,
+                    width: finalWidth,
+                }
+
                 // Hack to get bools to render in the data grid
                 if (type && type.indexOf('Bool') !== -1) {
                     return {
-                        key: column,
-                        name: column,
-                        resizable: true,
-                        width: finalWidth,
+                        ...baseColumn,
                         renderCell: (props: any) => {
                             if (props.row[column] === null) {
                                 return null
@@ -272,13 +350,6 @@ export function OutputPane(): JSX.Element {
                             return props.row[column].toString()
                         },
                     }
-                }
-
-                const baseColumn = {
-                    key: column,
-                    name: column,
-                    resizable: true,
-                    width: finalWidth,
                 }
 
                 return {
@@ -547,17 +618,26 @@ function InternalDataTableVisualization(
 }
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const error = queryCancelled
+        ? 'The query was cancelled'
+        : response && 'error' in response && !!response.error
+        ? response.error
+        : responseError
+
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
-                title={
-                    queryCancelled
-                        ? 'The query was cancelled'
-                        : response && 'error' in response && !!response.error
-                        ? response.error
-                        : responseError
+                title={error}
+                fixWithAIComponent={
+                    featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] ? (
+                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
+                    ) : (
+                        <></>
+                    )
                 }
             />
         </div>

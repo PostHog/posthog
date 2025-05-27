@@ -1,6 +1,8 @@
+from datetime import datetime
 from typing import Optional, cast
 from collections.abc import Callable
 
+from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql import ast
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
@@ -24,6 +26,12 @@ class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
+
+    # Treat SQL query caching like day insight
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (

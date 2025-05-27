@@ -97,11 +97,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     const response = await api.get(`api/projects/${values.currentProjectId}/experiments?limit=1000`)
                     return response.results as Experiment[]
                 },
-                deleteExperiment: async (id: number) => {
-                    await api.delete(`api/projects/${values.currentProjectId}/experiments/${id}`)
-                    lemonToast.info('Experiment removed')
-                    return values.experiments.filter((experiment) => experiment.id !== id)
-                },
                 archiveExperiment: async (id: number) => {
                     await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
                     lemonToast.info('Experiment archived')

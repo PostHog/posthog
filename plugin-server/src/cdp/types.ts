@@ -6,6 +6,7 @@ import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
     EventPropertyFilter,
+    HogQLPropertyFilter,
     PersonPropertyFilter,
     Team,
 } from '../types'
@@ -14,10 +15,10 @@ export type HogBytecode = any[]
 
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
-    id: string
+    id: string | null
     name?: string | null
     order?: number
-    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvent extends HogFunctionFilterBase {
@@ -197,7 +198,7 @@ export type HogFunctionQueueParametersFetchResponse = {
     } | null
     /** On failure, the fetch worker returns a list of info about the attempts made*/
     trace?: CyclotronFetchFailureInfo[]
-    body?: string // Both results AND failures can have a body
+    body?: string | null // Both results AND failures can have a body
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }
@@ -205,6 +206,12 @@ export type HogFunctionQueueParametersFetchResponse = {
 export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
+
+export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment'] as const
+export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
+
+export const CYCLOTRON_JOB_QUEUE_KINDS = ['postgres', 'kafka'] as const
+export type CyclotronJobQueueKind = (typeof CYCLOTRON_JOB_QUEUE_KINDS)[number]
 
 export type HogFunctionInvocation = {
     id: string
@@ -215,11 +222,12 @@ export type HogFunctionInvocation = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     // Params specific to the queueing system
-    queue: 'hog' | 'fetch' | 'plugins'
-    queueParameters?: HogFunctionInvocationQueueParameters
+    queue: HogFunctionInvocationJobQueue
+    queueParameters?: HogFunctionInvocationQueueParameters | null
     queuePriority: number
     queueScheduledAt?: DateTime
-    queueMetadata?: Record<string, any>
+    queueMetadata?: Record<string, any> | null
+    queueSource?: CyclotronJobQueueKind
 }
 
 export type HogFunctionAsyncFunctionRequest = {
@@ -255,8 +263,7 @@ export type HogHooksFetchResponse = {
 
 export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
     // When serialized to kafka / cyclotron we only store the ID
-    hogFunctionId?: HogFunctionType['id']
-    hogFunction?: HogFunctionType
+    hogFunctionId: HogFunctionType['id']
 }
 
 // Mostly copied from frontend types

@@ -20,7 +20,7 @@ import {
     HogFunctionType,
     LogEntry,
 } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
+import { cloneInvocation, convertToHogFunctionInvocationGlobals } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -222,11 +222,10 @@ export class CdpApi {
                                     )
 
                                 response = {
-                                    invocation: {
-                                        ...invocation,
+                                    invocation: cloneInvocation(invocation, {
                                         queue: 'hog',
                                         queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
-                                    },
+                                    }),
                                     finished: false,
                                     logs: [
                                         {
@@ -255,7 +254,7 @@ export class CdpApi {
                             errors.push(response.error)
                         }
 
-                        await this.hogFunctionMonitoringService.processInvocationResults([response])
+                        await this.hogFunctionMonitoringService.queueInvocationResults([response])
                     }
                 }
 

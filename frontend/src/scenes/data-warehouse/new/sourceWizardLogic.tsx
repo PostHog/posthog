@@ -44,8 +44,9 @@ const StripeCaption = (): JSX.Element => (
         <br />
         Currently, <strong>read permissions are required</strong> for the following resources:
         <br />
-        <code>Account</code>, <code>Invoice</code>, <code>Customer</code>, <code>Subscription</code>,{' '}
-        <code>Product</code>, <code>Price</code>, <code>BalanceTransaction</code>, and <code>Charge</code>.
+        <code>Entire Connected resource type</code>, <code>Invoice</code>, <code>Customer</code>,{' '}
+        <code>Subscription</code>, <code>Product</code>, <code>Price</code>, <code>BalanceTransaction</code>, and{' '}
+        <code>Charge</code>.
     </>
 )
 

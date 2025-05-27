@@ -29,9 +29,15 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 // In order to set these turn on the `support-message-override` feature flag.
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+
+//Support offsite messaging
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
+    "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 19th!"
+
+//Support Christmas messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+//const SUPPORT_MESSAGE_OVERRIDE_BODY = "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
 
 // Table shown to free users on Help panel, instead of email button
 // Support response times are pulled dynamically from billing plans (product.features) where available
@@ -81,14 +87,14 @@ const SupportResponseTimesTable = ({
         link?: string
     }[] = [
         {
-            name: 'Totally free',
+            name: 'Free',
             current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasEnterprisePlan,
             features: [{ note: 'Community support only' }],
             plan_key: 'free',
             link: 'https://posthog.com/questions',
         },
         {
-            name: 'Ridiculously cheap',
+            name: 'Pay-as-you-go',
             current_plan:
                 billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan && !hasActiveTrial,
             features: [{ note: '2 business days' }],
@@ -353,8 +359,8 @@ export function SidePanelSupport(): JSX.Element {
                                 <Section title="">
                                     <h3>Can't find what you need in the docs?</h3>
                                     <p>
-                                        With the totally free plan you can ask the community via the link below, or
-                                        explore your upgrade choices for the ability to email a support engineer.
+                                        With the free plan you can ask the community via the link below, or explore your
+                                        upgrade choices for the ability to email a support engineer.
                                     </p>
                                 </Section>
                             )}

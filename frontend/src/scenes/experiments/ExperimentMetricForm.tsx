@@ -116,6 +116,7 @@ export function ExperimentMetricForm({
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
                         hideRename={true}
+                        hideDeleteBtn={(_, index) => index === 0}
                         sortable={true}
                         showNestedArrow={true}
                         // showNumericalPropsOnly={true}
