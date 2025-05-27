@@ -342,7 +342,7 @@ export class PersonState {
     }
 
     private async updatePersonPropertiesOptimized(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
-        person.properties ||={}
+        person.properties ||= {}
 
         const propertyUpdate = this.applyEventPropertyUpdatesOptimized(person.properties)
 
@@ -351,11 +351,18 @@ export class PersonState {
             otherUpdates.is_identified = true
         }
 
-        const hasPropertyChanges = propertyUpdate.hasChanges && (Object.keys(propertyUpdate.toSet).length > 0 || propertyUpdate.toUnset.length > 0)
+        const hasPropertyChanges =
+            propertyUpdate.hasChanges &&
+            (Object.keys(propertyUpdate.toSet).length > 0 || propertyUpdate.toUnset.length > 0)
         const hasOtherChanges = Object.keys(otherUpdates).length > 0
 
         if (hasPropertyChanges || hasOtherChanges) {
-            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonOptimizedForUpdate(person, propertyUpdate.toSet, propertyUpdate.toUnset, otherUpdates)
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                propertyUpdate.toSet,
+                propertyUpdate.toUnset,
+                otherUpdates
+            )
             const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
@@ -416,7 +423,6 @@ export class PersonState {
         return true
     }
 
-
     private applyEventPropertyUpdatesOptimized(personProperties: Properties): PropertyUpdates {
         if (NO_PERSON_UPDATE_EVENTS.has(this.event.event)) {
             return { toSet: {}, toUnset: [], hasChanges: false }
@@ -425,7 +431,9 @@ export class PersonState {
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
         const unsetProps = this.eventProperties['$unset']
-        const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []
+        const unsetProperties: Array<string> = Array.isArray(unsetProps)
+            ? unsetProps
+            : Object.keys(unsetProps || {}) || []
 
         const toSet: Properties = {}
         const toUnset: string[] = []
@@ -466,7 +474,6 @@ export class PersonState {
         metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
 
         return { toSet, toUnset, hasChanges }
-
     }
 
     /**

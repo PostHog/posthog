@@ -29,6 +29,7 @@ type MethodName =
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
+    | 'updatePersonWithPropertiesDiffForUpdate'
 
 const ALL_METHODS: MethodName[] = [
     'fetchForChecking',
@@ -42,6 +43,7 @@ const ALL_METHODS: MethodName[] = [
     'updateCohortsAndFeatureFlagsForMerge',
     'addPersonlessDistinctId',
     'addPersonlessDistinctIdForMerge',
+    'updatePersonWithPropertiesDiffForUpdate',
 ]
 
 type UpdateType = 'forUpdate' | 'forMerge'
@@ -243,12 +245,22 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         )
     }
 
-    async updatePersonOptimizedForUpdate(
+    async updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
-        tx?: TransactionClient,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        return this.updatePersonOptimized(person, update, tx, 'updatePersonOptimized', 'forUpdate')
+        return this.updatePersonWithPropertiesDiff(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            tx,
+            'updatePersonWithPropertiesDiff',
+            'forUpdate'
+        )
     }
 
     async updatePersonForUpdate(
@@ -267,9 +279,11 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge')
     }
 
-    private async updatePersonOptimized(
+    private async updatePersonWithPropertiesDiff(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
         tx: TransactionClient | undefined,
         methodName: MethodName,
         updateType: UpdateType
@@ -278,7 +292,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.clearCache()
         this.incrementDatabaseOperation(methodName)
         const start = performance.now()
-        const response = await this.db.updatePersonWithMergeOperator(person, propertiesToSet, propertiesToUnset, otherUpdates, tx, updateType)
+        const response = await this.db.updatePersonWithMergeOperator(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            tx,
+            updateType
+        )
         this.recordUpdateLatency(updateType, (performance.now() - start) / 1000)
         observeLatencyByVersion(person, start, methodName)
         return response

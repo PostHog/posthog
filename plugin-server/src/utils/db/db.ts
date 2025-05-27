@@ -685,13 +685,13 @@ export class DB {
         }
 
         let query = 'UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1'
-        let values: any[] = []
+        const values: any[] = []
         let paramIndex = 1
 
         if (hasPropertyChanges) {
             if (Object.keys(propertiesToSet).length > 0) {
                 query += `, properties = properties || $${paramIndex}`
-                // Do I need to sanitize the JSONB values?
+                // NICKS TODO: Do I need to sanitize the JSONB values? Yes
                 values.push(JSON.stringify(propertiesToSet))
                 paramIndex++
             }
@@ -711,7 +711,7 @@ export class DB {
                 paramIndex++
             })
         }
-        
+
         query += ` WHERE id = $${paramIndex} RETURNING *`
         values.push(person.id)
 
