@@ -153,6 +153,9 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
+        const showSelectMenuItems =
+            item.record?.protocol === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
@@ -166,7 +169,7 @@ export function ProjectTree({
         return (
             <>
                 {productMenu}
-                {item.record?.protocol === 'products://' && item.record?.path && !item.disableSelect && !onlyTree ? (
+                {showSelectMenuItems ? (
                     <>
                         <MenuItem
                             asChild
@@ -687,41 +690,47 @@ export function ProjectTree({
                 />
             }
             panelActions={
-                <>
-                    {sortMethod !== 'recent' ? (
-                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
-                            <IconFolderPlus className="text-tertiary" />
-                        </ButtonPrimitive>
-                    ) : null}
+                root === 'project://' ? (
+                    <>
+                        {sortMethod !== 'recent' ? (
+                            <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
+                                <IconFolderPlus className="text-tertiary" />
+                            </ButtonPrimitive>
+                        ) : null}
 
-                    {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
-                        <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
-                            <IconCheckbox className="text-tertiary size-4" />
-                        </ButtonPrimitive>
-                    ) : (
-                        <>
-                            {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        setCheckedItems({})
-                                        setSelectMode('default')
-                                    }}
-                                    tooltip="Clear selected and disable multi-select"
-                                >
-                                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                                </ButtonPrimitive>
-                            ) : (
-                                <ButtonPrimitive
-                                    onClick={() => setSelectMode('default')}
-                                    tooltip="Disable multi-select"
-                                    iconOnly
-                                >
-                                    <IconX className="text-tertiary size-4" />
-                                </ButtonPrimitive>
-                            )}
-                        </>
-                    )}
-                </>
+                        {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                            <ButtonPrimitive
+                                onClick={() => setSelectMode('multi')}
+                                tooltip="Enable multi-select"
+                                iconOnly
+                            >
+                                <IconCheckbox className="text-tertiary size-4" />
+                            </ButtonPrimitive>
+                        ) : (
+                            <>
+                                {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
+                                    <ButtonPrimitive
+                                        onClick={() => {
+                                            setCheckedItems({})
+                                            setSelectMode('default')
+                                        }}
+                                        tooltip="Clear selected and disable multi-select"
+                                    >
+                                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                                    </ButtonPrimitive>
+                                ) : (
+                                    <ButtonPrimitive
+                                        onClick={() => setSelectMode('default')}
+                                        tooltip="Disable multi-select"
+                                        iconOnly
+                                    >
+                                        <IconX className="text-tertiary size-4" />
+                                    </ButtonPrimitive>
+                                )}
+                            </>
+                        )}
+                    </>
+                ) : null
             }
         >
             <ButtonPrimitive
