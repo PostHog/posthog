@@ -2308,7 +2308,7 @@ describe('JSONB optimization flag compatibility', () => {
             hub.db.kafkaProducer,
             new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, legacyDistinctId),
             0,
-            false // useOptimizedJSONBUpdates - LEGACY UPDATE
+            false
         )
 
         const [legacyPerson, legacyKafkaAcks] = await legacyPersonState.updateProperties()
@@ -2324,18 +2324,17 @@ describe('JSONB optimization flag compatibility', () => {
             mainTeam,
             optimizedDistinctId,
             timestamp,
-            true, // processPerson
+            true,
             hub.db.kafkaProducer,
             new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, optimizedDistinctId),
-            0, // measurePersonJsonbSize
-            true // useOptimizedJSONBUpdates - OPTIMIZED
+            0,
+            true
         )
 
         const [optimizedPerson, optimizedKafkaAcks] = await optimizedPersonState.updateProperties()
         await hub.db.kafkaProducer.flush()
         await optimizedKafkaAcks
 
-        // Compare the results - properties should be identical
         expect(legacyPerson.properties).toEqual(optimizedPerson.properties)
         expect(legacyPerson.is_identified).toEqual(optimizedPerson.is_identified)
         expect(legacyPerson.version).toEqual(optimizedPerson.version)
@@ -2370,7 +2369,7 @@ describe('JSONB optimization flag compatibility', () => {
                     $set_once: { initial_source: 'google', first_seen: '2023-01-01' },
                 },
             },
-            { existing: 'value', initial_source: 'existing' } // should not override existing
+            { existing: 'value', initial_source: 'existing' }
         )
     })
 
@@ -2427,7 +2426,7 @@ describe('JSONB optimization flag compatibility', () => {
                     false_value: false,
                     array: [1, 2, 3],
                     object: { nested: 'value' },
-                    null_byte: '\u0000', // Should get sanitized
+                    null_byte: '\u0000',
                 },
             },
         })
@@ -2512,7 +2511,7 @@ describe('JSONB optimization flag compatibility', () => {
                 hub.db.kafkaProducer,
                 new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, newUserDistinctId),
                 0,
-                false // legacy
+                false
             )
             legacyPersonState.updateIsIdentified = updateIsIdentified
 
@@ -2525,7 +2524,7 @@ describe('JSONB optimization flag compatibility', () => {
                 hub.db.kafkaProducer,
                 new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
                 0,
-                true // optimized
+                true
             )
             optimizedPersonState.updateIsIdentified = updateIsIdentified
 
@@ -2541,12 +2540,10 @@ describe('JSONB optimization flag compatibility', () => {
         await testWithIdentified(false)
     })
 
-    // Test that database queries are different but results are the same
     it('uses different SQL queries but produces same results', async () => {
         const legacyQueries: string[] = []
         const optimizedQueries: string[] = []
 
-        // Spy on database calls to capture the queries
         const originalQuery = hub.db.postgres.query
         jest.spyOn(hub.db.postgres, 'query').mockImplementation((...args) => {
             const query = args[1] as string
@@ -2573,16 +2570,13 @@ describe('JSONB optimization flag compatibility', () => {
             { old_prop: 'remove_me', keep_prop: 'keep_me' }
         )
 
-        // Verify we used different SQL approaches
         expect(legacyQueries.length).toBeGreaterThan(0)
         expect(optimizedQueries.length).toBeGreaterThan(0)
 
-        // Legacy should use simple SET with full properties replacement
         expect(legacyQueries[0]).toContain('"properties" = $')
         expect(legacyQueries[0]).not.toContain('||')
         expect(legacyQueries[0]).not.toContain(' - ')
 
-        // Optimized should use JSONB operators
         expect(optimizedQueries[0]).toContain('properties ||')
         expect(optimizedQueries[0]).toContain('-')
 
@@ -2677,7 +2671,7 @@ describe('JSONB optimization flag compatibility', () => {
         await testBothUpdatePaths(
             'GeoIP property handling',
             {
-                event: '$pageview', // Non-person event
+                event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
                     $set: {
@@ -2692,7 +2686,6 @@ describe('JSONB optimization flag compatibility', () => {
                 regular_prop: 'old_value',
             },
             (person, _useOptimized) => {
-                // GeoIP properties should be updated in memory but may not trigger DB update
                 expect(person.properties.$geoip_country_name).toBe('United States')
                 expect(person.properties.$initial_geoip_city_name).toBe('San Francisco')
                 expect(person.properties.regular_prop).toBe('should_update')
@@ -2701,19 +2694,16 @@ describe('JSONB optimization flag compatibility', () => {
     })
 
     it('produces identical results for large property payloads', async () => {
-        // Test with a larger set of properties to ensure optimization works at scale
         const largeProperties: Properties = {}
         const initialProperties: Properties = {}
 
-        // Create 50 properties to update
         for (let i = 0; i < 50; i++) {
             largeProperties[`prop_${i}`] = `value_${i}`
             if (i < 25) {
-                initialProperties[`prop_${i}`] = `old_value_${i}` // These will be updated
+                initialProperties[`prop_${i}`] = `old_value_${i}`
             }
         }
 
-        // Add some properties to unset
         initialProperties.remove_me_1 = 'gone'
         initialProperties.remove_me_2 = 'also_gone'
         initialProperties.keep_me = 'stays'
@@ -2721,7 +2711,7 @@ describe('JSONB optimization flag compatibility', () => {
         await testBothUpdatePaths(
             'large property payload',
             {
-                event: '$set', // Person event to ensure update
+                event: '$set',
                 distinct_id: newUserDistinctId,
                 properties: {
                     $set: largeProperties,
@@ -2730,14 +2720,13 @@ describe('JSONB optimization flag compatibility', () => {
             },
             initialProperties,
             (person, _useOptimized) => {
-                // Verify all properties were set correctly
                 for (let i = 0; i < 50; i++) {
                     expect(person.properties[`prop_${i}`]).toBe(`value_${i}`)
                 }
                 expect(person.properties.keep_me).toBe('stays')
                 expect(person.properties.remove_me_1).toBeUndefined()
                 expect(person.properties.remove_me_2).toBeUndefined()
-                expect(person.version).toBe(1) // Should be updated
+                expect(person.version).toBe(1)
             }
         )
     })
