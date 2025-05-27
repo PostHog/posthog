@@ -175,7 +175,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.OS:
                 return "os"
             case WebStatsBreakdown.VIEWPORT:
-                return "viewport"
+                return "concat(toString(viewport_width), 'x', toString(viewport_height))"
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return "referring_domain"
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
