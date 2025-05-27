@@ -20,7 +20,9 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
-    const { hogFunctions } = useValues(hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds }))
+    const { hogFunctions, loading } = useValues(
+        hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
+    )
 
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">
@@ -37,7 +39,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                 description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                 docsURL="https://posthog.com/docs/cdp"
                 actionElementOverride={newButton}
-                isEmpty={hogFunctions.length === 0}
+                isEmpty={hogFunctions.length === 0 && !loading}
             />
             <div>
                 <HogFunctionList
