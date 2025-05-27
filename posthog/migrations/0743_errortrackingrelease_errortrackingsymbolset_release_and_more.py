@@ -6,41 +6,96 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Allow non-atomic migration for concurrent operations
+
     dependencies = [
         ("posthog", "0742_exportedasset_exception"),
     ]
 
     operations = [
-        migrations.CreateModel(
-            name="ErrorTrackingRelease",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+        # Step 1: Define state operations without modifying the database
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                # Create the model in Django's state
+                migrations.CreateModel(
+                    name="ErrorTrackingRelease",
+                    fields=[
+                        (
+                            "id",
+                            models.UUIDField(
+                                default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                            ),
+                        ),
+                        ("hash_id", models.TextField()),
+                        ("created_at", models.DateTimeField(auto_now_add=True)),
+                        ("version", models.TextField()),
+                        ("project", models.TextField()),
+                        ("metadata", models.JSONField(null=True)),
+                        ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                    ],
+                ),
+                # Add the foreign key in Django's state
+                migrations.AddField(
+                    model_name="errortrackingsymbolset",
+                    name="release",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingrelease"
                     ),
                 ),
-                ("hash_id", models.TextField()),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("version", models.TextField()),
-                ("project", models.TextField()),
-                ("metadata", models.JSONField(null=True)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                # Add index and constraint in Django's state
+                migrations.AddIndex(
+                    model_name="errortrackingrelease",
+                    index=models.Index(fields=["team_id", "hash_id"], name="posthog_err_team_id_e9f6b2_idx"),
+                ),
+                migrations.AddConstraint(
+                    model_name="errortrackingrelease",
+                    constraint=models.UniqueConstraint(
+                        fields=("team_id", "hash_id"), name="unique_release_hash_id_per_team"
+                    ),
+                ),
             ],
-        ),
-        migrations.AddField(
-            model_name="errortrackingsymbolset",
-            name="release",
-            field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingrelease"
-            ),
-        ),
-        migrations.AddIndex(
-            model_name="errortrackingrelease",
-            index=models.Index(fields=["team_id", "hash_id"], name="posthog_err_team_id_e9f6b2_idx"),
-        ),
-        migrations.AddConstraint(
-            model_name="errortrackingrelease",
-            constraint=models.UniqueConstraint(fields=("team_id", "hash_id"), name="unique_release_hash_id_per_team"),
+            database_operations=[
+                # Step 2: Create the new table in the database
+                migrations.RunSQL(
+                    sql="""
+                    CREATE TABLE "posthog_errortrackingrelease" (
+                        "id" uuid NOT NULL PRIMARY KEY,
+                        "hash_id" text NOT NULL,
+                        "created_at" timestamp with time zone NOT NULL,
+                        "version" text NOT NULL,
+                        "project" text NOT NULL,
+                        "metadata" jsonb NULL,
+                        "team_id" integer NOT NULL REFERENCES "posthog_team" ("id") DEFERRABLE INITIALLY DEFERRED
+                    );
+                    """,
+                    reverse_sql='DROP TABLE IF EXISTS "posthog_errortrackingrelease";',
+                ),
+                # Step 3: Create unique index concurrently to avoid locking
+                migrations.RunSQL(
+                    sql="""
+                    CREATE UNIQUE INDEX CONCURRENTLY "posthog_err_team_id_e9f6b2_idx"
+                    ON "posthog_errortrackingrelease" ("team_id", "hash_id");
+                    """,
+                    reverse_sql='DROP INDEX IF EXISTS "posthog_err_team_id_e9f6b2_idx";',
+                ),
+                # Step 4: Add foreign key column with constraint directly (using special comment format from reference)
+                migrations.RunSQL(
+                    sql="""
+                    ALTER TABLE "posthog_errortrackingsymbolset" ADD COLUMN "release_id" uuid NULL CONSTRAINT "posthog_errortrackingsymbolset_release_id_fk" REFERENCES "posthog_errortrackingrelease" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_errortrackingsymbolset_release_id_fk" IMMEDIATE; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                    ALTER TABLE "posthog_errortrackingsymbolset" DROP COLUMN IF EXISTS "release_id";
+                    """,
+                ),
+                # Step 5: Create index concurrently on the foreign key
+                migrations.RunSQL(
+                    sql="""
+                    CREATE INDEX CONCURRENTLY "posthog_errortrackingsymbolset_release_id_idx"
+                    ON "posthog_errortrackingsymbolset" ("release_id");
+                    """,
+                    reverse_sql='DROP INDEX IF EXISTS "posthog_errortrackingsymbolset_release_id_idx";',
+                ),
+            ],
         ),
     ]
