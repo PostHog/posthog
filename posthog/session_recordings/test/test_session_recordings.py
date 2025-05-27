@@ -1424,7 +1424,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert (
             response.status_code == expected_status
-        ), f"Expected status {expected_status}, got {response.status_code} for source '{source_value}'"
+        ), f"Expected status {expected_status}, got {response.status_code} for source '{source_value}' (type: {type(source_value)}) with response.json() {response.json()}"
 
         if not is_valid:
             # For invalid sources, we expect a validation error
