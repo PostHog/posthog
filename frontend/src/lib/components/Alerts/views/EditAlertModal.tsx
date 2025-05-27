@@ -187,7 +187,7 @@ export function EditAlertModal({
                                                     data-attr="alertForm-series-index"
                                                     options={
                                                         formulaNodes?.length > 0
-                                                            ? formulaNodes?.map(({ formula, custom_name }, index) => ({
+                                                            ? formulaNodes.map(({ formula, custom_name }, index) => ({
                                                                   label: `${
                                                                       custom_name ? custom_name : 'Formula'
                                                                   } (${formula})`,

@@ -344,7 +344,11 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulaNodes?.[0]?.formula || query.trendsFilter?.formula
+        return (
+            query.trendsFilter?.formulaNodes?.[0]?.formula ||
+            query.trendsFilter?.formulas?.[0] ||
+            query.trendsFilter?.formula
+        )
     }
     return undefined
 }
@@ -353,6 +357,7 @@ export const getFormulas = (query: InsightQueryNode | null): string[] | undefine
     if (isTrendsQuery(query)) {
         return (
             query.trendsFilter?.formulaNodes?.map((node) => node.formula) ||
+            query.trendsFilter?.formulas ||
             (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
         )
     }
@@ -363,6 +368,7 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     if (isTrendsQuery(query)) {
         return (
             query.trendsFilter?.formulaNodes ||
+            query.trendsFilter?.formulas?.map((formula) => ({ formula })) ||
             (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
         )
     }

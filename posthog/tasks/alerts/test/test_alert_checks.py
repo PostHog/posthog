@@ -481,6 +481,128 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             in anomalies_descriptions[0]
         )
 
+    def test_alert_triggered_for_legacy_formulas(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    custom_name="A",
+                ),
+            ],
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.BOLD_NUMBER,
+                formulas=["A*2"],
+            ),
+        ).model_dump()
+
+        insight = self.dashboard_api.create_insight(
+            data={
+                "name": "formula insight",
+                "query": query_dict,
+            }
+        )[1]
+
+        alert_data = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "formula alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {
+                    "type": "TrendsAlertConfig",
+                    "series_index": 0,  # Target the first (only) formula
+                },
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1}}},  # Threshold is 1
+            },
+        ).json()
+
+        # Create 1 event, formula A*2 = 2, which is > 1
+        with freeze_time("2024-06-02T07:55:00.000Z"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="1",
+            )
+            flush_persons_and_events()
+
+        check_alert(alert_data["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == 1
+        alert_config = mock_send_notifications_for_breaches.call_args_list[0].args[0]
+        assert str(alert_config.id) == alert_data["id"]
+
+        anomalies_descriptions = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
+        assert len(anomalies_descriptions) == 1
+        assert (
+            "The insight value (Formula (A*2)) for current interval (2.0) is more than upper threshold (1.0)"
+            in anomalies_descriptions[0]
+        )
+
+    def test_alert_triggered_for_legacy_formula(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    custom_name="A",
+                ),
+            ],
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.BOLD_NUMBER,
+                formula="A*2",
+            ),
+        ).model_dump()
+
+        insight = self.dashboard_api.create_insight(
+            data={
+                "name": "formula insight",
+                "query": query_dict,
+            }
+        )[1]
+
+        alert_data = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "formula alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {
+                    "type": "TrendsAlertConfig",
+                    "series_index": 0,  # Target the first (only) formula
+                },
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1}}},  # Threshold is 1
+            },
+        ).json()
+
+        # Create 1 event, formula A*2 = 2, which is > 1
+        with freeze_time("2024-06-02T07:55:00.000Z"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="1",
+            )
+            flush_persons_and_events()
+
+        check_alert(alert_data["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == 1
+        alert_config = mock_send_notifications_for_breaches.call_args_list[0].args[0]
+        assert str(alert_config.id) == alert_data["id"]
+
+        anomalies_descriptions = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
+        assert len(anomalies_descriptions) == 1
+        assert (
+            "The insight value (Formula (A*2)) for current interval (2.0) is more than upper threshold (1.0)"
+            in anomalies_descriptions[0]
+        )
+
     def test_alert_triggered_for_second_formula(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
