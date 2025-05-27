@@ -217,7 +217,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             }
                             params = { blob_key: source.blob_key, source: 'blob' }
                         } else if (source.source === SnapshotSourceType.realtime) {
-                            params = { source: 'realtime', version: '2024-04-30' }
+                            params = { source: 'realtime' }
                         } else if (source.source === SnapshotSourceType.blob_v2) {
                             params = { source: 'blob_v2', blob_key: source.blob_key }
                         } else if (source.source === SnapshotSourceType.file) {

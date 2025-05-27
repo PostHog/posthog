@@ -278,18 +278,16 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
 
 
 class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
+    # shared
     source = serializers.CharField(required=False, allow_null=True)
     blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
     blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
 
-    # real-time only parameters
-    version = serializers.CharField(required=False, allow_null=True, help_text="Version for realtime snapshots")
-
-    # v2 only parameters
+    # v2
     start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
     end_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="End of blob key range")
 
-    # v1 only parameters
+    # v1
     if_none_match = serializers.SerializerMethodField()
 
     def get_if_none_match(self) -> str | None:
@@ -337,11 +335,6 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             # blob key should be a string of the form 1619712000-1619712060
             if not all(x.isdigit() for x in blob_key.split("-")):
                 raise serializers.ValidationError("Invalid blob key: " + blob_key)
-
-        elif source == "realtime":
-            version = data.get("version", "og")
-            if version not in ["og", "2024-04-30"]:
-                raise serializers.ValidationError(f"Invalid version: {version}")
 
         return data
 
@@ -733,7 +726,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
         elif source == "realtime":
             with timer("send_realtime_snapshots_to_client"):
-                response = self._send_realtime_snapshots_to_client(recording, validated_data.get("version", "og"))
+                response = self._send_realtime_snapshots_to_client(recording)
         elif source == "blob":
             with timer("stream_blob_to_client"):
                 response = self._stream_blob_to_client(
@@ -1032,9 +1025,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
             return response
 
-    def _send_realtime_snapshots_to_client(
-        self, recording: SessionRecording, version: str = "og"
-    ) -> HttpResponse | Response:
+    def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
@@ -1044,25 +1035,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 or []
             )
 
-        if version == "og":
-            # originally we returned a list of dictionaries
-            # under a snapshot key
-            # we keep doing this here for a little while
-            # so that existing browser sessions, that don't know about the new format
-            # can carry on working until the next refresh
-            serializer = SessionRecordingSourcesSerializer({"snapshots": [json.loads(s) for s in snapshot_lines]})
-            return Response(serializer.data)
-        elif version == "2024-04-30":
-            response = HttpResponse(
-                # convert list to a jsonl response
-                content=("\n".join(snapshot_lines)),
-                content_type="application/json",
-            )
-            # the browser is not allowed to cache this at all
-            response["Cache-Control"] = "no-store"
-            return response
-        else:
-            raise exceptions.ValidationError(f"Invalid version: {version}")
+        response = HttpResponse(
+            # convert list to a jsonl response
+            content=("\n".join(snapshot_lines)),
+            content_type="application/json",
+        )
+        # the browser is not allowed to cache this at all
+        response["Cache-Control"] = "no-store"
+        return response
 
     @extend_schema(
         exclude=True,

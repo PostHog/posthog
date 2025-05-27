@@ -1066,9 +1066,6 @@ export type SessionRecordingSnapshotParams =
       }
     | {
           source: 'realtime'
-          // originally realtime snapshots were returned in a different format than blob snapshots
-          // since version 2024-04-30 they are returned in the same format
-          version: '2024-04-30'
       }
 
 export interface SessionRecordingSnapshotSourceResponse {

@@ -999,20 +999,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert mock_get_session_recording.call_count == 1
         assert _mock_exists.call_count == 1
 
-    @parameterized.expand(
-        [
-            (
-                "version=2024-04-30",
-                "version=2024-04-30",
-                b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}',
-            ),
-            (
-                "version=None",
-                None,
-                b'{"snapshots":[{"some":"\xf0\x90\x90\xb7 probably from console logs"},{"some":"more data"}]}',
-            ),
-        ]
-    )
+    @parameterized.expand([("2024-04-30"), (None)])
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -1022,9 +1009,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_can_get_session_recording_realtime(
         self,
-        _name: str,
-        version: str | None,
-        expected_response: str,
+        version_param,
         _mock_stream_from,
         mock_realtime_snapshots,
         mock_get_session_recording,
@@ -1036,7 +1021,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         see: https://posthog.sentry.io/issues/4981128697/
         """
 
-        version_param = f"&{version}" if version else ""
+        expected_response = b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}'
+
+        version_param = f"&version={version_param}" if version_param else ""
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=realtime{version_param}"
 
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
