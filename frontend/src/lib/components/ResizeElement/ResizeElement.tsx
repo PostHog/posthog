@@ -50,15 +50,18 @@ export function ResizableElement({
         currentWidthRef.current = newWidth
     }, [])
 
-    const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-        document.body.classList.add('is-resizing')
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-        startXRef.current = clientX
-        startWidthRef.current = currentWidthRef.current
-        isResizing.current = true
-        e.preventDefault()
-        onResizeStart?.()
-    }, [onResizeStart])
+    const handleMouseDown = useCallback(
+        (e: React.MouseEvent | React.TouchEvent) => {
+            document.body.classList.add('is-resizing')
+            const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+            startXRef.current = clientX
+            startWidthRef.current = currentWidthRef.current
+            isResizing.current = true
+            e.preventDefault()
+            onResizeStart?.()
+        },
+        [onResizeStart]
+    )
 
     const handleMove = useCallback(
         (clientX: number) => {

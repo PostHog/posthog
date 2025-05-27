@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
@@ -132,26 +132,14 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         panelWillHide: [
             false,
             {
-                setPanelWillHide: (_, { willHide }) => willHide,
+                showLayoutPanel: (state, { visible }) => (visible ? false : state),
+                setPanelWidth: (_, { width }) => width <= PANEL_LAYOUT_MIN_WIDTH - 1,
             },
         ],
     }),
     listeners(({ actions, values }) => ({
-        showLayoutPanel: ({ visible }) => {
-            if (visible) {
-                actions.setPanelWillHide(false)
-            }
-        },
-        // We add a visual cue to the panel when it's at or below the minimum width
-        setPanelWidth: ({ width }) => {
-            if (width <= PANEL_LAYOUT_MIN_WIDTH - 1) {
-                actions.setPanelWillHide(true)
-            } else {
-                actions.setPanelWillHide(false)
-            }
-        },
-        // If we're not resizing and the panel is at or below the minimum width, hide it
         setPanelIsResizing: ({ isResizing }) => {
+            // If we're not resizing and the panel is at or below the minimum width, hide it
             if (!isResizing && values.panelWidth <= PANEL_LAYOUT_MIN_WIDTH - 1) {
                 actions.showLayoutPanel(false)
                 actions.clearActivePanelIdentifier()
