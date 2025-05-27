@@ -495,7 +495,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     }}
                                                     className={cn('absolute z-2', {
                                                         // Hide checkboxwhen select mode is default/folder only
-                                                        hidden: selectMode === 'default',
+                                                        hidden:
+                                                            selectMode === 'default' || selectMode === 'folder-only',
                                                     })}
                                                     style={{
                                                         left: `${firstColumnOffset - 20}px`,
