@@ -8,9 +8,9 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { HOG_EXAMPLES } from '../_tests/examples'
 import {
+    createExampleInvocation,
     createHogExecutionGlobals,
     createHogFunction,
-    createExampleInvocation,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'

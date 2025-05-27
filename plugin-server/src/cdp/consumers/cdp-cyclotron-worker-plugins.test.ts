@@ -9,8 +9,8 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import {
-    createHogExecutionGlobals,
     createExampleInvocation,
+    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
