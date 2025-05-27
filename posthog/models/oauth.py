@@ -61,6 +61,7 @@ class OAuthApplication(AbstractApplication):
             if not parsed_uri.netloc:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
 
+            # Note: URI fragments are not allowed in redirect URIs in the OAuth 2.0 specification
             if parsed_uri.fragment:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 
@@ -69,11 +70,12 @@ class OAuthApplication(AbstractApplication):
         super().save(*args, **kwargs)
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    # Note: We do not require an organization or user to be linked to an OAuth application - this is so that we can support dynamic client registration
+    # NOTE: By default an application should be linked to the organization that created it.
+    # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
+    # Only admins of the organization should have permission to edit the application.
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True
     )
-    user: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
 
 class OAuthAccessToken(AbstractAccessToken):
