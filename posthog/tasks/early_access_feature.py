@@ -14,9 +14,9 @@ POSTHOG_TEAM_ID = 2
 # Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
 @shared_task(ignore_result=True, max_retries=1)
 def send_events_for_early_access_feature_stage_change(feature_id: str, from_stage: str, to_stage: str) -> None:
-    print(
+    print(  # noqa: T201
         f"[CELERY][EARLY ACCESS FEATURE] Sending events for early access feature stage change for feature {feature_id} from {from_stage} to {to_stage}"
-    )  # noqa: T201
+    )
     instance = EarlyAccessFeature.objects.get(id=feature_id)
 
     team_id = instance.team.id
