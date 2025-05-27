@@ -260,7 +260,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             if hit_billing_limit:
-                update_inputs.status = ExternalDataJob.Status.CANCELLED
+                update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
 
             await workflow.execute_activity(

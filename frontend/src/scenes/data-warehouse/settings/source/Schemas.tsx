@@ -24,7 +24,14 @@ import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-war
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSourceSchema, ExternalDataSourceType, ProductKey } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceSchema,
+    ExternalDataSourceType,
+    ProductKey,
+} from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
@@ -74,12 +81,14 @@ interface SchemaTableProps {
     isLoading: boolean
 }
 
-const StatusTagSetting: Record<string, LemonTagType> = {
+const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
-    Error: 'danger',
     Failed: 'danger',
     'Billing limits': 'danger',
+    'Billing limit too low': 'danger',
+    Cancelled: 'warning',
+    Paused: 'warning',
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
@@ -321,7 +330,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                             )
-                            return schema.latest_error && schema.status === 'Error' ? (
+                            return schema.latest_error && schema.status === 'Failed' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
                             ) : (
                                 tagContent

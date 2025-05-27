@@ -6,17 +6,16 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataJobStatus, manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const StatusTagSetting: Record<string, 'primary' | 'success' | 'danger'> = {
-    Running: 'primary',
-    Completed: 'success',
-    Error: 'danger',
-    Failed: 'danger',
-    'Billing limits': 'danger',
+    [ExternalDataJobStatus.Running]: 'primary',
+    [ExternalDataJobStatus.Completed]: 'success',
+    [ExternalDataJobStatus.Failed]: 'danger',
+    [ExternalDataJobStatus.BillingLimits]: 'danger',
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
