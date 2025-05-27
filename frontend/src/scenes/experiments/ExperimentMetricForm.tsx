@@ -148,6 +148,10 @@ export function ExperimentMetricForm({
                     />
                 )}
             </div>
+            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            {metric.metric_type === ExperimentMetricType.MEAN && (
+                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+            )}
             <div>
                 <LemonLabel
                     className="mb-1"
@@ -168,10 +172,6 @@ export function ExperimentMetricForm({
             {metric.metric_type === ExperimentMetricType.MEAN &&
                 metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && <Query query={queryConfig} readOnly />}
             {metric.metric_type === ExperimentMetricType.FUNNEL && <Query query={queryConfig} readOnly />}
-            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
-            {metric.metric_type === ExperimentMetricType.MEAN && (
-                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
-            )}
         </div>
     )
 }
