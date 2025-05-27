@@ -98,11 +98,11 @@ describe('IngestionConsumer', () => {
         site_url: 'us.posthog.com',
         now: fixedTime.toISO()!,
         event: '$pageview',
+        ...event,
         properties: {
             $current_url: 'http://localhost:8000',
             ...(event?.properties || {}),
         },
-        ...event,
     })
 
     const createCookielessEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
@@ -113,6 +113,7 @@ describe('IngestionConsumer', () => {
         site_url: 'us.posthog.com',
         now: fixedTime.toISO()!,
         event: '$pageview',
+        ...event,
         properties: {
             $current_url: 'http://localhost:8000',
             $host: 'localhost:8000',
@@ -122,7 +123,6 @@ describe('IngestionConsumer', () => {
             [COOKIELESS_MODE_FLAG_PROPERTY]: true,
             ...(event?.properties || {}),
         },
-        ...event,
     })
 
     beforeEach(async () => {
@@ -219,28 +219,28 @@ describe('IngestionConsumer', () => {
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    createCookielessEvent({
-                        ip: '1.2.3.4',
-                        properties: {
-                            $set: {
-                                a: 'a',
-                                ab: 'a',
-                            },
+            const events = [
+                createCookielessEvent({
+                    ip: '1.2.3.4',
+                    properties: {
+                        $set: {
+                            a: 'a',
+                            ab: 'a',
                         },
-                    }),
-                    createCookielessEvent({
-                        ip: '5.6.7.8', // different IP address means different user
-                        properties: {
-                            $set: {
-                                b: 'b',
-                                ab: 'b',
-                            },
+                    },
+                }),
+                createCookielessEvent({
+                    ip: '5.6.7.8', // different IP address means different user
+                    properties: {
+                        $set: {
+                            b: 'b',
+                            ab: 'b',
                         },
-                    }),
-                ])
-            )
+                    },
+                }),
+            ]
+            const input = createKafkaMessages(events)
+            await ingester.handleKafkaBatch(input)
             const messages = mockProducerObserver.getProducedKafkaMessages()
             const eventsA = messages.filter(
                 (m) =>
@@ -255,9 +255,8 @@ describe('IngestionConsumer', () => {
                     parseJSON(m.value.person_properties as any)?.b
             )
             expect(eventsA[0].value.person_id).not.toEqual(eventsB[0].value.person_id)
-            expect(eventsA).toHaveLength(1)
-            expect(eventsB).toHaveLength(1)
-            expect(forSnapshot(messages)).toMatchSnapshot()
+            expect(forSnapshot(eventsA)).toMatchSnapshot()
+            expect(forSnapshot(eventsB)).toMatchSnapshot()
         })
 
         describe('overflow', () => {
@@ -1021,7 +1020,7 @@ describe('IngestionConsumer', () => {
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
                             message: expect.stringMatching(
-                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: ''$/
+                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: '\S+'$/
                             ),
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
@@ -1101,7 +1100,7 @@ describe('IngestionConsumer', () => {
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
                             message: expect.stringMatching(
-                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: ''$/
+                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: '\S+'$/
                             ),
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
