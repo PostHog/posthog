@@ -2,6 +2,7 @@ import { IconCopy, IconPencil } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
@@ -71,6 +72,11 @@ export const MetricHeader = ({
                             size="xsmall"
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
+                            to={
+                                metric.isSharedMetric
+                                    ? urls.experimentsSharedMetric(metric.sharedMetricId, 'duplicate')
+                                    : undefined
+                            }
                             onClick={() => {
                                 if (metric.isSharedMetric) {
                                     return
