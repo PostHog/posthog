@@ -668,7 +668,7 @@ export class DB {
         return [person, kafkaMessages]
     }
 
-    // Potential optimization on the previous updatePerson method
+    // Potential optimization on the updatePersonDeprecated method
     public async updatePersonWithMergeOperator(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -680,10 +680,8 @@ export class DB {
         const values: any[] = []
         let paramIndex = 1
 
-        // build version update
         let query = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1`
 
-        // combine all JSONB operations into one assignment
         const hasPropertiesToSet = Object.keys(propertiesToSet).length > 0
         const hasPropertiesToUnset = propertiesToUnset.length > 0
 

@@ -469,7 +469,6 @@ export class PersonState {
             }
         })
 
-        // NICKS TODO: We have this already ?
         metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
 
         return { toSet, toUnset, hasChanges }
