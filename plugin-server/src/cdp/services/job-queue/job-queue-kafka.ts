@@ -12,7 +12,12 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginsServerConfig } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
+} from '../../types'
 import { cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
@@ -142,13 +147,45 @@ export class CyclotronJobQueueKafka {
 
             // Try to decompress, otherwise just use the value as is
             const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
-            const invocation: CyclotronJobInvocation = parseJSON(decompressedValue.toString())
+            const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
+                parseJSON(decompressedValue.toString())
+            )
+
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
         }
 
         return await this.consumeBatch(invocations)
     }
+}
+
+// NOTE: https://github.com/PostHog/posthog/pull/32588 modified the job format to move more things to the generic "state" value
+// This function migrates any legacy jobs to the new format. We can remove this shortly after full release.
+export function migrateKafkaCyclotronInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+    // Type casting but keeping as a reference
+    const unknownInvocation = invocation as Record<string, any>
+
+    if ('hogFunctionId' in unknownInvocation) {
+        // Must be the old format
+        unknownInvocation.functionId = unknownInvocation.hogFunctionId
+        unknownInvocation.state = {}
+        delete unknownInvocation.hogFunctionId
+
+        if ('vmState' in unknownInvocation) {
+            unknownInvocation.state.vmState = unknownInvocation.vmState
+            delete unknownInvocation.vmState
+        }
+        if ('globals' in unknownInvocation) {
+            unknownInvocation.state.globals = unknownInvocation.globals
+            delete unknownInvocation.globals
+        }
+        if ('timings' in unknownInvocation) {
+            unknownInvocation.state.timings = unknownInvocation.timings
+            delete unknownInvocation.timings
+        }
+    }
+
+    return invocation
 }
 
 export function serializeInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
