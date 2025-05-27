@@ -1,5 +1,3 @@
-import { dayjs } from 'lib/dayjs'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, CountPerActorMathType } from '~/types'
 
@@ -39,6 +37,16 @@ const mockEventConfig = {
     properties: [{ key: 'foo', value: 'bar' }],
 } as any
 
+jest.mock('lib/dayjs', () => {
+    const actual = jest.requireActual('dayjs')
+    // Always return 2023-01-01T00:00:00Z for dayjs()
+    const fixed = actual('2023-01-01T00:00:00Z')
+    return {
+        ...actual,
+        dayjs: jest.fn((...args) => (args.length === 0 ? fixed : actual(...args))),
+    }
+})
+
 describe('getTotalCountQuery', () => {
     it('returns correct query with eventConfig and filterTestAccounts true', () => {
         const result = getTotalCountQuery(mockMetric, mockExperiment, mockEventConfig)
@@ -51,8 +59,8 @@ describe('getTotalCountQuery', () => {
         })
         expect(result.series[1].math).toBe(CountPerActorMathType.Average)
         expect(result.filterTestAccounts).toBe(true)
-        expect(result.dateRange!.date_from).toContain(dayjs().subtract(14, 'day').format('YYYY-MM-DD')) // 14 is the default
-        expect(result.dateRange!.date_to).toContain(dayjs().format('YYYY-MM-DD'))
+        expect(result.dateRange!.date_from).toContain('2022-12-18') // 14 days before 2023-01-01
+        expect(result.dateRange!.date_to).toContain('2023-01-01')
         expect(result.dateRange!.explicitDate).toBe(true)
     })
 
@@ -104,8 +112,8 @@ describe('getSumQuery', () => {
         expect(result.series[1].math_property).toBe('some_property')
         expect(result.series[1].math_property_type).toBe('numerical_event_properties')
         expect(result.filterTestAccounts).toBe(true)
-        expect(result.dateRange!.date_from).toContain(dayjs().subtract(14, 'day').format('YYYY-MM-DD'))
-        expect(result.dateRange!.date_to).toContain(dayjs().format('YYYY-MM-DD'))
+        expect(result.dateRange!.date_from).toContain('2022-12-18')
+        expect(result.dateRange!.date_to).toContain('2023-01-01')
         expect(result.dateRange!.explicitDate).toBe(true)
     })
 
@@ -196,8 +204,8 @@ describe('getFunnelQuery', () => {
         }
         expect(result.series[1].kind).toBe(NodeKind.EventsNode)
         expect(result.filterTestAccounts).toBe(true)
-        expect(result.dateRange!.date_from).toContain(dayjs().subtract(14, 'day').format('YYYY-MM-DD'))
-        expect(result.dateRange!.date_to).toContain(dayjs().format('YYYY-MM-DD'))
+        expect(result.dateRange!.date_from).toContain('2022-12-18')
+        expect(result.dateRange!.date_to).toContain('2023-01-01')
         expect(result.dateRange!.explicitDate).toBe(true)
         expect(result.interval).toBe('day')
         expect(result.funnelsFilter!.funnelVizType).toBe('steps')
