@@ -1,7 +1,7 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
@@ -48,48 +48,39 @@ export function ExperimentMetricForm({
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
 }): JSX.Element {
-    const mathAvailability = useMemo(() => getMathAvailability(metric.metric_type), [metric.metric_type])
-    const allowedMathTypes = useMemo(() => getAllowedMathTypes(metric.metric_type), [metric.metric_type])
+    const mathAvailability = getMathAvailability(metric.metric_type)
+    const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
-    const handleSetFilters = useCallback(
-        ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-            const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
-            if (metricConfig) {
-                handleSetMetric({
-                    ...metric,
-                    ...metricConfig,
-                })
-            }
+    const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
+        if (metricConfig) {
+            handleSetMetric({
+                ...metric,
+                ...metricConfig,
+            })
+        }
+    }
+
+    const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
+        handleSetMetric(getDefaultExperimentMetric(newMetricType))
+    }
+
+    const radioOptions = [
+        {
+            value: ExperimentMetricType.FUNNEL,
+            label: 'Funnel',
+            description:
+                'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
         },
-        [metric, handleSetMetric]
-    )
-
-    const handleMetricTypeChange = useCallback(
-        (newMetricType: ExperimentMetricType) => {
-            handleSetMetric(getDefaultExperimentMetric(newMetricType))
+        {
+            value: ExperimentMetricType.MEAN,
+            label: 'Mean',
+            description:
+                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
         },
-        [handleSetMetric]
-    )
+    ]
 
-    const radioOptions = useMemo(
-        () => [
-            {
-                value: ExperimentMetricType.FUNNEL,
-                label: 'Funnel',
-                description:
-                    'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
-            },
-            {
-                value: ExperimentMetricType.MEAN,
-                label: 'Mean',
-                description:
-                    'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
-            },
-        ],
-        []
-    )
-
-    const metricFilter = useMemo(() => metricToFilter(metric), [metric])
+    const metricFilter = metricToFilter(metric)
     const previewQuery = useMemo(() => metricToQuery(metric, filterTestAccounts), [metric, filterTestAccounts])
 
     const queryConfig = useMemo(
@@ -103,7 +94,7 @@ export function ExperimentMetricForm({
         [previewQuery]
     )
 
-    const hideDeleteBtn = useCallback((_: any, index: number) => index === 0, [])
+    const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
     return (
         <div className="deprecated-space-y-4">
