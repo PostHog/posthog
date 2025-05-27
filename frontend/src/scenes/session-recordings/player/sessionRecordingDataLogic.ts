@@ -242,12 +242,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
                         (a, b) => a.timestamp - b.timestamp
                     )
-                    // we store the data in the cache, because we want to avoid copying this data as much as possible
+                    // we store the data in the cache because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all of the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
                     // it doesn't matter which source we use as the key, since we combine the snapshots anyway
                     cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
-                    1 // but we do want to mark the sources as loaded
+                    // but we do want to mark the sources as loaded
+                    sources.forEach((s) => {
+                        const k = keyForSource(s)
+                        // we just need something against each key so we don't load it again
+                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || []
+                    })
+
                     return { sources: sources }
                 },
             },

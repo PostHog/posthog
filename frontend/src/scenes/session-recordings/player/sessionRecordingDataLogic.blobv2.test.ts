@@ -132,8 +132,23 @@ describe('sessionRecordingDataLogic blobby v2', () => {
             )
             expect(actual).toMatchSnapshot()
 
-            expect(logic.values.snapshotSources).toEqual({})
-            expect(Object.keys(logic.cache.snapshotsBySource)).toEqual({})
+            expect(logic.values.snapshotSources).toEqual([
+                {
+                    blob_key: '0',
+                    end_timestamp: '2025-05-18T03:51:54.709000Z',
+                    source: 'blob_v2',
+                    start_timestamp: '2025-05-18T03:46:53.980000Z',
+                },
+                {
+                    blob_key: '1',
+                    end_timestamp: '2025-05-18T03:51:54.816000Z',
+                    source: 'blob_v2',
+                    start_timestamp: '2025-05-18T03:51:54.816000Z',
+                },
+            ])
+            expect(Object.keys(logic.cache.snapshotsBySource)).toEqual(['blob_v2-0', 'blob_v2-1'])
+            // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
+            expect(logic.cache.snapshotsBySource['blob_v2-1']).toEqual([])
         })
     })
 })
