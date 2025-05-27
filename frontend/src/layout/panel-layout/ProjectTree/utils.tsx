@@ -108,6 +108,7 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
+            tags: item.tags,
         }
         if (item && disabledReason?.(item)) {
             node.disabledReason = disabledReason(item)
@@ -273,7 +274,8 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
     }
-    if (root !== 'products://') {
+
+    if (root !== 'products://' && root !== 'persons://') {
         sortNodes(rootNodes)
     }
 

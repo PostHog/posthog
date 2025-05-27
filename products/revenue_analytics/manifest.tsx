@@ -26,6 +26,7 @@ export const manifest: ProductManifest = {
             iconType: 'piggyBank',
             href: urls.revenueAnalytics(),
             visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+            tags: ['beta'],
         },
     ],
     treeItemsDataManagement: [

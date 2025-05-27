@@ -1935,6 +1935,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterTestAccounts?: boolean
     searchQuery?: string
     volumeResolution: integer
+    withAggregations?: boolean
+    withFirstEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -1948,7 +1950,6 @@ export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
-    volumeDay: number[]
     volumeRange: number[]
 }
 
@@ -1965,8 +1966,12 @@ export interface ErrorTrackingRelationalIssue {
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
-    earliest?: string
-    aggregations: ErrorTrackingIssueAggregations
+    first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
 
@@ -2040,6 +2045,8 @@ export interface FileSystemEntry {
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
@@ -2048,6 +2055,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
     /** Order of object in tree */
     visualOrder?: number
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
 }
 
 export interface PersistedFolder {
