@@ -69,6 +69,8 @@ export const OBJECTS = {
         'IconTabletLandscape',
         'IconTabletPortrait',
         'IconTextWidthFixed',
+        'IconDeskHog',
+        'IconRuler',
     ],
     People: [
         'IconPeople',
@@ -116,6 +118,12 @@ export const TECHNOLOGY = {
         'IconHardDrive',
         'IconMouse',
         'IconCdCase',
+        'IconBatteryCharge',
+        'IconCamera',
+        'IconChip',
+        'IconMemory',
+        'IconScreen',
+        'IconSignal',
     ],
     Software: [
         'IconBinary',
@@ -152,6 +160,8 @@ export const TECHNOLOGY = {
         'IconMouseScrollDown',
         'IconDrag',
         'IconPointer',
+        'IconButton',
+        'IconCameraFrame',
     ],
 }
 
@@ -231,6 +241,7 @@ export const ELEMENTS = {
         'IconMultiply',
         'IconPercentage',
         'IconCalculator',
+        'IconInfinity',
     ],
 }
 
