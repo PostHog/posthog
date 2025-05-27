@@ -107,7 +107,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                     {activeSuggestionGroup && !isFloating && (
                         <ToggleGroup
                             type="single"
-                            className="absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
+                            className="absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
                             ref={focusElementRef}
                             onValueChange={(index) => {
                                 const suggestion = activeSuggestionGroup.suggestions[Number(index)]

@@ -17,7 +17,7 @@ import {
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { maxLogic } from './maxLogic'
+import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
@@ -386,7 +386,7 @@ export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
 
     useEffect(() => {
         // The largest group is the set up group
-        setActiveGroup(3)
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
     }, [])
 
     return <Template sidePanel />
@@ -405,7 +405,7 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
 
     useEffect(() => {
         // The largest group is the set up group
-        setActiveGroup(3)
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
     }, [])
 
     return <Template sidePanel />

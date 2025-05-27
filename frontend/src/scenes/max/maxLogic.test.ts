@@ -1,11 +1,11 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { maxLogic } from './maxLogic'
+import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxMocks, mockStream } from './testUtils'
 
 describe('maxLogic', () => {
@@ -92,23 +92,16 @@ describe('maxLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            activeSuggestionGroupIndex: null,
-            activeSuggestionGroup: undefined,
+            activeSuggestionGroup: null,
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setActiveGroup(1)
+            logic.actions.setActiveGroup(QUESTION_SUGGESTIONS_DATA[1])
         })
             .toDispatchActions(['setActiveGroup'])
             .toMatchValues({
-                activeSuggestionGroupIndex: 1,
-                activeSuggestionGroup: expect.objectContaining({
-                    label: 'Product Analytics',
-                    suggestions: expect.arrayContaining([
-                        expect.objectContaining({
-                            label: 'Create a funnel of the Pirate Metrics (AARRR)',
-                        }),
-                    ]),
+                activeSuggestionGroup: partial({
+                    label: 'SQL',
                 }),
             })
 
@@ -116,23 +109,15 @@ describe('maxLogic', () => {
         logic.actions.setActiveGroup(null)
 
         await expectLogic(logic).toMatchValues({
-            activeSuggestionGroupIndex: null,
-            activeSuggestionGroup: undefined,
+            activeSuggestionGroup: null,
         })
 
         // Test setting to a different index
-        logic.actions.setActiveGroup(0)
+        logic.actions.setActiveGroup(QUESTION_SUGGESTIONS_DATA[0])
 
         await expectLogic(logic).toMatchValues({
-            activeSuggestionGroupIndex: 0,
-            activeSuggestionGroup: expect.objectContaining({
-                label: 'SQL',
-                suggestions: expect.arrayContaining([
-                    expect.objectContaining({
-                        label: 'Generate an SQL query to',
-                        content: 'Generate an SQL query to ',
-                    }),
-                ]),
+            activeSuggestionGroup: partial({
+                label: 'Product analytics',
             }),
         })
     })

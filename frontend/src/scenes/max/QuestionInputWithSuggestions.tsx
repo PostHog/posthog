@@ -6,12 +6,12 @@ import { router } from 'kea-router'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
-import { maxLogic } from './maxLogic'
+import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
 
 export function QuestionInputWithSuggestions(): JSX.Element {
-    const { dataProcessingAccepted, activeSuggestionGroup, suggestionGroups } = useValues(maxLogic)
+    const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
     const { setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
     const { askMax } = useActions(maxThreadLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -27,11 +27,9 @@ export function QuestionInputWithSuggestions(): JSX.Element {
         >
             <QuestionInput />
             <div className="flex flex-col items-center justify-center gap-y-2">
-                <h3 className="text-center text-xs font-medium mb-0 text-secondary">
-                    {activeSuggestionGroup ? activeSuggestionGroup.label : 'Ask Max about'}
-                </h3>
+                <h3 className="text-center text-xs font-medium mb-0 text-secondary">Ask Max about…</h3>
                 <ul className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5">
-                    {suggestionGroups.map((group, index) => (
+                    {QUESTION_SUGGESTIONS_DATA.map((group) => (
                         <li key={group.label} className="shrink">
                             <LemonButton
                                 onClick={() => {
@@ -51,7 +49,7 @@ export function QuestionInputWithSuggestions(): JSX.Element {
                                             askMax(group.suggestions[0].label)
                                         }
                                     } else {
-                                        setActiveGroup(index)
+                                        setActiveGroup(group)
                                     }
                                 }}
                                 size="xsmall"

@@ -84,7 +84,7 @@ export const maxLogic = kea<maxLogicType>([
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
-        setActiveGroup: (index: number | null) => ({ index }),
+        setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
         setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
 
@@ -165,10 +165,10 @@ export const maxLogic = kea<maxLogicType>([
          */
         focusCounter: [0, { focusInput: (state) => state + 1 }],
 
-        activeSuggestionGroupIndex: [
-            null as number | null,
+        activeSuggestionGroup: [
+            null as SuggestionGroup | null,
             {
-                setActiveGroup: (_, { index }) => index,
+                setActiveGroup: (_, { group }) => group,
             },
         ],
 
@@ -321,18 +321,6 @@ export const maxLogic = kea<maxLogicType>([
                     return threadKeys[conversationId] || conversationId
                 }
                 return tempConversationId
-            },
-        ],
-
-        suggestionGroups: [() => [], (): readonly SuggestionGroup[] => QUESTION_SUGGESTIONS_DATA],
-
-        activeSuggestionGroup: [
-            (s) => [s.activeSuggestionGroupIndex, s.suggestionGroups],
-            (index, groups): SuggestionGroup | undefined => {
-                if (index === null) {
-                    return undefined
-                }
-                return groups[index]
             },
         ],
     }),
@@ -551,19 +539,7 @@ function getScrollableContainer(element?: Element | null): HTMLElement | null {
 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
-        label: 'SQL',
-        icon: <IconHogQL />,
-        suggestions: [
-            {
-                label: 'Generate an SQL query to',
-                content: 'Generate an SQL query to ',
-            },
-        ],
-        url: urls.sqlEditor(),
-        tooltip: 'Max can generate SQL queries using your PostHog data and the data warehouse.',
-    },
-    {
-        label: 'Product Analytics',
+        label: 'Product analytics',
         icon: <IconGraph />,
         suggestions: [
             {
@@ -586,29 +562,31 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         tooltip: 'Max can generate insights from natural language and tweak existing ones.',
     },
     {
-        label: 'Docs',
-        icon: <IconBook />,
+        label: 'SQL',
+        icon: <IconHogQL />,
         suggestions: [
             {
-                label: 'How can I create a feature flag?',
-            },
-            {
-                label: 'Where do I watch session replays?',
-            },
-            {
-                label: 'Help me set up an experiment',
-            },
-            {
-                label: 'Explain autocapture',
-            },
-            {
-                label: 'How can I capture an exception?',
+                label: 'Write an SQL query to',
+                content: 'Write an SQL query to ',
             },
         ],
-        tooltip: 'Max can help you find the right documentation pieces.',
+        url: urls.sqlEditor(),
+        tooltip: 'Max can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
     },
     {
-        label: 'Set up',
+        label: 'Session replay',
+        icon: <IconRewindPlay />,
+        suggestions: [
+            {
+                label: 'Find recordings for',
+                content: 'Find recordings for ',
+            },
+        ],
+        url: productUrls.replay(),
+        tooltip: 'Max can find session recordings for you.',
+    },
+    {
+        label: 'SDK setup',
         icon: <IconPlug />,
         suggestions: [
             {
@@ -643,16 +621,26 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
     },
     {
-        label: 'Session Replay',
-        icon: <IconRewindPlay />,
+        label: 'Docs',
+        icon: <IconBook />,
         suggestions: [
             {
-                label: 'Find recordings for',
-                content: 'Find recordings for ',
+                label: 'How can I create a feature flag?',
+            },
+            {
+                label: 'Where do I watch session replays?',
+            },
+            {
+                label: 'Help me set up an experiment',
+            },
+            {
+                label: 'Explain autocapture',
+            },
+            {
+                label: 'How can I capture an exception?',
             },
         ],
-        url: productUrls.replay(),
-        tooltip: 'Max can find session recordings for you.',
+        tooltip: 'Max has access to PostHog docs and can help you get the most out of PostHog.',
     },
 ]
 
