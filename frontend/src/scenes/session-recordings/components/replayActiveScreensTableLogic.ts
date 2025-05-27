@@ -7,13 +7,13 @@ import { hogql } from '~/queries/utils'
 
 import type { replayActiveScreensTableLogicType } from './replayActiveScreensTableLogicType'
 
-export interface ReplayActiveUsersTableLogicProps {
+export interface ReplayActiveScreensTableLogicProps {
     scene?: 'templates' | 'filters' | 'replay-home'
 }
 
 export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicType>([
     path(['scenes', 'session-recordings', 'components', 'replayActiveScreensTableLogic']),
-    props({} as ReplayActiveUsersTableLogicProps),
+    props({} as ReplayActiveScreensTableLogicProps),
     key((props) => props.scene || 'default'),
     defaults({
         countedScreens: [] as { screen: string; count: number }[],

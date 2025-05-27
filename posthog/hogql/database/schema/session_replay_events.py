@@ -236,7 +236,7 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
         "start_time": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_first_timestamp"])]),
         "end_time": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_last_timestamp"])]),
         "first_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "first_url"])]),
-        "all_urls": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "urls"])]),
+        "all_urls": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "all_urls"])]),
         "click_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "click_count"])]),
         "keypress_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "keypress_count"])]),
         "mouse_activity_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "mouse_activity_count"])]),
