@@ -1,5 +1,4 @@
 import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
-import { shuffle } from 'd3'
 import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
@@ -15,7 +14,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
-import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
 import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -63,8 +61,6 @@ export const maxLogic = kea<maxLogicType>([
 
     actions({
         setQuestion: (question: string) => ({ question }),
-        setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
-        shuffleVisibleSuggestions: true,
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         setConversationId: (conversationId: string) => ({ conversationId }),
         startNewConversation: true,
@@ -135,13 +131,6 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        visibleSuggestions: [
-            null as string[] | null,
-            {
-                setVisibleSuggestions: (_, { suggestions }) => suggestions,
-            },
-        ],
-
         conversationHistoryVisible: [
             false,
             {
@@ -190,22 +179,6 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     loaders({
-        // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
-        allSuggestions: [
-            null as string[] | null,
-            {
-                loadSuggestions: async ({ refresh }: { refresh: RefreshType }) => {
-                    const response = await api.query<SuggestedQuestionsQuery>(
-                        { kind: NodeKind.SuggestedQuestionsQuery },
-                        undefined,
-                        undefined,
-                        refresh
-                    )
-                    return response.questions
-                },
-            },
-        ],
-
         conversationHistory: [
             [] as ConversationDetail[],
             {
@@ -324,36 +297,6 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: () => {
-            actions.loadSuggestions({ refresh: 'blocking' })
-        },
-
-        [maxSettingsLogic.actionTypes.loadCoreMemorySuccess]: () => {
-            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
-        },
-
-        loadSuggestionsSuccess: () => {
-            actions.shuffleVisibleSuggestions()
-        },
-
-        shuffleVisibleSuggestions: () => {
-            if (!values.allSuggestions) {
-                throw new Error('No question suggestions to shuffle')
-            }
-            const allSuggestionsWithoutCurrentlyVisible = values.allSuggestions.filter(
-                (suggestion) => !values.visibleSuggestions?.includes(suggestion)
-            )
-            if (!process.env.STORYBOOK) {
-                // Randomize order, except in Storybook where we want to keep the order consistent for snapshots
-                shuffle(allSuggestionsWithoutCurrentlyVisible)
-            }
-            actions.setVisibleSuggestions(
-                // We show 3 suggestions, and put the longest one last, so that the suggestions _as a whole_
-                // look pleasant when the 3rd is wrapped to the next line (character count is imperfect but okay)
-                allSuggestionsWithoutCurrentlyVisible.slice(0, 3).sort((a, b) => a.length - b.length)
-            )
-        },
-
         scrollThreadToBottom: ({ behavior }) => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
@@ -458,12 +401,6 @@ export const maxLogic = kea<maxLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        // We only load suggestions on mount if core memory is present
-        if (values.coreMemory) {
-            // In this case we're fine with even really old cached values
-            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
-        }
-
         // If there is a prefill question from side panel state (from opening Max within the app), use it
         if (
             !values.question &&

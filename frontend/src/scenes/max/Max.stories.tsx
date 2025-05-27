@@ -2,7 +2,6 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -70,53 +69,6 @@ export const Welcome: StoryFn = () => {
     })
 
     return <Template />
-}
-
-export const WelcomeSuggestionsAvailable: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': () => [
-                200,
-                {
-                    questions: [
-                        'What are our most popular pages in the blog?',
-                        'Where are our new users located?',
-                        'Who are the biggest customers using our paid product?',
-                        'Which feature drives most usage?',
-                    ],
-                },
-            ],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-
-export const WelcomeLoadingSuggestions: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-WelcomeLoadingSuggestions.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
 }
 
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
