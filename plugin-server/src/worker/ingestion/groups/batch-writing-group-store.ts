@@ -227,7 +227,14 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         )
 
         if (propertiesUpdate.updated) {
-            await this.db.upsertGroupClickhouse(teamId, groupTypeIndex, groupKey, properties, createdAt, actualVersion)
+            await this.db.upsertGroupClickhouse(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                propertiesUpdate.properties,
+                createdAt,
+                actualVersion
+            )
         }
     }
 

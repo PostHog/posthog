@@ -124,6 +124,21 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from cookiel
         "uuid": "uuid1",
       },
       true,
+      {
+        "cacheMetrics": {
+          "cacheHits": 0,
+          "cacheMisses": 0,
+          "cacheSize": 0,
+        },
+        "db": {
+          "kafkaProducer": {},
+        },
+        "fetchPromises": {},
+        "groupCache": {},
+        "options": {
+          "batchWritingEnabled": false,
+        },
+      },
     ],
   ],
   [
