@@ -42,6 +42,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
+        if self.query.withAggregations is None:
+            self.query.withAggregations = True
+
+        if self.query.withFirstEvent is None:
+            self.query.withFirstEvent = True
+
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=self.select(),
