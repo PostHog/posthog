@@ -335,15 +335,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <OrganizationDropdownMenu />
 
                         {!isLayoutNavCollapsed && (
-                            <div className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
+                            <div
+                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                aria-label="Add a new item menu actions"
+                            >
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <ButtonPrimitive
                                             size="base"
                                             iconOnly
-                                            onClick={toggleSearchBar}
                                             data-attr="search-button"
                                             tooltip="Add new"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                            }}
                                         >
                                             <IconPlus className="text-secondary" />
                                         </ButtonPrimitive>
