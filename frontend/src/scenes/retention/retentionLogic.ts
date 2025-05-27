@@ -143,8 +143,8 @@ export const retentionLogic = kea<retentionLogicType>([
                         const validRows = breakdownRows.filter(
                             (row) =>
                                 row.values[intervalIndex] && // Ensure data for this interval exists
-                                !row.values[intervalIndex].isCurrentPeriod &&
-                                row.values[0]?.count > 0 // Use count from first value instead of cohortSize
+                                !row.values[intervalIndex].isCurrentPeriod && // don't include incomplete periods
+                                row.values[0]?.count > 0 // only include rows which had non zero cohort size (so that they don't pull the mean down)
                         )
 
                         let currentIntervalMean = 0
