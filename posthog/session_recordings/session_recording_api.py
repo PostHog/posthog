@@ -78,7 +78,7 @@ from posthog.exceptions_capture import capture_exception
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
-    labelnames=["api_key", "source"],
+    labelnames=["key_label", "source"],
 )
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
@@ -628,14 +628,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         source = request.GET.get("source")
+        source_log_label = source or "listing"
         is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
 
-        if source:
-            SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
+        if source not in ["realtime", "blob", "blob_v2", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             used_key = request.successful_authenticator.personal_api_key
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=used_key.value, source=source).inc()
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
             posthoganalytics.capture(
@@ -647,7 +650,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "key_scoped_teams": used_key.scoped_teams,
                     "session_requested": recording.session_id,
                     "recording_start_time": recording.start_time,
-                    "source": source,
+                    "source": source_log_label,
                 },
             )
 
@@ -724,8 +727,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     sources.append(
                         {
                             "source": "blob_v2",
-                            "start_timestamp": block["start_time"],
-                            "end_timestamp": block["end_time"],
+                            "start_timestamp": block.start_time,
+                            "end_timestamp": block.end_time,
                             "blob_key": str(i),
                         }
                     )
@@ -937,7 +940,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             with timer("fetch_block__stream_blob_v2_to_client"):
                 block = blocks[block_index]
                 try:
-                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block["url"])
+                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block.url)
                 except BlockFetchError:
                     logger.exception(
                         "Failed to fetch block",
@@ -993,7 +996,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError(f"Invalid version: {version}")
 
     @extend_schema(
-        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
+        exclude=True,
+        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API.",
     )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1033,6 +1037,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(response_data)
 
+    @extend_schema(
+        exclude=True,
+        description="Find recordings with similar event sequences to the given recording. This is in development and likely to change, you should not depend on this API.",
+    )
     @action(methods=["GET"], detail=True, url_path="analyze/similar")
     def similar_recordings(self, request: request.Request, **kwargs) -> Response:
         """Find recordings with similar event sequences to the given recording."""

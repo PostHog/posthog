@@ -246,7 +246,6 @@ export const FEATURE_FLAGS = {
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
-    B2B_ANALYTICS: 'b2b-analytics-alpha', // owner: @danielbachhuber #team-crm
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     ERROR_TRACKING_INTEGRATIONS: 'error-tracking-integrations', // owner: @david #team-error-tracking
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
@@ -273,8 +272,34 @@ export const FEATURE_FLAGS = {
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
     REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
+    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+
+export const PRODUCT_VISUAL_ORDER = {
+    productAnalytics: 10,
+    webAnalytics: 20,
+    revenueAnalytics: 30,
+    dashboards: 31,
+    sessionReplay: 40,
+    featureFlags: 50,
+    experiments: 60,
+    surveys: 70,
+    aiChat: 71,
+    dataWarehouse: 80,
+    userInterviews: 90,
+    llmObservability: 100,
+    logs: 110,
+    errorTracking: 120,
+    earlyAccessFeatures: 121,
+    sqlEditor: 130,
+    dataPipeline: 140,
+    heatmaps: 150,
+    links: 160,
+    messaging: 170,
+    persons: 180,
+    groups: 190,
+}
 
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'
