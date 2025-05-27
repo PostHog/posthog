@@ -71,7 +71,7 @@ export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
 
     // Remember the last count of human messages. Order matters here.
     const prevThreadLength = useRef(threadHumanMessageCount)
-    const shouldFocusHumanMessage = threadHumanMessageCount && streamingActive
+    const shouldFocusHumanMessage = threadHumanMessageCount !== prevThreadLength.current && streamingActive
     if (prevThreadLength.current !== threadHumanMessageCount) {
         prevThreadLength.current = threadHumanMessageCount
     }
