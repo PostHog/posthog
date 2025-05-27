@@ -51,6 +51,7 @@ export interface SessionRecordingDataLogicProps {
     realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
+    playerKey?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -203,6 +204,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         params = { source: 'realtime', version: '2024-04-30' }
                     } else if (source.source === SnapshotSourceType.blob_v2) {
                         params = { source: 'blob_v2', blob_key: source.blob_key }
+                    } else if (source.source === SnapshotSourceType.file) {
+                        // no need to load a file source, it is already loaded
+                        return { source }
                     } else {
                         throw new Error(`Unsupported source: ${source.source}`)
                     }
@@ -436,7 +440,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                // if we're getting no results from realtime polling we can increment faster
+                // if we're getting no results from realtime polling, we can increment faster
                 // so that we stop polling sooner
                 const increment = newSnapshotsCount === 0 ? 2 : 1
                 cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
@@ -445,7 +449,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
             cache.lastSnapshotsCount = newSnapshotsCount
 
-            if (!snapshots.length && sources?.length === 1) {
+            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
                 // We got only a single source to load, loaded it successfully, but it had no snapshots.
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
@@ -461,7 +465,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadNextSnapshotSource: () => {
             const nextSourceToLoad = values.snapshotSources?.find((s) => {
                 const sourceKey = keyForSource(s)
-                return !cache.snapshotsBySource?.[sourceKey]
+                return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
             })
 
             if (nextSourceToLoad) {
@@ -515,6 +519,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         markViewed: async ({ delay }, breakpoint) => {
             // Triggered on first paint
             breakpoint()
+            if (props.playerKey?.startsWith('file-')) {
+                return
+            }
             if (values.wasMarkedViewed) {
                 return
             }
