@@ -21,7 +21,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     team_id = instance.team.id
 
-    send_events_for_change = (team_id is POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG
+    send_events_for_change = (team_id == POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG
 
     if not send_events_for_change:
         print(  # noqa: T201
