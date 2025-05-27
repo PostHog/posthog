@@ -110,7 +110,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     assert results.completed == set(dag.keys())
 
 
-async def test_create_table_activity(activity_environment, ateam):
+async def test_create_table_activity(minio_client, activity_environment, ateam, bucket_name):
     query = """\
     select
       event as event,
@@ -128,8 +128,11 @@ async def test_create_table_activity(activity_environment, ateam):
     create_table_activity_inputs = CreateTableActivityInputs(team_id=ateam.pk, models=[saved_query.id.hex])
     with (
         override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
@@ -804,6 +807,7 @@ async def test_run_workflow_with_minio_bucket(
             assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
             # Match the 50 page_view events defined above
             assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"
+            assert warehouse_table.size_in_s3_mib is not None
 
 
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):

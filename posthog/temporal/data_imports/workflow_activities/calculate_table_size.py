@@ -7,7 +7,7 @@ from temporalio import activity
 from posthog.models import DataWarehouseTable
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.s3 import get_s3_client
+from posthog.warehouse.s3 import get_size_of_folder
 
 
 @dataclasses.dataclass
@@ -38,10 +38,7 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
     folder_name = schema.folder_path()
     s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
 
-    s3 = get_s3_client()
-    files = s3.find(s3_folder, detail=True)
-    total_bytes = sum(f["Size"] for f in files.values() if f["type"] != "directory")
-    total_mib = total_bytes / (1024 * 1024)
+    total_mib = get_size_of_folder(s3_folder)
 
     logger.debug(f"Total size in MiB = {total_mib:.2f}")
 
