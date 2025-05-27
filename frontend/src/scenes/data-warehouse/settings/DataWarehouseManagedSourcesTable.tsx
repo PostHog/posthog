@@ -11,11 +11,12 @@ import { ExternalDataJobStatus, manualLinkSources, PipelineNodeTab, PipelineStag
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
-export const StatusTagSetting: Record<string, 'primary' | 'success' | 'danger'> = {
+export const StatusTagSetting: Record<ExternalDataJobStatus, 'primary' | 'success' | 'danger'> = {
     [ExternalDataJobStatus.Running]: 'primary',
     [ExternalDataJobStatus.Completed]: 'success',
     [ExternalDataJobStatus.Failed]: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',
+    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
