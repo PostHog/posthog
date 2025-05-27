@@ -745,13 +745,14 @@ export function LineGraph_({
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
+
                                         return (
                                             <div className="datum-label-column">
                                                 {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
                                                         hasBreakdown={hasBreakdown}
-                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                        seriesIndex={datum.action?.order ?? datum.id}
                                                         seriesColor={datum.color}
                                                     />
                                                 )}

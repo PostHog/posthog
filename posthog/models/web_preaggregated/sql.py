@@ -44,8 +44,12 @@ WEB_OVERVIEW_METRICS_COLUMNS = """
     total_session_duration_state AggregateFunction(sum, Int64),
     total_bounces_state AggregateFunction(sum, UInt64)
 """
+WEB_OVERVIEW_ORDER_BY = "(team_id, day_bucket, host, device_type)"
 
 WEB_STATS_COLUMNS = """
+    entry_pathname String,
+    pathname String,
+    end_pathname String,
     browser String,
     os String,
     viewport String,
@@ -55,24 +59,45 @@ WEB_STATS_COLUMNS = """
     utm_campaign String,
     utm_term String,
     utm_content String,
-    country String,
+    country_code String,
+    country_name String,
+    city_name String,
+    region_code String,
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
 """
-
-WEB_OVERVIEW_ORDER_BY = "(team_id, day_bucket, host, device_type)"
-WEB_STATS_ORDER_BY = "(team_id, day_bucket, host, device_type, os, browser, viewport, referring_domain, utm_source, utm_campaign, utm_medium, country)"
+WEB_STATS_ORDER_BY = """(
+    team_id,
+    day_bucket,
+    host,
+    device_type,
+    os,
+    browser,
+    viewport,
+    entry_pathname,
+    pathname,
+    end_pathname,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    country_name,
+    region_code,
+    city_name
+)"""
 
 WEB_BOUNCES_COLUMNS = """
-    entry_path String,
+    entry_pathname String,
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
     bounces_count_state AggregateFunction(sum, UInt64)
 """
 
-WEB_BOUNCES_ORDER_BY = "(team_id, day_bucket, host, device_type, entry_path)"
+WEB_BOUNCES_ORDER_BY = "(team_id, day_bucket, host, device_type, entry_pathname)"
 
 WEB_PATHS_COLUMNS = """
     pathname String,
@@ -232,6 +257,8 @@ def WEB_STATS_INSERT_SQL(
     person_team_filter = filters["person_distinct_id_overrides"]
     events_team_filter = filters["events"]
 
+    # Intentionally skipping $geoip_subdivision_1_name AS region_name since it is not materialized yet
+
     return f"""
     INSERT INTO {table_name}
     SELECT
@@ -239,6 +266,9 @@ def WEB_STATS_INSERT_SQL(
         team_id,
         host,
         device_type,
+        entry_pathname,
+        pathname,
+        end_pathname,
         browser,
         os,
         viewport,
@@ -248,7 +278,10 @@ def WEB_STATS_INSERT_SQL(
         utm_campaign,
         utm_term,
         utm_content,
-        country,
+        country_code,
+        country_name,
+        city_name,
+        region_code,
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -262,13 +295,19 @@ def WEB_STATS_INSERT_SQL(
             e.mat_$browser AS browser,
             e.mat_$os AS os,
             concat(toString(e.mat_$viewport_width), 'x', toString(e.mat_$viewport_height)) AS viewport,
-            e.mat_$referring_domain AS referring_domain,
+            e.mat_$geoip_country_code AS country_code,
+            e.mat_$geoip_country_name AS country_name,
+            e.mat_$geoip_city_name AS city_name,
+            e.mat_$geoip_subdivision_1_code AS region_code,
+            e.mat_$pathname AS pathname,
             events__session.entry_utm_source AS utm_source,
             events__session.entry_utm_medium AS utm_medium,
             events__session.entry_utm_campaign AS utm_campaign,
             events__session.entry_utm_term AS utm_term,
             events__session.entry_utm_content AS utm_content,
-            e.mat_$geoip_country_name AS country,
+            events__session.entry_pathname AS entry_pathname,
+            events__session.end_pathname AS end_pathname,
+            events__session.referring_domain AS referring_domain,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -278,11 +317,17 @@ def WEB_STATS_INSERT_SQL(
             SELECT
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')) AS start_timestamp,
+                path(coalesce(argMinMerge(raw_sessions.entry_url), '')) AS entry_pathname,
+                path(coalesce(argMaxMerge(raw_sessions.end_url), '')) AS end_pathname,
+                argMinMerge(raw_sessions.initial_referring_domain) AS referring_domain,
                 argMinMerge(raw_sessions.initial_utm_source) AS entry_utm_source,
                 argMinMerge(raw_sessions.initial_utm_medium) AS entry_utm_medium,
                 argMinMerge(raw_sessions.initial_utm_campaign) AS entry_utm_campaign,
                 argMinMerge(raw_sessions.initial_utm_term) AS entry_utm_term,
                 argMinMerge(raw_sessions.initial_utm_content) AS entry_utm_content,
+                argMinMerge(raw_sessions.initial_geoip_country_code) AS country_code,
+                argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
+                argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
@@ -322,7 +367,13 @@ def WEB_STATS_INSERT_SQL(
             utm_campaign,
             utm_term,
             utm_content,
-            country
+            pathname,
+            entry_pathname,
+            end_pathname,
+            country_code,
+            country_name,
+            city_name,
+            region_code
         SETTINGS {settings}
     )
     GROUP BY
@@ -339,7 +390,13 @@ def WEB_STATS_INSERT_SQL(
         utm_campaign,
         utm_term,
         utm_content,
-        country
+        pathname,
+        entry_pathname,
+        end_pathname,
+        country_code,
+        country_name,
+        city_name,
+        region_code
     SETTINGS {settings}
     """
 
@@ -359,7 +416,7 @@ def WEB_BOUNCES_INSERT_SQL(
         team_id,
         host,
         device_type,
-        entry_path,
+        entry_pathname,
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -369,7 +426,7 @@ def WEB_BOUNCES_INSERT_SQL(
         SELECT
             any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS person_id,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
-            events__session.entry_path AS entry_path,
+            events__session.entry_pathname AS entry_pathname,
             events__session.session_id AS session_id,
             any(events__session.is_bounce) AS is_bounce,
             e.mat_$host AS host,
@@ -380,7 +437,7 @@ def WEB_BOUNCES_INSERT_SQL(
         LEFT JOIN
         (
             SELECT
-                path(coalesce(argMinMerge(raw_sessions.entry_url), '')) AS entry_path,
+                path(coalesce(argMinMerge(raw_sessions.entry_url), '')) AS entry_pathname,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
                     NOT(or(
@@ -415,7 +472,7 @@ def WEB_BOUNCES_INSERT_SQL(
             AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
         GROUP BY
             session_id,
-            entry_path,
+            entry_pathname,
             team_id,
             host,
             device_type
@@ -423,7 +480,7 @@ def WEB_BOUNCES_INSERT_SQL(
     GROUP BY
         day_bucket,
         team_id,
-        entry_path,
+        entry_pathname,
         host,
         device_type
     SETTINGS {settings}

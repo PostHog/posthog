@@ -41,16 +41,22 @@ class WebStatsDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
+        "entry_pathname": StringDatabaseField(name="entry_pathname", nullable=True),
+        "pathname": StringDatabaseField(name="pathname", nullable=True),
+        "end_pathname": StringDatabaseField(name="end_pathname", nullable=True),
         "browser": StringDatabaseField(name="browser", nullable=True),
         "os": StringDatabaseField(name="os", nullable=True),
-        "referring_domain": StringDatabaseField(name="referring_domain", nullable=True),
         "viewport": StringDatabaseField(name="viewport", nullable=True),
+        "referring_domain": StringDatabaseField(name="referring_domain", nullable=True),
         "utm_source": StringDatabaseField(name="utm_source", nullable=True),
         "utm_medium": StringDatabaseField(name="utm_medium", nullable=True),
         "utm_campaign": StringDatabaseField(name="utm_campaign", nullable=True),
         "utm_term": StringDatabaseField(name="utm_term", nullable=True),
         "utm_content": StringDatabaseField(name="utm_content", nullable=True),
-        "country": StringDatabaseField(name="country", nullable=True),
+        "country_code": StringDatabaseField(name="country_code", nullable=True),
+        "country_name": StringDatabaseField(name="country_name", nullable=True),
+        "city_name": StringDatabaseField(name="city_name", nullable=True),
+        "region_code": StringDatabaseField(name="region_code", nullable=True),
     }
 
     def to_printed_clickhouse(self, context):
@@ -64,7 +70,7 @@ class WebBouncesDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
         **web_preaggregated_base_aggregation_fields,
-        "entry_path": StringDatabaseField(name="entry_path", nullable=True),
+        "entry_pathname": StringDatabaseField(name="entry_pathname", nullable=True),
         "bounces_count_state": DatabaseField(name="bounces_count_state"),
     }
 

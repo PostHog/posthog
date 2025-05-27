@@ -8,6 +8,7 @@ export type PanelLayoutNavIdentifier =
     | 'Project'
     | 'Recent'
     | 'Products'
+    | 'Persons'
     | 'Games'
     | 'Shortcuts'
     | 'Data management'

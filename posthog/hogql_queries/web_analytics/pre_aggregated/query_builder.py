@@ -1,7 +1,9 @@
-from typing import Optional, cast, Union
+from typing import Optional
 from datetime import datetime, UTC
 
 from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+from posthog.hogql_queries.web_analytics.pre_aggregated.property_transformer import PreAggregatedPropertyTransformer
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
@@ -26,65 +28,42 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return True
 
-    # We can probably use the hogql general filters somehow but it was not working by default and it was a lot of moving parts to debug at once so
-    # TODO: come back to this later to make sure we're not overcomplicating things
     def _get_filters(self, table_name: str):
-        current_date_expr = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=[table_name, "day_bucket"]),
-                    right=ast.Constant(
-                        value=(
-                            self.runner.query_compare_to_date_range.date_from()
-                            if self.runner.query_compare_to_date_range
-                            else self.runner.query_date_range.date_from()
-                        )
-                    ),
+        filter_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=[table_name, "day_bucket"]),
+                right=ast.Constant(
+                    value=(
+                        self.runner.query_compare_to_date_range.date_from()
+                        if self.runner.query_compare_to_date_range
+                        else self.runner.query_date_range.date_from()
+                    )
                 ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=[table_name, "day_bucket"]),
-                    right=ast.Constant(value=self.runner.query_date_range.date_to()),
-                ),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=[table_name, "day_bucket"]),
+                right=ast.Constant(value=self.runner.query_date_range.date_to()),
+            ),
+        ]
+
+        if self.runner.query.properties:
+            supported_properties = [
+                prop
+                for prop in self.runner.query.properties
+                if hasattr(prop, "key") and prop.key in self.supported_props_filters
             ]
-        )
 
-        filter_parts: list[Union[ast.And, ast.CompareOperation]] = [current_date_expr]
+            if supported_properties:
+                property_expr = property_to_expr(supported_properties, self.runner.team)
 
-        for posthog_field, table_field in self.supported_props_filters.items():
-            for prop in self.runner.query.properties:
-                if hasattr(prop, "key") and prop.key == posthog_field and hasattr(prop, "value"):
-                    value = prop.value
+                transformer = PreAggregatedPropertyTransformer(table_name, self.supported_props_filters)
+                transformed_expr = transformer.visit(property_expr)
 
-                    if value is not None and hasattr(value, "id"):
-                        value = value.id
+                filter_exprs.append(transformed_expr)
 
-                    # The device_type input differs between "Desktop" | ["Mobile", "Tablet"]
-                    if isinstance(value, list):
-                        values = [v.id if v is not None and hasattr(v, "id") else v for v in value]
-                        filter_expr = ast.CompareOperation(
-                            op=ast.CompareOperationOp.In,
-                            left=ast.Field(chain=[table_name, table_field]),
-                            right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
-                        )
-
-                        filter_parts.append(filter_expr)
-                    else:
-                        filter_expr = ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=[table_name, table_field]),
-                            right=ast.Constant(value=value),
-                        )
-
-                        filter_parts.append(filter_expr)
-
-        if len(filter_parts) > 1:
-            return ast.Call(name="and", args=cast(list[ast.Expr], filter_parts))
-        elif len(filter_parts) == 1:
-            return filter_parts[0]
-
-        return None
+        return ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
     def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[str, str]:
         current_date_from = self.runner.query_date_range.date_from_str

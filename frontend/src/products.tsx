@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -34,6 +34,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 
+import { PRODUCT_VISUAL_ORDER } from './lib/constants'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
 import {
     ActionType,
@@ -333,7 +334,7 @@ export const fileSystemTypes = {
     early_access_feature: {
         icon: <IconRocket />,
         href: (ref: string) => urls.earlyAccessFeature(ref),
-        iconColor: ['var(--product-early-access-features-light)'],
+        iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
     },
     experiment: {
         icon: <IconTestTube />,
@@ -427,15 +428,22 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.messagingBroadcasts(),
         type: 'hog_function/broadcast',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
     },
     {
         path: 'Campaigns',
         href: urls.messagingCampaigns(),
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
-    { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
+    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
+    {
+        path: 'Early access features',
+        type: 'early_access_feature',
+        href: urls.earlyAccessFeatures(),
+        visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
+    },
     {
         path: `Experiments`,
         type: 'experiment',
@@ -448,13 +456,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.featureFlags(),
         visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
     },
-    { path: 'Group analytics', iconType: 'cohort', href: urls.groups(0), visualOrder: PRODUCT_VISUAL_ORDER.groups },
     {
         path: 'LLM observability',
         iconType: 'ai',
         href: urls.llmObservabilityDashboard(),
         flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
+        tags: ['beta'],
     },
     {
         path: 'Links',
@@ -462,6 +470,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.links(),
         flag: FEATURE_FLAGS.LINKS,
         visualOrder: PRODUCT_VISUAL_ORDER.links,
+        tags: ['alpha'],
     },
     {
         path: 'Logs',
@@ -469,8 +478,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.logs(),
         flag: FEATURE_FLAGS.LOGS,
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
+        tags: ['alpha'],
     },
-    { path: 'Persons', iconType: 'cohort', href: urls.persons(), visualOrder: PRODUCT_VISUAL_ORDER.persons },
     {
         path: 'Product analytics',
         type: 'insight',
@@ -482,6 +491,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'piggyBank',
         href: urls.revenueAnalytics(),
         visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+        tags: ['beta'],
     },
     {
         path: 'Session replay',
@@ -510,7 +520,6 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsDataManagement = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
 
