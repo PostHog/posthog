@@ -16,7 +16,7 @@ describe('Utils', () => {
     })
 
     describe('fixLogDeduplication', () => {
-        const commonProps = {
+        const commonProps: Omit<LogEntry, 'timestamp' | 'message'> = {
             team_id: 1,
             log_source: 'hog_function',
             log_source_id: 'hog-1',
