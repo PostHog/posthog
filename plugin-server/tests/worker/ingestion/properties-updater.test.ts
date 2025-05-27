@@ -6,7 +6,8 @@ import { DB } from '../../../src/utils/db/db'
 import { MessageSizeTooLarge } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
-import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
+import { BatchWritingGroupStore } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { GroupStoreForDistinctIdBatch } from '../../../src/worker/ingestion/groups/group-store-for-distinct-id-batch'
 import { createPromise } from '../../helpers/promises'
 import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
@@ -15,6 +16,7 @@ jest.mock('../../../src/utils/logger')
 describe('properties-updater', () => {
     let hub: Hub
     let db: DB
+    let groupStore: GroupStoreForDistinctIdBatch
 
     let team: Team
     const uuid = new UUIDT().toString()
@@ -31,6 +33,10 @@ describe('properties-updater', () => {
         team = await getFirstTeam(hub)
         await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
 
+        groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false })
+            .forBatch()
+            .forDistinctID(team.id.toString(), distinctId)
+
         jest.spyOn(hub.db, 'updateGroup')
         jest.spyOn(hub.db, 'insertGroup')
     })
@@ -41,7 +47,7 @@ describe('properties-updater', () => {
 
     describe('upsertGroup()', () => {
         async function upsert(properties: Properties, timestamp: DateTime) {
-            await upsertGroup(hub.db, team.id, team.project_id, 0, 'group_key', properties, timestamp)
+            await groupStore.upsertGroup(team.id, team.project_id, 0, 'group_key', properties, timestamp, true)
         }
 
         async function fetchGroup(): Promise<Group> {

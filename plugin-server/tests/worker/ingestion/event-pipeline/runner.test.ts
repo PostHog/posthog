@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
+import { BatchWritingGroupStoreForDistinctIdBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
@@ -168,7 +169,8 @@ describe('EventPipelineRunner', () => {
             team.api_token,
             pluginEvent.distinct_id
         )
-        runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore)
+        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore, groupStore)
 
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
@@ -379,7 +381,8 @@ describe('EventPipelineRunner', () => {
                     team.api_token,
                     heatmapEvent.distinct_id
                 )
-                runner = new TestEventPipelineRunner(hub, heatmapEvent, undefined, undefined, personsStore)
+                const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+                runner = new TestEventPipelineRunner(hub, heatmapEvent, undefined, undefined, personsStore, groupStore)
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -421,7 +424,16 @@ describe('EventPipelineRunner', () => {
                     team.api_token,
                     exceptionEvent.distinct_id
                 )
-                runner = new TestEventPipelineRunner(hub, exceptionEvent, undefined, undefined, personsStore)
+                const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+
+                runner = new TestEventPipelineRunner(
+                    hub,
+                    exceptionEvent,
+                    undefined,
+                    undefined,
+                    personsStore,
+                    groupStore
+                )
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,

@@ -153,6 +153,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     PERSON_CACHE_ENABLED_FOR_UPDATES: boolean // whether to cache persons for fetchForUpdate calls
     PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
+    GROUP_BATCH_WRITING_ENABLED: boolean // whether to batch write groups Postgres updates/inserts
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
