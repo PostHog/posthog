@@ -22,21 +22,6 @@ web_preaggregated_base_aggregation_fields = {
 }
 
 
-class WebOverviewDailyTable(Table):
-    fields: dict[str, FieldOrTable] = {
-        **web_preaggregated_base_fields,
-        **web_preaggregated_base_aggregation_fields,
-        "total_session_duration_state": DatabaseField(name="total_session_duration_state"),
-        "total_bounces_state": DatabaseField(name="total_bounces_state"),
-    }
-
-    def to_printed_clickhouse(self, context):
-        return "web_overview_daily"
-
-    def to_printed_hogql(self):
-        return "web_overview_daily"
-
-
 class WebStatsDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
