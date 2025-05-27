@@ -669,20 +669,20 @@ describe('Hog Executor', () => {
             const invocation = createExampleInvocation(fn)
 
             // Start the function
-            const result1 = executor.execute(invocation)
+            let result = executor.execute(invocation)
 
             for (let i = 0; i < 4; i++) {
                 // Run the response one time simulating a successful fetch
-                setupFetchResponse(result1.invocation)
-                const result2 = executor.execute(result1.invocation)
-                expect(result2.finished).toBe(false)
-                expect(result2.error).toBe(undefined)
-                expect(result2.invocation.queue).toBe('fetch')
+                setupFetchResponse(result.invocation)
+                result = executor.execute(result.invocation)
+                expect(result.finished).toBe(false)
+                expect(result.error).toBe(undefined)
+                expect(result.invocation.queue).toBe('fetch')
             }
 
             // This time we should see an error for hitting the loop limit
-            setupFetchResponse(result1.invocation)
-            const result3 = executor.execute(result1.invocation)
+            setupFetchResponse(result.invocation)
+            const result3 = executor.execute(result.invocation)
             expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([

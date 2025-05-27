@@ -343,11 +343,11 @@ export class HogExecutorService {
                 }
 
                 // Finally we create the response object as the VM expects
-                invocation.vmState!.stack.push({
+                result.invocation.vmState!.stack.push({
                     status,
                     body: body,
                 })
-                invocation.timings = invocation.timings.concat(timings)
+                result.invocation.timings = result.invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
