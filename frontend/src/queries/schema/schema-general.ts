@@ -111,8 +111,9 @@ export enum NodeKind {
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
 
     // Revenue analytics queries
-    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsInsightsQuery = 'RevenueAnalyticsInsightsQuery',
+    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
@@ -150,8 +151,9 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -211,8 +213,9 @@ export type QuerySchema =
     | WebPageURLSearchQuery
 
     // Revenue analytics
-    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
@@ -719,8 +722,9 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
-                    | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsInsightsQuery
+                    | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -748,8 +752,9 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
-        | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsInsightsQuery
+        | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -1884,6 +1889,17 @@ export interface RevenueSources {
     // This is a list of strings that represent the event names we're interested in
     events: string[]
 }
+
+export interface RevenueAnalyticsInsightsQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsInsightsQuery
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsInsightsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsInsightsQueryResponse = CachedQueryResponse<RevenueAnalyticsInsightsQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {

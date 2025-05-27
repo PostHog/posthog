@@ -5,13 +5,15 @@ from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
-    RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
 )
 from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 from ..views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
+from ..views.revenue_analytics_item_view import RevenueAnalyticsItemView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -21,16 +23,18 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
-        RevenueAnalyticsTopCustomersQuery,
         RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsInsightsQuery,
         RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
     ]
 
-    def revenue_subqueries(
+    def revenue_selects(
         self,
-    ) -> tuple[ast.SelectQuery | ast.SelectSetQuery | None, ast.SelectQuery | ast.SelectSetQuery | None]:
-        charge_selects = []
-        customer_selects = []
+    ) -> tuple[list[ast.SelectQuery], list[ast.SelectQuery], list[ast.SelectQuery]]:
+        charge_selects: list[tuple[str, ast.SelectQuery]] = []
+        customer_selects: list[tuple[str, ast.SelectQuery]] = []
+        item_selects: list[tuple[str, ast.SelectQuery]] = []
 
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
@@ -43,9 +47,11 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     )
 
                     if isinstance(view, RevenueAnalyticsChargeView):
-                        charge_selects.append(select)
+                        charge_selects.append((view_name, select))
                     elif isinstance(view, RevenueAnalyticsCustomerView):
-                        customer_selects.append(select)
+                        customer_selects.append((view_name, select))
+                    elif isinstance(view, RevenueAnalyticsItemView):
+                        item_selects.append((view_name, select))
                 elif view.source_id is None and isinstance(view, RevenueAnalyticsChargeView):
                     if len(self.query.revenueSources.events) > 0:
                         select = ast.SelectQuery(
@@ -59,28 +65,38 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                                 ],
                             ),
                         )
-                        charge_selects.append(select)
+                        charge_selects.append((view_name, select))
 
-        charge_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
-        if len(charge_selects) == 1:
-            charge_subquery = charge_selects[0]
-        elif len(charge_selects) > 1:
-            charge_subquery = ast.SelectSetQuery.create_from_queries(charge_selects, set_operator="UNION ALL")
+        return (charge_selects, customer_selects, item_selects)
 
-        customer_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
-        if len(customer_selects) == 1:
-            customer_subquery = customer_selects[0]
-        elif len(customer_selects) > 1:
-            customer_subquery = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
+    def revenue_subqueries(
+        self,
+    ) -> tuple[ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None]:
+        charge_selects, customer_selects, item_selects = self.revenue_selects()
 
-        return (charge_subquery, customer_subquery)
+        # Remove the view name because it's not useful for the select query
+        parsed_charge_selects = [select for _, select in charge_selects]
+        parsed_customer_selects = [select for _, select in customer_selects]
+        parsed_item_selects = [select for _, select in item_selects]
+
+        return (
+            ast.SelectSetQuery.create_from_queries(parsed_charge_selects, set_operator="UNION ALL")
+            if parsed_charge_selects
+            else None,
+            ast.SelectSetQuery.create_from_queries(parsed_customer_selects, set_operator="UNION ALL")
+            if parsed_customer_selects
+            else None,
+            ast.SelectSetQuery.create_from_queries(parsed_item_selects, set_operator="UNION ALL")
+            if parsed_item_selects
+            else None,
+        )
 
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
-            interval=None,
+            interval=self.query.interval if hasattr(self.query, "interval") else None,
             now=datetime.now(),
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )

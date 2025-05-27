@@ -1,8 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
@@ -16,7 +14,7 @@ import {
     RevenueAnalyticsEventItem,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
+import { Breadcrumb, ExternalDataSource, InsightLogicProps } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -210,31 +208,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         queries: [
-            (s) => [
-                s.dateFilter,
-                s.rawRevenueSources,
-                s.chargeRevenueViews,
-                s.revenueGoals,
-                s.topCustomersDisplayMode,
-                s.growthRateDisplayMode,
-                s.baseCurrency,
-            ],
+            (s) => [s.dateFilter, s.rawRevenueSources, s.topCustomersDisplayMode, s.growthRateDisplayMode],
             (
                 dateFilter,
                 rawRevenueSources,
-                chargeRevenueViews,
-                revenueGoals,
                 topCustomersDisplayMode,
-                growthRateDisplayMode,
-                baseCurrency
+                growthRateDisplayMode
             ): Record<RevenueAnalyticsQuery, QuerySchema> => {
                 const { dateFrom, dateTo, interval } = dateFilter
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
                 const topCustomersGroupBy: RevenueAnalyticsTopCustomersGroupBy =
                     topCustomersDisplayMode === 'table' ? 'all' : 'month'
-
-                const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
                 // Convert from the raw revenue sources (events and data warehouse sources) to the revenue sources
                 // that the RevenueAnalyticsOverviewQuery expects which is just a list of event names and data warehouse source IDs
@@ -250,52 +235,10 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.InsightVizNode,
-                        embedded: false,
-                        hidePersonsModal: true,
-                        hideTooltipOnScroll: true,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: chargeRevenueViews.map((view) => ({
-                                kind: NodeKind.DataWarehouseNode,
-                                id: view.name,
-                                name: view.name,
-                                custom_name:
-                                    chargeRevenueViews.length > 1 ? `Gross revenue for ${view.name}` : 'Gross revenue',
-                                id_field: 'id',
-                                distinct_id_field: 'id',
-                                timestamp_field: 'timestamp',
-                                table_name: view.name,
-                                math: PropertyMathType.Sum,
-                                math_property: 'amount',
-                            })),
-                            interval,
-                            dateRange,
-                            trendsFilter: {
-                                display:
-                                    chargeRevenueViews.length > 1
-                                        ? ChartDisplayType.ActionsAreaGraph
-                                        : ChartDisplayType.ActionsLineGraph,
-                                aggregationAxisFormat: 'numeric',
-                                aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                                aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                                goalLines: revenueGoals.map((goal) => {
-                                    const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
-
-                                    return {
-                                        label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
-                                        value: goal.goal,
-                                        displayLabel: true,
-                                        borderColor: isFuture ? 'green' : 'red',
-
-                                        // Only display smaller goals that are in the future
-                                        // This implies that past goals that have been achieved already
-                                        // will not be displayed
-                                        displayIfCrossed: isFuture,
-                                    }
-                                }),
-                            },
-                        },
+                        kind: NodeKind.RevenueAnalyticsInsightsQuery,
+                        interval,
+                        revenueSources,
+                        dateRange,
                     },
                     [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
                         { kind: NodeKind.RevenueAnalyticsGrowthRateQuery, dateRange, revenueSources },

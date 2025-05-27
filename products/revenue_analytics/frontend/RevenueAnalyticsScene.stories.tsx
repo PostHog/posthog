@@ -56,6 +56,7 @@ const meta: Meta = {
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
                     } else if (queryKind === 'TrendsQuery') {
+                        // TODO: Change for RevenueAnalyticsInsightsQuery
                         return [200, trendsQueryMock]
                     }
                 },
