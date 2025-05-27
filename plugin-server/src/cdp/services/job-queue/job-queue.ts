@@ -190,6 +190,11 @@ export class CyclotronJobQueue {
         ])
     }
 
+    public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
+        // NOTE: This is only relevant to postgres backed jobs as kafka jobs can just be dropped
+        await this.jobQueuePostgres.dequeueInvocations(invocations.filter((x) => x.queueSource === 'postgres'))
+    }
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // TODO: Routing based on queue name is slightly tricky here as postgres jobs need to be acked no matter what...
         // We need to know if the job came from postgres and if so we need to ack, regardless of the target...

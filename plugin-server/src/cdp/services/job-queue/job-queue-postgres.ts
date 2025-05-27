@@ -113,6 +113,17 @@ export class CyclotronJobQueuePostgres {
         }
     }
 
+    public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
+        const worker = this.getCyclotronWorker()
+
+        await Promise.all(
+            invocations.map(async (item) => {
+                worker.updateJob(item.id, 'failed')
+                return worker.releaseJob(item.id)
+            })
+        )
+    }
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         const worker = this.getCyclotronWorker()
         await Promise.all(
