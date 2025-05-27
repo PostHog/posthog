@@ -117,6 +117,15 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                 .toFinishAllListeners()
 
             const actual = logic.values.sessionPlayerData
+            actual.snapshotsByWindowId = Object.fromEntries(
+                Object.entries(actual.snapshotsByWindowId).map(([windowId, snapshots]) => [
+                    windowId,
+                    snapshots.map((snapshot) => {
+                        const { seen, ...rest } = snapshot as any
+                        return rest
+                    }),
+                ])
+            )
             expect(actual).toMatchSnapshot()
         })
     })
