@@ -445,7 +445,6 @@ export class PersonState {
                 toSet[key] = value
                 personProperties[key] = value
                 hasChanges = true
-                // NICKS TODO: wahts up with this?
                 metricsKeys.add(this.getMetricKey(key))
             }
         })

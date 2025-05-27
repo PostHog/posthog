@@ -2292,18 +2292,21 @@ describe('JSONB optimization flag compatibility', () => {
         initialPersonProperties: Properties = {},
         testFn: (person: InternalPerson, useOptimized: boolean) => void = () => {}
     ) {
+        const baseDistinctId = eventData.distinct_id || `test-${Date.now()}`
+        const legacyDistinctId = `${baseDistinctId}-legacy`
+        const optimizedDistinctId = `${baseDistinctId}-optimized`
         await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
-            { distinctId: newUserDistinctId },
+            { distinctId: legacyDistinctId },
         ])
 
         const legacyPersonState = new PersonState(
-            { team_id: teamId, properties: {}, ...eventData } as any,
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: legacyDistinctId } as any,
             mainTeam,
-            eventData.distinct_id!,
+            legacyDistinctId,
             timestamp,
             true,
             hub.db.kafkaProducer,
-            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, eventData.distinct_id!),
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, legacyDistinctId),
             0,
             false // useOptimizedJSONBUpdates - LEGACY UPDATE
         )
@@ -2313,17 +2316,17 @@ describe('JSONB optimization flag compatibility', () => {
         await legacyKafkaAcks
 
         await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, oldUserUuid, [
-            { distinctId: oldUserDistinctId },
+            { distinctId: optimizedDistinctId },
         ])
 
         const optimizedPersonState = new PersonState(
-            { team_id: teamId, properties: {}, ...eventData, distinct_id: oldUserDistinctId } as any,
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: optimizedDistinctId } as any,
             mainTeam,
-            oldUserDistinctId,
+            optimizedDistinctId,
             timestamp,
             true, // processPerson
             hub.db.kafkaProducer,
-            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, optimizedDistinctId),
             0, // measurePersonJsonbSize
             true // useOptimizedJSONBUpdates - OPTIMIZED
         )
@@ -2431,12 +2434,11 @@ describe('JSONB optimization flag compatibility', () => {
     })
 
     it('produces identical results for person events vs regular events', async () => {
-        // Test with $set event (person event - should always update)
         await testBothUpdatePaths(
             'person event updates',
             {
                 event: '$set',
-                distinct_id: newUserDistinctId,
+                distinct_id: `${newUserDistinctId}-person-event`,
                 properties: {
                     $set: { $current_url: 'https://new-url.com' },
                 },
@@ -2444,12 +2446,11 @@ describe('JSONB optimization flag compatibility', () => {
             { $current_url: 'https://old-url.com' }
         )
 
-        // Test with $pageview (regular event - may skip some updates)
         await testBothUpdatePaths(
             'regular event updates',
             {
                 event: '$pageview',
-                distinct_id: newUserDistinctId,
+                distinct_id: `${newUserDistinctId}-regular-event`,
                 properties: {
                     $set: { $current_url: 'https://new-url.com' },
                 },
@@ -2475,7 +2476,7 @@ describe('JSONB optimization flag compatibility', () => {
 
     it('produces identical results for is_identified updates', async () => {
         const testWithIdentified = async (updateIsIdentified: boolean) => {
-            // Create persons with is_identified=false initially
+            const uuid_suffix = updateIsIdentified ? '-identified' : '-unidentified'
             await createPerson(
                 hub,
                 timestamp,
@@ -2484,9 +2485,9 @@ describe('JSONB optimization flag compatibility', () => {
                 {},
                 teamId,
                 null,
-                false, // is_identified = false
-                newUserUuid,
-                [{ distinctId: newUserDistinctId }]
+                false,
+                uuidFromDistinctId(teamId, `${newUserDistinctId}-${uuid_suffix}`),
+                [{ distinctId: `${newUserDistinctId}-${uuid_suffix}` }]
             )
 
             await createPerson(
@@ -2497,9 +2498,9 @@ describe('JSONB optimization flag compatibility', () => {
                 {},
                 teamId,
                 null,
-                false, // is_identified = false
-                oldUserUuid,
-                [{ distinctId: oldUserDistinctId }]
+                false,
+                uuidFromDistinctId(teamId, `${oldUserDistinctId}-${uuid_suffix}`),
+                [{ distinctId: `${oldUserDistinctId}-${uuid_suffix}` }]
             )
 
             const legacyPersonState = new PersonState(
@@ -2583,13 +2584,12 @@ describe('JSONB optimization flag compatibility', () => {
 
         // Optimized should use JSONB operators
         expect(optimizedQueries[0]).toContain('properties ||')
-        expect(optimizedQueries[0]).toContain('properties -')
+        expect(optimizedQueries[0]).toContain('-')
 
         jest.restoreAllMocks()
     })
 
     it('produces identical results for events that should not update persons', async () => {
-        // Test events that are explicitly excluded from person updates
         const excludedEvents = ['$exception', '$$heatmap']
 
         for (const eventType of excludedEvents) {
@@ -2597,7 +2597,7 @@ describe('JSONB optimization flag compatibility', () => {
                 `excluded event: ${eventType}`,
                 {
                     event: eventType,
-                    distinct_id: newUserDistinctId,
+                    distinct_id: `${newUserDistinctId}-${eventType}`,
                     properties: {
                         $set: { should_not_update: 'value' },
                         $set_once: { also_should_not: 'value' },
@@ -2609,15 +2609,68 @@ describe('JSONB optimization flag compatibility', () => {
                     other: 'prop',
                 },
                 (person, _useOptimized) => {
-                    // Both paths should preserve original properties
                     expect(person.properties).toEqual({
                         existing_prop: 'should_stay',
                         other: 'prop',
                     })
-                    expect(person.version).toBe(0) // No version increment
+                    expect(person.version).toBe(0)
                 }
             )
         }
+    })
+
+    it('produces identical results for events that should not update persons $exception', async () => {
+        const eventType = '$exception'
+        await testBothUpdatePaths(
+            `excluded event: ${eventType}`,
+            {
+                event: eventType,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { should_not_update: 'value' },
+                    $set_once: { also_should_not: 'value' },
+                    $unset: ['existing_prop'],
+                },
+            },
+            {
+                existing_prop: 'should_stay',
+                other: 'prop',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties).toEqual({
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                })
+                expect(person.version).toBe(0)
+            }
+        )
+    })
+
+    it('produces identical results for events that should not update persons $$heatmap', async () => {
+        const eventType = '$$heatmap'
+        await testBothUpdatePaths(
+            `excluded event: ${eventType}`,
+            {
+                event: eventType,
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { should_not_update: 'value' },
+                    $set_once: { also_should_not: 'value' },
+                    $unset: ['existing_prop'],
+                },
+            },
+            {
+                existing_prop: 'should_stay',
+                other: 'prop',
+            },
+            (person, _useOptimized) => {
+                expect(person.properties).toEqual({
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                })
+                expect(person.version).toBe(0)
+            }
+        )
     })
 
     it('produces identical results for GeoIP properties', async () => {

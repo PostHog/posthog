@@ -677,32 +677,34 @@ export class DB {
         tx?: TransactionClient,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[]]> {
-        const hasPropertyChanges = Object.keys(propertiesToSet).length > 0 || propertiesToUnset.length > 0
-        const hasOtherUpdates = Object.keys(otherUpdates).length > 0
-
-        if (!hasPropertyChanges && !hasOtherUpdates) {
-            return [person, []]
-        }
-
-        let query = 'UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1'
         const values: any[] = []
         let paramIndex = 1
 
-        if (hasPropertyChanges) {
-            if (Object.keys(propertiesToSet).length > 0) {
-                query += `, properties = properties || $${paramIndex}`
-                // NICKS TODO: Do I need to sanitize the JSONB values? Yes
-                values.push(JSON.stringify(propertiesToSet))
+        // build version update
+        let query = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1`
+
+        // combine all JSONB operations into one assignment
+        const hasPropertiesToSet = Object.keys(propertiesToSet).length > 0
+        const hasPropertiesToUnset = propertiesToUnset.length > 0
+
+        if (hasPropertiesToSet || hasPropertiesToUnset) {
+            let jsonbExpression = 'properties'
+            if (hasPropertiesToSet) {
+                jsonbExpression = `(${jsonbExpression} || $${paramIndex}::jsonb)`
+                values.push(sanitizeJsonbValue(propertiesToSet))
                 paramIndex++
             }
 
-            for (const keyToUnset of propertiesToUnset) {
-                query += `, properties = properties - $${paramIndex}`
-                values.push(keyToUnset)
+            if (hasPropertiesToUnset) {
+                jsonbExpression = `(${jsonbExpression} - $${paramIndex}::text[])`
+                values.push(propertiesToUnset)
                 paramIndex++
             }
+
+            query += `, properties = ${jsonbExpression}`
         }
 
+        const hasOtherUpdates = Object.keys(otherUpdates).length > 0
         if (hasOtherUpdates) {
             const { propertyUpdates, ...regularUpdates } = otherUpdates as any
             Object.entries(regularUpdates).forEach(([field, value]) => {
