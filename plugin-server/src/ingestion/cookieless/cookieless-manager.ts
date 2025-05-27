@@ -778,6 +778,12 @@ export function stripPIIProperties(event: PipelineEvent) {
         delete event.properties['$raw_user_agent']
         delete event.properties[COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY]
     }
+    if (event.properties?.$set) {
+        delete event.properties.$set['$raw_user_agent']
+    }
+    if (event.properties?.$set_once) {
+        delete event.properties.$set_once['$initial_raw_user_agent']
+    }
     event.ip = null
     return event
 }
