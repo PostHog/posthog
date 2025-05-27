@@ -141,8 +141,8 @@ export const getSumQuery = (
 
 export const getFunnelQuery = (
     metric: ExperimentMetric,
-    eventConfig: EventConfig | null,
-    experiment: Experiment
+    experiment: Experiment,
+    eventConfig: EventConfig | null
 ): FunnelsQuery => {
     const baseProps = getSeriesItemProps(metric)
 

@@ -221,7 +221,7 @@ describe('getFunnelQuery', () => {
                 math: CountPerActorMathType.Average,
             },
         }
-        const result = getFunnelQuery(metric, null, mockExperiment)
+        const result = getFunnelQuery(metric, mockExperiment, null)
         if ('event' in result.series[0]) {
             expect(result.series[0].event).toBe('$pageview')
             expect(result.series[0].properties).toEqual([])
@@ -241,7 +241,7 @@ describe('getFunnelQuery', () => {
                 math: CountPerActorMathType.Average,
             },
         }
-        const result = getFunnelQuery(metric, null, experiment)
+        const result = getFunnelQuery(metric, experiment, null)
         expect(result.filterTestAccounts).toBe(false)
     })
 
@@ -256,7 +256,7 @@ describe('getFunnelQuery', () => {
                 math: CountPerActorMathType.Average,
             },
         }
-        const result = getFunnelQuery(metric, null, experiment)
+        const result = getFunnelQuery(metric, experiment, null)
         expect(result.filterTestAccounts).toBe(false)
     })
 })
