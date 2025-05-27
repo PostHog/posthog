@@ -1,0 +1,307 @@
+[
+    {
+        "type": 4,
+        "data": { "href": "http://localhost:8965/", "width": 1920, "height": 968 },
+        "timestamp": 1748261932957
+    },
+    {
+        "type": 2,
+        "data": {
+            "node": {
+                "type": 0,
+                "childNodes": [
+                    {
+                        "type": 1,
+                        "name": "html",
+                        "publicId": "",
+                        "systemId": "",
+                        "id": 2
+                    },
+                    {
+                        "type": 2,
+                        "tagName": "html",
+                        "attributes": {
+                            "lang": "en",
+                            "data-locator-client-url": "chrome-extension://npbfdllefekhdplbkdigpncggmojpefi/client.bundle.js"
+                        },
+                        "childNodes": [
+                            {
+                                "type": 2,
+                                "tagName": "head",
+                                "attributes": {},
+                                "childNodes": [
+                                    { "type": 3, "textContent": "\n    ", "id": 5 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "meta",
+                                        "attributes": { "charset": "utf-8" },
+                                        "childNodes": [],
+                                        "id": 6
+                                    },
+                                    { "type": 3, "textContent": "\n    ", "id": 7 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "meta",
+                                        "attributes": {
+                                            "name": "viewport",
+                                            "content": "width=device-width, initial-scale=1"
+                                        },
+                                        "childNodes": [],
+                                        "id": 8
+                                    },
+                                    { "type": 3, "textContent": "\n    ", "id": 9 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "meta",
+                                        "attributes": {
+                                            "name": "theme-color",
+                                            "content": "#000000"
+                                        },
+                                        "childNodes": [],
+                                        "id": 10
+                                    },
+                                    { "type": 3, "textContent": "\n    ", "id": 11 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "meta",
+                                        "attributes": {
+                                            "name": "description",
+                                            "content": "RRWeb Test Website"
+                                        },
+                                        "childNodes": [],
+                                        "id": 12
+                                    },
+                                    { "type": 3, "textContent": "\n    ", "id": 13 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "title",
+                                        "attributes": {},
+                                        "childNodes": [
+                                            {
+                                                "type": 3,
+                                                "textContent": "RRWeb Test Website",
+                                                "id": 15
+                                            }
+                                        ],
+                                        "id": 14
+                                    },
+                                    { "type": 3, "textContent": "\n  ", "id": 16 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "script",
+                                        "attributes": {
+                                            "defer": "",
+                                            "src": "http://localhost:8965/static/js/bundle.js"
+                                        },
+                                        "childNodes": [],
+                                        "id": 17
+                                    },
+                                    {
+                                        "type": 2,
+                                        "tagName": "style",
+                                        "attributes": {},
+                                        "childNodes": [
+                                            {
+                                                "type": 3,
+                                                "textContent": ".replayer-wrapper { position: relative; }.replayer-mouse { position: absolute; width: 20px; height: 20px; transition: left 0.05s linear, top 0.05s linear; background-size: contain; background-position: 50% center; background-repeat: no-repeat; background-image: url(\"data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjMwMCIgd2lkdGg9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCA1MCA1MCI+PHBhdGggZD0iTTQ4LjcxIDQyLjkxTDM0LjA4IDI4LjI5IDQ0LjMzIDE4YTEgMSAwIDAwLS4zMy0xLjYxTDIuMzUgMS4wNmExIDEgMCAwMC0xLjI5IDEuMjlMMTYuMzkgNDRhMSAxIDAgMDAxLjY1LjM2bDEwLjI1LTEwLjI4IDE0LjYyIDE0LjYzYTEgMSAwIDAwMS40MSAwbDQuMzgtNC4zOGExIDEgMCAwMC4wMS0xLjQyem0tNS4wOSAzLjY3TDI5IDMyYTEgMSAwIDAwLTEuNDEgMGwtOS44NSA5Ljg1TDMuNjkgMy42OWwzOC4xMiAxNEwzMiAyNy41OEExIDEgMCAwMDMyIDI5bDE0LjU5IDE0LjYyeiIvPjwvc3ZnPg==\"); border-color: transparent; }.replayer-mouse::after { content: \"\"; display: inline-block; width: 20px; height: 20px; background: rgb(73, 80, 246); border-radius: 100%; transform: translate(-50%, -50%); opacity: 0.3; }.replayer-mouse.active::after { animation: 0.2s ease-in-out 0s 1 normal none running click; }.replayer-mouse.touch-device { background-image: none; width: 70px; height: 70px; border-radius: 100%; margin-left: -37px; margin-top: -37px; border: 4px solid rgba(73, 80, 246, 0); transition: left linear, top linear, border-color 0.2s ease-in-out; }.replayer-mouse.touch-device.touch-active { border-color: rgb(73, 80, 246); transition: left 0.25s linear, top 0.25s linear, border-color 0.2s ease-in-out; }.replayer-mouse.touch-device::after { opacity: 0; }.replayer-mouse.touch-device.active::after { animation: 0.2s ease-in-out 0s 1 normal none running touch-click; }.replayer-mouse-tail { position: absolute; pointer-events: none; }@keyframes click { \n  0% { opacity: 0.3; width: 20px; height: 20px; }\n  50% { opacity: 0.5; width: 10px; height: 10px; }\n}@keyframes touch-click { \n  0% { opacity: 0; width: 20px; height: 20px; }\n  50% { opacity: 0.5; width: 10px; height: 10px; }\n}.rr-player { position: relative; background: white; float: left; border-radius: 5px; box-shadow: rgba(17, 16, 62, 0.12) 0px 24px 48px; }.rr-player__frame { overflow: hidden; }.replayer-wrapper { float: left; clear: both; transform-origin: left top; left: 50%; top: 50%; }.replayer-wrapper > iframe { border: none; }.rr-controller.svelte-19ke1iv.svelte-19ke1iv { width: 100%; height: 80px; background: rgb(255, 255, 255); display: flex; flex-direction: column; justify-content: space-around; align-items: center; border-radius: 0px 0px 5px 5px; }.rr-timeline.svelte-19ke1iv.svelte-19ke1iv { width: 80%; display: flex; align-items: center; }.rr-timeline__time.svelte-19ke1iv.svelte-19ke1iv { display: inline-block; width: 100px; text-align: center; color: rgb(17, 16, 62); }.rr-progress.svelte-19ke1iv.svelte-19ke1iv { flex: 1 1 0%; height: 12px; background: rgb(238, 238, 238); position: relative; border-radius: 3px; cursor: pointer; box-sizing: border-box; border-top: 4px solid rgb(255, 255, 255); border-bottom: 4px solid rgb(255, 255, 255); }.rr-progress.disabled.svelte-19ke1iv.svelte-19ke1iv { cursor: not-allowed; }.rr-progress__step.svelte-19ke1iv.svelte-19ke1iv { height: 100%; position: absolute; left: 0px; top: 0px; background: rgb(224, 225, 254); }.rr-progress__handler.svelte-19ke1iv.svelte-19ke1iv { width: 20px; height: 20px; border-radius: 10px; position: absolute; top: 2px; transform: translate(-50%, -50%); background: rgb(73, 80, 246); }.rr-controller__btns.svelte-19ke1iv.svelte-19ke1iv { display: flex; align-items: center; justify-content: center; font-size: 13px; }.rr-controller__btns.svelte-19ke1iv button.svelte-19ke1iv { width: 32px; height: 32px; display: flex; padding: 0px; align-items: center; justify-content: center; background: none; border: none; border-radius: 50%; cursor: pointer; }.rr-controller__btns.svelte-19ke1iv button.svelte-19ke1iv:active { background: rgb(224, 225, 254); }.rr-controller__btns.svelte-19ke1iv button.active.svelte-19ke1iv { color: rgb(255, 255, 255); background: rgb(73, 80, 246); }.rr-controller__btns.svelte-19ke1iv button.svelte-19ke1iv:disabled { cursor: not-allowed; }.switch.svelte-9brlez.svelte-9brlez.svelte-9brlez { height: 1em; display: flex; align-items: center; }.switch.disabled.svelte-9brlez.svelte-9brlez.svelte-9brlez { opacity: 0.5; }.label.svelte-9brlez.svelte-9brlez.svelte-9brlez { margin: 0px 8px; }.switch.svelte-9brlez input[type=\"checkbox\"].svelte-9brlez.svelte-9brlez { position: absolute; opacity: 0; }.switch.svelte-9brlez label.svelte-9brlez.svelte-9brlez { width: 2em; height: 1em; position: relative; cursor: pointer; display: block; }.switch.disabled.svelte-9brlez label.svelte-9brlez.svelte-9brlez { cursor: not-allowed; }.switch.svelte-9brlez label.svelte-9brlez.svelte-9brlez::before { content: \"\"; position: absolute; width: 2em; height: 1em; left: 0.1em; transition: background 0.1s; background: rgba(73, 80, 246, 0.5); border-radius: 50px; }.switch.svelte-9brlez label.svelte-9brlez.svelte-9brlez::after { content: \"\"; position: absolute; width: 1em; height: 1em; border-radius: 50px; left: 0px; transition: 0.2s; box-shadow: rgba(0, 0, 0, 0.3) 0px 2px 5px 0px; background: rgb(252, 255, 244); animation: 0.2s ease-out 0s 1 normal none running switch-off; z-index: 2; }.switch.svelte-9brlez input[type=\"checkbox\"].svelte-9brlez:checked + label.svelte-9brlez::before { background: rgb(73, 80, 246); }.switch.svelte-9brlez input[type=\"checkbox\"].svelte-9brlez:checked + label.svelte-9brlez::after { animation: 0.2s ease-out 0s 1 normal none running switch-on; left: 1.1em; }",
+                                                "isStyle": true,
+                                                "id": 19
+                                            }
+                                        ],
+                                        "id": 18
+                                    },
+                                    {
+                                        "type": 2,
+                                        "tagName": "style",
+                                        "attributes": {},
+                                        "childNodes": [
+                                            {
+                                                "type": 3,
+                                                "textContent": "body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0px; padding: 20px; background-color: rgb(245, 245, 245); }.container { max-width: 800px; margin: 0px auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: rgba(0, 0, 0, 0.1) 0px 2px 4px; }h1 { color: rgb(51, 51, 51); text-align: center; }p { color: rgb(102, 102, 102); }.button { display: block; margin: 20px auto; padding: 10px 20px; background-color: rgb(76, 175, 80); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }.button:hover { background-color: rgb(69, 160, 73); }.modal { display: block; position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); }.modal-content { background-color: white; margin: 15% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 500px; position: relative; }.close-button { position: absolute; top: 10px; right: 10px; font-size: 24px; cursor: pointer; color: rgb(102, 102, 102); }.close-button:hover { color: rgb(51, 51, 51); }.form-container { margin: 20px 0px; display: flex; flex-direction: column; gap: 10px; max-width: 400px; }.input-field { padding: 10px; font-size: 16px; border: 2px solid rgb(204, 204, 204); border-radius: 4px; width: 100%; box-sizing: border-box; }.input-field:focus { outline: none; border-color: rgb(0, 123, 255); }.mirrored-text { padding: 10px; background-color: rgb(248, 249, 250); border-radius: 4px; min-height: 20px; margin: 0px; }.button-group { display: flex; gap: 10px; margin-top: 20px; }",
+                                                "isStyle": true,
+                                                "id": 21
+                                            }
+                                        ],
+                                        "id": 20
+                                    },
+                                    {
+                                        "type": 2,
+                                        "tagName": "style",
+                                        "attributes": {},
+                                        "childNodes": [
+                                            {
+                                                "type": 3,
+                                                "textContent": ".player-container { width: 100%; max-width: 1024px; margin: 0px auto; padding: 20px; }.rrweb-player { width: 100%; height: 768px; background: rgb(255, 255, 255); border: 1px solid rgb(221, 221, 221); border-radius: 4px; box-shadow: rgba(0, 0, 0, 0.1) 0px 2px 4px; }",
+                                                "isStyle": true,
+                                                "id": 23
+                                            }
+                                        ],
+                                        "id": 22
+                                    }
+                                ],
+                                "id": 4
+                            },
+                            { "type": 3, "textContent": "\n  ", "id": 24 },
+                            {
+                                "type": 2,
+                                "tagName": "body",
+                                "attributes": {},
+                                "childNodes": [
+                                    { "type": 3, "textContent": "\n    ", "id": 26 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "noscript",
+                                        "attributes": {},
+                                        "childNodes": [
+                                            {
+                                                "type": 3,
+                                                "textContent": "You need to enable JavaScript to run this app.",
+                                                "id": 28
+                                            }
+                                        ],
+                                        "id": 27
+                                    },
+                                    { "type": 3, "textContent": "\n    ", "id": 29 },
+                                    {
+                                        "type": 2,
+                                        "tagName": "div",
+                                        "attributes": { "id": "root" },
+                                        "childNodes": [
+                                            {
+                                                "type": 2,
+                                                "tagName": "div",
+                                                "attributes": { "class": "container" },
+                                                "childNodes": [
+                                                    {
+                                                        "type": 2,
+                                                        "tagName": "h1",
+                                                        "attributes": {},
+                                                        "childNodes": [
+                                                            {
+                                                                "type": 3,
+                                                                "textContent": "Welcome to My Website",
+                                                                "id": 33
+                                                            }
+                                                        ],
+                                                        "id": 32
+                                                    },
+                                                    {
+                                                        "type": 2,
+                                                        "tagName": "p",
+                                                        "attributes": {},
+                                                        "childNodes": [
+                                                            {
+                                                                "type": 3,
+                                                                "textContent": "This is a simple single-page React application.",
+                                                                "id": 35
+                                                            }
+                                                        ],
+                                                        "id": 34
+                                                    },
+                                                    {
+                                                        "type": 2,
+                                                        "tagName": "p",
+                                                        "attributes": {},
+                                                        "childNodes": [
+                                                            {
+                                                                "type": 3,
+                                                                "textContent": "Key presses: ",
+                                                                "id": 37
+                                                            },
+                                                            { "type": 3, "textContent": "0", "id": 38 }
+                                                        ],
+                                                        "id": 36
+                                                    },
+                                                    {
+                                                        "type": 2,
+                                                        "tagName": "div",
+                                                        "attributes": { "class": "form-container" },
+                                                        "childNodes": [
+                                                            {
+                                                                "type": 2,
+                                                                "tagName": "input",
+                                                                "attributes": {
+                                                                    "type": "text",
+                                                                    "placeholder": "Type something...",
+                                                                    "class": "input-field",
+                                                                    "value": ""
+                                                                },
+                                                                "childNodes": [],
+                                                                "id": 40
+                                                            },
+                                                            {
+                                                                "type": 2,
+                                                                "tagName": "p",
+                                                                "attributes": { "class": "mirrored-text" },
+                                                                "childNodes": [],
+                                                                "id": 41
+                                                            }
+                                                        ],
+                                                        "id": 39
+                                                    },
+                                                    {
+                                                        "type": 2,
+                                                        "tagName": "div",
+                                                        "attributes": { "class": "button-group" },
+                                                        "childNodes": [
+                                                            {
+                                                                "type": 2,
+                                                                "tagName": "button",
+                                                                "attributes": { "class": "button" },
+                                                                "childNodes": [
+                                                                    {
+                                                                        "type": 3,
+                                                                        "textContent": "Open Modal",
+                                                                        "id": 44
+                                                                    }
+                                                                ],
+                                                                "id": 43
+                                                            },
+                                                            {
+                                                                "type": 2,
+                                                                "tagName": "label",
+                                                                "attributes": { "class": "button" },
+                                                                "childNodes": [
+                                                                    {
+                                                                        "type": 3,
+                                                                        "textContent": "Load Recording",
+                                                                        "id": 46
+                                                                    },
+                                                                    {
+                                                                        "type": 2,
+                                                                        "tagName": "input",
+                                                                        "attributes": {
+                                                                            "type": "file",
+                                                                            "accept": ".json",
+                                                                            "style": "display: none;"
+                                                                        },
+                                                                        "childNodes": [],
+                                                                        "id": 47
+                                                                    }
+                                                                ],
+                                                                "id": 45
+                                                            }
+                                                        ],
+                                                        "id": 42
+                                                    }
+                                                ],
+                                                "id": 31
+                                            }
+                                        ],
+                                        "id": 30
+                                    },
+                                    { "type": 3, "textContent": "\n  \n ", "id": 48 }
+                                ],
+                                "id": 25
+                            }
+                        ],
+                        "id": 3
+                    }
+                ],
+                "id": 1
+            },
+            "initialOffset": { "left": 0, "top": 0 }
+        },
+        "timestamp": 1748261932959
+    }
+]
