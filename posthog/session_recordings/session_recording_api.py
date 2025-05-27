@@ -280,14 +280,16 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
 class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     source = serializers.CharField(required=False, allow_null=True)
     blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
+    blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
+
+    # real-time only parameters
     version = serializers.CharField(required=False, allow_null=True, help_text="Version for realtime snapshots")
 
-    # Blob parameters
-    blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
+    # v2 only parameters
     start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
     end_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="End of blob key range")
 
-    # v1 parameters
+    # v1 only parameters
     if_none_match = serializers.SerializerMethodField()
 
     def get_if_none_match(self) -> str | None:
