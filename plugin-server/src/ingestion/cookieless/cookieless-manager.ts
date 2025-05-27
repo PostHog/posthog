@@ -287,7 +287,7 @@ export class CookielessManager {
     private async doBatchInner(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
         const hashCache: Record<string, Buffer> = {}
 
-        // do a first pass just to extract properties and compute the bash hash for stateful cookieless events
+        // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
         for (const { event, team, message } of events) {
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
