@@ -262,7 +262,7 @@ export class CookielessManager {
 
     async doBatch(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
         if (this.config.disabled) {
-            // cookieless is globally disabled, don't any processing just drop all cookieless events
+            // cookieless is globally disabled, don't do any processing just drop all cookieless events
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
         }
         try {
