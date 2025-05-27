@@ -43,7 +43,7 @@ export type TreeDataItem = {
     record?: Record<string, any>
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => SideAction
-    /** The side action to render for the item. */
+    /** The icon to render for the item's side action. Ellipsis by default. */
     itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
     /** The icon to use for the item. */
     icon?: React.ReactNode
@@ -564,7 +564,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             side="bottom"
                                                             className="max-w-[250px]"
                                                         >
-                                                            {/* TODO: do not render it at all times */}
                                                             {itemSideAction(item)}
                                                         </DropdownMenuContent>
                                                     </DropdownMenu>

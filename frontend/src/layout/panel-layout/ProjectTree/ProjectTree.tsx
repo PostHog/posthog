@@ -152,8 +152,8 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
-        // using custom components so we wouldn't render them unless the menu is open
-        const customItems =
+        // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
+        const productMenu =
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
                 <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
@@ -164,7 +164,7 @@ export function ProjectTree({
 
         return (
             <>
-                {customItems}
+                {productMenu}
                 {item.record?.path && !item.disableSelect && !onlyTree ? (
                     <>
                         <MenuItem
