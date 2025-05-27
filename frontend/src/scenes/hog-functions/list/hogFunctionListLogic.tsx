@@ -29,6 +29,7 @@ export type HogFunctionListFilters = {
 export type HogFunctionListLogicProps = {
     logicKey?: string
     type: HogFunctionTypeType
+    additionalTypes?: HogFunctionTypeType[]
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
     syncFiltersWithUrl?: boolean
@@ -95,8 +96,12 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    return (await api.hogFunctions.list({ filters: values.filters?.filters, types: [props.type] }))
-                        .results
+                    return (
+                        await api.hogFunctions.list({
+                            filters: values.filters?.filters,
+                            types: [props.type, ...(props.additionalTypes || [])],
+                        })
+                    ).results
                 },
                 saveHogFunctionOrder: async ({ newOrders }) => {
                     return await api.hogFunctions.rearrange(newOrders)

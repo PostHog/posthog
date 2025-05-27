@@ -20,7 +20,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
-    const { hogFunctions } = useValues(hogFunctionListLogic({ logicKey, type: kind }))
+    const { hogFunctions } = useValues(hogFunctionListLogic({ logicKey, type: kind, additionalTypes: additionalKinds }))
 
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">
@@ -40,10 +40,15 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                 isEmpty={hogFunctions.length === 0}
             />
             <div>
-                <HogFunctionList logicKey={logicKey} type={kind} extraControls={<>{newButton}</>} />
+                <HogFunctionList
+                    logicKey={logicKey}
+                    type={kind}
+                    additionalTypes={additionalKinds}
+                    extraControls={<>{newButton}</>}
+                />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
-                    <HogFunctionTemplateList defaultFilters={{}} type={kind} />
+                    <HogFunctionTemplateList defaultFilters={{}} type={kind} additionalTypes={additionalKinds} />
                 </div>
             </div>
         </>
