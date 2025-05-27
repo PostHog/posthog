@@ -76,7 +76,6 @@
             "@posthog/icons": "0.14"
         },
         "patchedDependencies": {
-            "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
         }

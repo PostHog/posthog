@@ -82,7 +82,7 @@
         "luxon": "^3.4.4",
         "lz4-kafkajs": "1.0.0",
         "node-fetch": "^2.6.1",
-        "node-rdkafka": "^2.17.0",
+        "node-rdkafka": "^2.18.0",
         "node-schedule": "^2.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
