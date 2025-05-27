@@ -1,10 +1,10 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
-import { QuestionProcessedData, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { ChoiceQuestionProcessedData } from 'scenes/surveys/surveyLogic'
 
-import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
+import { GraphType, InsightLogicProps, MultipleSurveyQuestion } from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
@@ -12,34 +12,22 @@ const insightProps: InsightLogicProps = {
 
 const barColor = CHART_INSIGHTS_COLORS[2]
 
+interface Props {
+    question: MultipleSurveyQuestion
+    questionIndex: number
+    processedData: ChoiceQuestionProcessedData
+}
+
 /**
  * SingleChoiceQuestionViz displays a pie chart for single choice questions
  * using a single optimized query to fetch all survey results at once
  */
-export function MultipleChoiceQuestionViz({ questionIndex }: { questionIndex: number }): JSX.Element | null {
-    const { survey, consolidatedSurveyResults, consolidatedSurveyResultsLoading } = useValues(surveyLogic)
-
-    const question = survey.questions[questionIndex]
-    if (question.type !== SurveyQuestionType.MultipleChoice || !question.id) {
-        return null
-    }
-
-    // Use consolidated data if available, otherwise show loading state
-    const processedData: QuestionProcessedData | null = consolidatedSurveyResults
-        ? consolidatedSurveyResults.responsesByQuestion[question.id]
-        : null
-
-    if (consolidatedSurveyResultsLoading) {
-        return <div>loading surveys data</div>
-    }
-
-    if (!processedData) {
-        return <div>No responses yet</div>
-    }
-
-    const { data } = processedData
-
-    if (!data || data.length === 0) {
+export function MultipleChoiceQuestionViz({
+    question,
+    questionIndex,
+    processedData: { data, total },
+}: Props): JSX.Element | null {
+    if (!data || !total) {
         return <div>No responses yet</div>
     }
 

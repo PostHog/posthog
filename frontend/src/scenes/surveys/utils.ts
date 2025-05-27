@@ -9,6 +9,8 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyQuestion,
+    SurveyQuestionType,
 } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
@@ -103,7 +105,12 @@ export type NPSBreakdown = {
 }
 
 export function calculateNpsBreakdownFromProcessedData(processedData: QuestionProcessedData): NPSBreakdown | null {
-    if (!processedData || !processedData.data || processedData.data.length !== 11) {
+    if (
+        !processedData ||
+        !processedData.data ||
+        processedData.data.length !== 11 ||
+        processedData.type !== SurveyQuestionType.Rating
+    ) {
         return null
     }
 
@@ -159,6 +166,23 @@ function escapeSqlString(value: string): string {
     return value.replace(/['\\]/g, '\\$&')
 }
 
+export function getSurveyResponse(question: SurveyQuestion, index: number): string {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
+
+    if (question.type === SurveyQuestionType.MultipleChoice) {
+        return `if(
+        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
+        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
+        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
+    )`
+    }
+
+    return `COALESCE(
+        NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
+        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
+    )`
+}
+
 /**
  * Creates a HogQL expression for survey answer filters that handles both index-based and ID-based property keys
  * using OR logic between the alternative formats for each question.
@@ -203,9 +227,11 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
         // split the string '$survey_response_' and take the last part, as that's the question id
         const questionId = filter.key.split(`${SurveyEventProperties.SURVEY_RESPONSE}_`).at(-1)
-        if (!questionId || !survey.questions.find((question) => question.id === questionId)) {
+        const question = survey.questions.find((question) => question.id === questionId)
+        if (!questionId || !question) {
             continue
         }
+
         const questionIndex = survey.questions.findIndex((question) => question.id === questionId)
 
         // Create the condition for this filter
@@ -219,31 +245,31 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             case 'is_not':
                 if (Array.isArray(filter.value)) {
                     valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ${
+                    condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? 'NOT IN' : 'IN'
                     } (${valueList}))`
                 } else {
                     escapedValue = escapeSqlString(String(filter.value))
-                    condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ${
+                    condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? '!=' : '='
                     } '${escapedValue}')`
                 }
                 break
             case 'icontains':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ILIKE '%${escapedValue}%')`
+                condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 break
             case 'not_icontains':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT getSurveyResponse(${questionIndex}, '${questionId}') ILIKE '%${escapedValue}%')`
+                condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
                 break
             case 'regex':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(match(getSurveyResponse(${questionIndex}, '${questionId}'), '${escapedValue}'))`
+                condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
                 break
             case 'not_regex':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT match(getSurveyResponse(${questionIndex}, '${questionId}'), '${escapedValue}'))`
+                condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
                 break
             // Add more operators as needed
             default:

@@ -54,6 +54,7 @@ import {
     DATE_FORMAT,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
+    getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
     sanitizeHTML,
@@ -179,11 +180,19 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
 }
 
 // single question and rating are effectively the same, since we count the frequency of each choice
-export interface QuestionProcessedData {
+export interface ChoiceQuestionProcessedData {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
     data?: { label: string; value: number; isPredefined: boolean }[]
-    total?: number
+    total: number
 }
+
+export interface OpenQuestionProcessedData {
+    type: SurveyQuestionType.Open
+    data: { distinctId: string; response: string; personProperties?: Record<string, any> }[]
+    total: number
+}
+
+export type QuestionProcessedData = ChoiceQuestionProcessedData | OpenQuestionProcessedData
 
 interface ResponsesByQuestion {
     [questionId: string]: QuestionProcessedData
@@ -214,17 +223,19 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         }
         acc[question.id] = {
             type: question.type,
+            total: 0,
         }
         return acc
     }, {} as any)
 
     questions.forEach((question, index) => {
-        if (!question.id || question.type === SurveyQuestionType.Open || question.type === SurveyQuestionType.Link) {
+        if (!question.id || question.type === SurveyQuestionType.Link) {
             return
         }
         if (question.type === SurveyQuestionType.SingleChoice) {
             let processedData: QuestionProcessedData = {
                 type: question.type,
+                total: 0,
             }
 
             // For SingleChoice, count frequency of each choice
@@ -265,6 +276,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         if (question.type === SurveyQuestionType.Rating) {
             let processedData: QuestionProcessedData = {
                 type: question.type,
+                total: 0,
             }
             const counts = new Array(question.scale === 10 ? 11 : question.scale).fill(0)
             let total = 0
@@ -292,6 +304,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         if (question.type === SurveyQuestionType.MultipleChoice) {
             let processedData: QuestionProcessedData = {
                 type: question.type,
+                total: 0,
             }
 
             const counts: { [key: string]: number } = {}
@@ -328,6 +341,39 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
                 .sort((a, b) => b.value - a.value)
 
             processedData = { ...processedData, data, total }
+
+            responsesByQuestion[question.id] = processedData
+            return
+        }
+
+        if (question.type === SurveyQuestionType.Open) {
+            const processedData: OpenQuestionProcessedData = {
+                type: SurveyQuestionType.Open,
+                data: [],
+                total: 0,
+            }
+
+            if (results) {
+                results.forEach((row: any) => {
+                    const value = row[index] as string
+                    if (isEmptyOrUndefined(value)) {
+                        return
+                    }
+
+                    const response = {
+                        distinctId: row.at(-1),
+                        response: value,
+                        personProperties: undefined,
+                    }
+                    const unparsedPersonProperties = row.at(-2)
+                    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+                        response.personProperties = JSON.parse(unparsedPersonProperties)
+                    }
+                    processedData.total += 1
+
+                    processedData.data.push(response)
+                })
+            }
 
             responsesByQuestion[question.id] = processedData
             return
@@ -924,10 +970,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Build an array of all questions with their types
                 const questionFields = values.survey.questions.map((question, index) => {
-                    const isMultipleChoice = question.type === SurveyQuestionType.MultipleChoice
-                    return `getSurveyResponse(${index}, '${question?.id}'${
-                        isMultipleChoice ? ', true' : ''
-                    }) AS q${index}_response`
+                    return `${getSurveyResponse(question, index)} AS q${index}_response`
                 })
 
                 // Also get distinct_id and person properties for open text questions
@@ -936,7 +979,9 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                         SELECT
-                            ${questionFields.join(',\n                            ')}
+                            ${questionFields.join(',\n')},
+                            person.properties,
+                            events.distinct_id
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
@@ -965,7 +1010,11 @@ export const surveyLogic = kea<surveyLogicType>([
             // Load survey stats data
             actions.loadSurveyBaseStats()
             actions.loadSurveyDismissedAndSentCount()
-            actions.loadConsolidatedSurveyResults()
+
+            if (values.isNewQuestionVizEnabled) {
+                return actions.loadConsolidatedSurveyResults()
+            }
+
             // Load results for each question
             values.survey.questions.forEach((question, index) => {
                 switch (question.type) {

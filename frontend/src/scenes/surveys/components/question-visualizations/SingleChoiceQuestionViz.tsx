@@ -1,37 +1,27 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { ChoiceQuestionProcessedData } from 'scenes/surveys/surveyLogic'
 
-import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
+import { GraphType, InsightLogicProps, MultipleSurveyQuestion } from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
+}
+
+interface Props {
+    question: MultipleSurveyQuestion
+    questionIndex: number
+    processedData: ChoiceQuestionProcessedData
 }
 
 /**
  * SingleChoiceQuestionViz displays a pie chart for single choice questions
  * using a single optimized query to fetch all survey results at once
  */
-export function SingleChoiceQuestionViz({ questionIndex }: { questionIndex: number }): JSX.Element | null {
-    const { survey, consolidatedSurveyResults, consolidatedSurveyResultsLoading } = useValues(surveyLogic)
-
-    const question = survey.questions[questionIndex]
-    if (question.type !== SurveyQuestionType.SingleChoice || !question.id) {
-        return null
-    }
-
-    // Insights colors
-
-    // Use consolidated data if available, otherwise show loading state
-    const processedData = consolidatedSurveyResults ? consolidatedSurveyResults.responsesByQuestion[question.id] : null
-
-    if (consolidatedSurveyResultsLoading) {
-        return <div>loading surveys data</div>
-    }
-
-    if (!processedData) {
+export function SingleChoiceQuestionViz({ question, questionIndex, processedData }: Props): JSX.Element | null {
+    if (!processedData || !processedData.total) {
         return <div>No responses yet</div>
     }
 

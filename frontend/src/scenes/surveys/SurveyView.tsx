@@ -15,11 +15,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import {
-    MultipleChoiceQuestionViz,
-    RatingQuestionViz,
-    SingleChoiceQuestionViz,
-} from 'scenes/surveys/components/question-visualizations'
+import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
@@ -346,30 +342,17 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 }
 
 function SurveyResponsesByQuestionV2(): JSX.Element {
-    const { survey, surveyOpenTextResults, surveyOpenTextResultsReady } = useValues(surveyLogic)
+    const { survey } = useValues(surveyLogic)
 
     return (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2">
             {survey.questions.map((question, i) => {
-                if (!question.id) {
+                if (!question.id || question.type === SurveyQuestionType.Link) {
                     return null
                 }
                 return (
                     <div key={question.id} className="flex flex-col gap-2">
-                        {question.type === SurveyQuestionType.Rating && <RatingQuestionViz questionIndex={i} />}
-                        {question.type === SurveyQuestionType.SingleChoice && (
-                            <SingleChoiceQuestionViz questionIndex={i} />
-                        )}
-                        {question.type === SurveyQuestionType.MultipleChoice && (
-                            <MultipleChoiceQuestionViz questionIndex={i} />
-                        )}
-                        {question.type === SurveyQuestionType.Open && (
-                            <OpenTextViz
-                                surveyOpenTextResults={surveyOpenTextResults}
-                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                                questionIndex={i}
-                            />
-                        )}
+                        <SurveyQuestionVisualization question={question} questionIndex={i} />
                         <LemonDivider />
                     </div>
                 )

@@ -16,7 +16,7 @@ import {
     NPS_PROMOTER_LABEL,
     NPS_PROMOTER_VALUES,
 } from 'scenes/surveys/constants'
-import { QuestionProcessedData, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { ChoiceQuestionProcessedData, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { NPSStackedBar } from 'scenes/surveys/surveyViewViz'
 import { calculateNpsBreakdownFromProcessedData, NPSBreakdown } from 'scenes/surveys/utils'
 
@@ -28,10 +28,10 @@ import {
     InsightLogicProps,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
-    SurveyQuestionType,
 } from '~/types'
 
 const insightProps: InsightLogicProps = {
@@ -317,26 +317,14 @@ function RatingScoreOverTime({
     )
 }
 
-export function RatingQuestionViz({ questionIndex }: { questionIndex: number }): JSX.Element | null {
-    const { survey, consolidatedSurveyResults, consolidatedSurveyResultsLoading } = useValues(surveyLogic)
+interface Props {
+    question: RatingSurveyQuestion
+    questionIndex: number
+    processedData: ChoiceQuestionProcessedData
+}
+
+export function RatingQuestionViz({ question, questionIndex, processedData }: Props): JSX.Element | null {
     const barColor = CHART_INSIGHTS_COLORS[0]
-    const question = survey.questions[questionIndex]
-
-    if (question.type !== SurveyQuestionType.Rating || !question.id) {
-        return null
-    }
-
-    const processedData: QuestionProcessedData | null = consolidatedSurveyResults
-        ? consolidatedSurveyResults.responsesByQuestion[question.id]
-        : null
-
-    if (consolidatedSurveyResultsLoading) {
-        return <div>loading surveys data</div>
-    }
-
-    if (!processedData) {
-        return <div>No responses yet (v2 query)</div>
-    }
 
     const { data } = processedData
 
@@ -403,7 +391,9 @@ export function RatingQuestionViz({ questionIndex }: { questionIndex: number }):
                 </div>
             </div>
             {npsBreakdown && <NPSBreakdownViz npsBreakdown={npsBreakdown} />}
-            {question.scale === 10 && <NPSRatingOverTime questionIndex={questionIndex} questionId={question.id} />}
+            {question.scale === 10 && (
+                <NPSRatingOverTime questionIndex={questionIndex} questionId={question.id ?? ''} />
+            )}
             {[3, 5, 7].includes(question.scale) && question.id && (
                 <RatingScoreOverTime
                     questionIndex={questionIndex}
