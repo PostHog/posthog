@@ -17,6 +17,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationHogFlow[]> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
+        const failedInvocations: CyclotronJobInvocation[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -25,6 +26,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
+
+                    failedInvocations.push(item)
+
                     return null
                 }
 
@@ -35,6 +39,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 })
             })
         )
+
+        await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
         return loadedInvocations
     }

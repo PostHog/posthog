@@ -16,7 +16,7 @@ import { CdpConsumerBase } from './cdp-base.consumer'
  */
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
-    private cyclotronJobQueue: CyclotronJobQueue
+    protected cyclotronJobQueue: CyclotronJobQueue
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
     private queue: CyclotronJobQueueKind
 
@@ -31,11 +31,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return await this.runManyWithHeartbeat(loadedInvocations, (item) => this.hogExecutor.execute(item))
     }
 
-    // TODO: Move this to an abstract function??
     protected async loadHogFunctions(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
         const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
+        const failedInvocations: CyclotronJobInvocation[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -44,6 +44,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     logger.error('⚠️', 'Error finding hog function', {
                         id: item.functionId,
                     })
+
+                    failedInvocations.push(item)
+
                     return null
                 }
 
@@ -54,6 +57,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 })
             })
         )
+
+        await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
         return loadedInvocations
     }
