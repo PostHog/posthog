@@ -13,10 +13,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: Define state operations without modifying the database
         migrations.SeparateDatabaseAndState(
             state_operations=[
-                # Create the model in Django's state
                 migrations.CreateModel(
                     name="ErrorTrackingRelease",
                     fields=[
@@ -34,7 +32,6 @@ class Migration(migrations.Migration):
                         ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
                     ],
                 ),
-                # Add the foreign key in Django's state
                 migrations.AddField(
                     model_name="errortrackingsymbolset",
                     name="release",
@@ -42,7 +39,6 @@ class Migration(migrations.Migration):
                         null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingrelease"
                     ),
                 ),
-                # Add index and constraint in Django's state
                 migrations.AddIndex(
                     model_name="errortrackingrelease",
                     index=models.Index(fields=["team_id", "hash_id"], name="posthog_err_team_id_e9f6b2_idx"),
@@ -55,7 +51,6 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                # Step 2: Create the new table in the database
                 migrations.RunSQL(
                     sql="""
                     CREATE TABLE "posthog_errortrackingrelease" (
@@ -70,7 +65,6 @@ class Migration(migrations.Migration):
                     """,
                     reverse_sql='DROP TABLE IF EXISTS "posthog_errortrackingrelease";',
                 ),
-                # Step 3: Create unique index concurrently to avoid locking
                 migrations.RunSQL(
                     sql="""
                     CREATE UNIQUE INDEX CONCURRENTLY "posthog_err_team_id_e9f6b2_idx"
@@ -78,7 +72,6 @@ class Migration(migrations.Migration):
                     """,
                     reverse_sql='DROP INDEX IF EXISTS "posthog_err_team_id_e9f6b2_idx";',
                 ),
-                # Step 4: Add foreign key column with constraint directly (using special comment format from reference)
                 migrations.RunSQL(
                     sql="""
                     ALTER TABLE "posthog_errortrackingsymbolset" ADD COLUMN "release_id" uuid NULL CONSTRAINT "posthog_errortrackingsymbolset_release_id_fk" REFERENCES "posthog_errortrackingrelease" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
@@ -88,7 +81,6 @@ class Migration(migrations.Migration):
                     ALTER TABLE "posthog_errortrackingsymbolset" DROP COLUMN IF EXISTS "release_id";
                     """,
                 ),
-                # Step 5: Create index concurrently on the foreign key
                 migrations.RunSQL(
                     sql="""
                     CREATE INDEX CONCURRENTLY "posthog_errortrackingsymbolset_release_id_idx"
