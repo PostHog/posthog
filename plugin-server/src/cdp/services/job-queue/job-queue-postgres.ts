@@ -227,16 +227,12 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
         }
     }
 
-    // TRICKY: If this is being converted for the fetch service we don't deserialize the vmstate as it isn't necessary
-    // We cast it to the right type as we would rather things crash if they try to use it
-    // This will be fixed in an upcoming PR
-
     return {
         id: job.id,
         state: job.vmState,
         teamId: job.teamId,
-        functionId: job.functionId!,
-        queue: (job.queueName as CyclotronJobQueueKind) ?? 'hog',
+        functionId: job.functionId!, // TODO: Fix this in the underlying cyclotron library - it should never be nullable
+        queue: job.queueName as CyclotronJobQueueKind,
         queuePriority: job.priority,
         queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
         queueMetadata: job.metadata ?? undefined,
