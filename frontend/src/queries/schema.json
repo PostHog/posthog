@@ -9528,6 +9528,14 @@
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
                 },
+                "tags": {
+                    "description": "Tag for the product 'beta' / 'alpha'",
+                    "items": {
+                        "enum": ["alpha", "beta"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
@@ -9575,6 +9583,14 @@
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
+                },
+                "tags": {
+                    "description": "Tag for the product 'beta' / 'alpha'",
+                    "items": {
+                        "enum": ["alpha", "beta"],
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
