@@ -1072,7 +1072,10 @@ export type SessionRecordingSnapshotParams =
       }
 
 export interface SessionRecordingSnapshotSourceResponse {
-    source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    // v1 loaded each source separately
+    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    // with v2 we can load multiple sources at once
+    sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
 }
 

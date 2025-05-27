@@ -245,9 +245,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // we store the data in the cache, because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all of the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
-                    // so very wrong to only look at 0
+                    // it doesn't matter which source we use as the key, since we combine the snapshots anyway
                     cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
-                    return { source: sources[0] }
+                    1 // but we do want to mark the sources as loaded
+                    return { sources: sources }
                 },
             },
         ],
@@ -262,22 +263,39 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
-                            FROM events
-                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND $session_id = ${props.sessionRecordingId}
-                              ORDER BY timestamp ASC
-                        LIMIT 1000000
-                        `
+                        SELECT uuid,
+                               event, timestamp, elements_chain, properties.
+                               $window_id, properties.
+                               $current_url, properties.
+                               $event_type, properties.
+                               $viewport_width, properties.
+                               $viewport_height, properties.
+                               $screen_name
+                        FROM events
+                        WHERE timestamp
+                            > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                          AND timestamp
+                            < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                          AND $session_id = ${props.sessionRecordingId}
+                        ORDER BY timestamp ASC
+                            LIMIT 1000000
+                    `
 
                     let relatedEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
-                            FROM events
-                            WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
-                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
-                        `
+                        SELECT uuid,
+                               event, timestamp, elements_chain, properties.
+                               $window_id, properties.
+                               $current_url, properties.
+                               $event_type
+                        FROM events
+                        WHERE timestamp
+                            > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
+                          AND timestamp
+                            < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
+                          AND (empty ($session_id)
+                           OR isNull($session_id))
+                          AND properties.$lib != 'web'
+                    `
                     if (person?.uuid) {
                         relatedEventsQuery += `
                             AND person_id = '${person.uuid}'
@@ -371,12 +389,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                        -- the timestamp range here is only to avoid querying too much of the events table
-                                        -- we don't really care about the absolute value,
-                                        -- but we do care about whether timezones have an odd impact
-                                        -- so, we extend the range by a day on each side so that timezones don't cause issues
-                                         WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
-                                           AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
+                                         -- the timestamp range here is only to avoid querying too much of the events table
+                                         -- we don't really care about the absolute value,
+                                         -- but we do care about whether timezones have an odd impact
+                                         -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                         WHERE timestamp
+                                             > ${dayjs(earliestTimestamp).subtract(1, 'day')}
+                                           AND timestamp
+                                             < ${dayjs(latestTimestamp).add(1, 'day')}
                                            AND event in ${eventNames}
                                            AND uuid in ${eventIds}`,
                         }
@@ -451,7 +471,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
             const sources = values.snapshotSources
-            const sourceKey = keyForSource(snapshotsForSource.source)
+            const sourceKey = snapshotsForSource.sources
+                ? keyForSource(snapshotsForSource.sources[0])
+                : keyForSource(snapshotsForSource.source)
             const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
 
             // Cache the last response count to detect if we're getting the same data over and over
@@ -481,29 +503,39 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadNextSnapshotSource: () => {
-            const nextSourceToLoad = values.snapshotSources?.find((s) => {
-                const sourceKey = keyForSource(s)
-                return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
-            })
+            // yes this is ugly duplication but we're going to deprecate v1 and I want it to be clear which is which
+            if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
+                const nextSourcesToLoad =
+                    values.snapshotSources?.filter((s) => {
+                        const sourceKey = keyForSource(s)
+                        return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                    }) || []
 
-            if (nextSourceToLoad) {
-                return actions.loadSnapshotsForSource([nextSourceToLoad])
-            }
+                if (nextSourcesToLoad.length > 0) {
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 100))
+                }
 
-            if (
-                values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2) &&
-                !props.blobV2PollingDisabled
-            ) {
-                actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
+                if (!props.blobV2PollingDisabled) {
+                    actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
+                }
+            } else {
+                const nextSourceToLoad = values.snapshotSources?.find((s) => {
+                    const sourceKey = keyForSource(s)
+                    return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
+                })
+
+                if (nextSourceToLoad) {
+                    return actions.loadSnapshotsForSource([nextSourceToLoad])
+                }
+
+                // If we have a realtime source, start polling it
+                const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
+                if (realTimeSource) {
+                    actions.pollRealtimeSnapshots()
+                }
             }
 
             actions.reportUsageIfFullyLoaded()
-
-            // If we have a realtime source, start polling it
-            const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
-            if (realTimeSource) {
-                actions.pollRealtimeSnapshots()
-            }
         },
         pollRealtimeSnapshots: () => {
             // always make sure we've cleared up the last timeout

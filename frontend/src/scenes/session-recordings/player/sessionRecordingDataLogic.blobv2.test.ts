@@ -58,10 +58,16 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                         throw new Error('not expecting this to be called in this test')
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
+                        const start_blob_key = req.url.searchParams.get('start_blob_key')
+                        const end_blob_key = req.url.searchParams.get('end_blob_key')
+
                         if (key === '0') {
                             return res(ctx.text(keyZero))
                         } else if (key === '1') {
                             return res(ctx.text(keyOne))
+                        } else if (start_blob_key === '0' && end_blob_key === '1') {
+                            // This is the case where we load both blob v2 sources at once
+                            return res(ctx.text(`${keyZero}\n${keyOne}`))
                         }
                         throw new Error(`Unexpected blob key: ${key}`)
                     }
@@ -108,9 +114,7 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                     'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
                     'loadSnapshotSourcesSuccess',
-                    // loads the first blob v2 source
-                    'loadSnapshotsForSourceSuccess',
-                    // loads the second blob v2 source
+                    // loads the first and second blob v2 source at once
                     'loadSnapshotsForSourceSuccess',
                     'reportUsageIfFullyLoaded',
                 ])
@@ -127,6 +131,9 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                 ])
             )
             expect(actual).toMatchSnapshot()
+
+            expect(logic.values.snapshotSources).toEqual({})
+            expect(Object.keys(logic.cache.snapshotsBySource)).toEqual({})
         })
     })
 })
