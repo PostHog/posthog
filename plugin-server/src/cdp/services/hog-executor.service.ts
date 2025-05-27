@@ -474,7 +474,7 @@ export class HogExecutorService {
 
             result.finished = execRes.finished
             result.invocation.vmState = execRes.state
-            invocation.timings.push({
+            result.invocation.timings.push({
                 kind: 'hog',
                 duration_ms: duration,
             })
@@ -561,7 +561,7 @@ export class HogExecutorService {
                     })
                 }
             } else {
-                const totalDuration = invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+                const totalDuration = result.invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
                 const messages = [`Function completed in ${totalDuration}ms.`]
                 if (execRes.state) {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)

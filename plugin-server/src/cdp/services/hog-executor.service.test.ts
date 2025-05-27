@@ -133,6 +133,9 @@ describe('Hog Executor', () => {
                     globals: invocation.globals,
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
+                    queueMetadata: undefined,
+                    queueScheduledAt: undefined,
+                    queueSource: undefined,
                     queueParameters: expect.any(Object),
                     queuePriority: 0,
                     timings: [
@@ -145,6 +148,7 @@ describe('Hog Executor', () => {
                 },
                 finished: false,
                 logs: expect.any(Array),
+                metrics: [],
             })
         })
 
