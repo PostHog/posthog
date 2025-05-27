@@ -240,6 +240,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconGraph',
         'IconLineGraph',
         'IconRetention',
+        'IconRetentionHeatmap',
         'IconFunnels',
         'IconGanttChart',
         'IconTrending',
