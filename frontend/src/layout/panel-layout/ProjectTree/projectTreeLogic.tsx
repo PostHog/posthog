@@ -435,7 +435,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
             (viableItems, folderStates, checkedItems, users, onlyFolders): TreeDataItem[] => {
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
+                    imports: viableItems.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -451,7 +451,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
             (recentResults, recentResultsLoading, folderStates, checkedItems, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: recentResults.results,
+                    imports: recentResults.results.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -499,7 +499,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 users
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: searchResults.results,
+                    imports: searchResults.results.map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -595,7 +595,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         id: 'project://',
                         name: 'project://',
                         displayName: <>Project</>,
-                        record: { type: 'folder', path: '' },
+                        record: { type: 'folder', protocol: 'project://', path: '' },
                         children: searchTerm
                             ? searchResultsLoading && searchTreeItems.length === 0
                                 ? folderLoading
