@@ -668,6 +668,72 @@ export class DB {
         return [person, kafkaMessages]
     }
 
+    // Potential optimization on the previous updatePerson method
+    public async updatePersonWithMergeOperator(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson> = {},
+        tx?: TransactionClient,
+        tag?: string
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        const hasPropertyChanges = Object.keys(propertiesToSet).length > 0 || propertiesToUnset.length > 0
+        const hasOtherUpdates = Object.keys(otherUpdates).length > 0
+
+        if (!hasPropertyChanges && !hasOtherUpdates) {
+            return [person, []]
+        }
+
+        let query = 'UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1'
+        let values: any[] = []
+        let paramIndex = 1
+
+        if (hasPropertyChanges) {
+            if (Object.keys(propertiesToSet).length > 0) {
+                query += `, properties = properties || $${paramIndex}`
+                // Do I need to sanitize the JSONB values?
+                values.push(JSON.stringify(propertiesToSet))
+                paramIndex++
+            }
+
+            for (const keyToUnset of propertiesToUnset) {
+                query += `, properties = properties - $${paramIndex}`
+                values.push(keyToUnset)
+                paramIndex++
+            }
+        }
+
+        if (hasOtherUpdates) {
+            const { propertyUpdates, ...regularUpdates } = otherUpdates as any
+            Object.entries(regularUpdates).forEach(([field, value]) => {
+                query += `, ${sanitizeSqlIdentifier(field)} = $${paramIndex}`
+                values.push(value)
+                paramIndex++
+            })
+        }
+        
+        query += ` WHERE id = $${paramIndex} RETURNING *`
+        values.push(person.id)
+
+        const { rows } = await this.postgres.query<RawPerson>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            query,
+            values,
+            `updatePersonWithMergeOperator${tag ? `-${tag}` : ''}`
+        )
+
+        if (rows.length === 0) {
+            throw new NoRowsUpdatedError(
+                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+            )
+        }
+
+        const updatedPerson = this.toPerson(rows[0])
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        return [updatedPerson, [kafkaMessage]]
+    }
+
     // Currently in use, but there are various problems with this function
     public async updatePersonDeprecated(
         person: InternalPerson,

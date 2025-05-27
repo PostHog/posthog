@@ -15,6 +15,12 @@ import { uuidFromDistinctId } from './person-uuid'
 import { PersonsStoreForDistinctIdBatch } from './persons/persons-store-for-distinct-id-batch'
 import { captureIngestionWarning } from './utils'
 
+interface PropertyUpdates {
+    toSet: Properties
+    toUnset: string[]
+    hasChanges: boolean
+}
+
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
     help: 'Number of person merge final failures.',
@@ -121,7 +127,8 @@ export class PersonState {
         private processPerson: boolean, // $process_person_profile flag from the event
         private kafkaProducer: KafkaProducerWrapper,
         private personStore: PersonsStoreForDistinctIdBatch,
-        private measurePersonJsonbSize: number = 0
+        private measurePersonJsonbSize: number = 0,
+        private useOptimizedJSONBUpdates: boolean = false
     ) {
         this.eventProperties = event.properties!
 
@@ -250,7 +257,11 @@ export class PersonState {
         if (propertiesHandled) {
             return [person, Promise.resolve()]
         }
-        return await this.updatePersonProperties(person)
+        if (this.useOptimizedJSONBUpdates) {
+            return await this.updatePersonPropertiesOptimized(person)
+        } else {
+            return await this.updatePersonProperties(person)
+        }
     }
 
     /**
@@ -330,6 +341,28 @@ export class PersonState {
         return person
     }
 
+    private async updatePersonPropertiesOptimized(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
+        person.properties ||={}
+
+        const propertyUpdate = this.applyEventPropertyUpdatesOptimized(person.properties)
+
+        const otherUpdates: Partial<InternalPerson> = {}
+        if (this.updateIsIdentified && !person.is_identified) {
+            otherUpdates.is_identified = true
+        }
+
+        const hasPropertyChanges = propertyUpdate.hasChanges && (Object.keys(propertyUpdate.toSet).length > 0 || propertyUpdate.toUnset.length > 0)
+        const hasOtherChanges = Object.keys(otherUpdates).length > 0
+
+        if (hasPropertyChanges || hasOtherChanges) {
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonOptimizedForUpdate(person, propertyUpdate.toSet, propertyUpdate.toUnset, otherUpdates)
+            const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
+            return [updatedPerson, kafkaAck]
+        }
+
+        return [person, Promise.resolve()]
+    }
+
     private async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
@@ -381,6 +414,59 @@ export class PersonState {
             return false
         }
         return true
+    }
+
+
+    private applyEventPropertyUpdatesOptimized(personProperties: Properties): PropertyUpdates {
+        if (NO_PERSON_UPDATE_EVENTS.has(this.event.event)) {
+            return { toSet: {}, toUnset: [], hasChanges: false }
+        }
+
+        const properties: Properties = this.eventProperties['$set'] || {}
+        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
+        const unsetProps = this.eventProperties['$unset']
+        const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []
+
+        const toSet: Properties = {}
+        const toUnset: string[] = []
+        let hasChanges = false
+        const metricsKeys = new Set<string>()
+
+        Object.entries(propertiesOnce).forEach(([key, value]) => {
+            if (typeof personProperties[key] === 'undefined') {
+                toSet[key] = value
+                personProperties[key] = value
+                hasChanges = true
+                // NICKS TODO: wahts up with this?
+                metricsKeys.add(this.getMetricKey(key))
+            }
+        })
+
+        Object.entries(properties).forEach(([key, value]) => {
+            if (personProperties[key] !== value) {
+                toSet[key] = value
+                personProperties[key] = value
+                if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
+                    hasChanges = true
+                }
+                metricsKeys.add(this.getMetricKey(key))
+            }
+        })
+
+        unsetProperties.forEach((propertyKey) => {
+            if (propertyKey in personProperties) {
+                toUnset.push(propertyKey)
+                delete personProperties[propertyKey]
+                hasChanges = true
+                metricsKeys.add(this.getMetricKey(propertyKey))
+            }
+        })
+
+        // NICKS TODO: We have this already ?
+        metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
+
+        return { toSet, toUnset, hasChanges }
+
     }
 
     /**

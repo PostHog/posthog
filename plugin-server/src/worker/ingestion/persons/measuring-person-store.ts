@@ -243,6 +243,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         )
     }
 
+    async updatePersonOptimizedForUpdate(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient,
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        return this.updatePersonOptimized(person, update, tx, 'updatePersonOptimized', 'forUpdate')
+    }
+
     async updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
@@ -257,6 +265,23 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge')
+    }
+
+    private async updatePersonOptimized(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx: TransactionClient | undefined,
+        methodName: MethodName,
+        updateType: UpdateType
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        this.incrementCount(methodName)
+        this.clearCache()
+        this.incrementDatabaseOperation(methodName)
+        const start = performance.now()
+        const response = await this.db.updatePersonWithMergeOperator(person, propertiesToSet, propertiesToUnset, otherUpdates, tx, updateType)
+        this.recordUpdateLatency(updateType, (performance.now() - start) / 1000)
+        observeLatencyByVersion(person, start, methodName)
+        return response
     }
 
     private async updatePerson(
