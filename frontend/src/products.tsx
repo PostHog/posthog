@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -34,7 +34,6 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 
-import { PRODUCT_VISUAL_ORDER } from './lib/constants'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
 import {
     ActionType,
