@@ -297,9 +297,6 @@ const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> 
                     return mapping[key][fieldKey]
                 }
             } else {
-                if (fieldKey === 'dataFields') {
-                    console.log('using mapping for that part', defaultVal, key, fieldKey, mapping[fieldKey])
-                }
                 if (fieldKey in mapping && !mapping[fieldKey]['@template']) {
                     return mapping[fieldKey]
                 }
