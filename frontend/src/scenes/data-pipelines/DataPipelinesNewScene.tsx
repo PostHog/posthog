@@ -65,7 +65,12 @@ export function DataPipelinesNewScene(): JSX.Element {
         return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
     }
     if (kind === 'source') {
-        return <NewSourceWizardScene />
+        return (
+            <>
+                <HogFunctionTemplateList defaultFilters={{}} type="source_webhook" />
+                <NewSourceWizardScene />
+            </>
+        )
     }
 
     return <NotFound object="Data pipeline new options" />

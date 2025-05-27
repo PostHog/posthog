@@ -40,6 +40,7 @@ export function DataPipelinesSources(): JSX.Element {
                 ) : null}
 
                 <FlaggedFeature flag="cdp-hog-sources">
+                    <h2>Event sources</h2>
                     <HogFunctionList logicKey={logicKey} type="source_webhook" extraControls={<>{newButton}</>} />
                 </FlaggedFeature>
 

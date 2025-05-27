@@ -18,6 +18,7 @@ SubTemplateId = Literal[
 HogFunctionTemplateType = Literal[
     "destination",
     "internal_destination",
+    "source_webhook",
     "site_destination",
     "site_app",
     "transformation",
