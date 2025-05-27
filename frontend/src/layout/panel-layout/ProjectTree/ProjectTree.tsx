@@ -1,4 +1,12 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlus, IconX } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronDown,
+    IconChevronRight,
+    IconFolder,
+    IconFolderPlus,
+    IconPlus,
+    IconX,
+} from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -35,6 +43,9 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { FiltersDropdown, PanelLayoutPanel } from '../PanelLayoutPanel'
+import { DashboardsMenu } from './menus/DashboardsMenu'
+import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
+import { SessionReplayMenu } from './menus/SessionReplayMenu'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
@@ -141,38 +152,14 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
+        // using custom components so we wouldn't render them unless the menu is open
         const customItems =
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
-                <>
-                    {treeItemsNew
-                        .find(({ name }) => name === 'Insight')
-                        ?.children?.map((child) => (
-                            <MenuItem
-                                key={child.id}
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    const folder = item.record?.path
-                                    if (folder) {
-                                        setLastNewFolder(folder)
-                                    }
-                                    if (child.record?.href) {
-                                        router.actions.push(
-                                            typeof child.record.href === 'function'
-                                                ? child.record.href(child.record.ref)
-                                                : child.record.href
-                                        )
-                                    }
-                                }}
-                            >
-                                <ButtonPrimitive menuItem className="capitalize">
-                                    {child.icon}
-                                    New {child.name}
-                                </ButtonPrimitive>
-                            </MenuItem>
-                        ))}
-                    <MenuSeparator />
-                </>
+                <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
+                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
+                <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
             ) : null
 
         return (
@@ -551,7 +538,6 @@ export function ProjectTree({
                 }
                 return false
             }}
-            itemHasContextMenu={(item) => !item.id.startsWith('project-folder-empty/')}
             itemContextMenu={(item) => {
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
@@ -565,8 +551,12 @@ export function ProjectTree({
                 return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
             }}
             itemSideActionIcon={(item) => {
-                if (item.record?.protocol === 'products://' && item.name === 'Product analytics') {
-                    return <IconPlus className="text-tertiary" />
+                if (item.record?.protocol === 'products://') {
+                    if (item.name === 'Product analytics') {
+                        return <IconPlus className="text-tertiary" />
+                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
+                        return <IconChevronDown className="text-tertiary" />
+                    }
                 }
             }}
             emptySpaceContextMenu={() => {

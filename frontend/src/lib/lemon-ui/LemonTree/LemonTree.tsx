@@ -120,8 +120,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
-    /** Does the item have a context menu or side action? */
-    itemHasContextMenu?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The icon for the side action, defaults to ellipsis */
@@ -242,7 +240,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             isItemDraggable,
             isItemDroppable,
             depth = 0,
-            itemHasContextMenu,
             itemSideAction,
             itemSideActionIcon,
             isItemEditing,
@@ -381,7 +378,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-posinset={index + 1}
                             aria-selected={selectedId === item.id}
                             aria-disabled={!!item.disabledReason}
-                            aria-haspopup={itemHasContextMenu?.(item) ?? !!itemContextMenu?.(item)}
+                            aria-haspopup={!!itemContextMenu?.(item)}
                             aria-roledescription="tree item"
                             aria-label={ariaLabel}
                             tooltip={
@@ -598,7 +595,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             renderItem={renderItem}
                                             renderItemTooltip={renderItemTooltip}
                                             renderItemIcon={renderItemIcon}
-                                            itemHasContextMenu={itemHasContextMenu}
                                             itemSideAction={itemSideAction}
                                             itemSideActionIcon={itemSideActionIcon}
                                             depth={depth + 1}
@@ -663,7 +659,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             onSetExpandedItemIds,
             isItemDraggable,
             isItemDroppable,
-            itemHasContextMenu,
             itemSideAction,
             itemSideActionIcon,
             isItemEditing,
@@ -1361,7 +1356,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             }}
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
-                            itemHasContextMenu={itemHasContextMenu}
                             itemSideAction={itemSideAction}
                             itemSideActionIcon={itemSideActionIcon}
                             isItemEditing={isItemEditing}
