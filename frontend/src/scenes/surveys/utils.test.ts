@@ -4,7 +4,6 @@ import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance } fro
 
 import {
     calculateNpsBreakdown,
-    calculateNpsScore,
     createAnswerFilterHogQLExpression,
     sanitizeColor,
     sanitizeSurveyAppearance,
@@ -195,6 +194,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 0,
+                score: '0.0',
                 total: 0,
             })
         })
@@ -223,6 +223,7 @@ describe('survey utils', () => {
                 detractors: 7,
                 passives: 4,
                 promoters: 6,
+                score: '-5.9',
                 total: 17,
             })
         })
@@ -239,6 +240,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 0,
+                score: '0.0',
                 total: 0,
             })
         })
@@ -255,6 +257,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 10,
+                score: '100.0',
                 total: 10,
             })
         })
@@ -271,6 +274,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 10,
                 promoters: 0,
+                score: '0.0',
                 total: 10,
             })
         })
@@ -287,95 +291,9 @@ describe('survey utils', () => {
                 detractors: 14,
                 passives: 0,
                 promoters: 0,
+                score: '-100.0',
                 total: 14,
             })
-        })
-    })
-
-    describe('calculateNps', () => {
-        it('calculates NPS score correctly with mixed responses', () => {
-            const breakdown = {
-                total: 100,
-                promoters: 50, // 50%
-                passives: 30, // 30%
-                detractors: 20, // 20%
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = % promoters - % detractors
-            // NPS = 50% - 20% = 30
-            expect(result).toBe(30)
-        })
-
-        it('returns -100 when all respondents are detractors', () => {
-            const breakdown = {
-                total: 50,
-                promoters: 0,
-                passives: 0,
-                detractors: 50,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 0% - 100% = -100
-            expect(result).toBe(-100)
-        })
-
-        it('returns 100 when all respondents are promoters', () => {
-            const breakdown = {
-                total: 75,
-                promoters: 75,
-                passives: 0,
-                detractors: 0,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 100% - 0% = 100
-            expect(result).toBe(100)
-        })
-
-        it('returns 0 when promoters and detractors are equal', () => {
-            const breakdown = {
-                total: 100,
-                promoters: 40,
-                passives: 20,
-                detractors: 40,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 40% - 40% = 0
-            expect(result).toBe(0)
-        })
-
-        it('returns 0 when there are only passives', () => {
-            const breakdown = {
-                total: 30,
-                promoters: 0,
-                passives: 30,
-                detractors: 0,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 0% - 0% = 0
-            expect(result).toBe(0)
-        })
-
-        it('handles zero total responses', () => {
-            const breakdown = {
-                total: 0,
-                promoters: 0,
-                passives: 0,
-                detractors: 0,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // When no responses, return 0 instead of NaN
-            expect(result).toBe(0)
         })
     })
 })
