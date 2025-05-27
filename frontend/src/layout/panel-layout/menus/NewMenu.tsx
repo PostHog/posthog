@@ -73,7 +73,7 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            const folder = item.record?.path
+                                            const folder = item?.record?.path
                                             if (folder) {
                                                 setLastNewFolder(folder)
                                             }
