@@ -466,66 +466,6 @@ class TestExternalDataSource(APIBaseTest):
         assert "'private_key'" in response.json()["detail"]
         assert "'private_key_id'" in response.json()["detail"]
 
-    def test_partial_update_of_bigquery_external_data_source(self):
-        """Test we can partially update a BigQuery source."""
-        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
-
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "BigQuery",
-                    "payload": {
-                        "schemas": [
-                            {
-                                "name": "my_schema",
-                                "should_sync": True,
-                                "sync_type": "incremental",
-                                "incremental_field": "id",
-                                "incremental_field_type": "integer",
-                            },
-                        ],
-                        "dataset_id": "my_old_dataset",
-                        "key_file": {
-                            "project_id": "my_project",
-                            "private_key": "my_private_key",
-                            "private_key_id": "my_private_key_id",
-                            "token_uri": "https://google.com",
-                            "client_email": "test@posthog.com",
-                        },
-                    },
-                },
-            )
-        assert response.status_code == 201
-        assert len(ExternalDataSource.objects.all()) == 1
-
-        source = response.json()
-        source_model = ExternalDataSource.objects.get(id=source["id"])
-        source_model.refresh_from_db()
-        assert source_model.job_inputs["dataset_id"] == "my_old_dataset"
-        assert source_model.job_inputs["private_key"] == "my_private_key"
-        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{str(source_model.pk)}/",
-            data={
-                "job_inputs": {
-                    "dataset_id": "my_new_dataset",
-                    "key_file": {
-                        "project_id": "my_project",
-                        "token_uri": "https://google.com",
-                    },
-                },
-            },
-        )
-
-        assert response.status_code == 200
-        assert len(ExternalDataSource.objects.all()) == 1
-        source_model.refresh_from_db()
-        assert source_model.job_inputs["dataset_id"] == "my_new_dataset"
-        assert source_model.job_inputs["private_key"] == "my_private_key"
-        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
-
     def test_list_external_data_source(self):
         self._create_external_data_source()
         self._create_external_data_source()

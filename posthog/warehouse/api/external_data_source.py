@@ -794,14 +794,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         job_inputs = parse_bigquery_job_inputs(payload)
 
-        required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
-        have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
-
-        if not have_all_required:
-            included_inputs = {k for k, v in job_inputs.items() if v is not None}
-            missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
-            raise ValidationError(f"Missing required BigQuery inputs: {missing}")
-
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -1443,7 +1435,7 @@ def parse_bigquery_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
     using_temporary_dataset = temporary_dataset.get("enabled", False)
     temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
 
-    return {
+    job_inputs = {
         "dataset_id": dataset_id,
         "project_id": project_id,
         "private_key": private_key,
@@ -1453,3 +1445,13 @@ def parse_bigquery_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
         "using_temporary_dataset": using_temporary_dataset,
         "temporary_dataset_id": temporary_dataset_id,
     }
+
+    required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
+    have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
+
+    if not have_all_required:
+        included_inputs = {k for k, v in job_inputs.items() if v is not None}
+        missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
+        raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+
+    return job_inputs
