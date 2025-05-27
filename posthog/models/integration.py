@@ -13,7 +13,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
 
@@ -431,7 +430,35 @@ class OauthIntegration:
 
 
 class SlackIntegrationError(Exception):
+    """Base exception for Slack integration errors"""
+
     pass
+
+
+class SlackChannelNotFoundError(SlackIntegrationError):
+    """Raised when a channel is not found"""
+
+    pass
+
+
+class SlackAuthenticationError(SlackIntegrationError):
+    """Raised when there are authentication issues"""
+
+    pass
+
+
+class SlackRateLimitError(SlackIntegrationError):
+    """Raised when hitting Slack API rate limits"""
+
+    pass
+
+
+class SlackError(SlackIntegrationError):
+    """Raised for general Slack API errors"""
+
+    def __init__(self, message: str, response: dict | None = None):
+        super().__init__(message)
+        self.response = response or {}
 
 
 class SlackIntegration:
@@ -439,22 +466,35 @@ class SlackIntegration:
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "slack":
-            raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
+            raise SlackIntegrationError("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        try:
+            return WebClient(self.integration.sensitive_config["access_token"])
+        except KeyError:
+            logger.exception("slack_missing_access_token", integration_id=self.integration.id)
+            raise SlackAuthenticationError("Missing access token for Slack integration")
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
-        # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
-        # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
-        channels = public_channels + private_channels
+        try:
+            # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
+            # We load public and private channels separately as when mixed, the Slack API pagination is buggy
+            public_channels = self._list_channels_by_type("public_channel")
+            private_channels = self._list_channels_by_type(
+                "private_channel", should_include_private_channels, authed_user
+            )
+            channels = public_channels + private_channels
 
-        return sorted(channels, key=lambda x: x["name"])
+            return sorted(channels, key=lambda x: x["name"])
+        except SlackError as e:
+            logger.exception(
+                "slack_list_channels_failed", error=str(e), integration_id=self.integration.id, authed_user=authed_user
+            )
+            capture_exception(e)
+            raise
 
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
@@ -466,6 +506,7 @@ class SlackIntegration:
             isMember = authed_user in members_response["members"]
 
             if not isMember:
+                logger.info("slack_channel_access_denied", channel_id=channel_id, authed_user=authed_user)
                 return None
 
             isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
@@ -478,9 +519,12 @@ class SlackIntegration:
                 "is_ext_shared": channel["is_ext_shared"],
                 "is_private_without_access": isPrivateWithoutAccess,
             }
-        except SlackApiError as e:
+        except SlackError as e:
             if e.response["error"] == "channel_not_found":
+                logger.exception("slack_channel_not_found", channel_id=channel_id, authed_user=authed_user)
                 return None
+            logger.exception("slack_get_channel_failed", error=str(e), channel_id=channel_id, authed_user=authed_user)
+            capture_exception(e)
             raise
 
     def _list_channels_by_type(
@@ -493,72 +537,101 @@ class SlackIntegration:
         channels = []
         cursor = None
 
-        while max_page > 0:
-            max_page -= 1
-            if type == "public_channel":
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
-            else:
-                res = self.client.users_conversations(
-                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
-                )
+        try:
+            while max_page > 0:
+                max_page -= 1
+                if type == "public_channel":
+                    res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+                else:
+                    res = self.client.users_conversations(
+                        exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                    )
 
-                for channel in res["channels"]:
-                    if channel["is_private"] and not should_include_private_channels:
-                        channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
-                        channel["is_private_without_access"] = True
+                    for channel in res["channels"]:
+                        if channel["is_private"] and not should_include_private_channels:
+                            channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
+                            channel["is_private_without_access"] = True
 
-            channels.extend(res["channels"])
-            cursor = res["response_metadata"]["next_cursor"]
-            if not cursor:
-                break
+                channels.extend(res["channels"])
+                cursor = res["response_metadata"]["next_cursor"]
+                if not cursor:
+                    break
 
-        return channels
+            return channels
+        except SlackError as e:
+            if "ratelimited" in str(e).lower():
+                logger.exception("slack_rate_limit_hit", error=str(e), channel_type=type, authed_user=authed_user)
+                raise SlackRateLimitError("Slack API rate limit exceeded") from e
+            logger.exception(
+                "slack_list_channels_by_type_failed", error=str(e), channel_type=type, authed_user=authed_user
+            )
+            capture_exception(e)
+            raise
 
     @classmethod
     def validate_request(cls, request: Request):
         """
         Based on https://api.slack.com/authentication/verifying-requests-from-slack
         """
-        slack_config = cls.slack_config()
-        slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-        slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
-
-        if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
-            raise SlackIntegrationError("Invalid")
-
-        # Check the token is not older than 5mins
         try:
-            if time.time() - float(slack_time) > 300:
-                raise SlackIntegrationError("Expired")
-        except ValueError:
-            raise SlackIntegrationError("Invalid")
+            slack_config = cls.slack_config()
+            slack_signature = request.headers.get("X-SLACK-SIGNATURE")
+            slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
 
-        sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+            if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
+                logger.exception(
+                    "slack_request_validation_failed", reason="missing_required_headers", headers=dict(request.headers)
+                )
+                raise SlackAuthenticationError("Missing required Slack headers")
 
-        my_signature = (
-            "v0="
-            + hmac.new(
-                slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
-                sig_basestring.encode("utf-8"),
-                digestmod=hashlib.sha256,
-            ).hexdigest()
-        )
+            # Check the token is not older than 5mins
+            try:
+                if time.time() - float(slack_time) > 300:
+                    logger.exception("slack_request_validation_failed", reason="request_expired", timestamp=slack_time)
+                    raise SlackAuthenticationError("Request expired")
+            except ValueError:
+                logger.exception("slack_request_validation_failed", reason="invalid_timestamp", timestamp=slack_time)
+                raise SlackAuthenticationError("Invalid timestamp")
 
-        if not hmac.compare_digest(my_signature, slack_signature):
-            raise SlackIntegrationError("Invalid")
+            sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+
+            my_signature = (
+                "v0="
+                + hmac.new(
+                    slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
+                    sig_basestring.encode("utf-8"),
+                    digestmod=hashlib.sha256,
+                ).hexdigest()
+            )
+
+            if not hmac.compare_digest(my_signature, slack_signature):
+                logger.exception(
+                    "slack_request_validation_failed", reason="signature_mismatch", received_signature=slack_signature
+                )
+                raise SlackAuthenticationError("Invalid signature")
+        except Exception as e:
+            if not isinstance(e, SlackIntegrationError):
+                logger.exception("slack_request_validation_failed", error=str(e), headers=dict(request.headers))
+                capture_exception(e)
+                raise SlackAuthenticationError("Failed to validate Slack request") from e
+            raise
 
     @classmethod
     @cache_for(timedelta(minutes=5))
     def slack_config(cls):
-        config = get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
-
-        return config
+        try:
+            config = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
+            return config
+        except Exception as e:
+            logger.exception("slack_config_fetch_failed", error=str(e))
+            capture_exception(e)
+            raise SlackIntegrationError("Failed to fetch Slack configuration") from e
 
 
 class GoogleAdsIntegration:

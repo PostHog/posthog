@@ -5436,3 +5436,9 @@ export type LinkType = {
     updated_at: string
     _create_in_folder?: string | null
 }
+
+export type SlackErrorType = {
+    type: 'auth' | 'rate_limit' | 'api' | 'config' | 'unknown'
+    message: string
+    details?: any
+}

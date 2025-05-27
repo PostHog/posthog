@@ -47,8 +47,14 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackChannelByIdLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
+        hasError,
+        errorMessage,
+        isAuthError,
+        isRateLimitError,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, clearError } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
@@ -87,15 +93,24 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     return (
         <>
             <LemonInputSelect
-                onChange={(val) => onChange?.(val[0] ?? null)}
+                onChange={(val) => {
+                    clearError()
+                    onChange?.(val[0] ?? null)
+                }}
                 onInputChange={(val) => {
                     if (val) {
+                        clearError()
                         loadSlackChannelById(val)
                         setLocalValue(val)
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
-                onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
+                onFocus={() => {
+                    if (!slackChannels.length && !allSlackChannelsLoading) {
+                        clearError()
+                        loadAllSlackChannels()
+                    }
+                }}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-slack-channel"
@@ -122,7 +137,29 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
 
-            {showSlackMembershipWarning ? (
+            {hasError && (
+                <LemonBanner type={isAuthError ? 'error' : isRateLimitError ? 'warning' : 'error'} className="mt-2">
+                    <div className="flex gap-2 items-center">
+                        <span>{errorMessage}</span>
+                        {isAuthError && (
+                            <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
+                                Reconnect Slack
+                            </Link>
+                        )}
+                        {isRateLimitError && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={loadAllSlackChannels}
+                                loading={allSlackChannelsLoading}
+                            >
+                                Try again
+                            </LemonButton>
+                        )}
+                    </div>
+                </LemonBanner>
+            )}
+
+            {showSlackMembershipWarning && !hasError ? (
                 <LemonBanner type="info">
                     <div className="flex gap-2 items-center">
                         <span>
@@ -137,7 +174,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         </LemonButton>
                     </div>
                 </LemonBanner>
-            ) : isPrivateChannelWithoutAccess(value ?? '') ? (
+            ) : isPrivateChannelWithoutAccess(value ?? '') && !hasError ? (
                 <LemonBanner type="info">
                     This is a private Slack channel. Ask{' '}
                     <ProfilePicture user={integration.created_by} showName size="sm" /> or connect your own Slack

@@ -7,6 +7,12 @@ import { SlackChannelType } from '~/types'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
+export type SlackErrorType = {
+    type: 'auth' | 'rate_limit' | 'api' | 'config' | 'unknown'
+    message: string
+    details?: any
+}
+
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
@@ -17,6 +23,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     actions({
         loadAllSlackChannels: () => ({}),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
+        clearError: () => ({}),
     }),
 
     loaders(({ props }) => ({
@@ -24,8 +31,13 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as SlackChannelType[] | null,
             {
                 loadAllSlackChannels: async () => {
-                    const res = await api.integrations.slackChannels(props.id)
-                    return res.channels
+                    try {
+                        const res = await api.integrations.slackChannels(props.id)
+                        return res.channels
+                    } catch (error: any) {
+                        const errorType = determineErrorType(error)
+                        throw errorType
+                    }
                 },
             },
         ],
@@ -33,9 +45,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as SlackChannelType | null,
             {
                 loadSlackChannelById: async ({ channelId }, breakpoint) => {
-                    await breakpoint(500)
-                    const res = await api.integrations.slackChannelsById(props.id, channelId)
-                    return res.channels[0] || null
+                    try {
+                        await breakpoint(500)
+                        const res = await api.integrations.slackChannelsById(props.id, channelId)
+                        return res.channels[0] || null
+                    } catch (error: any) {
+                        const errorType = determineErrorType(error)
+                        throw errorType
+                    }
                 },
             },
         ],
@@ -52,6 +69,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as SlackChannelType | null,
             {
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
+            },
+        ],
+        error: [
+            null as SlackErrorType | null,
+            {
+                loadAllSlackChannelsFailure: (_, { error }) => error as unknown as SlackErrorType,
+                loadSlackChannelByIdFailure: (_, { error }) => error as unknown as SlackErrorType,
+                clearError: () => null,
             },
         ],
     }),
@@ -85,5 +110,38 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 }
             },
         ],
+        hasError: [(s) => [s.error], (error) => error !== null],
+        errorMessage: [(s) => [s.error], (error) => error?.message ?? ''],
+        isAuthError: [(s) => [s.error], (error) => error?.type === 'auth'],
+        isRateLimitError: [(s) => [s.error], (error) => error?.type === 'rate_limit'],
     }),
 ])
+
+function determineErrorType(error: any): SlackErrorType {
+    if (error?.response?.status === 401 || error?.response?.status === 403) {
+        return {
+            type: 'auth',
+            message: 'Authentication failed. Please reconnect your Slack integration.',
+            details: error.response?.data,
+        }
+    }
+    if (error?.response?.status === 429 || error?.message?.toLowerCase().includes('rate limit')) {
+        return {
+            type: 'rate_limit',
+            message: 'Slack API rate limit exceeded. Please try again in a few minutes.',
+            details: error.response?.data,
+        }
+    }
+    if (error?.response?.data?.error) {
+        return {
+            type: 'api',
+            message: error.response.data.error,
+            details: error.response.data,
+        }
+    }
+    return {
+        type: 'unknown',
+        message: 'An unexpected error occurred while communicating with Slack.',
+        details: error,
+    }
+}

@@ -8,6 +8,8 @@ from posthog.models.integration import EmailIntegration, SlackIntegration, PRIVA
 from posthog.models.user import User
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.integration import SlackError, SlackRateLimitError, SlackAuthenticationError, SlackIntegrationError
+import time
 
 
 class TestSlackIntegration:
@@ -202,6 +204,125 @@ class TestSlackIntegration:
         assert channel["name"] == "general"
         assert not channel["is_private"]
         assert not channel["is_private_without_access"]
+
+    @patch("posthog.models.integration.WebClient")
+    def test_get_channel_by_id_not_found(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.conversations_info.side_effect = SlackError("channel_not_found", {"error": "channel_not_found"})
+
+        slack = SlackIntegration(self.integration)
+        channel = slack.get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is None
+        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
+        mock_client.conversations_members.assert_not_called()
+
+    @patch("posthog.models.integration.WebClient")
+    def test_get_channel_by_id_api_error(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.conversations_info.side_effect = SlackError("internal_error", {"error": "internal_error"})
+
+        slack = SlackIntegration(self.integration)
+        with pytest.raises(SlackError) as exc_info:
+            slack.get_channel_by_id("C123", True, "test_user_id")
+
+        assert str(exc_info.value) == "internal_error"
+        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
+        mock_client.conversations_members.assert_not_called()
+
+    @patch("posthog.models.integration.WebClient")
+    def test_list_channels_rate_limit(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.conversations_list.side_effect = SlackError("ratelimited", {"error": "ratelimited"})
+
+        slack = SlackIntegration(self.integration)
+        with pytest.raises(SlackRateLimitError) as exc_info:
+            slack.list_channels(True, "test_user_id")
+
+        assert "rate limit exceeded" in str(exc_info.value).lower()
+        mock_client.conversations_list.assert_called_once()
+
+    def test_missing_access_token(self):
+        self.integration.sensitive_config = {}
+        self.integration.save()
+
+        slack = SlackIntegration(self.integration)
+        with pytest.raises(SlackAuthenticationError) as exc_info:
+            _ = slack.client
+
+        assert "missing access token" in str(exc_info.value).lower()
+
+    @patch("posthog.models.integration.get_instance_settings")
+    def test_validate_request_missing_headers(self, mock_get_settings):
+        mock_get_settings.return_value = {
+            "SLACK_APP_CLIENT_ID": "test",
+            "SLACK_APP_CLIENT_SECRET": "test",
+            "SLACK_APP_SIGNING_SECRET": "test",
+        }
+
+        request = MagicMock()
+        request.headers = {}
+        request.body = b"test"
+
+        with pytest.raises(SlackAuthenticationError) as exc_info:
+            SlackIntegration.validate_request(request)
+
+        assert "missing required slack headers" in str(exc_info.value).lower()
+
+    @patch("posthog.models.integration.get_instance_settings")
+    def test_validate_request_expired(self, mock_get_settings):
+        mock_get_settings.return_value = {
+            "SLACK_APP_CLIENT_ID": "test",
+            "SLACK_APP_CLIENT_SECRET": "test",
+            "SLACK_APP_SIGNING_SECRET": "test",
+        }
+
+        request = MagicMock()
+        request.headers = {
+            "X-SLACK-SIGNATURE": "test",
+            "X-SLACK-REQUEST-TIMESTAMP": str(int(time.time()) - 301),
+        }
+        request.body = b"test"
+
+        with pytest.raises(SlackAuthenticationError) as exc_info:
+            SlackIntegration.validate_request(request)
+
+        assert "request expired" in str(exc_info.value).lower()
+
+    @patch("posthog.models.integration.get_instance_settings")
+    def test_validate_request_invalid_signature(self, mock_get_settings):
+        mock_get_settings.return_value = {
+            "SLACK_APP_CLIENT_ID": "test",
+            "SLACK_APP_CLIENT_SECRET": "test",
+            "SLACK_APP_SIGNING_SECRET": "test",
+        }
+
+        request = MagicMock()
+        request.headers = {
+            "X-SLACK-SIGNATURE": "invalid",
+            "X-SLACK-REQUEST-TIMESTAMP": str(int(time.time())),
+        }
+        request.body = b"test"
+
+        with pytest.raises(SlackAuthenticationError) as exc_info:
+            SlackIntegration.validate_request(request)
+
+        assert "invalid signature" in str(exc_info.value).lower()
+
+    @patch("posthog.models.integration.get_instance_settings")
+    def test_slack_config_fetch_failed(self, mock_get_settings):
+        mock_get_settings.side_effect = Exception("Config fetch failed")
+
+        with pytest.raises(SlackIntegrationError) as exc_info:
+            SlackIntegration.slack_config()
+
+        assert "failed to fetch slack configuration" in str(exc_info.value).lower()
 
 
 class TestEmailIntegration:
