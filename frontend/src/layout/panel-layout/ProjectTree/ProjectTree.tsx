@@ -694,7 +694,7 @@ export function ProjectTree({
                             </span>
                         )}
 
-                        {root === 'products://' && item.tags?.length && (
+                        {item.record?.protocol === 'products://' && item.tags?.length && (
                             <>
                                 {item.tags?.map((tag) => (
                                     <LemonTag
