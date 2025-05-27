@@ -255,7 +255,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                 job_inputs["ssh-tunnel"] = ssh_tunnel
 
             # Reconstruct BigQuery structure for UI handling
-            if job_inputs.get("using_temporary_dataset") == "True":  # encyrpted as string
+            if job_inputs.get("using_temporary_dataset") == "True":  # encrypted as string
                 job_inputs["temporary-dataset"] = {
                     "enabled": True,
                     "temporary_dataset_id": job_inputs.pop("temporary_dataset_id", None),
