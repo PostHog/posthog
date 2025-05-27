@@ -38,12 +38,12 @@ from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 @config.config
 class MySQLSourceConfig(config.Config):
     host: str
-    port: int
     user: str
     password: str
     database: str
     schema: str
     using_ssl: bool = True
+    port: int = config.value(converter=int)
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
