@@ -10,6 +10,20 @@ if TYPE_CHECKING:
 SUPPORTED_PROPERTIES = {
     "$host": "host",
     "$device_type": "device_type",
+    "$pathname": "entry_pathname",  # We conver the pathname to entry_pathname
+    "$entry_pathname": "entry_pathname",
+    "$end_pathname": "end_pathname",
+    "$browser": "browser",
+    "$os": "os",
+    "$referring_domain": "referring_domain",
+    "$entry_utm_source": "utm_source",
+    "$entry_utm_medium": "utm_medium",
+    "$entry_utm_campaign": "utm_campaign",
+    "$entry_utm_term": "utm_term",
+    "$entry_utm_content": "utm_content",
+    "$geoip_country_code": "country_code",
+    "$geoip_city_name": "city_name",
+    "$geoip_subdivision_1_code": "region_code",
 }
 
 
@@ -43,17 +57,17 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
             {safe_avg_sessions("total_session_duration", current_period_filter)} AS avg_session_duration,
             {safe_avg_sessions("total_session_duration", previous_period_filter)} AS previous_avg_session_duration,
 
-            {safe_avg_sessions("total_bounces", current_period_filter)} AS bounce_rate,
-            {safe_avg_sessions("total_bounces", previous_period_filter)} AS previous_bounce_rate,
+            {safe_avg_sessions("bounces_count", current_period_filter)} AS bounce_rate,
+            {safe_avg_sessions("bounces_count", previous_period_filter)} AS previous_bounce_rate,
 
             NULL AS revenue,
             NULL AS previous_revenue
-        FROM web_overview_daily
+        FROM web_bounces_daily
         """
 
         query = cast(ast.SelectQuery, parse_select(query_str))
 
-        filters = self._get_filters(table_name="web_overview_daily")
+        filters = self._get_filters(table_name="web_bounces_daily")
         if filters:
             query.where = filters
 
