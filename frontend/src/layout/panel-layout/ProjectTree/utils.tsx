@@ -273,7 +273,8 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
     }
-    if (root !== 'products://') {
+
+    if (root !== 'products://' && root !== 'persons://') {
         sortNodes(rootNodes)
     }
 
