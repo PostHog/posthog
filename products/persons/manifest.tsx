@@ -1,6 +1,3 @@
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
-import { urls } from 'scenes/urls'
-
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -13,12 +10,5 @@ export const manifest: ProductManifest = {
         persons: (): string => '/persons',
     },
     fileSystemTypes: {},
-    treeItemsProducts: [
-        {
-            path: 'Persons',
-            iconType: 'cohort',
-            href: urls.persons(),
-            visualOrder: PRODUCT_VISUAL_ORDER.persons,
-        },
-    ],
+    treeItemsProducts: [],
 }

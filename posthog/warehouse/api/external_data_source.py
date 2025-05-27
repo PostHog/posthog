@@ -939,7 +939,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             api_key = request.data.get("api_key", "")
             email_address = request.data.get("email_address", "")
 
-            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
             if not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,

@@ -93,12 +93,14 @@ export const manifest: ProductManifest = {
             href: urls.messagingBroadcasts(),
             type: 'hog_function/broadcast',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            tags: ['alpha'],
         },
         {
             path: 'Campaigns',
             href: urls.messagingCampaigns(),
             type: 'hog_function/campaign',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            tags: ['alpha'],
         },
     ],
     fileSystemFilterTypes: {

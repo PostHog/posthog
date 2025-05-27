@@ -8,10 +8,10 @@ export type PanelLayoutNavIdentifier =
     | 'Project'
     | 'Recent'
     | 'Products'
+    | 'Persons'
     | 'Games'
     | 'Shortcuts'
     | 'Data management'
-    | 'New'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
