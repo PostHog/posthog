@@ -161,7 +161,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                             root="project://"
                             sortMethod="recent"
                             logicKey={PROJECT_TREE_KEY}
-                            searchPlaceholder="Search recent items"
+                            searchPlaceholder="Search by user, type, or name"
                         />
                     )}
                     {activePanelIdentifier === 'Products' && (
