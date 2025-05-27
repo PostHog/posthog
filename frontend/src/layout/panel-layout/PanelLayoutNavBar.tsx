@@ -10,6 +10,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPineapple,
+    IconPlus,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -291,22 +292,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
               ]
             : []),
         {
-            identifier: 'PersonsManagement',
-            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            identifier: 'Persons',
+            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? 'Persons' : 'Persons and groups',
             icon: <IconPeople />,
-            to: urls.persons(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.persons(), true)
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Persons')
+                }
             },
-            tooltip: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close persons' : 'Open persons',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -319,6 +314,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             tooltip: 'Activity',
             tooltipDocLink: 'https://posthog.com/docs/data/events',
+        },
+        {
+            identifier: 'New',
+            id: 'New',
+            icon: <IconPlus />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('New')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'New' ? 'Close new' : 'Open new',
         },
     ]
 

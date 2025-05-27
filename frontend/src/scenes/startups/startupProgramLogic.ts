@@ -41,6 +41,7 @@ export const RAISED_OPTIONS = [
 
 export const YC_BATCH_OPTIONS = [
     { label: 'Select your batch', value: '' },
+    { label: 'Summer 2025', value: 'Summer 2025' },
     { label: 'Spring 2025', value: 'Spring 2025' },
     { label: 'Winter 2025', value: 'Winter 2025' },
     { label: 'Fall 2024', value: 'Fall 2024' },
