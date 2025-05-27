@@ -893,6 +893,15 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class FirstEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    properties: str
+    timestamp: str
+    uuid: str
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -908,7 +917,6 @@ class ErrorTrackingIssueAggregations(BaseModel):
     occurrences: float
     sessions: float
     users: float
-    volumeDay: list[float]
     volumeRange: list[float]
 
 
@@ -1075,6 +1083,11 @@ class FileSystemCount(BaseModel):
     count: float
 
 
+class Tag(StrEnum):
+    ALPHA = "alpha"
+    BETA = "beta"
+
+
 class FileSystemEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1091,6 +1104,7 @@ class FileSystemEntry(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
@@ -1114,9 +1128,11 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
 class FilterLogicalOperator(StrEnum):
@@ -5659,10 +5675,10 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregations: ErrorTrackingIssueAggregations
+    aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
-    earliest: Optional[str] = None
+    first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str
     last_seen: datetime
@@ -9244,6 +9260,8 @@ class ErrorTrackingQuery(BaseModel):
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
     volumeResolution: int
+    withAggregations: Optional[bool] = None
+    withFirstEvent: Optional[bool] = None
 
 
 class ExperimentFunnelMetric(BaseModel):

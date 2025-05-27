@@ -59,6 +59,7 @@ export function formatUrlAsName(url: string, defaultName = 'Pinned'): string {
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
     const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
     const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+
     if (parentA === parentB) {
         if (a.type === 'folder' && b.type !== 'folder') {
             return -1
@@ -107,6 +108,7 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
+            tags: item.tags,
         }
         if (item && disabledReason?.(item)) {
             node.disabledReason = disabledReason(item)
@@ -272,7 +274,11 @@ export function convertFileSystemEntryToTreeDataItem({
             }
         }
     }
-    sortNodes(rootNodes)
+
+    if (root !== 'products://' && root !== 'persons://') {
+        sortNodes(rootNodes)
+    }
+
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
             folderNode.children.push({

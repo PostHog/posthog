@@ -7905,8 +7905,21 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "earliest": {
-                    "type": "string"
+                "first_event": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "properties": {
+                            "type": "string"
+                        },
+                        "timestamp": {
+                            "type": "string"
+                        },
+                        "uuid": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["uuid", "timestamp", "properties"],
+                    "type": "object"
                 },
                 "first_seen": {
                     "format": "date-time",
@@ -7930,17 +7943,7 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "aggregations",
-                "assignee",
-                "description",
-                "first_seen",
-                "id",
-                "last_seen",
-                "library",
-                "name",
-                "status"
-            ],
+            "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -7955,12 +7958,6 @@
                 "users": {
                     "type": "number"
                 },
-                "volumeDay": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
                 "volumeRange": {
                     "items": {
                         "type": "number"
@@ -7968,7 +7965,7 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeRange"],
+            "required": ["occurrences", "sessions", "users", "volumeRange"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -8074,6 +8071,12 @@
                 },
                 "volumeResolution": {
                     "$ref": "#/definitions/integer"
+                },
+                "withAggregations": {
+                    "type": "boolean"
+                },
+                "withFirstEvent": {
+                    "type": "boolean"
                 }
             },
             "required": ["dateRange", "kind", "volumeResolution"],
@@ -9528,6 +9531,14 @@
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
                 },
+                "tags": {
+                    "description": "Tag for the product 'beta' / 'alpha'",
+                    "items": {
+                        "enum": ["alpha", "beta"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
@@ -9576,9 +9587,21 @@
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
                 },
+                "tags": {
+                    "description": "Tag for the product 'beta' / 'alpha'",
+                    "items": {
+                        "enum": ["alpha", "beta"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "visualOrder": {
+                    "description": "Order of object in tree",
+                    "type": "number"
                 }
             },
             "required": ["path"],

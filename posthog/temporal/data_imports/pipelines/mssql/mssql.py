@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import collections
 import math
+import typing
 from collections.abc import Iterator
 from typing import Any
 
 import pyarrow as pa
-import pymssql
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from pymssql import Cursor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -32,15 +31,18 @@ from posthog.temporal.data_imports.pipelines.sql_database.settings import (
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
+if typing.TYPE_CHECKING:
+    from pymssql import Cursor
+
 
 @config.config
 class MSSQLSourceConfig(config.Config):
     host: str
-    port: int
     user: str
     password: str
     database: str
     schema: str
+    port: int = config.value(converter=int)
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -466,6 +468,8 @@ def mssql_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
+    import pymssql
+
     table_name = table_names[0]
     if not table_name:
         raise ValueError("Table name is missing")
