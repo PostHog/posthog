@@ -12,7 +12,7 @@ import { getDomain } from 'tldts'
 
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { CookielessServerHashMode, Hub, PipelineEvent, PluginsServerConfig, Team } from '../../types'
+import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { now } from '../../utils/now'
@@ -525,60 +525,9 @@ export class CookielessManager {
             return newEvent
         }
     }
-}
 
-type IncomingEventWithTeam = { message: Message; event: PipelineEvent; team: Team }
-type EventWithStatus = {
-    message: Message
-    event: PipelineEvent
-    team: Team
-    // Store temporary processing state. Nest the passes to make type-checking easier
-    firstPass?: {
-        timestampMs: number
-        eventTimeZone: string | undefined
-        ip: string
-        host: string
-        userAgent: string
-        hashExtra: string | undefined
-        baseHash: Buffer
-        secondPass?: {
-            identifiesRedisKey: string
-            thirdPass?: {
-                distinctId: string
-                sessionRedisKey: string
-            }
-        }
-    }
-}
-
-interface IdentifiesCacheState {
-    identifyEventIds: Set<string>
-    isDirty: boolean
-}
-
-interface SessionCacheState {
-    session: SessionState
-    isDirty: boolean
-}
-
-export class CookielessStateForBatch {
-    private readonly hub: Hub
-
-    // cache the result of running the hash function to avoid using more CPU than needed
-    private readonly hashCache: Record<string, Buffer> = {}
-
-    // cache the identifies for each original hash
-    private readonly identifiesCache: Record<string, IdentifiesCacheState> = {}
-
-    // cache the session state
-    private readonly sessionCache: Record<string, SessionCacheState> = {}
-
-    constructor(hub: Hub) {
-        this.hub = hub
-    }
-
-    async doBatch(events: IncomingEventWithTeam[]): Promise<EventWithStatus[]> {
-        if (this.hub.cookielessManager.config.disabled) {
+    async doBatch(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
+        if (this.config.disabled) {
             // cookieless is globally disabled, don't any processing just drop all cookieless events
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
         }
@@ -601,7 +550,9 @@ export class CookielessStateForBatch {
         }
     }
 
-    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<EventWithStatus[]> {
+    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
+        const hashCache: Record<string, Buffer> = {}
+
         // do a first pass just to extract properties and compute the bash hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
         for (const { event, team, message } of events) {
@@ -660,7 +611,7 @@ export class CookielessStateForBatch {
                 continue
             }
 
-            const baseHash = await this.hub.cookielessManager.doHashForDay({
+            const baseHash = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone: team.timezone,
@@ -669,7 +620,7 @@ export class CookielessStateForBatch {
                 host,
                 userAgent,
                 hashExtra,
-                hashCache: this.hashCache,
+                hashCache,
             })
 
             eventsWithStatus.push({
@@ -693,7 +644,8 @@ export class CookielessStateForBatch {
             return eventsWithStatus
         }
 
-        // Do a second pass to see what `identifiesRedisKey`s we need to load from redis.
+        // Do a second pass to see what `identifiesRedisKey`s we need to load from redis for stateful events.
+        // Fully process stateless events.
         const identifiesKeys = new Set<string>()
         for (const eventWithProcessing of eventsWithStatus) {
             const { team, firstPass } = eventWithProcessing
@@ -701,22 +653,44 @@ export class CookielessStateForBatch {
                 continue
             }
 
-            const identifiesRedisKey = getRedisIdentifiesKey(firstPass.baseHash, team.id)
-            identifiesKeys.add(identifiesRedisKey)
-            firstPass.secondPass = { identifiesRedisKey }
+            if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateful) {
+                const identifiesRedisKey = getRedisIdentifiesKey(firstPass.baseHash, team.id)
+                identifiesKeys.add(identifiesRedisKey)
+                firstPass.secondPass = { identifiesRedisKey }
+            } else {
+                const { baseHash, timestampMs, eventTimeZone } = firstPass
+                const distinctId = hashToDistinctId(baseHash)
+                const deviceId = baseHashToDeviceId(baseHash)
+                const sessionId = createStatelessSessionId(timestampMs, eventTimeZone, team.timezone, baseHash)
+                const newProperties: Properties = {
+                    ...eventWithProcessing.event.properties,
+                    $distinct_id: distinctId,
+                    $device_id: deviceId,
+                    $session_id: sessionId,
+                }
+                eventWithProcessing.event = {
+                    ...eventWithProcessing.event,
+                    distinct_id: distinctId,
+                    properties: newProperties,
+                }
+                // the event is fully processed, no need to add create secondPass object
+            }
         }
 
         // Fetch the identifies from redis and populate our in-memory cache
-        const identifiesResult = await this.hub.cookielessManager.redisHelpers.redisSMembersMulti(
+        const identifiesResult = await this.redisHelpers.redisSMembersMulti(
             Array.from(identifiesKeys.values()),
-            'CookielessStateForBatch.prefetchIdentifies'
+            'CookielessManagerBatch.prefetchIdentifies'
         )
-        for (const [key, value] of identifiesResult) {
-            this.identifiesCache[key] = {
-                identifyEventIds: new Set(value ?? []),
-                isDirty: false,
-            }
-        }
+        const identifiesCache: Record<string, IdentifiesCacheState> = Object.fromEntries(
+            identifiesResult.map(([key, value]) => [
+                key,
+                {
+                    identifyEventIds: new Set(value ?? []),
+                    isDirty: false,
+                },
+            ])
+        )
 
         // Do a third pass to set the distinct and device ID, and find the `sessionRedisKey`s we need to load from redis
         const sessionKeys = new Set<string>()
@@ -728,7 +702,7 @@ export class CookielessStateForBatch {
             const { timestampMs, eventTimeZone, ip, host, userAgent, hashExtra, secondPass } = firstPass
             const { identifiesRedisKey } = secondPass
 
-            const identifiesCacheItem = this.identifiesCache[identifiesRedisKey]
+            const identifiesCacheItem = identifiesCache[identifiesRedisKey]
 
             let n: number
             if (event.event === '$identify') {
@@ -745,7 +719,7 @@ export class CookielessStateForBatch {
                 n = identifiesCacheItem.identifyEventIds.size
             }
 
-            const hashValue = await this.hub.cookielessManager.doHashForDay({
+            const hashValue = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone: team.timezone,
@@ -766,13 +740,14 @@ export class CookielessStateForBatch {
         }
 
         // Load the session state from redis
-        const sessionResult = await this.hub.cookielessManager.redisHelpers.redisMGetBuffer(
+        const sessionResult = await this.redisHelpers.redisMGetBuffer(
             Array.from(sessionKeys.values()),
-            'CookielessStateForBatch.prefetchSessions'
+            'CookielessManagerBatch.prefetchSessions'
         )
+        const sessionCache: Record<string, SessionCacheState> = {}
         for (const [key, value] of sessionResult) {
             if (value) {
-                this.sessionCache[key] = {
+                sessionCache[key] = {
                     session: bufferToSessionState(value),
                     isDirty: false,
                 }
@@ -787,9 +762,9 @@ export class CookielessStateForBatch {
             }
             const { timestampMs, baseHash } = firstPass
             const { sessionRedisKey, distinctId } = firstPass.secondPass.thirdPass
-            const config = this.hub.cookielessManager.config
+            const config = this.config
 
-            let sessionCacheItem = this.sessionCache[sessionRedisKey]
+            let sessionCacheItem = sessionCache[sessionRedisKey]
             let sessionId: UUID7
             if (
                 !sessionCacheItem ||
@@ -797,7 +772,7 @@ export class CookielessStateForBatch {
             ) {
                 // If the session didn't exist, or has expired, create a new session
                 sessionId = new UUID7(timestampMs)
-                sessionCacheItem = this.sessionCache[sessionRedisKey] = {
+                sessionCacheItem = sessionCache[sessionRedisKey] = {
                     session: { sessionId: sessionId, lastActivityTimestamp: timestampMs },
                     isDirty: true,
                 }
@@ -829,33 +804,35 @@ export class CookielessStateForBatch {
         }
 
         // write identifies to redis
-        const dirtyIdentifies = Object.entries(this.identifiesCache)
+        const dirtyIdentifies = Object.entries(identifiesCache)
             .filter(([, value]) => value.isDirty)
             .map(([key, value]): [string, string[]] => {
                 return [key, Array.from(value.identifyEventIds)]
             })
         if (dirtyIdentifies.length > 0) {
-            await this.hub.cookielessManager.redisHelpers.redisSAddMulti(
+            await this.redisHelpers.redisSAddMulti(
                 dirtyIdentifies,
-                'CookielessStateForBatch.identifiesCacheWrite',
-                this.hub.cookielessManager.config.identifiesTtlSeconds
+                'CookielessManagerBatch.identifiesCacheWrite',
+                this.config.identifiesTtlSeconds
             )
         }
 
         // write the session state to redis
-        const dirtySessions = Object.entries(this.sessionCache)
+        const dirtySessions = Object.entries(sessionCache)
             .filter(([, value]) => value.isDirty)
             .map(([key, value]): [string, Buffer] => {
                 return [key, sessionStateToBuffer(value.session)]
             })
         if (dirtySessions.length > 0) {
-            await this.hub.cookielessManager.redisHelpers.redisSetBufferMulti(
+            await this.redisHelpers.redisSetBufferMulti(
                 dirtySessions,
-                'CookielessStateForBatch.sessionCacheWrite',
-                this.hub.cookielessManager.config.sessionTtlSeconds
+                'CookielessManagerBatch.sessionCacheWrite',
+                this.config.sessionTtlSeconds
             )
         }
-        return eventsWithStatus
+
+        // remove the extra processing state from the returned object
+        return eventsWithStatus.map(({ event, team, message }) => ({ event, team, message }))
     }
 
     dropAllCookielessEvents(events: IncomingEventWithTeam[], dropCause: string): IncomingEventWithTeam[] {
@@ -874,6 +851,39 @@ export class CookielessStateForBatch {
         }
         return nonCookielessEvents
     }
+}
+
+type EventWithStatus = {
+    message: Message
+    event: PipelineEvent
+    team: Team
+    // Store temporary processing state. Nest the passes to make type-checking easier
+    firstPass?: {
+        timestampMs: number
+        eventTimeZone: string | undefined
+        ip: string
+        host: string
+        userAgent: string
+        hashExtra: string | undefined
+        baseHash: Buffer
+        secondPass?: {
+            identifiesRedisKey: string
+            thirdPass?: {
+                distinctId: string
+                sessionRedisKey: string
+            }
+        }
+    }
+}
+
+interface IdentifiesCacheState {
+    identifyEventIds: Set<string>
+    isDirty: boolean
+}
+
+interface SessionCacheState {
+    session: SessionState
+    isDirty: boolean
 }
 
 function getProperties(

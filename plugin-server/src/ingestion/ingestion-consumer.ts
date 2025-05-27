@@ -2,8 +2,6 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { CookielessStateForBatch } from '~/src/ingestion/cookieless/cookieless-manager'
-
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -263,8 +261,7 @@ export class IngestionConsumer {
             return this.resolveTeams(parsedMessages)
         })
 
-        const cookielessStateForBatch = new CookielessStateForBatch(this.hub)
-        const postCookielessMessages = await cookielessStateForBatch.doBatch(eventsWithTeams)
+        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
 
         const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
 
