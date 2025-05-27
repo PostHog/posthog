@@ -10,7 +10,9 @@ from django.conf import settings
 from pyarrow import fs
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
-from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
+
+if typing.TYPE_CHECKING:
+    from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
