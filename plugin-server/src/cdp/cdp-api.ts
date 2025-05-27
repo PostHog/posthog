@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import express, { response } from 'express'
+import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
