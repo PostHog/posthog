@@ -28,6 +28,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DataTableNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -118,6 +119,7 @@ export enum TileId {
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
     MARKETING = 'MARKETING',
+    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
 }
 
 export enum ProductTab {
@@ -173,6 +175,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
     [TileId.MARKETING]: 16,
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 17,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -1288,10 +1291,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                     ],
                                     interval: 'week',
-                                    dateRange: {
-                                        date_from: 'all',
-                                        date_to: null,
-                                    },
+                                    dateRange: dateRange,
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsLineGraph,
                                         aggregationAxisFormat: 'numeric',
@@ -1305,6 +1305,24 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             docs: {
                                 title: 'Marketing Costs',
                                 description: 'Track cost from your Google Ads, LinkedIn Ads, and Bing Ads campaigns.',
+                            },
+                        },
+                        {
+                            kind: 'query',
+                            tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                                orderWhenLargeClassName: 'xxl:order-2',
+                            },
+                            title: 'Campaign Costs Breakdown',
+                            query: values.campaignCostsBreakdown,
+                            insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                            canOpenModal: true,
+                            canOpenInsight: false,
+                            docs: {
+                                title: 'Campaign Costs Breakdown',
+                                description:
+                                    'Breakdown of marketing costs by individual campaign names across all ad platforms.',
                             },
                         },
                     ]
@@ -2378,6 +2396,78 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return preferredUrl.origin
                 })
             },
+        ],
+        campaignCostsBreakdown: [
+            // this is a temporary query to get the campaign costs breakdown
+            (s) => [s.dateFilter],
+            (dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+                interval: IntervalType
+            }): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        WITH campaign_costs AS (
+                            SELECT 
+                                campaignname,
+                                sum(cost) as total_cost,
+                                sum(clicks) as total_clicks,
+                                sum(impressions) as total_impressions
+                            FROM (
+                                SELECT campaignname, cost, clicks, impressions
+                                FROM bigquery.google_ads_test1.google_ads_2 
+                                WHERE date >= '2025-01-01'
+                                UNION ALL
+                                SELECT campaign_name as campaignname, costinusd as cost, clicks, impressions
+                                FROM bigquery.google_ads_test1.linkedin_ads
+                                WHERE daily >= '2025-01-01'
+                                UNION ALL
+                                SELECT campaignname, spend as cost, clicks, impressions
+                                FROM bigquery.google_ads_test1.bing_ads 
+                                WHERE daily >= '2025-01-01'
+                            )
+                            GROUP BY campaignname
+                        ),
+                        campaign_pageviews AS (
+                            SELECT 
+                                properties.$utm_campaign as campaign_name,
+                                count(*) as pageviews,
+                                uniq(distinct_id) as unique_visitors
+                            FROM events 
+                            WHERE event = '$pageview' 
+                                AND properties.$utm_campaign IS NOT NULL
+                                AND properties.$utm_campaign != ''
+                            GROUP BY properties.$utm_campaign
+                        )
+                        SELECT 
+                            cc.campaignname as "Campaign",
+                            round(cc.total_cost, 2) as "Total Cost",
+                            cc.total_clicks as "Total Clicks", 
+                            cc.total_impressions as "Total Impressions",
+                            round(cc.total_cost / cc.total_clicks, 2) as "Cost per Click",
+                            round(cc.total_clicks / cc.total_impressions * 100, 2) as "CTR",
+                            coalesce(cp.pageviews, 0) as "Pageviews",
+                            coalesce(cp.unique_visitors, 0) as "Unique Visitors",
+                            round(cc.total_cost / coalesce(cp.pageviews, 1), 2) as "Cost per Pageview"
+                        FROM campaign_costs cc
+                        LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
+                        ORDER BY cc.total_cost DESC
+                        LIMIT 20
+                    `,
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo || 'now()',
+                        },
+                    },
+                },
+                full: true,
+                showDateRange: false,
+                showReload: false,
+                showExport: true,
+            }),
         ],
     })),
     loaders(({ values }) => ({
