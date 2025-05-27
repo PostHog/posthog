@@ -1502,7 +1502,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "Must provide a single blob key or start and end blob keys" in response.json()["detail"]
+        assert "Must provide both start_blob_key and end_blob_key" in response.json()["detail"]
 
     @parameterized.expand(
         [(0, "a"), ("a", 1)],

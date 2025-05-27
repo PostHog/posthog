@@ -928,7 +928,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         end_blob_key = request.GET.get("end_blob_key", "")
 
         if not blob_key and not start_blob_key:
-            raise exceptions.ValidationError("Must provide a single blob key or start and end blob keys")
+            raise exceptions.ValidationError("Must provide one of blob key or start and end blob keys")
         if blob_key and (start_blob_key or end_blob_key):
             raise exceptions.ValidationError("Must provide a single blob key or start and end blob keys, not both")
         if start_blob_key and not end_blob_key:
