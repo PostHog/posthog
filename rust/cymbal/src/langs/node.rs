@@ -1,7 +1,7 @@
 use crate::{
-    error::{Error, JsResolveErr, UnhandledError},
+    error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::{Context, ContextLine, Frame},
-    metric_consts::FRAME_RESOLVED,
+    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
@@ -39,14 +39,16 @@ impl RawNodeFrame {
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
-        let chunk_id = match &self.chunk_id {
-            None => return Ok(self.into()),
-            Some(chunk_id) => chunk_id.clone(),
+        let Some(chunk_id) = &self.chunk_id else {
+            return Ok(self.into());
         };
 
-        match self.resolve_impl(team_id, catalog, chunk_id).await {
+        match self.resolve_impl(team_id, catalog, chunk_id.clone()).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(_)) => Ok(self.into()),
+            Err(Error::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
+            Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+                Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
+            }
             Err(Error::UnhandledError(e)) => Err(e),
             Err(Error::EventError(_)) => unreachable!(),
         }
@@ -200,5 +202,60 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
         add_raw_to_junk(&mut res, raw_frame);
 
         res
+    }
+}
+
+impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
+    fn from((raw_frame, resolve_err): (&RawNodeFrame, JsResolveErr)) -> Self {
+        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
+
+        let was_minified = raw_frame
+            .get_context()
+            .as_ref()
+            .map(context_likely_minified)
+            .unwrap_or_default();
+
+        let resolved_name = if was_minified {
+            None
+        } else {
+            Some(raw_frame.function.clone())
+        };
+
+        let mut res = Self {
+            raw_id: String::new(),
+            mangled_name: raw_frame.function.clone(),
+            line: raw_frame.lineno,
+            column: raw_frame.colno,
+            source: None,
+            in_app: raw_frame.in_app,
+            resolved_name,
+            lang: "javascript".to_string(),
+            resolved: !was_minified,
+            // Regardless of whather we think this was a minified frame or not, we still put
+            // the error message in resolve_failure, so if a user comes along and want to know
+            // why we thought a frame wasn't minified, they can see the error message
+            resolve_failure: Some(resolve_err.to_string()),
+            junk_drawer: None,
+            context: raw_frame.get_context(),
+        };
+
+        add_raw_to_junk(&mut res, raw_frame);
+
+        res
+    }
+}
+
+fn context_likely_minified(ctx: &Context) -> bool {
+    let avg_len = ctx
+        .before
+        .iter()
+        .chain(ctx.after.iter())
+        .map(|line| line.line.len())
+        .sum::<usize>() as f64
+        / (ctx.before.len() + ctx.after.len()) as f64;
+    if avg_len > 300.0 {
+        true
+    } else {
+        false
     }
 }

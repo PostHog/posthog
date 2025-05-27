@@ -118,8 +118,8 @@ pub struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContextLine {
-    number: u32,
-    line: String,
+    pub number: u32,
+    pub line: String,
 }
 
 impl FingerprintComponent for Frame {
