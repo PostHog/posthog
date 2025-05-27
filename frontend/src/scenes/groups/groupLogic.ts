@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
@@ -185,13 +184,11 @@ export const groupLogic = kea<groupLogicType>([
             (s, p) => [s.featureFlags, s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
             (featureFlags, groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]) {
-                    breadcrumbs.push({
-                        key: Scene.DataManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    })
-                }
+                breadcrumbs.push({
+                    key: Scene.DataManagement,
+                    name: 'People',
+                    path: urls.persons(),
+                })
                 breadcrumbs.push({
                     key: groupTypeIndex,
                     name: capitalizeFirstLetter(groupTypeName),
