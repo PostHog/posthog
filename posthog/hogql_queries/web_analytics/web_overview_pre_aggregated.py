@@ -10,7 +10,12 @@ if TYPE_CHECKING:
 SUPPORTED_PROPERTIES = {
     "$host": "host",
     "$device_type": "device_type",
-    "$pathname": "entry_pathname",  # We conver the pathname to entry_pathname
+    # We convert the pathname to entry_pathname when filtering by pathname for the overview only.
+    # This is the same workaround as the one used in the stats_table.py (see _event_properties_for_bounce_rate)
+    # The actual way to keep 100% accuracy with the existing version is to join with web_stats_daily
+    # and filter by pathname there. This is a compromise to keep the query simpler in the meantime as we
+    # don't have access to all events to filter the inner query here.
+    "$pathname": "entry_pathname",
     "$entry_pathname": "entry_pathname",
     "$end_pathname": "end_pathname",
     "$browser": "browser",
