@@ -57,6 +57,10 @@ const panelLayoutPanelVariants = cva({
             true: 'absolute top-0 left-[var(--panel-layout-mobile-offset)] bottom-0 z-[var(--z-layout-panel)]',
             false: '',
         },
+        panelWillHide: {
+            true: 'opacity-50',
+            false: '',
+        },
     },
     compoundVariants: [
         {
@@ -176,13 +180,8 @@ export function PanelLayoutPanel({
     children,
     showFilterDropdown = false,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
-    const {
-        isLayoutPanelPinned,
-        panelTreeRef,
-        isLayoutNavCollapsed,
-        panelWidth: computedPanelWidth,
-    } = useValues(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing, showLayoutPanel} = useActions(panelLayoutLogic)
+    const { isLayoutPanelPinned, isLayoutNavCollapsed, panelWidth: computedPanelWidth, panelWillHide } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -194,6 +193,7 @@ export function PanelLayoutPanel({
                     projectTreeMode: projectTreeMode,
                     isLayoutNavCollapsed,
                     isMobileLayout,
+                    panelWillHide,
                 })
             )}
             ref={containerRef}
@@ -292,6 +292,8 @@ export function PanelLayoutPanel({
             aria-label="Resize handle for panel layout panel"
             borderPosition="right"
             innerClassName="z-[var(--z-layout-panel)]"
+            onResizeStart={() => setPanelIsResizing(true)}
+            onResizeEnd={() => setPanelIsResizing(false)}
         >
             {panelContents}
         </ResizableElement>
