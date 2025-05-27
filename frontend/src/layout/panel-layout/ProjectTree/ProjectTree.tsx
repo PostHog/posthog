@@ -34,8 +34,9 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
-import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { FiltersDropdown, PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -101,7 +102,6 @@ export function ProjectTree({
         setTreeTableColumnSizes,
         setSelectMode,
         setSearchTerm,
-        clearSearch,
     } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
     const { openMoveToModal } = useActions(moveToLogic)
 
@@ -110,6 +110,8 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+
+    const showFilterDropdown = root === 'project://'
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -707,12 +709,16 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            clearSearch={clearSearch}
-            showFilterDropdown={true}
-            searchPlaceholder={
-                searchPlaceholder ?? (sortMethod === 'recent' ? 'Search recent items' : 'Search your project')
+            filterDropdown={
+                showFilterDropdown ? <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} /> : null
+            }
+            searchField={
+                <TreeSearchField
+                    root={root}
+                    logicKey={PROJECT_TREE_KEY}
+                    uniqueKey={PROJECT_TREE_KEY}
+                    placeholder={searchPlaceholder}
+                />
             }
             panelActions={
                 <>
