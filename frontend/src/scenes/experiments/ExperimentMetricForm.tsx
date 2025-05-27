@@ -1,6 +1,7 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { useCallback, useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
@@ -47,18 +48,62 @@ export function ExperimentMetricForm({
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
 }): JSX.Element {
-    const mathAvailability = getMathAvailability(metric.metric_type)
-    const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
+    const mathAvailability = useMemo(() => getMathAvailability(metric.metric_type), [metric.metric_type])
+    const allowedMathTypes = useMemo(() => getAllowedMathTypes(metric.metric_type), [metric.metric_type])
 
-    const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
-        if (metricConfig) {
-            handleSetMetric({
-                ...metric,
-                ...metricConfig,
-            })
-        }
-    }
+    const handleSetFilters = useCallback(
+        ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+            const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
+            if (metricConfig) {
+                handleSetMetric({
+                    ...metric,
+                    ...metricConfig,
+                })
+            }
+        },
+        [metric, handleSetMetric]
+    )
+
+    const handleMetricTypeChange = useCallback(
+        (newMetricType: ExperimentMetricType) => {
+            handleSetMetric(getDefaultExperimentMetric(newMetricType))
+        },
+        [handleSetMetric]
+    )
+
+    const radioOptions = useMemo(
+        () => [
+            {
+                value: ExperimentMetricType.FUNNEL,
+                label: 'Funnel',
+                description:
+                    'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
+            },
+            {
+                value: ExperimentMetricType.MEAN,
+                label: 'Mean',
+                description:
+                    'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
+            },
+        ],
+        []
+    )
+
+    const metricFilter = useMemo(() => metricToFilter(metric), [metric])
+    const previewQuery = useMemo(() => metricToQuery(metric, filterTestAccounts), [metric, filterTestAccounts])
+
+    const queryConfig = useMemo(
+        () => ({
+            kind: NodeKind.InsightVizNode,
+            source: previewQuery,
+            showTable: false,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        }),
+        [previewQuery]
+    )
+
+    const hideDeleteBtn = useCallback((_: any, index: number) => index === 0, [])
 
     return (
         <div className="deprecated-space-y-4">
@@ -67,23 +112,8 @@ export function ExperimentMetricForm({
                 <LemonRadio
                     data-attr="metrics-selector"
                     value={metric.metric_type}
-                    onChange={(newMetricType: ExperimentMetricType) => {
-                        handleSetMetric(getDefaultExperimentMetric(newMetricType))
-                    }}
-                    options={[
-                        {
-                            value: ExperimentMetricType.FUNNEL,
-                            label: 'Funnel',
-                            description:
-                                'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
-                        },
-                        {
-                            value: ExperimentMetricType.MEAN,
-                            label: 'Mean',
-                            description:
-                                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
-                        },
-                    ]}
+                    onChange={handleMetricTypeChange}
+                    options={radioOptions}
                 />
             </div>
             <div>
@@ -92,7 +122,7 @@ export function ExperimentMetricForm({
                 {metric.metric_type === ExperimentMetricType.MEAN && (
                     <ActionFilter
                         bordered
-                        filters={metricToFilter(metric)}
+                        filters={metricFilter}
                         setFilters={handleSetFilters}
                         typeKey="experiment-metric"
                         buttonCopy="Add graph series"
@@ -110,13 +140,13 @@ export function ExperimentMetricForm({
                 {metric.metric_type === ExperimentMetricType.FUNNEL && (
                     <ActionFilter
                         bordered
-                        filters={metricToFilter(metric)}
+                        filters={metricFilter}
                         setFilters={handleSetFilters}
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
                         hideRename={true}
-                        hideDeleteBtn={(_, index) => index === 0}
+                        hideDeleteBtn={hideDeleteBtn}
                         sortable={true}
                         showNestedArrow={true}
                         // showNumericalPropsOnly={true}
@@ -145,30 +175,8 @@ export function ExperimentMetricForm({
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {metric.metric_type === ExperimentMetricType.MEAN &&
-                metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: metricToQuery(metric, filterTestAccounts),
-                            showTable: false,
-                            showLastComputation: true,
-                            showLastComputationRefresh: false,
-                        }}
-                        readOnly
-                    />
-                )}
-            {metric.metric_type === ExperimentMetricType.FUNNEL && (
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric, filterTestAccounts),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
-            )}
+                metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && <Query query={queryConfig} readOnly />}
+            {metric.metric_type === ExperimentMetricType.FUNNEL && <Query query={queryConfig} readOnly />}
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
             {metric.metric_type === ExperimentMetricType.MEAN && (
                 <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
