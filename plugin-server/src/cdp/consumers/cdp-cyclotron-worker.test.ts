@@ -10,7 +10,7 @@ import { HOG_EXAMPLES } from '../_tests/examples'
 import {
     createHogExecutionGlobals,
     createHogFunction,
-    createInvocation,
+    createExampleInvocation,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
@@ -49,7 +49,7 @@ describe('CdpCyclotronWorker', () => {
             },
         }
 
-        invocation = createInvocation(fn, globals)
+        invocation = createExampleInvocation(fn, globals)
         invocation.queueSource = 'postgres'
     })
 

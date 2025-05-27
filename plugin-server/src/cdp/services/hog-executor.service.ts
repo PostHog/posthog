@@ -22,9 +22,10 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import { cloneInvocation, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { convertToHogFunctionFilterGlobal } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
+import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -277,15 +278,9 @@ export class HogExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result: HogFunctionInvocationResult = {
-            // Clone the invocation for the result cleaned
-            invocation: cloneInvocation(invocation, {
-                queue: 'hog',
-            }),
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-        }
+        const result = createInvocationResult(invocation, {
+            queue: 'hog',
+        })
 
         result.logs.push({
             level: 'debug',

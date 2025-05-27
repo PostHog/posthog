@@ -11,7 +11,7 @@ import {
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
-import { cloneInvocation } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -97,22 +97,25 @@ export class FetchExecutorService {
                 retryCount: updatedMetadata.tries,
             })
 
-            return {
-                invocation: cloneInvocation(invocation, {
+            return createInvocationResult(
+                invocation,
+                {
                     queue: 'fetch', // Keep in fetch queue for retry
                     queueMetadata: updatedMetadata,
                     queueParameters: invocation.queueParameters, // Keep the same parameters
                     queuePriority: invocation.queuePriority + 1, // Decrease priority for retries
                     queueScheduledAt: nextScheduledAt,
-                }),
-                finished: false,
-                logs: [],
-            }
+                },
+                {
+                    finished: false,
+                }
+            )
         }
 
         // If we've exceeded retries, return all failures in trace
-        return {
-            invocation: cloneInvocation(invocation, {
+        return createInvocationResult(
+            invocation,
+            {
                 queue: 'hog',
                 queueParameters: {
                     response: response
@@ -125,19 +128,20 @@ export class FetchExecutorService {
                     trace: updatedMetadata.trace,
                     timings: [],
                 },
-            }),
-            finished: false,
-            logs: [],
-            metrics: [
-                {
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.hogFunction.id,
-                    metric_kind: 'other',
-                    metric_name: 'fetch',
-                    count: 1,
-                },
-            ],
-        }
+            },
+            {
+                finished: false,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
+            }
+        )
     }
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
@@ -174,8 +178,9 @@ export class FetchExecutorService {
             return await this.handleFetchFailure(invocation, fetchResponse, fetchError)
         }
 
-        return {
-            invocation: cloneInvocation(invocation, {
+        return createInvocationResult(
+            invocation,
+            {
                 queue: 'hog',
                 queueParameters: {
                     response: {
@@ -190,18 +195,19 @@ export class FetchExecutorService {
                         },
                     ],
                 },
-            }),
-            finished: false,
-            logs: [],
-            metrics: [
-                {
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.hogFunction.id,
-                    metric_kind: 'other',
-                    metric_name: 'fetch',
-                    count: 1,
-                },
-            ],
-        }
+            },
+            {
+                finished: false,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
+            }
+        )
     }
 }

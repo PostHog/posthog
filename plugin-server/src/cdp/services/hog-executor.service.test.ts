@@ -9,7 +9,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
+import { createHogExecutionGlobals, createHogFunction, createExampleInvocation } from '../_tests/fixtures'
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -122,7 +122,7 @@ describe('Hog Executor', () => {
         })
 
         it('can execute an invocation', () => {
-            const invocation = createInvocation(hogFunction)
+            const invocation = createExampleInvocation(hogFunction)
 
             const result = executor.execute(invocation)
             expect(result).toEqual({
@@ -150,7 +150,7 @@ describe('Hog Executor', () => {
 
         it('can handle null input values', () => {
             hogFunction.inputs!.debug = null
-            const invocation = createInvocation(hogFunction)
+            const invocation = createExampleInvocation(hogFunction)
 
             const result = executor.execute(invocation)
             expect(result.finished).toBe(false)
@@ -158,7 +158,7 @@ describe('Hog Executor', () => {
         })
 
         it('collects logs from the function', () => {
-            const invocation = createInvocation(hogFunction)
+            const invocation = createExampleInvocation(hogFunction)
             const result = executor.execute(invocation)
             expect(result.logs).toMatchObject([
                 {
@@ -179,7 +179,7 @@ describe('Hog Executor', () => {
                 ...HOG_EXAMPLES.input_printer,
                 ...HOG_INPUTS_EXAMPLES.secret_inputs,
             })
-            const invocation = createInvocation(fn)
+            const invocation = createExampleInvocation(fn)
             const result = executor.execute(invocation)
 
             expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
@@ -196,7 +196,7 @@ describe('Hog Executor', () => {
         })
 
         it('queues up an async function call', () => {
-            const invocation = createInvocation(hogFunction)
+            const invocation = createExampleInvocation(hogFunction)
             const result = executor.execute(invocation)
 
             expect(result.invocation).toMatchObject({
@@ -232,7 +232,7 @@ describe('Hog Executor', () => {
         })
 
         it('executes the full function in a loop', () => {
-            const result = executor.execute(createInvocation(hogFunction))
+            const result = executor.execute(createExampleInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
 
             expect(result.finished).toBe(false)
@@ -259,7 +259,7 @@ describe('Hog Executor', () => {
         })
 
         it('parses the responses body if a string', () => {
-            const result = executor.execute(createInvocation(hogFunction))
+            const result = executor.execute(createExampleInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
             setupFetchResponse(result.invocation, { body: JSON.stringify({ foo: 'bar' }) })
 
@@ -278,7 +278,7 @@ describe('Hog Executor', () => {
         })
 
         it('handles fetch errors', () => {
-            const result = executor.execute(createInvocation(hogFunction))
+            const result = executor.execute(createExampleInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
             setupFetchResponse(result.invocation, {
                 body: JSON.stringify({ foo: 'bar' }),
@@ -662,7 +662,7 @@ describe('Hog Executor', () => {
             })
 
             // Simulate the recusive loop
-            const invocation = createInvocation(fn)
+            const invocation = createExampleInvocation(fn)
 
             // Start the function
             const result1 = executor.execute(invocation)
@@ -703,7 +703,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const invocation = createInvocation(fn)
+            const invocation = createExampleInvocation(fn)
             const result1 = executor.execute(invocation)
             expect((result1.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
@@ -713,7 +713,7 @@ describe('Hog Executor', () => {
             `)
             // Check it doesn't do it for redirect
             fn.inputs!.url!.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
-            const invocation2 = createInvocation(fn)
+            const invocation2 = createExampleInvocation(fn)
             const result2 = executor.execute(invocation2)
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
@@ -729,7 +729,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const result = executor.execute(createInvocation(fn))
+            const result = executor.execute(createExampleInvocation(fn))
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
                 {
                   "body": "{"Messages":[{"From":{"Email":"info@posthog.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
@@ -757,7 +757,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const result = executor.execute(createInvocation(fn))
+            const result = executor.execute(createExampleInvocation(fn))
             expect(result.error).toContain('Execution timed out after 0.1 seconds. Performed ')
 
             expect(result.logs.map((log) => log.message)).toEqual([
@@ -802,7 +802,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const result = executor.execute(createInvocation(fn))
+            const result = executor.execute(createExampleInvocation(fn))
             expect(result?.capturedPostHogEvents).toEqual([
                 {
                     distinct_id: 'distinct_id',
@@ -831,7 +831,7 @@ describe('Hog Executor', () => {
                     },
                 },
             } as any)
-            const result = executor.execute(createInvocation(fn, globals))
+            const result = executor.execute(createExampleInvocation(fn, globals))
             expect(result?.capturedPostHogEvents).toEqual([])
             expect(result?.logs[1].message).toMatchInlineSnapshot(
                 `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
