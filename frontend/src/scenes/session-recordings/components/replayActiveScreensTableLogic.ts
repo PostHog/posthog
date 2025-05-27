@@ -1,4 +1,4 @@
-import { defaults, kea, key, listeners, path, props, selectors } from 'kea'
+import { defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -75,6 +75,4 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
             },
         },
     })),
-    selectors(() => ({})),
-    listeners(() => ({})),
 ])
