@@ -1,5 +1,3 @@
-import { urls } from 'scenes/urls'
-
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -18,11 +16,5 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         // TODO: create group node entries in the backend
     },
-    treeItemsProducts: [
-        {
-            path: 'Group analytics',
-            iconType: 'cohort',
-            href: urls.groups(0),
-        },
-    ],
+    treeItemsProducts: [],
 }

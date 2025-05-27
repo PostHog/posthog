@@ -307,6 +307,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         if instance.source_type == ExternalDataSource.Type.SNOWFLAKE:
             new_job_inputs = parse_snowflake_job_inputs(new_job_inputs)
 
+        elif instance.source_type == ExternalDataSource.Type.ZENDESK:
+            # Zendesk source requires a `zendesk_*` prefix, but our frontend displays
+            # values without a prefix.
+            # TODO: Integrate configuration class here.
+            new_job_inputs = {f"zendesk_{k}": v for k, v in new_job_inputs.items()}
+
         if existing_job_inputs:
             validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
 
@@ -933,7 +939,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             api_key = request.data.get("api_key", "")
             email_address = request.data.get("email_address", "")
 
-            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
             if not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
