@@ -1,5 +1,5 @@
 use axum::{
-    http::Method,
+    http::{Method, StatusCode},
     routing::{get, post},
     Router,
 };
@@ -30,6 +30,7 @@ pub fn router<D, R>(
     internal_redis_client: Arc<R>,
     default_domain_for_public_store: String,
     liveness: HealthRegistry,
+    enable_metrics: bool,
 ) -> Router
 where
     D: DatabaseClient + Send + Sync + 'static,
@@ -50,8 +51,9 @@ where
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
-    let status_router =
-        Router::new().route("/_liveness", get(move || ready(liveness.get_status())));
+    let status_router = Router::new()
+        .route("/_readiness", get(|| ready(StatusCode::OK)))
+        .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let links_external_router = Router::new()
         .route("/ph/:short_code", get(external_redirect_url))
@@ -72,6 +74,10 @@ where
         .layer(cors)
         .with_state(state);
 
-    let recorder_handle = setup_metrics_recorder();
-    router.route("/metrics", get(move || ready(recorder_handle.render())))
+    if enable_metrics {
+        let recorder_handle = setup_metrics_recorder();
+        router.route("/metrics", get(move || ready(recorder_handle.render())))
+    } else {
+        router
+    }
 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Error, Result};
 use chrono::Utc;
 use common_database::{get_pool, Client};
+use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{ProjectId, TeamId};
 use once_cell::sync::Lazy;
 use rand::{distributions::Alphanumeric, Rng};
@@ -21,6 +22,16 @@ pub async fn setup_pg_client(config: Option<&Config>) -> Arc<dyn Client + Send +
         get_pool(&config.read_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
+    )
+}
+
+pub async fn setup_redis_client(
+    config: Option<&Config>,
+) -> Arc<dyn RedisClientTrait + Send + Sync> {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    Arc::new(
+        RedisClient::new(config.internal_link_redis_url.clone())
+            .expect("Failed to create Redis client"),
     )
 }
 

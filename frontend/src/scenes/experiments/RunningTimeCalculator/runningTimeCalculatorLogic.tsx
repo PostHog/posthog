@@ -91,14 +91,20 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
     throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
 }
 
-const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getTotalCountQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    eventConfig: EventConfig | null
+): TrendsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                ...baseProps,
+                kind: NodeKind.EventsNode,
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
                 math: BaseMathType.UniqueUsers,
             },
             {
@@ -116,7 +122,11 @@ const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): T
     } as TrendsQuery
 }
 
-const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getSumQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    eventConfig: EventConfig | null
+): TrendsQuery => {
     const baseProps = getSeriesItemProps(metric)
     const mathProperty =
         metric.metric_type === ExperimentMetricType.MEAN
@@ -130,7 +140,9 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                ...baseProps,
+                kind: NodeKind.EventsNode,
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
                 math: BaseMathType.UniqueUsers,
             },
             {
@@ -268,10 +280,14 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
                     metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? getTotalCountQuery(metric, values.experiment)
+                        ? getTotalCountQuery(
+                              metric,
+                              values.experiment,
+                              values.exposureEstimateConfig?.eventFilter ?? null
+                          )
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
-                        ? getSumQuery(metric, values.experiment)
+                        ? getSumQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
                         : getFunnelQuery(metric, values.exposureEstimateConfig?.eventFilter ?? null, values.experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
@@ -309,9 +325,13 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     })),
     listeners(({ actions, values }) => ({
         setMetricIndex: () => {
-            actions.loadMetricResult()
-        },
-        setExposureEstimateConfig: () => {
+            // When metric index changes, update exposure estimate config with the new metric
+            if (values.metric) {
+                actions.setExposureEstimateConfig({
+                    ...(values.exposureEstimateConfig ?? defaultExposureEstimateConfig),
+                    metric: values.metric,
+                })
+            }
             actions.loadMetricResult()
         },
         setManualConversionRate: () => {
@@ -357,8 +377,19 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return null
                 }
 
+                // First check regular metrics
                 const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
-                return metricIndex >= 0 ? metricIndex : null
+                if (metricIndex >= 0) {
+                    return metricIndex
+                }
+
+                // If not found, check shared metrics
+                const primarySharedMetrics = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')
+                const sharedMetricIndex = primarySharedMetrics.findIndex((m) =>
+                    equal(m.query, exposureEstimateConfig.metric)
+                )
+
+                return sharedMetricIndex >= 0 ? experiment.metrics.length + sharedMetricIndex : null
             },
         ],
         metricIndex: [
@@ -423,7 +454,24 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         ],
         metric: [
             (s) => [s.metricIndex, s.experiment],
-            (metricIndex: number, experiment: Experiment) => experiment.metrics[metricIndex],
+            (metricIndex: number | null, experiment: Experiment): ExperimentMetric | null => {
+                if (metricIndex === null) {
+                    return null
+                }
+
+                // Check if the index is within the regular metrics array
+                if (metricIndex < experiment.metrics.length) {
+                    return experiment.metrics[metricIndex] as ExperimentMetric
+                }
+
+                // If not, check shared metrics with primary type
+                const sharedMetricIndex = metricIndex - experiment.metrics.length
+                const sharedMetric = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')[
+                    sharedMetricIndex
+                ]
+
+                return sharedMetric?.query as ExperimentMetric
+            },
         ],
         uniqueUsers: [
             (s) => [s.metricResult, s.exposureEstimateConfig],

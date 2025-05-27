@@ -196,15 +196,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
 
+        CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
+        CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+        CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
-            : '',
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
 
@@ -257,6 +259,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
+        DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
 
