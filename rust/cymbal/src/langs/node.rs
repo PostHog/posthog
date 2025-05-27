@@ -72,17 +72,17 @@ impl RawNodeFrame {
             if let Some(location) =
                 smc.lookup(SourcePosition::new(location.line - 1, location.column))
             {
-                return Ok(Frame::from((self, location)));
+                Ok(Frame::from((self, location)))
             } else {
-                return Err(JsResolveErr::TokenNotFound(
+                Err(JsResolveErr::TokenNotFound(
                     self.function.clone(),
                     location.line,
                     location.column,
                 )
-                .into());
-            };
+                .into())
+            }
         } else {
-            return Ok(self.into());
+            Ok(self.into())
         }
     }
 
@@ -253,9 +253,5 @@ fn context_likely_minified(ctx: &Context) -> bool {
         .map(|line| line.line.len())
         .sum::<usize>() as f64
         / (ctx.before.len() + ctx.after.len()) as f64;
-    if avg_len > 300.0 {
-        true
-    } else {
-        false
-    }
+    avg_len > 300.0
 }
