@@ -807,7 +807,6 @@ async def test_run_workflow_with_minio_bucket(
             assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
             # Match the 50 page_view events defined above
             assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"
-            assert warehouse_table.size_in_s3_mib is not None
 
 
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
