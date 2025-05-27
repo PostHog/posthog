@@ -82,7 +82,7 @@ export function Products(): JSX.Element {
     const { toggleSelectedProduct, setFirstProductOnboarding, handleStartOnboarding } = useActions(productsLogic)
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
     const { skipOnboarding } = useActions(onboardingLogic)
-    const { hasIngestedEvent } = useValues(onboardingLogic)
+    const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
         <div className="flex flex-col flex-1 w-full h-full p-4 items-center justify-center bg-primary">
@@ -136,7 +136,10 @@ export function Products(): JSX.Element {
                                     <LemonSelect
                                         value={firstProductOnboarding}
                                         options={selectedProducts.map((productKey) => ({
-                                            label: availableOnboardingProducts[productKey].name,
+                                            label:
+                                                availableOnboardingProducts[
+                                                    productKey as keyof typeof availableOnboardingProducts
+                                                ]?.name ?? '',
                                             value: productKey,
                                         }))}
                                         onChange={(value) => value && setFirstProductOnboarding(value)}
