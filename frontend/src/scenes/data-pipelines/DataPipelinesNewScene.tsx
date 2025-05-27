@@ -11,7 +11,7 @@ import { Breadcrumb } from '~/types'
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
 
 export type DataPipelinesNewSceneProps = {
-    kind: 'transformation' | 'destination' | 'source' | 'app'
+    kind: 'transformation' | 'destination' | 'source' | 'site_app'
 }
 
 export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
@@ -61,7 +61,7 @@ export function DataPipelinesNewScene(): JSX.Element {
     if (kind === 'destination') {
         return <HogFunctionTemplateList defaultFilters={{}} type="destination" />
     }
-    if (kind === 'app') {
+    if (kind === 'site_app') {
         return <HogFunctionTemplateList defaultFilters={{}} type="site_app" />
     }
     if (kind === 'source') {

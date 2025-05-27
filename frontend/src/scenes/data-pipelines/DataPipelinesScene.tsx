@@ -13,7 +13,14 @@ import { DataPipelinesOverview } from './DataPipelinesOverview'
 import type { dataPipelinesSceneLogicType } from './DataPipelinesSceneType'
 import { DataPipelinesSources } from './DataPipelinesSources'
 
-const DATA_PIPELINES_SCENE_TABS = ['overview', 'sources', 'transformations', 'destinations', 'apps', 'history'] as const
+const DATA_PIPELINES_SCENE_TABS = [
+    'overview',
+    'sources',
+    'transformations',
+    'destinations',
+    'site_apps',
+    'history',
+] as const
 export type DataPipelinesSceneTab = (typeof DATA_PIPELINES_SCENE_TABS)[number]
 
 export type DataPipelinesSceneProps = {
@@ -107,7 +114,7 @@ export function DataPipelinesScene(): JSX.Element {
         },
         {
             label: 'Apps',
-            key: 'apps',
+            key: 'site_apps',
             content: <DataPipelinesHogFunctions kind="site_app" />,
         },
         {
