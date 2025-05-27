@@ -711,7 +711,7 @@ export class CookielessStateForBatch {
             Array.from(identifiesKeys.values()),
             'CookielessStateForBatch.prefetchIdentifies'
         )
-        for (const [key, value] of Object.entries(identifiesResult)) {
+        for (const [key, value] of identifiesResult) {
             this.identifiesCache[key] = {
                 identifyEventIds: new Set(value ?? []),
                 isDirty: false,
@@ -770,7 +770,7 @@ export class CookielessStateForBatch {
             Array.from(sessionKeys.values()),
             'CookielessStateForBatch.prefetchSessions'
         )
-        for (const [key, value] of Object.entries(sessionResult)) {
+        for (const [key, value] of sessionResult) {
             if (value) {
                 this.sessionCache[key] = {
                     session: bufferToSessionState(value),
@@ -829,30 +829,32 @@ export class CookielessStateForBatch {
         }
 
         // write identifies to redis
-        await this.hub.cookielessManager.redisHelpers.redisSAddMulti(
-            Object.fromEntries(
-                Object.entries(this.identifiesCache)
-                    .filter(([, value]) => value.isDirty)
-                    .map(([key, value]) => {
-                        return [key, Array.from(value.identifyEventIds)]
-                    })
-            ),
-            'CookielessStateForBatch.identifiesCacheWrite',
-            this.hub.cookielessManager.config.identifiesTtlSeconds
-        )
+        const dirtyIdentifies = Object.entries(this.identifiesCache)
+            .filter(([, value]) => value.isDirty)
+            .map(([key, value]): [string, string[]] => {
+                return [key, Array.from(value.identifyEventIds)]
+            })
+        if (dirtyIdentifies.length > 0) {
+            await this.hub.cookielessManager.redisHelpers.redisSAddMulti(
+                dirtyIdentifies,
+                'CookielessStateForBatch.identifiesCacheWrite',
+                this.hub.cookielessManager.config.identifiesTtlSeconds
+            )
+        }
 
         // write the session state to redis
-        await this.hub.cookielessManager.redisHelpers.redisSetBufferMulti(
-            Object.fromEntries(
-                Object.entries(this.sessionCache)
-                    .filter(([, value]) => value.isDirty)
-                    .map(([key, value]) => {
-                        return [key, sessionStateToBuffer(value.session)]
-                    })
-            ),
-            'CookielessStateForBatch.sessionCacheWrite',
-            this.hub.cookielessManager.config.sessionTtlSeconds
-        )
+        const dirtySessions = Object.entries(this.sessionCache)
+            .filter(([, value]) => value.isDirty)
+            .map(([key, value]): [string, Buffer] => {
+                return [key, sessionStateToBuffer(value.session)]
+            })
+        if (dirtySessions.length > 0) {
+            await this.hub.cookielessManager.redisHelpers.redisSetBufferMulti(
+                dirtySessions,
+                'CookielessStateForBatch.sessionCacheWrite',
+                this.hub.cookielessManager.config.sessionTtlSeconds
+            )
+        }
         return eventsWithStatus
     }
 
