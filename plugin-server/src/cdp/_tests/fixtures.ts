@@ -179,7 +179,6 @@ export const createInvocation = (
 
     return {
         id: new UUIDT().toString(),
-        // NOTE: This is due to some legacy code that checks for inputs and uses it. BW will fix later.
         state: {
             globals: globals as HogFunctionInvocationGlobalsWithInputs,
             timings: [],
