@@ -12,7 +12,7 @@ export type SettingsLogicProps = {
     settingId?: SettingId
 }
 
-export const SettingLevelIds = ['environment', 'project', 'organization', 'account'] as const
+export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =

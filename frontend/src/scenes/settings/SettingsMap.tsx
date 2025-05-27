@@ -666,7 +666,7 @@ export const SETTINGS_MAP: SettingSection[] = [
 
     // USER
     {
-        level: 'account',
+        level: 'user',
         id: 'user-profile',
         title: 'Profile',
         settings: [
@@ -688,7 +688,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'account',
+        level: 'user',
         id: 'user-api-keys',
         title: 'Personal API keys',
         settings: [
@@ -700,7 +700,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'account',
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -741,7 +741,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'account',
+        level: 'user',
         id: 'user-danger-zone',
         title: 'Danger zone',
         settings: [
