@@ -52,7 +52,12 @@ export function PinnedFolder(): JSX.Element {
                     }
                 >
                     <div className="w-192 max-w-full">
-                        <FolderSelect value={selectedFolder} onChange={setSelectedFolder} includeProtocol />
+                        <FolderSelect
+                            value={selectedFolder}
+                            onChange={setSelectedFolder}
+                            includeProtocol
+                            className="h-[60vh] min-h-[200px]"
+                        />
                     </div>
                 </LemonModal>
             ) : null}

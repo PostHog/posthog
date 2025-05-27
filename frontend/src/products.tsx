@@ -479,6 +479,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
         tags: ['alpha'],
     },
+    { path: 'Notebooks', type: 'notebook', href: urls.notebooks(), visualOrder: PRODUCT_VISUAL_ORDER.notebooks },
     {
         path: 'Product analytics',
         type: 'insight',
@@ -504,6 +505,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.userInterviews(),
         type: 'user_interview',
         visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
+        tags: ['alpha'],
     },
     {
         path: 'Web analytics',
