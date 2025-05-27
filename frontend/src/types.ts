@@ -1068,7 +1068,6 @@ export type SessionRecordingSnapshotParams =
 
 export interface SessionRecordingSnapshotSourceResponse {
     source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
-    snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionRecordingSnapshotResponse {
