@@ -2,16 +2,31 @@ name: Container Images CI
 
 on:
     pull_request:
-        paths-ignore:
-            - 'rust/**'
-            - 'livestream/**'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
 
 jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run Rust checks
+        # Set job outputs to values from filter step
+        outputs:
+            docker_files: ${{ steps.filter.outputs.docker_files }}
+        steps:
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      docker_files:
+                        - '!rust/**'
+                        - '!livestream/**'
+
     posthog_build:
+        needs: changes
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
@@ -24,22 +39,24 @@ jobs:
             # cancel previous runs of snapshot update-inducing workflows
 
             - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
+              if: ${{ github.actor != 'posthog-bot' && needs.changes.outputs.docker_files == 'true' }}
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   workflow: .github/workflows/storybook-chromatic.yml
 
             - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
+              if: ${{ github.actor != 'posthog-bot' && needs.changes.outputs.docker_files == 'true' }}
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   workflow: .github/workflows/ci-backend.yml
 
             - name: Check out
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.docker_files == 'true'
 
             - name: Build and cache Docker image in Depot
               uses: ./.github/actions/build-n-cache-image
+              if: needs.changes.outputs.docker_files == 'true'
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: true
@@ -53,9 +70,9 @@ jobs:
     deploy_preview:
         name: Deploy preview environment
         uses: ./.github/workflows/pr-preview-deploy.yml
-        needs: [posthog_build]
+        needs: [posthog_build, changes]
         secrets: inherit
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
 
     lint:
         name: Lint changed Dockerfiles
