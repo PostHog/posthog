@@ -1,9 +1,11 @@
 import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { actionsModel } from '~/models/actionsModel'
 import {
@@ -14,6 +16,7 @@ import {
     ReplayTemplateVariableType,
 } from '~/types'
 
+import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
 import { replayTemplates } from './availableTemplates'
 import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
@@ -192,6 +195,10 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
+            <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP} match="templates">
+                <ReplayActiveHoursHeatMap />
+            </FlaggedFeature>
+            <h2 className="mt-4">Filter templates</h2>
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,
                 what could be made more clear, and other ways to improve.

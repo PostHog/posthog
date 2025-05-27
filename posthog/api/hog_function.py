@@ -43,6 +43,7 @@ from posthog.models.hog_functions.hog_function import (
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -182,8 +183,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
 
         if data["type"] == "transformation":
-            allowed_teams = [int(team_id) for team_id in settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS]
-            if team.id not in allowed_teams:
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
                 if not template:
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}
@@ -325,6 +325,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+
+        template_id = validated_data.get("template_id")
+        if template_id:
+            db_template = DBHogFunctionTemplate.get_template(template_id)
+            if not db_template:
+                raise serializers.ValidationError({"template_id": f"No template found for id '{template_id}'"})
+            validated_data["hog_function_template"] = db_template
 
         # Handle execution_order for transformation type
         if validated_data.get("type") == "transformation":

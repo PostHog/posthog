@@ -6,7 +6,12 @@ from urllib.parse import urlparse
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST, IN_EVAL_TESTING
+from posthog.settings.base_variables import (
+    DEBUG,
+    IN_EVAL_TESTING,
+    IS_COLLECT_STATIC,
+    TEST,
+)
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -195,10 +200,27 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+
+CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
+CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
+CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+
+# Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
+# routing. Keys should be strings, not numbers.
 try:
     CLICKHOUSE_PER_TEAM_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
+
+# Per-team settings used for query execution. Keys should be strings, not numbers.
+try:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):

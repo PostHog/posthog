@@ -129,7 +129,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
          */
 
         it('should invoke a function in the worker loop until completed', async () => {
-            const invocations = await eventsConsumer.processBatch([globals])
+            const { invocations } = await eventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
 
             try {
@@ -253,7 +253,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 })
             })
 
-            const invocations = await eventsConsumer.processBatch([globals])
+            const { invocations } = await eventsConsumer.processBatch([globals])
 
             expect(invocations).toHaveLength(1)
 

@@ -180,7 +180,7 @@ pub fn router<
         .route("/i/v0", get(index))
         .route("/i/v0/", get(index));
 
-    // conditionally route /e (and soon /track /capture /engage) to mirror deploy!
+    // conditionally route all legacy capture endpoints to event_legacy handler
     if is_mirror_deploy {
         event_router = event_router
             .route(
@@ -208,6 +208,18 @@ pub fn router<
                     .options(v0_endpoint::options),
             )
             .route(
+                "/engage",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/engage/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
                 "/capture",
                 post(v0_endpoint::event_legacy)
                     .get(v0_endpoint::event_legacy)
@@ -220,9 +232,6 @@ pub fn router<
                     .options(v0_endpoint::options),
             );
     } else {
-        // TODO: once mirror testing has validated the legacy endpoints
-        // can be served safely from capture-rs and event_legacy, we may
-        // unite the new and old codepaths and dedup this routing
         event_router = event_router
             .route(
                 "/e",

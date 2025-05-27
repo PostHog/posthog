@@ -94,7 +94,9 @@ export function RatingQuestionBarChart({
                             ? '1 - 5'
                             : '1 - 3'
                     } rating`}</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        Question {questionIndex + 1}: {question.question}
+                    </div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
@@ -176,9 +178,7 @@ export function NPSSurveyResultsBarChart({
         <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
-                <></>
-            ) : (
+            ) : !surveyRecurringNPSResults[questionIndex]?.total ? null : (
                 <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
@@ -279,7 +279,9 @@ export function SingleChoiceQuestionPieChart({
                 <div className="flex flex-col gap-2">
                     <div>
                         <div className="font-semibold text-secondary">Single choice</div>
-                        <div className="text-xl font-bold">{question.question}</div>
+                        <div className="text-xl font-bold mb-2">
+                            Question {questionIndex + 1}: {question.question}
+                        </div>
                     </div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
@@ -389,9 +391,11 @@ export function MultipleChoiceQuestionBarChart({
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">Multiple choice</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        Question {questionIndex + 1}: {question.question}
+                    </div>
 
                     <div
                         className="border rounded pt-8 pr-10 overflow-y-scroll"
@@ -458,59 +462,77 @@ export function OpenTextViz({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
+    const atLeastOneResponse = !!surveyOpenTextResults?.[questionIndex]?.events?.length
+
     return (
         <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
-                <>no results for open text analysis</>
             ) : (
-                <>
-                    <div className="flex flex-row justify-between items-center">
-                        <Tooltip title="See all Open Text responses in the Events table at the bottom.">
-                            <div className="inline-flex gap-1">
-                                <div className="font-semibold text-secondary">Open text</div>
-                                <LemonDivider vertical className="my-1 mx-1" />
-                                <div className="font-semibold text-secondary">random selection</div>
-                                <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
-                            </div>
-                        </Tooltip>
-                        <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
-                    </div>
-                    <div className="text-xl font-bold mb-4">{question.question}</div>
-                    <ResponseSummariesDisplay />
-                    <div className="mt-4 mb-8 masonry-container">
-                        {surveyOpenTextResults[questionIndex].events.map((event, i) => {
-                            const personProp = {
-                                distinct_id: event.distinct_id,
-                                properties: event.personProperties,
-                            }
-
-                            const { idBasedKey, indexBasedKey } = getResponseFieldWithId(questionIndex, question?.id)
-                            const surveyResponse = idBasedKey
-                                ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
-                                : event.properties[indexBasedKey]
-
-                            return (
-                                <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                    <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof surveyResponse !== 'string'
-                                            ? JSON.stringify(surveyResponse)
-                                            : surveyResponse}
-                                    </div>
-                                    <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
-                                        <PersonDisplay
-                                            person={personProp}
-                                            withIcon={true}
-                                            noEllipsis={false}
-                                            isCentered
-                                        />
-                                    </div>
+                <div className="flex flex-col gap-2">
+                    <div>
+                        <div className="flex flex-row justify-between items-center">
+                            <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                                <div className="inline-flex gap-1">
+                                    <div className="font-semibold text-secondary">Open text</div>
+                                    <LemonDivider vertical className="my-1 mx-1" />
+                                    <div className="font-semibold text-secondary">random selection</div>
+                                    <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
                                 </div>
-                            )
-                        })}
+                            </Tooltip>
+                            {atLeastOneResponse && (
+                                <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
+                            )}
+                        </div>
+                        <div className="text-xl font-bold">
+                            Question {questionIndex + 1}: {question.question}
+                        </div>
                     </div>
-                </>
+                    {atLeastOneResponse ? (
+                        <>
+                            <ResponseSummariesDisplay />
+                            <div className="masonry-container">
+                                {surveyOpenTextResults[questionIndex].events.map((event, i) => {
+                                    const personProp = {
+                                        distinct_id: event.distinct_id,
+                                        properties: event.personProperties,
+                                    }
+
+                                    const { idBasedKey, indexBasedKey } = getResponseFieldWithId(
+                                        questionIndex,
+                                        question?.id
+                                    )
+                                    const surveyResponse = idBasedKey
+                                        ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
+                                        : event.properties[indexBasedKey]
+
+                                    return (
+                                        <div
+                                            key={`open-text-${questionIndex}-${i}`}
+                                            className="masonry-item border rounded"
+                                        >
+                                            <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
+                                                {typeof surveyResponse !== 'string'
+                                                    ? JSON.stringify(surveyResponse)
+                                                    : surveyResponse}
+                                            </div>
+                                            <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                                <PersonDisplay
+                                                    person={personProp}
+                                                    withIcon={true}
+                                                    noEllipsis={false}
+                                                    isCentered
+                                                />
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    ) : (
+                        <div>There are no responses for this question.</div>
+                    )}
+                </div>
             )}
         </div>
     )

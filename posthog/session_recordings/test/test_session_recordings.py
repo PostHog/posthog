@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+import re
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import ANY, MagicMock, call, patch
@@ -892,19 +893,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
 
         # default headers if the object store does nothing
-        assert response.headers.__dict__ == {
-            "_store": {
-                "content-type": ("Content-Type", "application/json"),
-                "cache-control": ("Cache-Control", "max-age=3600"),
-                "content-disposition": ("Content-Disposition", "inline"),
-                "allow": ("Allow", "GET, HEAD, OPTIONS"),
-                "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
-                "content-length": ("Content-Length", "15"),
-                "vary": ("Vary", "Origin"),
-                "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
-                "referrer-policy": ("Referrer-Policy", "same-origin"),
-                "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
-            }
+        headers = response.headers.__dict__["_store"]
+        server_timing_headers = headers.pop("server-timing")[1]
+        assert re.match(r"get_recording;dur=\d+\.\d+, stream_blob_to_client;dur=\d+\.\d+", server_timing_headers)
+        assert headers == {
+            "content-type": ("Content-Type", "application/json"),
+            "cache-control": ("Cache-Control", "max-age=3600"),
+            "content-disposition": ("Content-Disposition", "inline"),
+            "allow": ("Allow", "GET, HEAD, OPTIONS"),
+            "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
+            "content-length": ("Content-Length", "15"),
+            "vary": ("Vary", "Origin"),
+            "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
+            "referrer-policy": ("Referrer-Policy", "same-origin"),
+            "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
         }
 
     @patch(
@@ -1332,7 +1334,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        assert mock_capture.call_args_list[1] == call(
+        assert mock_capture.call_args_list[0] == call(
             self.user.distinct_id,
             "snapshots_api_called_with_personal_api_key",
             {
@@ -1342,7 +1344,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "session_requested": session_id,
                 # none because it's all mock data
                 "recording_start_time": None,
-                "source": None,
+                "source": "listing",
             },
         )
 
@@ -1371,3 +1373,60 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+
+    @parameterized.expand(
+        [
+            ("blob", True, status.HTTP_200_OK),
+            # not a 400, 404 because we didn't mock the right things for a 200
+            ("blob_v2", True, status.HTTP_404_NOT_FOUND),
+            ("realtime", True, status.HTTP_200_OK),
+            (None, True, status.HTTP_200_OK),  # No source parameter
+            ("invalid_source", False, status.HTTP_400_BAD_REQUEST),
+            ("", False, status.HTTP_400_BAD_REQUEST),
+            ("BLOB", False, status.HTTP_400_BAD_REQUEST),  # Case-sensitive
+            ("real-time", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
+    def test_snapshots_source_parameter_validation(
+        self,
+        source_value,
+        is_valid,
+        expected_status,
+        _mock_stream_from,
+        mock_realtime_snapshots,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
+    ):
+        session_id = str(uuid.uuid4())
+
+        # Setup mocks
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_presigned_url.return_value = "https://test.com/"
+        mock_realtime_snapshots.return_value = ['{"test": "data"}']
+
+        # Build URL with source parameter
+        if source_value is None:
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        else:
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source={source_value}"
+
+        # Add blob_key for blob sources to avoid other validation errors
+        if source_value in ("blob", "blob_v2"):
+            url += "&blob_key=1682608337071"
+
+        response = self.client.get(url)
+
+        assert (
+            response.status_code == expected_status
+        ), f"Expected status {expected_status}, got {response.status_code} for source '{source_value}'"
+
+        if not is_valid:
+            # For invalid sources, we expect a validation error
+            response_data = response.json()
+            assert "detail" in response_data or "error" in response_data

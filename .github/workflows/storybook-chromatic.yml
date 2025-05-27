@@ -2,15 +2,6 @@ name: Storybook
 
 on:
     pull_request:
-        paths: # Only run if the frontend has changed
-            - 'frontend/**'
-            - 'ee/frontend/**'
-            - '.storybook/**'
-            - 'package.json'
-            - '.github/workflows/storybook-chromatic.yml'
-            - 'playwright.config.ts'
-            - 'products/**'
-            - 'common/**'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -19,10 +10,35 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
+    # Job to decide if we should run storybook ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run storybook checks
+        # Set job outputs to values from filter step
+        outputs:
+            frontend: ${{ steps.filter.outputs.frontend }}
+        steps:
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      frontend:
+                        - 'frontend/**'
+                        - 'products/**'
+                        - 'common/**'
+                        - 'ee/frontend/**'
+                        - '.storybook/**'
+                        - 'package.json'
+                        - '.github/workflows/storybook-chromatic.yml'
+                        - 'playwright.config.ts'
+
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
         timeout-minutes: 15
+        needs: changes
         # Don't run on forks
         if: github.event.pull_request.head.repo.full_name == github.repository
         outputs:
@@ -33,21 +49,25 @@ jobs:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
+              if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/storybook... install --frozen-lockfile
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
+              if: needs.changes.outputs.frontend == 'true'
               uses: chromaui/action@c93e0bc3a63aa176e14a75b61a31847cbfdd341c # v11
               id: publish
               with:
@@ -58,8 +78,9 @@ jobs:
                   workingDir: ./common/storybook/
 
     visual-regression:
-        name: Visual regression tests
+        name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
+        needs: changes
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
@@ -115,89 +136,107 @@ jobs:
             chromium-1-deleted: ${{ steps.diff.outputs.chromium-1-deleted }}
             chromium-1-total: ${{ steps.diff.outputs.chromium-1-total }}
             chromium-1-commitHash: ${{ steps.commit-hash.outputs.chromium-1-commitHash }}
+            chromium-1-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-1-pathsFlapping }}
             chromium-2-added: ${{ steps.diff.outputs.chromium-2-added }}
             chromium-2-modified: ${{ steps.diff.outputs.chromium-2-modified }}
             chromium-2-deleted: ${{ steps.diff.outputs.chromium-2-deleted }}
             chromium-2-total: ${{ steps.diff.outputs.chromium-2-total }}
             chromium-2-commitHash: ${{ steps.commit-hash.outputs.chromium-2-commitHash }}
+            chromium-2-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-2-pathsFlapping }}
             chromium-3-added: ${{ steps.diff.outputs.chromium-3-added }}
             chromium-3-modified: ${{ steps.diff.outputs.chromium-3-modified }}
             chromium-3-deleted: ${{ steps.diff.outputs.chromium-3-deleted }}
             chromium-3-total: ${{ steps.diff.outputs.chromium-3-total }}
             chromium-3-commitHash: ${{ steps.commit-hash.outputs.chromium-3-commitHash }}
+            chromium-3-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-3-pathsFlapping }}
             chromium-4-added: ${{ steps.diff.outputs.chromium-4-added }}
             chromium-4-modified: ${{ steps.diff.outputs.chromium-4-modified }}
             chromium-4-deleted: ${{ steps.diff.outputs.chromium-4-deleted }}
             chromium-4-total: ${{ steps.diff.outputs.chromium-4-total }}
             chromium-4-commitHash: ${{ steps.commit-hash.outputs.chromium-4-commitHash }}
+            chromium-4-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-4-pathsFlapping }}
             chromium-5-added: ${{ steps.diff.outputs.chromium-5-added }}
             chromium-5-modified: ${{ steps.diff.outputs.chromium-5-modified }}
             chromium-5-deleted: ${{ steps.diff.outputs.chromium-5-deleted }}
             chromium-5-total: ${{ steps.diff.outputs.chromium-5-total }}
             chromium-5-commitHash: ${{ steps.commit-hash.outputs.chromium-5-commitHash }}
+            chromium-5-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-5-pathsFlapping }}
             chromium-6-added: ${{ steps.diff.outputs.chromium-6-added }}
             chromium-6-modified: ${{ steps.diff.outputs.chromium-6-modified }}
             chromium-6-deleted: ${{ steps.diff.outputs.chromium-6-deleted }}
             chromium-6-total: ${{ steps.diff.outputs.chromium-6-total }}
             chromium-6-commitHash: ${{ steps.commit-hash.outputs.chromium-6-commitHash }}
+            chromium-6-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-6-pathsFlapping }}
             chromium-7-added: ${{ steps.diff.outputs.chromium-7-added }}
             chromium-7-modified: ${{ steps.diff.outputs.chromium-7-modified }}
             chromium-7-deleted: ${{ steps.diff.outputs.chromium-7-deleted }}
             chromium-7-total: ${{ steps.diff.outputs.chromium-7-total }}
             chromium-7-commitHash: ${{ steps.commit-hash.outputs.chromium-7-commitHash }}
+            chromium-7-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-7-pathsFlapping }}
             chromium-8-added: ${{ steps.diff.outputs.chromium-8-added }}
             chromium-8-modified: ${{ steps.diff.outputs.chromium-8-modified }}
             chromium-8-deleted: ${{ steps.diff.outputs.chromium-8-deleted }}
             chromium-8-total: ${{ steps.diff.outputs.chromium-8-total }}
             chromium-8-commitHash: ${{ steps.commit-hash.outputs.chromium-8-commitHash }}
+            chromium-8-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-8-pathsFlapping }}
             chromium-9-added: ${{ steps.diff.outputs.chromium-9-added }}
             chromium-9-modified: ${{ steps.diff.outputs.chromium-9-modified }}
             chromium-9-deleted: ${{ steps.diff.outputs.chromium-9-deleted }}
             chromium-9-total: ${{ steps.diff.outputs.chromium-9-total }}
             chromium-9-commitHash: ${{ steps.commit-hash.outputs.chromium-9-commitHash }}
+            chromium-9-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-9-pathsFlapping }}
             webkit-1-added: ${{ steps.diff.outputs.webkit-1-added }}
             webkit-1-modified: ${{ steps.diff.outputs.webkit-1-modified }}
             webkit-1-deleted: ${{ steps.diff.outputs.webkit-1-deleted }}
             webkit-1-total: ${{ steps.diff.outputs.webkit-1-total }}
             webkit-1-commitHash: ${{ steps.commit-hash.outputs.webkit-1-commitHash }}
+            webkit-1-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-1-pathsFlapping }}
             webkit-2-added: ${{ steps.diff.outputs.webkit-2-added }}
             webkit-2-modified: ${{ steps.diff.outputs.webkit-2-modified }}
             webkit-2-deleted: ${{ steps.diff.outputs.webkit-2-deleted }}
             webkit-2-total: ${{ steps.diff.outputs.webkit-2-total }}
             webkit-2-commitHash: ${{ steps.commit-hash.outputs.webkit-2-commitHash }}
+            webkit-2-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-2-pathsFlapping }}
             webkit-3-added: ${{ steps.diff.outputs.webkit-3-added }}
             webkit-3-modified: ${{ steps.diff.outputs.webkit-3-modified }}
             webkit-3-deleted: ${{ steps.diff.outputs.webkit-3-deleted }}
             webkit-3-total: ${{ steps.diff.outputs.webkit-3-total }}
             webkit-3-commitHash: ${{ steps.commit-hash.outputs.webkit-3-commitHash }}
+            webkit-3-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-3-pathsFlapping }}
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
-                  fetch-depth: 1
+                  fetch-depth: 0
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
+              if: needs.changes.outputs.frontend == 'true'
               run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
+              if: needs.changes.outputs.frontend == 'true'
               run: bin/turbo --filter=@posthog/storybook build
 
             - name: Serve Storybook in the background
+              if: needs.changes.outputs.frontend == 'true'
               run: |
                   retries=5
                   max_timeout=30
@@ -241,6 +280,7 @@ jobs:
                   fi
 
             - name: Run @storybook/test-runner
+              if: needs.changes.outputs.frontend == 'true'
               env:
                   # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
                   HOME: /root
@@ -251,23 +291,22 @@ jobs:
                   pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
 
             - name: Archive failure screenshots
-              if: ${{ failure() }}
+              if: needs.changes.outputs.frontend == 'true' && ${{ failure() }}
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
             - name: Configure global git diff log
+              if: needs.changes.outputs.frontend == 'true'
               run: git config --global --add safe.directory '*'
 
             - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  echo "Current directory: $(pwd)"
-                  FRONTEND_DIFF_OUTPUT=$(git diff --name-status frontend/__snapshots__)
-                  echo "$FRONTEND_DIFF_OUTPUT"
+                  echo $(git diff --name-status frontend/__snapshots__) # Wrapped to ignore exit 1 on empty diff
                   ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
                   MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
@@ -277,7 +316,8 @@ jobs:
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
-                    optipng -clobber -o4 -strip all
+                    # TODO: RESTORE OptiPNG - it turns out it never worked before
+                    # optipng -clobber -o4 -strip all frontend/__snapshots__/*.png
 
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
@@ -307,9 +347,28 @@ jobs:
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
 
+            - name: Catch and flag flapping snapshots
+              id: flappy-bird
+              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              shell: bash
+              run: |
+                  PATHS_FLAPPING=()
+                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
+                  echo "Last human commit identified: $last_human_commit"
+                  for snapshot_path in $(git diff --name-only HEAD frontend/__snapshots__); do
+                      echo "Checking snapshot path: $snapshot_path"
+                      number_of_times_snapshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
+                      echo "Number of times $snapshot_path has changed since last human commit: $number_of_times_snapshot_has_changed_since_last_human_commit"
+                      if [ "$number_of_times_snapshot_has_changed_since_last_human_commit" -gt 0 ]; then
+                          PATHS_FLAPPING+=($snapshot_path)
+                      fi
+                  done
+                  echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
+                  echo "${{ matrix.browser }}-${{ matrix.shard }}-pathsFlapping=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
+
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
@@ -320,19 +379,19 @@ jobs:
 
             - name: Add commit hash to outputs, including browser name
               id: commit-hash
-              if: steps.commit.outputs.pushed == 'true'
+              if: needs.changes.outputs.frontend == 'true' && steps.commit.outputs.pushed == 'true'
               run: echo "${{ matrix.browser }}-${{ matrix.shard }}-commitHash=${{ steps.commit.outputs.commit_long_sha }}" >> $GITHUB_OUTPUT
 
     visual-regression-summary:
         name: Summarize visual regression tests
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: visual-regression
+        needs: [visual-regression, changes]
         # Run even if visual-regression fails for one (or more) of the browsers
         if: always()
         steps:
             - name: Post comment about updated snapshots
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
@@ -341,6 +400,7 @@ jobs:
 
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }
+                      const flaps = []
                       const diffByBrowser = Object.fromEntries(BROWSERS.map(browser => [browser, {
                         total: 0, added: 0, modified: 0, deleted: 0, commitHashes: []
                       }]))
@@ -348,7 +408,13 @@ jobs:
                         // Split e.g. 'chromium-1-commitHash' into ['chromium', '1' 'commitHash']
                         const [browser, shardNumber, diffKey] = key.split('-')
                         // Sum up the counts - but not the commit hash
-                        if (diffKey === 'commitHash') {
+                        if (diffKey === 'pathsFlapping') {
+                          if (rawValue && typeof rawValue === 'string') { // Ensure rawValue is a string and not empty
+                            for (const path of rawValue.split(' ')) {
+                              flaps.push([browser, parseInt(shardNumber), path.trim()])
+                            }
+                          }
+                        } else if (diffKey === 'commitHash') {
                           diffByBrowser[browser].commitHashes.push([parseInt(shardNumber), rawValue])
                         } else {
                           const value = parseInt(rawValue)
@@ -385,6 +451,22 @@ jobs:
                         return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
                       }).join('\n')
 
+                      let flapsDisplay = ''
+                      if (flaps.length > 0) {
+                        flapsDisplay = [
+                          '\n> [!CAUTION]',
+                          '> ### Detected flapping snapshots',
+                          '>',
+                          '> These snapshots have auto-updated more than once since the last human commit:',
+                          '>',
+                          ...flaps.map(([browser, shardNumber, path]) => `> - \`${path.replace('frontend/__snapshots__/', '')}\` (${browser}, shard ${shardNumber})`),
+                          '>',
+                          '> **The flippy-flappies are deadly and must be fixed ASAP.** They\'re productivity killers.',
+                          '> Run `pnpm storybook` locally and make the fix now.',
+                          '> (Often, the cause is `ResizeObserver` being used instead of the better CSS container queries.)\n'
+                        ].join('\n')
+                      }
+
                       github.rest.issues.createComment({
                         issue_number: context.issue.number,
                         owner: context.repo.owner,
@@ -393,7 +475,7 @@ jobs:
 
                       **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
 
-                      ${diffByBrowserDisplay}
+                      ${flapsDisplay}${diffByBrowserDisplay}
 
                       _Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }})._
 
@@ -402,10 +484,10 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [storybook-chromatic, visual-regression]
+        needs: [storybook-chromatic, visual-regression, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            (
+            needs.changes.outputs.frontend == 'true' && (
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository
             ) == 'PostHog/posthog'
         steps:

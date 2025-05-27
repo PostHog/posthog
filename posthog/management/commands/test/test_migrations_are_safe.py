@@ -56,3 +56,13 @@ COMMIT;
     """
     should_fail = validate_migration_sql(sql_for_model_with_uuid)
     assert should_fail is False
+
+
+def test_unique_indexes_can_apply_only_to_not_null_values() -> None:
+    sql_for_unique_index_with_where = """
+BEGIN;
+CREATE UNIQUE INDEX CONCURRENTLY team_secret_api_token_unique_idx ON posthog_team (secret_api_token) WHERE secret_api_token IS NOT NULL;
+COMMIT;
+    """
+    should_fail = validate_migration_sql(sql_for_unique_index_with_where)
+    assert should_fail is False

@@ -4,18 +4,26 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingDataTable } from './BillingDataTable'
+import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
+import { BillingNoAccess } from './BillingNoAccess'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 
 export function BillingUsage(): JSX.Element {
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
     const logic = billingUsageLogic({ dashboardItemId: 'usage' })
     const {
         series,
@@ -36,9 +44,14 @@ export function BillingUsage(): JSX.Element {
         useActions(logic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
 
+    if (restrictionReason) {
+        return <BillingNoAccess title="Usage" reason={restrictionReason} />
+    }
+
     return (
         <div className="space-y-4">
-            <div className="border rounded p-4 bg-white space-y-4">
+            <BillingEarlyAccessBanner />
+            <div className="border rounded p-4 bg-bg-light space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Usage Types */}
                     <div className="flex flex-col gap-1">
