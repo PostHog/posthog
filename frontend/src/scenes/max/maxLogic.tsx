@@ -28,9 +28,7 @@ export type ThreadMessage = RootAssistantMessage & {
 }
 
 export interface SuggestionItem {
-    label: string
-    // In case the actual question to Max is different from the label
-    content?: string
+    content: string
 }
 
 export interface SuggestionGroup {
@@ -543,20 +541,19 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         icon: <IconGraph />,
         suggestions: [
             {
-                label: 'Create a funnel of the Pirate Metrics (AARRR)',
+                content: 'Create a funnel of the Pirate Metrics (AARRR)',
             },
             {
-                label: 'What are the most popular pages or screens?',
+                content: 'What are the most popular pages or screens?',
             },
             {
-                label: 'What is the retention in the last two weeks?',
+                content: 'What is the retention in the last two weeks?',
             },
             {
-                label: 'What are the top referring domains?',
+                content: 'What are the top referring domains?',
             },
             {
-                label: 'Calculate a conversion rate for events or actions',
-                content: 'Calculate a conversion rate for ',
+                content: 'Calculate a conversion rate for <events or actions>…',
             },
         ],
         tooltip: 'Max can generate insights from natural language and tweak existing ones.',
@@ -566,8 +563,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         icon: <IconHogQL />,
         suggestions: [
             {
-                label: 'Write an SQL query to',
-                content: 'Write an SQL query to ',
+                content: 'Write an SQL query to…',
             },
         ],
         url: urls.sqlEditor(),
@@ -578,8 +574,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         icon: <IconRewindPlay />,
         suggestions: [
             {
-                label: 'Find recordings for',
-                content: 'Find recordings for ',
+                content: 'Find recordings for…',
             },
         ],
         url: productUrls.replay(),
@@ -590,32 +585,25 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         icon: <IconPlug />,
         suggestions: [
             {
-                label: 'How can I set up the session replay in a framework or language',
-                content: 'How can I set up the session replay in ',
+                content: 'How can I set up the session replay in <a framework or language>…',
             },
             {
-                label: 'How can I set up the feature flags in...',
-                content: 'How can I set up the feature flags in ',
+                content: 'How can I set up the feature flags in…',
             },
             {
-                label: 'How can I set up the experiments in...',
-                content: 'How can I set up the experiments in ',
+                content: 'How can I set up the experiments in…',
             },
             {
-                label: 'How can I set up the data warehouse in...',
-                content: 'How can I set up the data warehouse in ',
+                content: 'How can I set up the data warehouse in…',
             },
             {
-                label: 'How can I set up the error tracking in...',
-                content: 'How can I set up the error tracking in ',
+                content: 'How can I set up the error tracking in…',
             },
             {
-                label: 'How can I set up the LLM Observability in...',
-                content: 'How can I set up the LLM Observability in ',
+                content: 'How can I set up the LLM Observability in…',
             },
             {
-                label: 'How can I set up the product analytics in...',
-                content: 'How can I set up the product analytics in ',
+                content: 'How can I set up the product analytics in…',
             },
         ],
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
@@ -625,19 +613,19 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         icon: <IconBook />,
         suggestions: [
             {
-                label: 'How can I create a feature flag?',
+                content: 'How can I create a feature flag?',
             },
             {
-                label: 'Where do I watch session replays?',
+                content: 'Where do I watch session replays?',
             },
             {
-                label: 'Help me set up an experiment',
+                content: 'Help me set up an experiment',
             },
             {
-                label: 'Explain autocapture',
+                content: 'Explain autocapture',
             },
             {
-                label: 'How can I capture an exception?',
+                content: 'How can I capture an exception?',
             },
         ],
         tooltip: 'Max has access to PostHog docs and can help you get the most out of PostHog.',

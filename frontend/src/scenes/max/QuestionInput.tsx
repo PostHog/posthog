@@ -13,6 +13,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from './utils'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -115,13 +116,13 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                                     return
                                 }
 
-                                if (suggestion.content) {
+                                if (checkSuggestionRequiresUserInput(suggestion.content)) {
                                     // Content requires to write something to continue
-                                    setQuestion(suggestion.content)
+                                    setQuestion(stripSuggestionPlaceholders(suggestion.content))
                                     focusInput()
                                 } else {
                                     // Otherwise, just launch the generation
-                                    askMax(suggestion.label)
+                                    askMax(suggestion.content)
                                 }
 
                                 // Close suggestions after asking
@@ -130,10 +131,10 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                         >
                             {activeSuggestionGroup.suggestions.map((suggestion, index) => (
                                 <ToggleGroupItem
-                                    key={suggestion.label}
+                                    key={suggestion.content}
                                     value={index.toString()}
                                     tabIndex={0}
-                                    aria-label={`Select suggestion: ${suggestion.label}`}
+                                    aria-label={`Select suggestion: ${suggestion.content}`}
                                     asChild
                                 >
                                     <LemonButton
@@ -144,7 +145,7 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                                         type="tertiary"
                                         fullWidth
                                     >
-                                        <span className="font-normal ">{suggestion.label}</span>
+                                        <span className="font-normal">{formatSuggestion(suggestion.content)}</span>
                                     </LemonButton>
                                 </ToggleGroupItem>
                             ))}

@@ -9,6 +9,7 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
+import { checkSuggestionRequiresUserInput, stripSuggestionPlaceholders } from './utils'
 
 export function QuestionInputWithSuggestions(): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
@@ -40,13 +41,13 @@ export function QuestionInputWithSuggestions(): JSX.Element {
 
                                     // If there's only one suggestion, we can just ask Max directly
                                     if (group.suggestions.length <= 1) {
-                                        if (group.suggestions[0].content) {
+                                        if (checkSuggestionRequiresUserInput(group.suggestions[0].content)) {
                                             // Content requires to write something to continue
-                                            setQuestion(group.suggestions[0].content)
+                                            setQuestion(stripSuggestionPlaceholders(group.suggestions[0].content))
                                             focusInput()
                                         } else {
                                             // Otherwise, just launch the generation
-                                            askMax(group.suggestions[0].label)
+                                            askMax(group.suggestions[0].content)
                                         }
                                     } else {
                                         setActiveGroup(group)
