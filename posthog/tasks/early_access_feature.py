@@ -1,6 +1,6 @@
 from celery import shared_task
 import structlog
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_ci, is_cloud
 from posthog.models import EarlyAccessFeature
 from posthog.models.person.person import Person
 import posthoganalytics
@@ -21,7 +21,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     team_id = instance.team.id
 
-    send_events_for_change = (team_id == POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG
+    send_events_for_change = (team_id == POSTHOG_TEAM_ID and is_cloud()) or settings.DEBUG or is_ci()
 
     if not send_events_for_change:
         print(  # noqa: T201
