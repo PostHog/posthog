@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -141,8 +141,24 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
+        const customItems =
+            item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
+                <>
+                    {' '}
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>YOU CLICKED PRODUCT ANALYTICS</ButtonPrimitive>
+                    </MenuItem>
+                </>
+            ) : null
+
         return (
             <>
+                {customItems}
                 {item.record?.path && !item.disableSelect && !onlyTree ? (
                     <>
                         <MenuItem
@@ -516,6 +532,7 @@ export function ProjectTree({
                 }
                 return false
             }}
+            itemHasContextMenu={(item) => !item.id.startsWith('project-folder-empty/')}
             itemContextMenu={(item) => {
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
@@ -527,6 +544,11 @@ export function ProjectTree({
                     return undefined
                 }
                 return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+            }}
+            itemSideActionIcon={(item) => {
+                if (item.record?.protocol === 'products://' && item.name === 'Product analytics') {
+                    return <IconPlus className="text-tertiary" />
+                }
             }}
             emptySpaceContextMenu={() => {
                 return (
