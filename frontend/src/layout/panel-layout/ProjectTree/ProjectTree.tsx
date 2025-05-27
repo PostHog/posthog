@@ -144,15 +144,34 @@ export function ProjectTree({
         const customItems =
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
                 <>
-                    {' '}
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>YOU CLICKED PRODUCT ANALYTICS</ButtonPrimitive>
-                    </MenuItem>
+                    {treeItemsNew
+                        .find(({ name }) => name === 'Insight')
+                        ?.children?.map((child) => (
+                            <MenuItem
+                                key={child.id}
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    const folder = item.record?.path
+                                    if (folder) {
+                                        setLastNewFolder(folder)
+                                    }
+                                    if (child.record?.href) {
+                                        router.actions.push(
+                                            typeof child.record.href === 'function'
+                                                ? child.record.href(child.record.ref)
+                                                : child.record.href
+                                        )
+                                    }
+                                }}
+                            >
+                                <ButtonPrimitive menuItem className="capitalize">
+                                    {child.icon}
+                                    New {child.name}
+                                </ButtonPrimitive>
+                            </MenuItem>
+                        ))}
+                    <MenuSeparator />
                 </>
             ) : null
 
