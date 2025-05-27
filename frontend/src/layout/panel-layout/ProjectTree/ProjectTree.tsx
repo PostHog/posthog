@@ -45,6 +45,7 @@ export interface ProjectTreeProps {
     onlyTree?: boolean
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    showFiltersDropdown?: boolean
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -57,6 +58,7 @@ export function ProjectTree({
     onlyTree = false,
     searchPlaceholder,
     treeSize = 'default',
+    showFiltersDropdown,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
@@ -710,7 +712,7 @@ export function ProjectTree({
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
             clearSearch={clearSearch}
-            showFilterDropdown={true}
+            showFilterDropdown={showFiltersDropdown}
             searchPlaceholder={
                 searchPlaceholder ?? (sortMethod === 'recent' ? 'Search recent items' : 'Search your project')
             }
