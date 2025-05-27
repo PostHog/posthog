@@ -417,7 +417,6 @@ describe('CookielessManager', () => {
         describe('stateful', () => {
             beforeEach(async () => {
                 await setModeForTeam(CookielessServerHashMode.Stateful)
-                team = (await getTeam(hub, teamId))!
             })
             it('should provide a different session ID after session timeout', async () => {
                 const actual1 = await processEvent(event)
