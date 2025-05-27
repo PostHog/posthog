@@ -197,27 +197,37 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     let params: SessionRecordingSnapshotParams
 
                     if (sources.length > 1) {
-                        throw new Error('Multiple sources provided, expected only one source')
-                    }
-                    const source = sources[0]
-
-                    if (source.source === SnapshotSourceType.blob) {
-                        if (!source.blob_key) {
-                            throw new Error('Missing key')
+                        // they all have to be blob_v2
+                        if (sources.some((s) => s.source !== SnapshotSourceType.blob_v2)) {
+                            throw new Error('Unsupported source for multiple sources')
                         }
-                        params = { blob_key: source.blob_key, source: 'blob' }
-                    } else if (source.source === SnapshotSourceType.realtime) {
-                        params = { source: 'realtime', version: '2024-04-30' }
-                    } else if (source.source === SnapshotSourceType.blob_v2) {
-                        params = { source: 'blob_v2', blob_key: source.blob_key }
+                        params = {
+                            source: 'blob_v2',
+                            // so the caller has to make sure these are in order!
+                            start_blob_key: sources[0].blob_key,
+                            end_blob_key: sources[sources.length - 1].blob_key,
+                        }
                     } else {
-                        throw new Error(`Unsupported source: ${source.source}`)
+                        const source = sources[0]
+
+                        if (source.source === SnapshotSourceType.blob) {
+                            if (!source.blob_key) {
+                                throw new Error('Missing key')
+                            }
+                            params = { blob_key: source.blob_key, source: 'blob' }
+                        } else if (source.source === SnapshotSourceType.realtime) {
+                            params = { source: 'realtime', version: '2024-04-30' }
+                        } else if (source.source === SnapshotSourceType.blob_v2) {
+                            params = { source: 'blob_v2', blob_key: source.blob_key }
+                        } else {
+                            throw new Error(`Unsupported source: ${source.source}`)
+                        }
                     }
 
                     await breakpoint(1)
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
-                        if (source.source === 'realtime' && e.status === 404) {
+                        if (sources[0].source === 'realtime' && e.status === 404) {
                             // Realtime source is not always available, so a 404 is expected
                             return []
                         }
@@ -228,11 +238,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
                         (a, b) => a.timestamp - b.timestamp
                     )
-                    // we store the data in the cache, because we want to avoid copying this data as much as possible
+                    // we store the data in the cache because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all of the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
-                    cache.snapshotsBySource[keyForSource(source)] = { snapshots: parsedSnapshots }
-                    return { source }
+                    // so very wrong to only look at 0
+                    cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
+                    return { source: sources[0] }
                 },
             },
         ],
