@@ -161,7 +161,13 @@ export const teamLogic = kea<teamLogicType>([
                     }
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
+                // Project API Token
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                // Feature Flags Secure API Token
+                rotateSecretToken: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
+                deleteSecretTokenBackup: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
@@ -187,6 +193,12 @@ export const teamLogic = kea<teamLogicType>([
                     return false
                 }
                 return true
+            },
+        ],
+        hasIngestedEvent: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean => {
+                return currentTeam?.ingested_event ?? false
             },
         ],
         currentTeamId: [

@@ -64,11 +64,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
-        !!editingView?.status &&
-        (editingView.status === 'Completed' ||
-            editingView.status === 'Failed' ||
-            editingView.status === 'Cancelled' ||
-            editingView.status === 'Running')
+        !!editingView?.last_run_at ||
+        (!!editingView?.status &&
+            (editingView.status === 'Completed' ||
+                editingView.status === 'Failed' ||
+                editingView.status === 'Cancelled' ||
+                editingView.status === 'Running'))
 
     const renderAddSQLVariablesButton = (): JSX.Element => (
         <LemonButton
@@ -93,6 +94,22 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             Materialize
         </LemonButton>
     )
+
+    const editingViewDisabledReason = useMemo(() => {
+        if (updatingDataWarehouseSavedQuery) {
+            return 'Saving...'
+        }
+
+        if (!response) {
+            return 'Run query to update'
+        }
+
+        if (!changesToSave) {
+            return 'No changes to save'
+        }
+
+        return undefined
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -145,13 +162,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     edited_history_id: inProgressViewEdits[editingView.id],
                                 })
                             }
-                            disabledReason={
-                                updatingDataWarehouseSavedQuery
-                                    ? 'Saving...'
-                                    : !changesToSave
-                                    ? 'No changes to save'
-                                    : ''
-                            }
+                            disabledReason={editingViewDisabledReason}
                             icon={<IconDownload />}
                             type="tertiary"
                             size="xsmall"

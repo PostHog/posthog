@@ -32,8 +32,10 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
+    generate_random_token_secret,
     sane_repr,
     validate_rate_limit,
+    mask_key_value,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -160,6 +162,21 @@ class TeamManager(models.Manager):
 
             team = Team.objects.get(api_token=token)
             set_team_in_cache(token, team)
+            return team
+
+        except Team.DoesNotExist:
+            return None
+
+    def get_team_from_cache_or_secret_api_token(self, secret_api_token: Optional[str]) -> Optional["Team"]:
+        if not secret_api_token:
+            return None
+        try:
+            team = get_team_in_cache(secret_api_token)
+            if team:
+                return team
+
+            team = Team.objects.get(secret_api_token=secret_api_token)
+            set_team_in_cache(secret_api_token, team)
             return team
 
         except Team.DoesNotExist:
@@ -304,7 +321,10 @@ class Team(UUIDClassicModel):
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
+
+    # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
+
     week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices)
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
@@ -522,6 +542,7 @@ class Team(UUIDClassicModel):
         self.api_token = generate_random_token_project()
         self.save()
         set_team_in_cache(old_token, None)
+        set_team_in_cache(self.api_token, self)
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
@@ -544,6 +565,99 @@ class Team(UUIDClassicModel):
             ),
         )
 
+    def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        # Rotate the tokens
+        old_primary_token = self.secret_api_token
+        new_token = generate_random_token_secret()
+        expired_token = self.secret_api_token_backup
+        self.secret_api_token = new_token
+        self.secret_api_token_backup = old_primary_token
+        self.save()
+
+        set_team_in_cache(new_token, self)
+        # Old token needs to continue to work until it's deleted.
+        if old_primary_token:
+            set_team_in_cache(old_primary_token, self)
+        if expired_token:
+            # Clear the previous backup token from cache since it's being replaced
+            set_team_in_cache(expired_token, None)
+
+        # Build up the changes.
+
+        masked_old_primary_token = mask_key_value(old_primary_token) if old_primary_token else None
+
+        before = {
+            "secret_api_token": masked_old_primary_token,
+        }
+        after = {
+            "secret_api_token": mask_key_value(new_token),
+        }
+
+        if masked_old_primary_token:
+            # We rotated keys rather than generated a new one.
+            before["secret_api_token_backup"] = mask_key_value(expired_token) if expired_token else None
+            after["secret_api_token_backup"] = masked_old_primary_token
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_primary_token is None else "changed",
+                        field="secret_api_token",
+                        before=before,
+                        after=after,
+                    )
+                ],
+            ),
+        )
+
+    def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.models.utils import mask_key_value
+
+        old_backup_token = self.secret_api_token_backup
+        if not old_backup_token:
+            # Nothing to delete.
+            return
+
+        masked_old_backup_token = mask_key_value(old_backup_token)
+        self.secret_api_token_backup = None
+        self.save()
+        set_team_in_cache(old_backup_token, None)
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="deleted",
+                        field="secret_api_token_backup",
+                        before=masked_old_backup_token,
+                        after=None,
+                    )
+                ],
+            ),
+        )
+
     def get_is_generating_demo_data(self) -> bool:
         cache_key = f"is_generating_demo_data_{self.id}"
         return cache.get(cache_key) == "True"
@@ -557,14 +671,13 @@ class Team(UUIDClassicModel):
 
     def all_users_with_access(self) -> QuerySet["User"]:
         from ee.models.explicit_team_membership import ExplicitTeamMembership
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import RoleMembership
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        if not self.access_control:
-            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
-                "user_id", flat=True
-            )
-        else:
+        # This path is deprecated, and will be removed soon
+        if self.access_control:
             user_ids_queryset = (
                 OrganizationMembership.objects.filter(
                     organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
@@ -576,6 +689,67 @@ class Team(UUIDClassicModel):
                     )
                 )
             )
+            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+
+        # New access control checks
+
+        # First, check if the team is private
+        team_is_private = AccessControl.objects.filter(
+            team_id=self.id,
+            resource="team",
+            resource_id=str(self.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        ).exists()
+
+        if not team_is_private:
+            # If team is not private, all organization members have access
+            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+        else:
+            # Team is private, need to check specific access
+
+            # Get all organization admins and owners
+            admin_user_ids = OrganizationMembership.objects.filter(
+                organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+            ).values_list("user_id", flat=True)
+
+            # Get users with specific access control entries for this team
+            # First, get organization memberships with access to this team
+            org_memberships_with_access = AccessControl.objects.filter(
+                team_id=self.id,
+                resource="team",
+                resource_id=str(self.id),
+                organization_member__isnull=False,
+                access_level__in=["member", "admin"],
+            ).values_list("organization_member", flat=True)
+
+            # Then get the user IDs from those memberships
+            member_access_user_ids = OrganizationMembership.objects.filter(
+                id__in=org_memberships_with_access
+            ).values_list("user_id", flat=True)
+
+            # Get roles with access to this team
+            roles_with_access = AccessControl.objects.filter(
+                team_id=self.id,
+                resource="team",
+                resource_id=str(self.id),
+                role__isnull=False,
+                access_level__in=["member", "admin"],
+            ).values_list("role", flat=True)
+
+            # Get users who have these roles
+            role_user_ids = (
+                RoleMembership.objects.filter(role_id__in=roles_with_access)
+                .values_list("organization_member__user_id", flat=True)
+                .distinct()
+            )
+
+            # Union all sets of user IDs
+            user_ids_queryset = admin_user_ids.union(member_access_user_ids).union(role_user_ids)
+
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
     def __str__(self):

@@ -64,24 +64,54 @@ export function SupportForm(): JSX.Element | null {
     const nameInputRef = useRef<HTMLInputElement>(null)
     const emailInputRef = useRef<HTMLInputElement>(null)
     const messageInputRef = useRef<HTMLTextAreaElement>(null)
+    // Track which fields have been initialized (had cursor positioned at end)
+    const initializedFields = useRef<Record<string, boolean>>({})
 
-    // Restore focus to the appropriate field after re-renders and position cursor at the end
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+        const items = e.clipboardData?.items
+        if (!items) {
+            return
+        }
+
+        // Convert DataTransferItemList to array for iteration
+        const itemsArray = Array.from(items)
+        for (const item of itemsArray) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile()
+                if (file) {
+                    setFilesToUpload([...filesToUpload, file])
+                }
+            }
+        }
+    }
+
+    // Restore focus to the appropriate field after re-renders
+    // Only position cursor at the end on first focus for each field
     useEffect(() => {
         if (focusedField === 'name' && nameInputRef.current) {
             nameInputRef.current.focus()
-            // Position cursor at the end of the text
-            const length = nameInputRef.current.value.length
-            nameInputRef.current.setSelectionRange(length, length)
+            // Position cursor at the end of the text only on first focus
+            if (!initializedFields.current['name']) {
+                const length = nameInputRef.current.value.length
+                nameInputRef.current.setSelectionRange(length, length)
+                initializedFields.current['name'] = true
+            }
         } else if (focusedField === 'email' && emailInputRef.current) {
             emailInputRef.current.focus()
-            // Position cursor at the end of the text
-            const length = emailInputRef.current.value.length
-            emailInputRef.current.setSelectionRange(length, length)
+            // Position cursor at the end of the text only on first focus
+            if (!initializedFields.current['email']) {
+                const length = emailInputRef.current.value.length
+                emailInputRef.current.setSelectionRange(length, length)
+                initializedFields.current['email'] = true
+            }
         } else if (focusedField === 'message' && messageInputRef.current) {
             messageInputRef.current.focus()
-            // Position cursor at the end of the text
-            const length = messageInputRef.current.value.length
-            messageInputRef.current.setSelectionRange(length, length)
+            // Position cursor at the end of the text only on first focus
+            if (!initializedFields.current['message']) {
+                const length = messageInputRef.current.value.length
+                messageInputRef.current.setSelectionRange(length, length)
+                initializedFields.current['message'] = true
+            }
         }
     }, [focusedField, sendSupportRequest])
 
@@ -158,7 +188,7 @@ export function SupportForm(): JSX.Element | null {
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
                 {(props) => (
-                    <div ref={dropRef} className="flex flex-col gap-2">
+                    <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"

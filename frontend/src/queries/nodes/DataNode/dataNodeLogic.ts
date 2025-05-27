@@ -205,7 +205,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
                     let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
-                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING]) {
+                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING] && !pollOnly) {
                         refresh =
                             refresh === 'force_async' ? 'force_blocking' : refresh === 'async' ? 'blocking' : refresh
                     }

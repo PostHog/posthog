@@ -31,7 +31,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.models.feature_flag.flag_status import (
     FeatureFlagStatus,
 )
@@ -1093,6 +1093,61 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             self.assertEqual(feature_flag.version, 3)
             self.assertEqual(feature_flag.name, "Yet another updated name")
+
+    def test_remote_config_with_personal_api_key(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), '{"test": true}')
+
+    def test_remote_config_with_project_secret_api_key(self):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), '{"test": true}')
 
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
@@ -2810,7 +2865,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            f"/api/feature_flag/local_evaluation",
             HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2886,6 +2941,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation_with_secret_api_key(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {},
+                },
+            },
+            format="json",
+        )
+
+        secret_api_key = generate_random_token_secret()
+        self.team.secret_api_token = secret_api_key
+        self.team.save()
+
+        self.client.logout()  # `local_evaluation` is called by logged out clients!
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            data={"secret_api_key": secret_api_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/feature_flag/local_evaluation?secret_api_key={secret_api_key}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {secret_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data)
+        self.assertEqual(len(response_data["flags"]), 1)
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer phs_0000000000000000000000000000",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation_for_cohorts(self, mock_capture):
@@ -5576,7 +5678,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(16):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -5629,7 +5731,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(19):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(21):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -5640,7 +5742,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -5703,7 +5805,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -5720,7 +5822,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -5813,7 +5915,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(30):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -5958,11 +6060,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
+        # Just to shake things up, we're using integers for the group property
         for i in range(10):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
-                properties={"group": f"{i}"},
+                properties={"group": i},
             )
 
         cohort1 = Cohort.objects.create(
@@ -5975,7 +6078,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                             ],
                         }
                     ],
@@ -6037,7 +6140,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                             ],
                         }
                     ],
@@ -6057,7 +6160,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "values": [
                                 {
                                     "key": "group",
-                                    "value": [1, 2, 4, 5, 6],
+                                    "value": ["1", "2", "4", "5", "6"],
                                     "type": "person",
                                 },
                             ],
@@ -6114,7 +6217,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "values": [
                                 {
                                     "key": "group",
-                                    "value": [1, 2, 4, 5, 6],
+                                    "value": ["1", "2", "4", "5", "6"],
                                     "type": "person",
                                 },
                             ],

@@ -157,6 +157,8 @@ class OrganizationMemberViewSet(
                 "organization_id": instance.organization_id,
                 "organization_name": instance.organization.name,
                 "removal_type": "self_removal" if is_self_removal else "removed_by_other",
+                "removed_email": removed_user.email,
+                "removed_user_id": removed_user.id,
             },
             groups=groups(instance.organization),
         )

@@ -5,87 +5,9 @@ import { cn } from 'lib/utils/css-classes'
 import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
-import { LemonTreeSelectMode, TreeDataItem } from './LemonTree'
+import { TreeDataItem } from './LemonTree'
 
-export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
-
-type TreeNodeDisplayIconWrapperProps = {
-    item: TreeDataItem
-    expandedItemIds?: string[]
-    defaultNodeIcon?: React.ReactNode
-    handleClick: (item: TreeDataItem) => void
-    selectMode: LemonTreeSelectMode
-    defaultOffset: number
-    multiSelectionOffset: number
-    onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
-    isEmptyFolder: boolean
-}
-
-export const TreeNodeDisplayIconWrapper = ({
-    item,
-    expandedItemIds,
-    defaultNodeIcon,
-    handleClick,
-    selectMode,
-    onItemChecked,
-    defaultOffset,
-    multiSelectionOffset,
-    isEmptyFolder,
-}: TreeNodeDisplayIconWrapperProps): JSX.Element => {
-    return (
-        <>
-            {/* 
-                The idea here is:
-                - if there are no checked items, on hover of the display icon, show the checkbox INSTEAD of the display icon
-                - if there are checked items, show both the checkbox and the display icon ([checkbox] [display icon] [button]) 
-            */}
-            <div
-                className={cn(
-                    'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
-                    {
-                        'cursor-default': isEmptyFolder,
-                    }
-                )}
-            >
-                <TreeNodeDisplayCheckbox
-                    item={item}
-                    handleCheckedChange={(checked, shift) => {
-                        onItemChecked?.(item.id, checked, shift)
-                    }}
-                    className={cn('absolute z-2', {
-                        // Hide checkboxwhen select mode is default/folder only
-                        hidden: selectMode === 'default' || selectMode === 'folder-only',
-                    })}
-                    style={{
-                        left: `${defaultOffset}px`,
-                    }}
-                />
-
-                <div
-                    className="absolute transition-all duration-50"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
-                        left:
-                            selectMode === 'multi' && !item.disableSelect
-                                ? `${multiSelectionOffset}px`
-                                : `${defaultOffset}px`,
-                    }}
-                    // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
-                    onClick={() => {
-                        handleClick(item)
-                    }}
-                >
-                    <TreeNodeDisplayIcon
-                        item={item}
-                        expandedItemIds={expandedItemIds ?? []}
-                        defaultNodeIcon={defaultNodeIcon}
-                    />
-                </div>
-            </div>
-        </>
-    )
-}
+export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
@@ -150,6 +72,7 @@ type TreeNodeDisplayIconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
     defaultNodeIcon?: React.ReactNode
+    size?: 'default' | 'narrow'
 }
 
 // Get display item for the tree node
@@ -158,6 +81,7 @@ export const TreeNodeDisplayIcon = ({
     item,
     expandedItemIds,
     defaultNodeIcon,
+    size = 'default',
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
@@ -178,7 +102,11 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div className="flex gap-1 relative [&_svg]:size-4">
+        <div
+            className={cn('h-[var(--lemon-tree-button-height)] flex gap-1 relative items-start ', {
+                '-ml-px': size === 'default',
+            })}
+        >
             {isFolder && (
                 <div
                     className={cn(
@@ -196,7 +124,7 @@ export const TreeNodeDisplayIcon = ({
                         'text-tertiary': item.disabledReason,
                         'group-hover/lemon-tree-button-group:opacity-0': isFolder,
                     },
-                    'transition-opacity duration-150'
+                    'transition-opacity duration-150 top-[var(--lemon-tree-button-icon-offset-top)]'
                 )}
             >
                 {iconElement}
@@ -292,11 +220,15 @@ export const InlineEditField = ({
     handleSubmit,
     style,
     className,
+    children,
+    inputStyle,
 }: {
     value: string
     style?: CSSProperties
     handleSubmit: (value: string) => void
     className?: string
+    children: React.ReactNode
+    inputStyle?: CSSProperties
 }): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
 
@@ -325,15 +257,17 @@ export const InlineEditField = ({
             className={cn(
                 buttonPrimitiveVariants({ menuItem: true, size: 'base', hasSideActionRight: true }),
                 className,
-                'bg-fill-button-tertiary-active'
+                'bg-fill-button-tertiary-active pl-px'
             )}
         >
             {/* Spacer to offset button padding */}
             <div
-                className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             />
+
+            {children}
             <input
                 ref={inputRef}
                 type="text"
@@ -341,6 +275,8 @@ export const InlineEditField = ({
                 onBlur={handleBlur}
                 autoFocus
                 className="w-full"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={inputStyle}
                 onKeyDown={(e) => {
                     e.stopPropagation()
                     if (e.key === 'Enter') {

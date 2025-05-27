@@ -9,8 +9,8 @@ import aioboto3
 import dlt
 import pytest
 import pytest_asyncio
+from asgiref.sync import sync_to_async
 import temporalio.common
-import temporalio.testing
 import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
@@ -21,6 +21,7 @@ from freezegun.api import freeze_time
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.temporal.data_modeling.run_workflow import (
@@ -109,7 +110,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     assert results.completed == set(dag.keys())
 
 
-async def test_create_table_activity(activity_environment, ateam):
+async def test_create_table_activity(minio_client, activity_environment, ateam, bucket_name):
     query = """\
     select
       event as event,
@@ -127,8 +128,11 @@ async def test_create_table_activity(activity_environment, ateam):
     create_table_activity_inputs = CreateTableActivityInputs(team_id=ateam.pk, models=[saved_query.id.hex])
     with (
         override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
@@ -377,6 +381,81 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     assert len(s3_objects["Contents"]) != 0
     assert key == saved_query.name
     assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_events
+
+    # Ensure we can query the table
+    await sync_to_async(execute_hogql_query)(f"SELECT * FROM {saved_query.name}", ateam)
+
+
+async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, minio_client, pageview_events):
+    query = """\
+    select
+      event as event,
+      if(distinct_id != '0', distinct_id, null) as distinct_id,
+      timestamp as timestamp
+    from events
+    where event = '$pageview'
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="PascalCasedView",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        unittest.mock.patch.object(
+            AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
+        ),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+        )
+
+    s3_objects = await minio_client.list_objects_v2(
+        Bucket=bucket_name, Prefix=f"team_{ateam.pk}_model_{saved_query.id.hex}/"
+    )
+    table = delta_table.to_pyarrow_table(columns=["event", "distinct_id", "timestamp"])
+    events, _ = pageview_events
+    expected_events = sorted(
+        [
+            {
+                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
+                for k, v in event.items()
+                if k in ("event", "distinct_id", "timestamp")
+            }
+            for event in events
+        ],
+        key=lambda d: (d["distinct_id"], d["timestamp"]),
+    )
+
+    normalized_table_name = NamingConvention().normalize_identifier(saved_query.name)
+
+    assert any(f"{normalized_table_name}__query" in obj["Key"] for obj in s3_objects["Contents"])
+    assert table.num_rows == len(expected_events)
+    assert table.num_columns == 3
+    assert table.column_names == ["event", "distinct_id", "timestamp"]
+    assert len(s3_objects["Contents"]) != 0
+    assert key == saved_query.name
+    assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_events
+
+    # Ensure we can query the table
+    await sync_to_async(execute_hogql_query)(f"SELECT * FROM {saved_query.name}", ateam)
 
 
 @pytest_asyncio.fixture

@@ -1,6 +1,7 @@
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
@@ -204,3 +205,18 @@ def cache():
     yield django_cache
 
     django_cache.clear()
+
+
+@pytest.fixture(scope="package", autouse=True)
+def load_hog_function_templates(django_db_setup, django_db_blocker):
+    with django_db_blocker.unblock():
+        from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+
+        with patch(
+            "posthog.management.commands.sync_hog_function_templates.get_hog_function_templates"
+        ) as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            from django.core.management import call_command
+
+            call_command("sync_hog_function_templates")

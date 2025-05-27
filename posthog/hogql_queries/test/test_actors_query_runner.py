@@ -589,3 +589,19 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         display_names = [row[0]["display_name"] for row in response.results]
         assert set(display_names) == {str(person.uuid)}
+
+    def test_person_display_name_with_spaces_in_property_name(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User With Spaces"}

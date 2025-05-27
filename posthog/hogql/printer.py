@@ -165,13 +165,17 @@ def prepare_ast_for_printing(
             resolve_lazy_tables(node, dialect, stack, context)
 
         with context.timings.measure("swap_properties"):
+            set_timezones = True
+            if context.modifiers.convertToProjectTimezone is not None:
+                set_timezones = context.modifiers.convertToProjectTimezone
+
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
                 group_properties={},
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=set_timezones,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.

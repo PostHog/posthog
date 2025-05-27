@@ -1,5 +1,6 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     HogFunctionInvocation,
@@ -30,9 +31,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
     }
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processBatch(
+        invocations: HogFunctionInvocation[]
+    ): Promise<{ backgroundTask: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
         if (!invocations.length) {
-            return []
+            return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
         const invocationResults = await this.runInstrumented(
@@ -40,16 +43,25 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             async () => await this.processInvocations(invocations)
         )
 
-        await this.queueInvocationResults(invocationResults)
-        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
+        // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
+        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
+            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+            return Promise.allSettled([
+                this.hogFunctionMonitoringService
+                    .queueInvocationResults(invocationResults)
+                    .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
+                    .catch((err) => {
+                        captureException(err)
+                        logger.error('Error processing invocation results', { err })
+                    }),
+                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                    captureException(err)
+                    logger.error('Error observing results', { err })
+                }),
+            ])
+        })
 
-        // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
-        await Promise.allSettled([
-            this.hogWatcher.observeResults(invocationResults),
-            this.hogFunctionMonitoringService.produceQueuedMessages(),
-        ])
-
-        return invocationResults
+        return { backgroundTask, invocationResults }
     }
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {
@@ -57,7 +69,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         invocations.forEach((item) => {
             if (item.invocation.queue === 'fetch') {
                 // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                this.hogFunctionMonitoringService.produceAppMetric({
+                this.hogFunctionMonitoringService.queueAppMetric({
                     team_id: item.invocation.teamId,
                     app_source_id: item.invocation.hogFunction.id,
                     metric_kind: 'other',

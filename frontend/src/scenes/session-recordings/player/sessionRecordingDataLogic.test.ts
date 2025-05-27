@@ -1,13 +1,14 @@
 import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/rrweb-types'
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
-import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import {
     parseEncodedSnapshots,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+    processAllSnapshots,
+} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -15,7 +16,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
+import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
@@ -23,9 +24,6 @@ import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/rec
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
-import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
-import { patchMetaEventIntoWebData, ViewportResolution } from './snapshot-processing/patch-meta-event'
-import { clearThrottle } from './snapshot-processing/throttle-capturing'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
@@ -269,6 +267,7 @@ describe('sessionRecordingDataLogic', () => {
                 ])
                 .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecording])
         })
+
         it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
@@ -280,23 +279,33 @@ describe('sessionRecordingDataLogic', () => {
                     sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
         })
-        it('clears the cache after unmounting', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-            expect(Object.keys(logic.cache)).toEqual(
-                expect.arrayContaining(['metaStartTime', 'snapshotsStartTime', 'eventsStartTime'])
-            )
-            expect(typeof logic.cache.metaStartTime).toBe('number')
-
-            logic.unmount()
-            expect(logic.cache.metaStartTime).toBeNull()
-            expect(logic.cache.snapshotsStartTime).toBeNull()
-            expect(logic.cache.eventsStartTime).toBeNull()
-        })
     })
 
     describe('deduplicateSnapshots', () => {
+        const sources: SessionRecordingSnapshotSource[] = [
+            {
+                source: 'blob',
+                start_timestamp: '2025-05-14T15:37:18.897000Z',
+                end_timestamp: '2025-05-14T15:42:18.378000Z',
+                blob_key: '1',
+            },
+        ]
+
+        const fakeViewportForTimestamp: (timestamp: number) => ViewportResolution | undefined = () => ({
+            width: '100',
+            height: '100',
+            href: '',
+        })
+
+        const callProcessing = (snapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
+            return processAllSnapshots(
+                sources,
+                { 'blob-1': { source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' }, snapshots } },
+                fakeViewportForTimestamp,
+                '12345'
+            )
+        }
+
         it('should remove duplicate snapshots and sort by timestamp', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
             const snapshotsWithDuplicates = snapshots
@@ -306,7 +315,7 @@ describe('sessionRecordingDataLogic', () => {
 
             expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
 
-            expect(deduplicateSnapshots(snapshots)).toEqual(deduplicateSnapshots(snapshotsWithDuplicates))
+            expect(callProcessing(snapshots)).toEqual(callProcessing(snapshotsWithDuplicates))
         })
 
         it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
@@ -330,15 +339,13 @@ describe('sessionRecordingDataLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(deduplicateSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
-                verySimilarSnapshots
-            )
+            expect(callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(verySimilarSnapshots)
         })
 
         it('should match snapshot', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
-            expect(deduplicateSnapshots(snapshots)).toMatchSnapshot()
+            expect(callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 
@@ -417,7 +424,7 @@ describe('sessionRecordingDataLogic', () => {
         const sessionId = '12345'
         const numberOfParsedLinesInData = 8
         it('handles normal web data', async () => {
-            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId, false)
+            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId)
             expect(parsed.length).toEqual(numberOfParsedLinesInData)
             expect(parsed).toMatchSnapshot()
         })
@@ -427,8 +434,7 @@ describe('sessionRecordingDataLogic', () => {
                 encodedWebSnapshotData.map((line, index) => {
                     return index == 0 ? line.substring(0, line.length / 2) : line
                 }),
-                sessionId,
-                false
+                sessionId
             )
 
             // unparseable lines are not returned
@@ -528,108 +534,5 @@ describe('sessionRecordingDataLogic', () => {
             const chunks = chunkMutationSnapshot(snapshot)
             expect(chunks).toEqual([snapshot])
         })
-    })
-})
-
-describe('patchMetaEventIntoWebData', () => {
-    const mockViewportForTimestamp = (): ViewportResolution => ({
-        width: '1024',
-        height: '768',
-        href: 'https://blah.io',
-    })
-
-    function createFullSnapshot(): RecordingSnapshot {
-        return {
-            type: EventType.FullSnapshot,
-            timestamp: 1000,
-            windowId: 'window1',
-            data: {} as any,
-        }
-    }
-
-    function createMeta(width: number, height: number, href: string = 'https://blah.io'): RecordingSnapshot {
-        return {
-            type: EventType.Meta,
-            timestamp: 1000,
-            windowId: 'window1',
-            data: {
-                width: width,
-                height: height,
-                href: href,
-            },
-        }
-    }
-
-    it('adds meta event before full snapshot when none exists', () => {
-        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
-
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
-
-        expect(result).toEqual([createMeta(1024, 768), createFullSnapshot()])
-    })
-
-    it('does not add meta event if one already exists before full snapshot', () => {
-        const snapshots: RecordingSnapshot[] = [createMeta(800, 600, 'http://test'), createFullSnapshot()]
-
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
-
-        expect(result).toHaveLength(2)
-        expect(result[0]).toBe(snapshots[0])
-        expect(result[1]).toBe(snapshots[1])
-    })
-
-    it('handles multiple full snapshots correctly', () => {
-        const snapshots: RecordingSnapshot[] = [
-            createFullSnapshot(),
-            {
-                type: EventType.IncrementalSnapshot,
-                timestamp: 1500,
-                windowId: 'window1',
-                data: {},
-            } as RecordingSnapshot,
-            createFullSnapshot(),
-        ]
-
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
-
-        expect(result).toHaveLength(5)
-        expect(result[0].type).toBe(EventType.Meta)
-        expect(result[1].type).toBe(EventType.FullSnapshot)
-        expect(result[2].type).toBe(EventType.IncrementalSnapshot)
-        expect(result[3].type).toBe(EventType.Meta)
-        expect(result[4].type).toBe(EventType.FullSnapshot)
-    })
-
-    it('logs error when viewport dimensions are not available', () => {
-        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
-        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
-
-        jest.spyOn(posthog, 'captureException')
-
-        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
-
-        expect(posthog.captureException).toHaveBeenCalledWith(
-            new Error('No event viewport or meta snapshot found for full snapshot'),
-            expect.any(Object)
-        )
-        expect(result).toHaveLength(1)
-        expect(result[0]).toBe(snapshots[0])
-    })
-
-    it('does not logs error twice for the same session', () => {
-        clearThrottle()
-
-        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
-        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
-
-        jest.spyOn(posthog, 'captureException')
-
-        expect(posthog.captureException).toHaveBeenCalledTimes(0)
-        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
-        expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
-        expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '54321')
-        expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })
 })

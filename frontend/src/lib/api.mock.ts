@@ -46,6 +46,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -75,8 +77,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         excluded_person_property_names: ['$browser_version'],
     },
     autocapture_opt_out: true,
-    secret_api_token: 'phs_1234567890',
-    secret_api_token_backup: 'phs_8675309',
     session_recording_opt_in: true,
     session_recording_sample_rate: '1.0',
     session_recording_minimum_duration_milliseconds: null,
@@ -142,6 +142,23 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 revenueProperty: 'subscription_value',
                 revenueCurrencyProperty: { property: 'currency' },
                 currencyAwareDecimal: true,
+            },
+        ],
+        goals: [
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+            },
+            {
+                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                name: '2035 Q4',
+                goal: 10_000_000,
+            },
+            {
+                due_date: '2045-12-31',
+                name: '2045 Q4',
+                goal: 100_000_000,
             },
         ],
     },

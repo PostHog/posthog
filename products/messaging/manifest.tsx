@@ -1,5 +1,5 @@
-import { IconMegaphone } from '@posthog/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { IconCursor } from '@posthog/icons'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -55,32 +55,56 @@ export const manifest: ProductManifest = {
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
+        messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+        messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
         messagingLibraryTemplateFromMessage: (id?: string): string =>
             `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
         'hog_function/broadcast': {
-            icon: <IconMegaphone />,
+            icon: <IconCursor />,
             href: (ref: string) => urls.messagingBroadcast(ref),
+            iconColor: ['var(--product-messaging-light)'],
         },
         'hog_function/campaign': {
-            icon: <IconMegaphone />,
+            icon: <IconCursor />,
             href: (ref: string) => urls.messagingCampaign(ref),
+            iconColor: ['var(--product-messaging-light)'],
         },
     },
     treeItemsNew: [
         {
             path: `Broadcast`,
             type: 'hog_function/broadcast',
-            href: () => urls.messagingBroadcastNew(),
+            href: urls.messagingBroadcastNew(),
             flag: FEATURE_FLAGS.MESSAGING,
         },
         {
             path: `Campaign`,
             type: 'hog_function/campaign',
-            href: () => urls.messagingCampaignNew(),
+            href: urls.messagingCampaignNew(),
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Broadcasts',
+            href: urls.messagingBroadcasts(),
+            type: 'hog_function/broadcast',
+            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            tags: ['alpha'],
+        },
+        {
+            path: 'Campaigns',
+            href: urls.messagingCampaigns(),
+            type: 'hog_function/campaign',
+            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            tags: ['alpha'],
+        },
+    ],
+    fileSystemFilterTypes: {
+        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
+        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
+    },
 }
