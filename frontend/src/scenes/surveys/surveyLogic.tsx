@@ -183,13 +183,13 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
 export interface ChoiceQuestionProcessedData {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
     data?: { label: string; value: number; isPredefined: boolean }[]
-    total: number
+    totalResponses: number
 }
 
 export interface OpenQuestionProcessedData {
     type: SurveyQuestionType.Open
     data: { distinctId: string; response: string; personProperties?: Record<string, any> }[]
-    total: number
+    totalResponses: number
 }
 
 export type QuestionProcessedData = ChoiceQuestionProcessedData | OpenQuestionProcessedData
@@ -223,7 +223,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         }
         acc[question.id] = {
             type: question.type,
-            total: 0,
+            totalResponses: 0,
         }
         return acc
     }, {} as any)
@@ -235,7 +235,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         if (question.type === SurveyQuestionType.SingleChoice) {
             let processedData: QuestionProcessedData = {
                 type: question.type,
-                total: 0,
+                totalResponses: 0,
             }
 
             // For SingleChoice, count frequency of each choice
@@ -267,7 +267,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
                 .map((label) => ({ label, value: counts[label], isPredefined: question.choices?.includes(label) }))
                 .sort((a, b) => b.value - a.value)
 
-            processedData = { ...processedData, data, total }
+            processedData = { ...processedData, data, totalResponses: total }
 
             responsesByQuestion[question.id] = processedData
             return
@@ -276,7 +276,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         if (question.type === SurveyQuestionType.Rating) {
             let processedData: QuestionProcessedData = {
                 type: question.type,
-                total: 0,
+                totalResponses: 0,
             }
             const counts = new Array(question.scale === 10 ? 11 : question.scale).fill(0)
             let total = 0
@@ -295,7 +295,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
             }
 
             const data = counts.map((count, index) => ({ label: index.toString(), value: count, isPredefined: true }))
-            processedData = { ...processedData, data, total }
+            processedData = { ...processedData, data, totalResponses: total }
 
             responsesByQuestion[question.id] = processedData
             return
@@ -304,7 +304,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
         if (question.type === SurveyQuestionType.MultipleChoice) {
             let processedData: QuestionProcessedData = {
                 type: question.type,
-                total: 0,
+                totalResponses: 0,
             }
 
             const counts: { [key: string]: number } = {}
@@ -340,7 +340,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
                 .map((label) => ({ label, value: counts[label], isPredefined: question.choices?.includes(label) }))
                 .sort((a, b) => b.value - a.value)
 
-            processedData = { ...processedData, data, total }
+            processedData = { ...processedData, data, totalResponses: total }
 
             responsesByQuestion[question.id] = processedData
             return
@@ -350,7 +350,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
             const processedData: OpenQuestionProcessedData = {
                 type: SurveyQuestionType.Open,
                 data: [],
-                total: 0,
+                totalResponses: 0,
             }
 
             if (results) {
@@ -369,7 +369,7 @@ function processResultsForSurveyQuestions(questions: SurveyQuestion[], results: 
                     if (unparsedPersonProperties && unparsedPersonProperties !== null) {
                         response.personProperties = JSON.parse(unparsedPersonProperties)
                     }
-                    processedData.total += 1
+                    processedData.totalResponses += 1
 
                     processedData.data.push(response)
                 })

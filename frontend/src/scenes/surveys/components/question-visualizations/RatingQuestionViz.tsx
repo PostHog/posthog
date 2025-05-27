@@ -339,56 +339,42 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
 
     return (
         <div className="flex flex-col gap-2">
-            <div>
-                <div className="font-semibold text-secondary">{`${
-                    question.scale === 10
-                        ? '0 - 10'
-                        : question.scale === 7
-                        ? '1 - 7'
-                        : question.scale === 5
-                        ? '1 - 5'
-                        : '1 - 3'
-                } rating`}</div>
-                <div className="text-xl font-bold mb-2">
-                    Question {questionIndex + 1}: {question.question}
+            <div className="h-50 border rounded pt-8">
+                <div className="relative h-full w-full">
+                    <BindLogic logic={insightLogic} props={insightProps}>
+                        <LineGraph
+                            inSurveyView={true}
+                            hideYAxis={true}
+                            showValuesOnSeries={true}
+                            labelGroupType={1}
+                            data-attr="survey-rating"
+                            type={GraphType.Bar}
+                            hideAnnotations={true}
+                            formula="-"
+                            tooltip={{
+                                showHeader: false,
+                                hideColorCol: true,
+                            }}
+                            datasets={[
+                                {
+                                    id: 1,
+                                    label: 'Number of responses',
+                                    barPercentage: 0.8,
+                                    minBarLength: 2,
+                                    data: normalizeScaleData.map((d) => d.value),
+                                    backgroundColor: barColor,
+                                    borderColor: barColor,
+                                    hoverBackgroundColor: barColor,
+                                },
+                            ]}
+                            labels={CHART_LABELS?.[question.scale] || ['1', '2', '3']}
+                        />
+                    </BindLogic>
                 </div>
-                <div className="h-50 border rounded pt-8">
-                    <div className="relative h-full w-full">
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <LineGraph
-                                inSurveyView={true}
-                                hideYAxis={true}
-                                showValuesOnSeries={true}
-                                labelGroupType={1}
-                                data-attr="survey-rating"
-                                type={GraphType.Bar}
-                                hideAnnotations={true}
-                                formula="-"
-                                tooltip={{
-                                    showHeader: false,
-                                    hideColorCol: true,
-                                }}
-                                datasets={[
-                                    {
-                                        id: 1,
-                                        label: 'Number of responses',
-                                        barPercentage: 0.8,
-                                        minBarLength: 2,
-                                        data: normalizeScaleData.map((d) => d.value),
-                                        backgroundColor: barColor,
-                                        borderColor: barColor,
-                                        hoverBackgroundColor: barColor,
-                                    },
-                                ]}
-                                labels={CHART_LABELS?.[question.scale] || ['1', '2', '3']}
-                            />
-                        </BindLogic>
-                    </div>
-                </div>
-                <div className="flex flex-row justify-between mt-1">
-                    <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
-                    <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
-                </div>
+            </div>
+            <div className="flex flex-row justify-between mt-1">
+                <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
+                <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
             </div>
             {npsBreakdown && <NPSBreakdownViz npsBreakdown={npsBreakdown} />}
             {question.scale === 10 && (

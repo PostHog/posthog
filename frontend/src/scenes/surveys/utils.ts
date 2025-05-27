@@ -114,7 +114,7 @@ export function calculateNpsBreakdownFromProcessedData(processedData: QuestionPr
         return null
     }
 
-    if (!processedData.total) {
+    if (!processedData.totalResponses) {
         return { total: 0, promoters: 0, passives: 0, detractors: 0, score: '0.0' }
     }
 
@@ -122,7 +122,7 @@ export function calculateNpsBreakdownFromProcessedData(processedData: QuestionPr
     const PASSIVE_MIN = 7
 
     const breakdown = {
-        total: processedData.total,
+        total: processedData.totalResponses,
         promoters: processedData.data.slice(PROMOTER_MIN, 11).reduce((acc, curr) => acc + curr.value, 0),
         passives: processedData.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((acc, curr) => acc + curr.value, 0),
         detractors: processedData.data.slice(0, PASSIVE_MIN).reduce((acc, curr) => acc + curr.value, 0),

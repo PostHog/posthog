@@ -1,5 +1,6 @@
 import './ErrorBoundary.scss'
 
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,9 +10,10 @@ import { teamLogic } from 'scenes/teamLogic'
 interface ErrorBoundaryProps {
     children?: React.ReactNode
     exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
+    className?: string
 }
 
-export function ErrorBoundary({ children, exceptionProps = {} }: ErrorBoundaryProps): JSX.Element {
+export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -25,7 +27,7 @@ export function ErrorBoundary({ children, exceptionProps = {} }: ErrorBoundaryPr
         <PostHogErrorBoundary
             additionalProperties={additionalProperties}
             fallback={({ error: { stack, name, message } }: { error: Error }) => (
-                <div className="ErrorBoundary">
+                <div className={clsx('ErrorBoundary', className)}>
                     <>
                         <h2>An error has occurred</h2>
                         <pre>
