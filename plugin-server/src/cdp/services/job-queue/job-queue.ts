@@ -192,7 +192,10 @@ export class CyclotronJobQueue {
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
         // NOTE: This is only relevant to postgres backed jobs as kafka jobs can just be dropped
-        await this.jobQueuePostgres.dequeueInvocations(invocations.filter((x) => x.queueSource === 'postgres'))
+        const pgJobsToDequeue = invocations.filter((x) => x.queueSource === 'postgres')
+        if (pgJobsToDequeue.length > 0) {
+            await this.jobQueuePostgres.dequeueInvocations(pgJobsToDequeue)
+        }
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
