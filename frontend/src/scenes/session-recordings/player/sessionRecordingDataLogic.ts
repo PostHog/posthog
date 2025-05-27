@@ -784,7 +784,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 viewportForTimestamp,
                 sessionRecordingId,
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount
+                _snapshotsBySourceSuccessCocopyunt
             ): RecordingSnapshot[] => {
             if (!sources || !cache.snapshotsBySource) {
                 return []
