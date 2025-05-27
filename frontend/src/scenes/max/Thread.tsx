@@ -78,14 +78,12 @@ export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
     // Scroll synchronously with the render into the last human message
     useLayoutEffect(() => {
         if (shouldFocusHumanMessage) {
-            Array.from(document.querySelectorAll('[data-message-type="human"]'))
-                .at(-1)
-                ?.scrollIntoView({
-                    // Avoiding the delay for Storybook snapshots
-                    behavior: !process.env.STORYBOOK ? 'smooth' : 'instant',
-                    block: 'start',
-                    inline: 'nearest',
-                })
+            Array.from(document.querySelectorAll('[data-message-type="human"]')).at(-1)?.scrollIntoView({
+                // Avoiding the delay for Storybook snapshots
+                behavior: 'smooth',
+                block: 'start',
+                inline: 'nearest',
+            })
         }
     }, [shouldFocusHumanMessage])
 

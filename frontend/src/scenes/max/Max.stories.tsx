@@ -395,7 +395,7 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
         }
     }, [messagesSet, askMax])
 
-    return <Template className="h-[800px]" />
+    return <Template className="h-[800px] overflow-y-auto" />
 }
 ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
