@@ -195,21 +195,23 @@ class RevenueAnalyticsItemView(RevenueAnalyticsBaseView):
                 ]
             )
 
-            query.select_from.next_join = (
-                ast.JoinExpr(
-                    alias="product",
-                    table=ast.Field(chain=[product_table.name]),
-                    join_type="LEFT JOIN",
-                    constraint=ast.JoinConstraint(
-                        constraint_type="ON",
-                        expr=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["item", "product_id"]),
-                            right=ast.Field(chain=["product", "id"]),
+            # Need this dumb `if` check to satisfy mypy
+            if query.select_from is not None:
+                query.select_from.next_join = (
+                    ast.JoinExpr(
+                        alias="product",
+                        table=ast.Field(chain=[product_table.name]),
+                        join_type="LEFT JOIN",
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["item", "product_id"]),
+                                right=ast.Field(chain=["product", "id"]),
+                            ),
                         ),
                     ),
-                ),
-            )
+                )
         else:
             query.select.extend(
                 [
