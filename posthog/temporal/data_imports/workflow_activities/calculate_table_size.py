@@ -36,7 +36,7 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
         return
 
     folder_name = schema.folder_path()
-    s3_folder = f"{settings.BUCKET_URL}/{folder_name}"
+    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
 
     s3 = get_s3_client()
     files = s3.find(s3_folder, detail=True)
