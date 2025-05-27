@@ -135,6 +135,29 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     ...values.source?.job_inputs,
                     ...payload,
                 }
+
+                // Handle file uploads
+                const sourceFieldConfig = values.sourceFieldConfig
+                if (sourceFieldConfig?.fields) {
+                    for (const field of sourceFieldConfig.fields) {
+                        if (field.type === 'file-upload' && payload[field.name]) {
+                            try {
+                                // Assumes we're loading a JSON file
+                                const loadedFile: string = await new Promise((resolve, reject) => {
+                                    const fileReader = new FileReader()
+                                    fileReader.onload = (e) => resolve(e.target?.result as string)
+                                    fileReader.onerror = (e) => reject(e)
+                                    fileReader.readAsText(payload[field.name][0])
+                                })
+                                newJobInputs[field.name] = JSON.parse(loadedFile)
+                            } catch (e) {
+                                lemonToast.error('File is not valid')
+                                return
+                            }
+                        }
+                    }
+                }
+
                 try {
                     const updatedSource = await api.externalDataSources.update(values.sourceId, {
                         job_inputs: newJobInputs,

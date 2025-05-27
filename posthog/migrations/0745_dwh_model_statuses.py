@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0742_exportedasset_exception"),
+        ("posthog", "0744_datawarehousetable_size_in_s3_mib"),
     ]
 
     operations = [

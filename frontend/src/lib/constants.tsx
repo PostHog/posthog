@@ -192,7 +192,6 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
-    BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     BILLING_PAYMENT_ENTRY_IN_APP: 'billing-payment-entry-in-app', // owner: @zach
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
@@ -201,7 +200,6 @@ export const FEATURE_FLAGS = {
     MESSAGING: 'messaging-product', // owner @haven #team-messaging
     MESSAGING_AUTOMATION: 'messaging-automation', // owner @haven #team-messaging
     MESSAGING_LIBRARY: 'messaging-library', // owner @haven #team-messaging
-    EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -229,7 +227,6 @@ export const FEATURE_FLAGS = {
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     TREE_VIEW: 'tree-view', // owner: @mariusandra #team-devex
-    TREE_VIEW_PRODUCTS: 'tree-view-products', // owner: @mariusandra #team-devex
     EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
     RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST: 'experiments-new-query-runner-aa-test', // #team-experiments
@@ -280,25 +277,24 @@ export const PRODUCT_VISUAL_ORDER = {
     productAnalytics: 10,
     webAnalytics: 20,
     revenueAnalytics: 30,
-    dashboards: 31,
-    sessionReplay: 40,
-    featureFlags: 50,
-    experiments: 60,
-    surveys: 70,
-    aiChat: 71,
-    dataWarehouse: 80,
-    userInterviews: 90,
-    llmObservability: 100,
-    logs: 110,
+    sqlEditor: 40,
+    dashboards: 50,
+    notebooks: 52,
+    sessionReplay: 60,
+    featureFlags: 70,
+    experiments: 80,
+    surveys: 90,
+    aiChat: 100,
+    llmObservability: 110,
     errorTracking: 120,
-    earlyAccessFeatures: 121,
-    sqlEditor: 130,
+    earlyAccessFeatures: 130,
     dataPipeline: 140,
-    heatmaps: 150,
-    links: 160,
-    messaging: 170,
-    persons: 180,
-    groups: 190,
+    // alphas
+    messaging: 300,
+    heatmaps: 310,
+    links: 320,
+    logs: 330,
+    userInterviews: 340,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
