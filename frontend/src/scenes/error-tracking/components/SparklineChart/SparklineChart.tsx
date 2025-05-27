@@ -200,7 +200,7 @@ function buildEventLabel(
         .force('boundaries', forceBoundaries(movingNodes, -10, contentWidth + 10))
 
     simulation.stop()
-    simulation.tick(100)
+    simulation.tick(500)
     movingNodes.forEach((_, index) => {
         const newX = movingNodes[index].x
         const initialX = clonedNodes[index].x

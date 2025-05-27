@@ -1,6 +1,8 @@
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { ConversationStatus } from '~/types'
 
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getConversationUrl } from './utils'
@@ -31,7 +33,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     View all
                 </LemonButton>
             </div>
-            {conversationHistoryLoading ? (
+            {conversationHistoryLoading && !conversationHistory.length ? (
                 <>
                     <LemonSkeleton className="h-5 w-full" />
                     <LemonSkeleton className="h-5 w-full" />
@@ -50,7 +52,11 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                         })}
                     >
                         <span className="flex-1 line-clamp-1">{conversation.title}</span>
-                        <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                        {conversation.status === ConversationStatus.InProgress ? (
+                            <Spinner className="h-4 w-4" />
+                        ) : (
+                            <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                        )}
                     </Link>
                 ))
             )}

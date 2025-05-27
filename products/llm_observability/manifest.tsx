@@ -77,6 +77,7 @@ export const manifest: ProductManifest = {
             href: urls.llmObservabilityDashboard(),
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
             visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
+            tags: ['beta'],
         },
     ],
 }

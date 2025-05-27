@@ -13,7 +13,7 @@ import {
     parseEncodedSnapshots,
     processAllSnapshots,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { keyForSource, SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -51,6 +51,7 @@ export interface SessionRecordingDataLogicProps {
     realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
+    playerKey?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -112,17 +113,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaFailure: () => true,
             },
         ],
-        snapshotsBySource: [
-            null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+        snapshotsBySourceSuccessCount: [
+            0,
             {
-                loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
-                    const sourceKey = keyForSource(snapshotsForSource.source)
-
-                    return {
-                        ...state,
-                        [sourceKey]: snapshotsForSource,
-                    }
-                },
+                loadSnapshotsForSourceSuccess: (state) => state + 1,
             },
         ],
         wasMarkedViewed: [
@@ -132,7 +126,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionComments: {
             loadRecordingComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
@@ -210,6 +204,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         params = { source: 'realtime', version: '2024-04-30' }
                     } else if (source.source === SnapshotSourceType.blob_v2) {
                         params = { source: 'blob_v2', blob_key: source.blob_key }
+                    } else if (source.source === SnapshotSourceType.file) {
+                        // no need to load a file source, it is already loaded
+                        return { source }
                     } else {
                         throw new Error(`Unsupported source: ${source.source}`)
                     }
@@ -228,7 +225,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
                         (a, b) => a.timestamp - b.timestamp
                     )
-                    return { snapshots: parsedSnapshots, source }
+                    // we store the data in the cache, because we want to avoid copying this data as much as possible
+                    // and kea's immutability means we were copying all of the data on every snapshot call
+                    cache.snapshotsBySource = cache.snapshotsBySource || {}
+                    cache.snapshotsBySource[keyForSource(source)] = { snapshots: parsedSnapshots }
+                    return { source }
                 },
             },
         ],
@@ -432,13 +433,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
             const sources = values.snapshotSources
-            const snapshots = snapshotsForSource.snapshots
+            const sourceKey = keyForSource(snapshotsForSource.source)
+            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
 
             // Cache the last response count to detect if we're getting the same data over and over
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                // if we're getting no results from realtime polling we can increment faster
+                // if we're getting no results from realtime polling, we can increment faster
                 // so that we stop polling sooner
                 const increment = newSnapshotsCount === 0 ? 2 : 1
                 cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
@@ -447,7 +449,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
             cache.lastSnapshotsCount = newSnapshotsCount
 
-            if (!snapshots.length && sources?.length === 1) {
+            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
                 // We got only a single source to load, loaded it successfully, but it had no snapshots.
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
@@ -463,7 +465,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadNextSnapshotSource: () => {
             const nextSourceToLoad = values.snapshotSources?.find((s) => {
                 const sourceKey = keyForSource(s)
-                return !values.snapshotsBySource?.[sourceKey]
+                return !cache.snapshotsBySource?.[sourceKey] && s.source !== SnapshotSourceType.file
             })
 
             if (nextSourceToLoad) {
@@ -517,6 +519,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         markViewed: async ({ delay }, breakpoint) => {
             // Triggered on first paint
             breakpoint()
+            if (props.playerKey?.startsWith('file-')) {
+                return
+            }
             if (values.wasMarkedViewed) {
                 return
             }
@@ -692,7 +697,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (snapshots, sessionPlayerMetaDataLoading, snapshotsLoading, sessionEventsDataLoading): boolean => {
                 // TODO: Do a proper check for all sources having been loaded
                 return (
-                    !!snapshots.length &&
+                    !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
                     !sessionEventsDataLoading
@@ -773,9 +778,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s, p) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp, p.sessionRecordingId],
-            (sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId): RecordingSnapshot[] => {
-                return processAllSnapshots(sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId)
+            (s, p) => [
+                s.snapshotSources,
+                s.viewportForTimestamp,
+                p.sessionRecordingId,
+                s.snapshotsBySourceSuccessCount,
+            ],
+            (
+                sources,
+                viewportForTimestamp,
+                sessionRecordingId,
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                _snapshotsBySourceSuccessCount
+            ): RecordingSnapshot[] => {
+                if (!sources || !cache.snapshotsBySource) {
+                    return []
+                }
+                return processAllSnapshots(
+                    sources,
+                    cache.snapshotsBySource || {},
+                    viewportForTimestamp,
+                    sessionRecordingId
+                )
             },
         ],
 

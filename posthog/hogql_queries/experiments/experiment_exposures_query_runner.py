@@ -239,8 +239,20 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 variant=variant, days=sorted_days, exposure_counts=cumulative_counts
             )
 
+        # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
+        ordered_timeseries = []
+
+        # Add variants in original order
+        for variant in self.variants:
+            if variant in variant_series:
+                ordered_timeseries.append(variant_series[variant])
+
+        # Add MULTIPLE_VARIANT_KEY last if present
+        if MULTIPLE_VARIANT_KEY in variant_series:
+            ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
+
         return ExperimentExposureQueryResponse(
-            timeseries=list(variant_series.values()),
+            timeseries=ordered_timeseries,
             total_exposures={variant: int(series.exposure_counts[-1]) for variant, series in variant_series.items()},
             date_range=self.date_range,
         )

@@ -2,8 +2,6 @@ import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
@@ -122,7 +120,6 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
         if (sourceConfig.name == 'Hubspot') {
@@ -138,10 +135,6 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
-    const filteredConnectors = connectors.filter((n) => {
-        return !(n.name === 'BigQuery' && !featureFlags[FEATURE_FLAGS.BIGQUERY_DWH])
-    })
-
     return (
         <>
             <h2 className="mt-4">Managed by PostHog</h2>
@@ -151,7 +144,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={filteredConnectors}
+                dataSource={connectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[

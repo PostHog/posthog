@@ -24,7 +24,7 @@ jobs:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
               with:
                   # Check out the actual branch instead of merge commit with master,
-                  # because we want the Braintrust experiment to have accurate git metadata
+                  # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
 
             - name: Stop/Start stack with Docker Compose
@@ -62,6 +62,7 @@ jobs:
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
             - name: Post eval summary to PR
+              if: github.event_name == 'pull_request'
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

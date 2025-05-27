@@ -43,6 +43,8 @@ export type TreeDataItem = {
     record?: Record<string, any>
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => SideAction
+    /** The icon to render for the item's side action. Ellipsis by default. */
+    itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
     /** The icon to use for the item. */
     icon?: React.ReactNode
     /** The children of the item. */
@@ -68,6 +70,9 @@ export type TreeDataItem = {
      * @param open - boolean to indicate if it's a folder and it's open state
      */
     onClick?: (open?: boolean) => void
+
+    /** Tags for the item */
+    tags?: string[]
 }
 export type TreeMode = 'tree' | 'table'
 
@@ -117,6 +122,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
+    /** The icon for the side action, defaults to ellipsis */
+    itemSideActionIcon?: (item: TreeDataItem) => React.ReactNode
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
@@ -234,6 +241,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             isItemDroppable,
             depth = 0,
             itemSideAction,
+            itemSideActionIcon,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -543,7 +551,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 isSideActionRight
                                                                 className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
                                                             >
-                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                                {itemSideActionIcon?.(item) ?? (
+                                                                    <IconEllipsis className="size-3 text-tertiary" />
+                                                                )}
                                                             </ButtonPrimitive>
                                                         </DropdownMenuTrigger>
 
@@ -585,6 +595,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             renderItemTooltip={renderItemTooltip}
                                             renderItemIcon={renderItemIcon}
                                             itemSideAction={itemSideAction}
+                                            itemSideActionIcon={itemSideActionIcon}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
                                             isItemDraggable={isItemDraggable}
@@ -648,6 +659,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isItemDraggable,
             isItemDroppable,
             itemSideAction,
+            itemSideActionIcon,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
@@ -1344,6 +1356,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
+                            itemSideActionIcon={itemSideActionIcon}
                             isItemEditing={isItemEditing}
                             onItemNameChange={onItemNameChange}
                             className={cn('p-1', {

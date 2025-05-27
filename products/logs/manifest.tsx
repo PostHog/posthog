@@ -29,6 +29,7 @@ export const manifest: ProductManifest = {
             href: urls.logs(),
             flag: FEATURE_FLAGS.LOGS,
             visualOrder: PRODUCT_VISUAL_ORDER.logs,
+            tags: ['alpha'],
         },
     ],
 }

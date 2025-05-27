@@ -50,6 +50,7 @@ import { ProductKey } from '~/types'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -61,7 +62,8 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { threadGrouped, conversationLoading, conversationId } = useValues(maxLogic)
+    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
@@ -337,7 +339,7 @@ interface AssistantMessageFormProps {
 }
 
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     return (
         <div className="flex flex-wrap gap-2 mt-1">
             {form.options.map((option) => (
@@ -459,7 +461,7 @@ function VisualizationAnswer({
 }
 
 function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     return (
         <LemonButton
@@ -476,8 +478,8 @@ function RetriableFailureActions(): JSX.Element {
 }
 
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
-    const { traceId } = useValues(maxLogic)
-    const { retryLastMessage } = useActions(maxLogic)
+    const { traceId } = useValues(maxThreadLogic)
+    const { retryLastMessage } = useActions(maxThreadLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')

@@ -55,6 +55,7 @@ export const manifest: ProductManifest = {
             href: urls.links(),
             flag: FEATURE_FLAGS.LINKS,
             visualOrder: PRODUCT_VISUAL_ORDER.links,
+            tags: ['alpha'],
         },
     ],
     fileSystemFilterTypes: {

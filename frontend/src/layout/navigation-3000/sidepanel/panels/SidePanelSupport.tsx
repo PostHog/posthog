@@ -52,16 +52,13 @@ const SupportResponseTimesTable = ({
 }): JSX.Element => {
     const { supportPlans } = useValues(billingLogic)
 
-    // Check if Teams add-on is active using both methods
     const platformAndSupportProduct = billing?.products?.find((p) => p.type === 'platform_and_support')
-    const hasTeamsAddon = platformAndSupportProduct?.addons?.find((a) => a.type === 'teams' && a.subscribed)
-    const hasTeamsAddonAlt = supportPlans?.some((plan) => plan.name === 'Teams add-on' && plan.current_plan === true)
-    const teamsAddonActive = Boolean(hasTeamsAddon || hasTeamsAddonAlt)
-
-    // Check for enterprise plan
-    const hasEnterprisePlan =
-        billing?.products?.some((p) => p.type === 'enterprise') ||
-        platformAndSupportProduct?.plans?.some((a) => a.current_plan && a.plan_key?.includes('enterprise'))
+    // Note(@zach): This is a legacy check that we can remove after migrating users off it.
+    const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
+        (a) => a.current_plan && a.plan_key?.includes('enterprise')
+    )
+    const hasPlatformAndSupportAddon =
+        platformAndSupportProduct?.addons?.find((a) => !!a.subscribed) || hasLegacyEnterprisePlan
 
     // Check for expired trials
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -85,61 +82,37 @@ const SupportResponseTimesTable = ({
         features: any[]
         plan_key: string
         link?: string
+        legacy_product?: boolean | null
     }[] = [
         {
             name: 'Free',
-            current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasEnterprisePlan,
+            current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasPlatformAndSupportAddon,
             features: [{ note: 'Community support only' }],
             plan_key: 'free',
             link: 'https://posthog.com/questions',
         },
         {
             name: 'Pay-as-you-go',
-            current_plan:
-                billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan && !hasActiveTrial,
+            current_plan: billing?.subscription_level === 'paid' && !hasActiveTrial && !hasPlatformAndSupportAddon,
             features: [{ note: '2 business days' }],
             plan_key: 'paid',
         },
-        {
-            name: 'Teams add-on',
-            current_plan: teamsAddonActive && !hasActiveTrial,
-            features: [
-                getResponseTimeFeature('Teams add-on') || {
-                    note: '1 business day',
-                },
-            ],
-            plan_key: 'teams',
-        },
-        {
-            name: 'Enterprise plan',
-            current_plan: hasEnterprisePlan && !hasActiveTrial,
-            features: [
-                getResponseTimeFeature('Enterprise plan') || {
-                    note: '1 business day',
-                },
-            ],
-            plan_key: 'enterprise',
-        },
+        ...(platformAndSupportProduct?.addons?.map((addon) => {
+            return {
+                name: addon.name,
+                // Note(@zach): This is a legacy check that we can remove after migrating users off it.
+                current_plan:
+                    (addon.subscribed || (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) && !hasActiveTrial,
+                features: [getResponseTimeFeature(addon.name) || { note: '1 business day' }],
+                plan_key: addon.type,
+                legacy_product: addon.legacy_product,
+            }
+        }) || []),
     ]
 
     return (
-        <div
-            className={`grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 ${
-                isCompact ? 'mb-4' : 'mb-6'
-            } bg-surface-primary ${isCompact ? 'pt-4' : ''}`}
-        >
-            <div
-                className={`col-span-full flex justify-between ${
-                    isCompact ? 'py-1' : 'items-center px-2 py-2 border-b'
-                }`}
-            >
-                <strong>Avg support response times</strong>
-                <div>
-                    <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Upgrade</Link>
-                </div>
-            </div>
-
-            {plansToDisplay.map((plan) => {
+        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
+            {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
                 const responseNote = plan.features.find((f: any) => f.note)?.note
@@ -155,17 +128,22 @@ const SupportResponseTimesTable = ({
                 return (
                     <React.Fragment key={plan.plan_key}>
                         <div
-                            className={`border-t col-span-1 ${isBold ? 'font-semibold' : ''}`}
+                            className={`${index > 0 ? 'border-t' : ''} col-span-1 ${isBold ? 'font-semibold' : ''}`}
                             data-attr="support-plan-name"
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
                                 {isBold && ' '}
                                 {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
+                                {plan.legacy_product && (
+                                    <span className="text-muted text-xs font-normal"> (legacy)</span>
+                                )}
                             </span>
                         </div>
                         <div
-                            className={`border-t col-span-1 text-right ${isBold ? 'font-semibold' : ''}`}
+                            className={`${index > 0 ? 'border-t' : ''} col-span-1 text-right ${
+                                isBold ? 'font-semibold' : ''
+                            }`}
                             data-attr="support-response-time"
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
@@ -392,6 +370,11 @@ export function SidePanelSupport(): JSX.Element {
                                 hasActiveTrial={hasActiveTrial}
                                 isCompact={true}
                             />
+                            <div className="flex justify-end">
+                                <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
+                                    Upgrade support plan
+                                </Link>
+                            </div>
 
                             {/* Share feedback section */}
                             <Section title="Share feedback">

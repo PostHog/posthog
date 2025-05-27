@@ -151,16 +151,14 @@ export function TopBar(): JSX.Element | null {
                                         tooltip="Move to another folder"
                                         disabledReason={renameState ? "Can't move while renaming" : ''}
                                     />
-                                    {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            onClick={() => addShortcutItem(projectTreeRefEntry)}
-                                            icon={<IconShortcut />}
-                                            data-attr="top-bar-add-to-shortcuts-button"
-                                            tooltip="Add to shortcuts panel"
-                                            disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
-                                        />
-                                    )}
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => addShortcutItem(projectTreeRefEntry)}
+                                        icon={<IconShortcut />}
+                                        data-attr="top-bar-add-to-shortcuts-button"
+                                        tooltip="Add to shortcuts panel"
+                                        disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
+                                    />
                                 </>
                             )}
                             <Breadcrumb

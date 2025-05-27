@@ -37,6 +37,8 @@ EXPORT_TIMER = Histogram(
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
+EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
+
 
 # export_asset is used in chords/groups and so must not ignore its results
 @shared_task(
@@ -48,7 +50,7 @@ EXPORT_TIMER = Histogram(
     soft_time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 60,
     time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 120,
     queue=CeleryQueue.EXPORTS.value,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    autoretry_for=EXCEPTIONS_TO_RETRY,
     retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
@@ -64,9 +66,15 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
         pk=exported_asset_id
     )
 
-    if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
-        csv_exporter.export_tabular(exported_asset, limit=limit)
-        EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
-    else:
-        image_exporter.export_image(exported_asset)
-        EXPORT_QUEUED_COUNTER.labels(type="image").inc()
+    try:
+        if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+            csv_exporter.export_tabular(exported_asset, limit=limit)
+            EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
+        else:
+            image_exporter.export_image(exported_asset)
+            EXPORT_QUEUED_COUNTER.labels(type="image").inc()
+    except EXCEPTIONS_TO_RETRY:
+        raise
+    except Exception as e:
+        exported_asset.exception = str(e)
+        exported_asset.save()

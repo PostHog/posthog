@@ -1,4 +1,3 @@
-import { IconCheckCircle } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -10,6 +9,8 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 
 export interface FolderSelectProps {
     /** The folder to select */
@@ -53,7 +54,6 @@ export function FolderSelect({
         toggleFolderOpen,
     } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
-    const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
 
     useEffect(() => {
         if (includeProtocol) {
@@ -114,7 +114,7 @@ export function FolderSelect({
                 onChange={(search) => setSearchTerm(search)}
                 value={searchTerm}
             />
-            <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
+            <ScrollableShadows direction="vertical" className={clsx('bg-surface-primary border rounded', className)}>
                 <LemonTree
                     ref={treeRef}
                     selectMode="folder-only"
@@ -141,29 +141,13 @@ export function FolderSelect({
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
                             if (includeProtocol) {
-                                setSelectedFolder(folder.id)
                                 toggleFolderOpen(folder.id, isExpanded)
                                 onChange?.(folder.id)
                             } else {
-                                setSelectedFolder(folder.record?.path)
                                 toggleFolderOpen(folder.id || '', isExpanded)
                                 onChange?.(folder.record?.path ?? '')
                             }
                         }
-                    }}
-                    renderItem={(item) => {
-                        return (
-                            <span>
-                                {item.record?.path === selectedFolder ? (
-                                    <span className="flex items-center gap-1">
-                                        {item.displayName}
-                                        <IconCheckCircle className="size-4 text-success" />
-                                    </span>
-                                ) : (
-                                    item.displayName
-                                )}
-                            </span>
-                        )
                     }}
                     expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                     onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
@@ -186,7 +170,7 @@ export function FolderSelect({
                         )
                     }}
                 />
-            </div>
+            </ScrollableShadows>
         </div>
     )
 }
