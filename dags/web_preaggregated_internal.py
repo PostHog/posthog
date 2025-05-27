@@ -32,7 +32,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
     ),
     "clickhouse_settings": Field(
         str,
-        default_value="max_execution_time=600",
+        default_value="max_execution_time=1200,max_bytes_before_external_group_by=21474836480,distributed_aggregation_memory_efficient=1",
         description="ClickHouse execution settings",
     ),
 }
