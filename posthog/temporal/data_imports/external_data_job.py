@@ -10,9 +10,11 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
+from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -114,6 +116,14 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     close_old_connections()
 
+    rows_tracked = get_rows(inputs.team_id, inputs.schema_id)
+    if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
+        msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
+        logger.debug(msg)
+        capture_exception(Exception(msg))
+
+    finish_row_tracking(inputs.team_id, inputs.schema_id)
+
     if inputs.job_id is None:
         job: ExternalDataJob | None = (
             ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
@@ -160,12 +170,15 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             )
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
-    update_external_job_status(
+    job = update_external_job_status(
         job_id=job_id,
         status=inputs.status,
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
+
+    job.finished_at = dt.datetime.now(dt.UTC)
+    job.save()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

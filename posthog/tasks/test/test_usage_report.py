@@ -1450,22 +1450,22 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_type=ExternalDataSource.Type.STRIPE,
         )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=3,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=4,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
@@ -1495,6 +1495,64 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_failed_jobs(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+
+        for _ in range(5):
+            ExternalDataJob.objects.create(
+                team_id=3,
+                finished_at=now(),
+                rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        for _ in range(5):
+            ExternalDataJob.objects.create(
+                team_id=4,
+                finished_at=now(),
+                rows_synced=10,
+                status=ExternalDataJob.Status.FAILED,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_synced_in_period"] == 50
+
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
+        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 0
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_response_with_v2_jobs(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
@@ -1508,22 +1566,22 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             source_type=ExternalDataSource.Type.STRIPE,
         )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=3,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
-        for i in range(5):
-            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for _ in range(5):
             ExternalDataJob.objects.create(
                 team_id=4,
-                created_at=start_time,
+                finished_at=now(),
                 rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V2,
                 billable=False,

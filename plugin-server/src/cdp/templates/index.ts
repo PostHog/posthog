@@ -1,4 +1,5 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
+import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
@@ -35,15 +36,20 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
-    (plugin) => plugin.template
+    (x) => x.template
+)
+
+export const HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS: HogFunctionTemplate[] = SEGMENT_DESTINATIONS.map(
+    (x) => x.template
 )
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTemplate[] = TRANSFORMATION_PLUGINS.map(
-    (plugin) => plugin.template
+    (x) => x.template
 )
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
+    ...HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS,
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
