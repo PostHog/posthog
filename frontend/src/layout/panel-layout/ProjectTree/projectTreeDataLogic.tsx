@@ -7,7 +7,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { PersonsManagementTab } from 'scenes/persons-management/personsManagementSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -537,7 +536,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         groupItems: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
-            (groupTypes, groupsAccessStatus, aggregationLabel): PersonsManagementTab[] => {
+            (groupTypes, groupsAccessStatus, aggregationLabel): FileSystemImport[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
