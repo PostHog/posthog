@@ -135,6 +135,8 @@ export type HogFunctionFilterGlobals = {
     }
 }
 
+export type MetricLogSource = 'hog_function' | 'hog_flow'
+
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export type MinimalLogEntry = {
@@ -145,7 +147,7 @@ export type MinimalLogEntry = {
 
 export type LogEntry = MinimalLogEntry & {
     team_id: number
-    log_source: string // The kind of source (hog_function)
+    log_source: MetricLogSource // The kind of source (hog_function)
     log_source_id: string // The id of the hog function
     instance_id: string // The id of the specific invocation
 }
@@ -173,7 +175,7 @@ export type MinimalAppMetric = {
 
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
-    app_source: string
+    app_source: MetricLogSource
     instance_id?: string
 }
 

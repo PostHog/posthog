@@ -7,7 +7,14 @@ import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow } from '../../utils/utils'
-import { AppMetricType, CyclotronJobInvocationResult, LogEntry, LogEntrySerialized, MinimalAppMetric } from '../types'
+import {
+    AppMetricType,
+    CyclotronJobInvocationResult,
+    LogEntry,
+    LogEntrySerialized,
+    MetricLogSource,
+    MinimalAppMetric,
+} from '../types'
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
@@ -57,7 +64,7 @@ export class HogFunctionMonitoringService {
         )
     }
 
-    queueAppMetric(metric: MinimalAppMetric, source: 'hog_function' | 'hog_flow') {
+    queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
         const appMetric: AppMetricType = {
             app_source: source,
             ...metric,
@@ -73,11 +80,11 @@ export class HogFunctionMonitoringService {
         })
     }
 
-    queueAppMetrics(metrics: MinimalAppMetric[], source: 'hog_function' | 'hog_flow') {
+    queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
         metrics.forEach((metric) => this.queueAppMetric(metric, source))
     }
 
-    queueLogs(logEntries: LogEntry[], source: 'hog_function' | 'hog_flow') {
+    queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
         const logs = fixLogDeduplication(
             logEntries.map((logEntry) => ({
                 ...logEntry,
