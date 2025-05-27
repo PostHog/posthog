@@ -407,6 +407,25 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
     ]
 }
 
+const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+        return []
+    }
+    return [
+        {
+            key: ProductTab.MARKETING,
+            label: (
+                <div className="flex items-center gap-1">
+                    Marketing
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+        },
+    ]
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -434,10 +453,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             tabs={[
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                                ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]
-                                    ? [{ key: ProductTab.MARKETING, label: 'Marketing' }]
-                                    : []),
                                 ...pageReportsTab(featureFlags),
+                                ...marketingTab(featureFlags),
                             ]}
                         />
 
