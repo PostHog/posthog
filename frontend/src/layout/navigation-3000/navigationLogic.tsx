@@ -549,6 +549,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: Scene.UserInterviews,
                                   label: 'User interviews',
                                   icon: <IconChat />,
+                                  tag: 'alpha' as const,
                                   to: urls.userInterviews(),
                               }
                             : null,

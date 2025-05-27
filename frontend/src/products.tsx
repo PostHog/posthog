@@ -504,6 +504,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.userInterviews(),
         type: 'user_interview',
         visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
+        tags: ['alpha'],
     },
     {
         path: 'Web analytics',
