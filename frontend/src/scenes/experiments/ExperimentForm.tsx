@@ -31,7 +31,7 @@ import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
+    const { action, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
         useValues(experimentLogic)
     const {
         addVariant,
@@ -50,9 +50,14 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <div>
-            {hasPrimaryMetricSet && (
+            {hasPrimaryMetricSet && action !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
                     Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
+            {action === 'duplicate' && (
+                <LemonBanner type="info" className="my-4">
+                    We'll copy all settings, including metrics and exposure configuration, from the original experiment.
                 </LemonBanner>
             )}
             <div className="deprecated-space-y-8">
