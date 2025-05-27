@@ -269,54 +269,35 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                        SELECT uuid,
-                               event, timestamp, elements_chain, properties.
-                               $window_id, properties.
-                               $current_url, properties.
-                               $event_type, properties.
-                               $viewport_width, properties.
-                               $viewport_height, properties.
-                               $screen_name
-                        FROM events
-                        WHERE timestamp
-                            > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                          AND timestamp
-                            < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                          AND $session_id = ${props.sessionRecordingId}
-                        ORDER BY timestamp ASC
-                            LIMIT 1000000
-                    `
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+FROM events
+WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+AND $session_id = ${props.sessionRecordingId}
+ORDER BY timestamp ASC
+LIMIT 1000000`
 
                     let relatedEventsQuery = hogql`
-                        SELECT uuid,
-                               event, timestamp, elements_chain, properties.
-                               $window_id, properties.
-                               $current_url, properties.
-                               $event_type
-                        FROM events
-                        WHERE timestamp
-                            > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
-                          AND timestamp
-                            < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
-                          AND (empty ($session_id)
-                           OR isNull($session_id))
-                          AND properties.$lib != 'web'
-                    `
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+FROM events
+WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
+AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
+AND (empty ($session_id) OR isNull($session_id))
+AND properties.$lib != 'web'`
+
                     if (person?.uuid) {
                         relatedEventsQuery += `
-                            AND person_id = '${person.uuid}'
-                        `
+AND person_id = '${person.uuid}'`
                     }
                     if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
                         relatedEventsQuery += `
-                            AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}
-                        `
+AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`
                     }
-                    relatedEventsQuery += `
-                        ORDER BY timestamp ASC
-                        LIMIT 1000000
-                    `
 
+                    relatedEventsQuery += `
+ORDER BY timestamp ASC
+LIMIT 1000000
+                    `
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
                         api.query({
