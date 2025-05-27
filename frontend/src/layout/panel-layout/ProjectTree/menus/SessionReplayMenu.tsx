@@ -2,7 +2,6 @@ import { IconPinFilled } from '@posthog/icons'
 import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import React from 'react'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
 
