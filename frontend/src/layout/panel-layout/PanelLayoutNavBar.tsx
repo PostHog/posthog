@@ -25,6 +25,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -33,6 +34,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
@@ -254,18 +256,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             tooltip: 'Activity',
             tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
-        {
-            identifier: 'New',
-            id: 'New',
-            icon: <IconPlus />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('New')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'New' ? 'Close new' : 'Open new',
-        },
     ]
 
     return (
@@ -284,24 +274,49 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <OrganizationDropdownMenu />
 
                         {!isLayoutNavCollapsed && (
-                            <ButtonPrimitive
-                                size="base"
-                                iconOnly
-                                onClick={toggleSearchBar}
-                                data-attr="search-button"
-                                tooltip={
-                                    <div className="flex flex-col gap-0.5">
-                                        <span>
-                                            For search, press <KeyboardShortcut command k />
-                                        </span>
-                                        <span>
-                                            For commands, press <KeyboardShortcut command shift k />
-                                        </span>
-                                    </div>
-                                }
+                            <div
+                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                aria-label="Add a new item menu actions"
                             >
-                                <IconSearch className="text-secondary" />
-                            </ButtonPrimitive>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <ButtonPrimitive
+                                            size="base"
+                                            iconOnly
+                                            data-attr="search-button"
+                                            tooltip="Add new"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                            }}
+                                        >
+                                            <IconPlus className="text-secondary" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <NewMenu type="dropdown" />
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+
+                                <ButtonPrimitive
+                                    size="base"
+                                    iconOnly
+                                    onClick={toggleSearchBar}
+                                    data-attr="search-button"
+                                    tooltip={
+                                        <div className="flex flex-col gap-0.5">
+                                            <span>
+                                                For search, press <KeyboardShortcut command k />
+                                            </span>
+                                            <span>
+                                                For commands, press <KeyboardShortcut command shift k />
+                                            </span>
+                                        </div>
+                                    }
+                                >
+                                    <IconSearch className="text-secondary" />
+                                </ButtonPrimitive>
+                            </div>
                         )}
                     </div>
 
