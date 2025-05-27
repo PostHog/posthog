@@ -9,7 +9,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation,createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,

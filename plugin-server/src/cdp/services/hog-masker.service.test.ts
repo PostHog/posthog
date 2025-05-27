@@ -11,7 +11,7 @@ import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
 import { HOG_MASK_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation,createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
