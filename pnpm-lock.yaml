@@ -1689,8 +1689,6 @@ importers:
         specifier: '*'
         version: 18.2.0
 
-  products/editor: {}
-
   products/experiments:
     dependencies:
       '@posthog/icons':

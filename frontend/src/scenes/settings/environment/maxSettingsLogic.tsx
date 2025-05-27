@@ -45,7 +45,7 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
     loaders(({ values }) => ({
         coreMemory: {
             __default: null as CoreMemory | null,
-            loadCoreMemory: async () => {
+            loadCoreMemory: async (): Promise<CoreMemory | null> => {
                 const response = await api.coreMemory.list()
                 return response.results[0] || null
             },
@@ -74,7 +74,9 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
 
     listeners(({ actions }) => ({
         loadCoreMemorySuccess: ({ coreMemory }) => {
-            actions.setCoreMemoryFormValue('text', coreMemory.text)
+            if (coreMemory) {
+                actions.setCoreMemoryFormValue('text', coreMemory.text)
+            }
         },
     })),
 

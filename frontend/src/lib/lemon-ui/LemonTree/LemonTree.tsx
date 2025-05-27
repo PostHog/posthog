@@ -68,6 +68,9 @@ export type TreeDataItem = {
      * @param open - boolean to indicate if it's a folder and it's open state
      */
     onClick?: (open?: boolean) => void
+
+    /** Tags for the item */
+    tags?: string[]
 }
 export type TreeMode = 'tree' | 'table'
 

@@ -267,6 +267,7 @@ describe('sessionRecordingDataLogic', () => {
                 ])
                 .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecording])
         })
+
         it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
