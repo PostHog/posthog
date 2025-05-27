@@ -335,7 +335,7 @@ export function createInvocation(
             : isSegmentPluginHogFunction(hogFunction)
             ? 'segment'
             : 'hog',
-        queuePriority: 1,
+        queuePriority: 0,
         timings: [],
     }
 }
@@ -353,12 +353,12 @@ export function cloneInvocation(
 ): HogFunctionInvocation {
     return {
         ...invocation,
+        queueSource: invocation.queueSource, // IMPORTANT: We need to keep the queue source as it is used by the job queue router
         queueMetadata: params.queueMetadata ?? undefined,
         queueScheduledAt: params.queueScheduledAt ?? undefined,
         queuePriority: params.queuePriority ?? 0,
         queue: params.queue,
         queueParameters: params.queueParameters ?? undefined,
-        queueSource: undefined, // This is always set by the consumer
     }
 }
 

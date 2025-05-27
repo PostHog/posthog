@@ -22,7 +22,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { cloneInvocation, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
@@ -278,8 +278,11 @@ export class HogExecutorService {
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
-            invocation,
-            finished: false,
+            // Clone the invocation for the result cleaned
+            invocation: cloneInvocation(invocation, {
+                queue: 'hog',
+            }),
+            finished: true,
             capturedPostHogEvents: [],
             logs: [],
         }
@@ -303,9 +306,6 @@ export class HogExecutorService {
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
 
                 let body = invocation.queueParameters.body
-                // Reset the queue parameters to be sure
-                invocation.queue = 'hog'
-                invocation.queueParameters = undefined
 
                 // If we got a response from fetch, we know the response code was in the <300 range,
                 // but if we didn't (indicating a bug in the fetch worker), we use a default of 503

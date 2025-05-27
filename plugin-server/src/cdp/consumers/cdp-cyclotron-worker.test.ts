@@ -50,6 +50,7 @@ describe('CdpCyclotronWorker', () => {
         }
 
         invocation = createInvocation(fn, globals)
+        invocation.queueSource = 'postgres'
     })
 
     afterEach(async () => {
@@ -103,14 +104,17 @@ describe('CdpCyclotronWorker', () => {
                 headers: {},
             } as any)
 
+            const invocationId = invocation.id
             const results = await processor.processInvocations([invocation])
             const result = results[0]
 
             expect(result.finished).toBe(false)
             expect(result.error).toBe(undefined)
             expect(result.metrics).toEqual([])
+            expect(result.invocation.id).toEqual(invocationId)
             expect(result.invocation.queue).toEqual('fetch')
             expect(result.invocation.queueScheduledAt).toBeDefined()
+            expect(result.invocation.queueSource).toEqual('postgres')
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
                 {
                   "body": null,
@@ -146,6 +150,8 @@ describe('CdpCyclotronWorker', () => {
             const results2 = await processor.processInvocations([result.invocation])
             const result2 = results2[0]
 
+            expect(result2.invocation.id).toEqual(invocationId)
+            expect(result2.invocation.queueSource).toEqual('postgres')
             expect(result2.finished).toBe(true)
             expect(result2.error).toBe(undefined)
             expect(result2.metrics).toEqual([
