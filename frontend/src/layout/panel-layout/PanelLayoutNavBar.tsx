@@ -293,21 +293,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             : []),
         {
             identifier: 'PersonsManagement',
-            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? 'Persons' : 'Persons and groups',
             icon: <IconPeople />,
             to: urls.persons(),
             onClick: () => {
                 handleStaticNavbarItemClick(urls.persons(), true)
             },
-            tooltip: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            tooltip: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? 'Persons' : 'Persons and groups',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
