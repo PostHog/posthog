@@ -893,6 +893,15 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class FirstEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    properties: str
+    timestamp: str
+    uuid: str
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -908,7 +917,6 @@ class ErrorTrackingIssueAggregations(BaseModel):
     occurrences: float
     sessions: float
     users: float
-    volumeDay: list[float]
     volumeRange: list[float]
 
 
@@ -5660,10 +5668,10 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregations: ErrorTrackingIssueAggregations
+    aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
-    earliest: Optional[str] = None
+    first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str
     last_seen: datetime
@@ -9245,6 +9253,8 @@ class ErrorTrackingQuery(BaseModel):
     searchQuery: Optional[str] = None
     status: Optional[Status1] = None
     volumeResolution: int
+    withAggregations: Optional[bool] = None
+    withFirstEvent: Optional[bool] = None
 
 
 class ExperimentFunnelMetric(BaseModel):
