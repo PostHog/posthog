@@ -167,7 +167,7 @@ export class FetchExecutorService {
 
         return {
             invocation: cloneInvocation(invocation, {
-                queue: 'hog',
+                queue: params.return_queue,
                 queueParameters: {
                     response: {
                         status: fetchResponse?.status,
