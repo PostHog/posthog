@@ -93,6 +93,12 @@ from posthog.hogql.database.schema.sessions_v2 import (
     join_events_table_to_sessions_table_v2,
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDailyTable,
+    WebOverviewDailyTable,
+    WebPathsDailyTable,
+    WebStatsDailyTable,
+)
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -102,6 +108,7 @@ from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedViewTableKind,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
@@ -118,6 +125,9 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
     RevenueAnalyticsBaseView,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    RevenueAnalyticsChargeView,
 )
 
 if TYPE_CHECKING:
@@ -148,6 +158,12 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+
+    # Web analytics pre-aggregated tables (internal use only)
+    web_overview_daily: WebOverviewDailyTable = WebOverviewDailyTable()
+    web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
+    web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
+    web_paths_daily: WebPathsDailyTable = WebPathsDailyTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -493,11 +509,13 @@ def create_hogql_database(
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
 
-        # No need to call `create_nested_table_group` because these arent using dot notation
+        # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
+        # so let's make sure we have the proper nested queries
         with timings.measure("for_events"):
             revenue_views = RevenueAnalyticsBaseView.for_events(team)
             for view in revenue_views:
                 views[view.name] = view
+                create_nested_table_group(view.name.split("."), views, view)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -976,6 +994,10 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
+                kind=DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
+                if isinstance(view, RevenueAnalyticsChargeView)
+                else DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
+                source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )
 

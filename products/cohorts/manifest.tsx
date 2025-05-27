@@ -22,11 +22,6 @@ export const manifest: ProductManifest = {
             href: urls.cohort('new'),
         },
     ],
-    treeItemsProducts: [
-        {
-            path: 'Cohorts',
-            type: 'cohort',
-            href: urls.cohorts(),
-        },
-    ],
+    treeItemsProducts: [],
+    treeItemsDataManagement: [],
 }
