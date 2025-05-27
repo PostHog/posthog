@@ -434,8 +434,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
-    { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
+    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
+    {
+        path: 'Early access features',
+        type: 'early_access_feature',
+        href: urls.earlyAccessFeatures(),
+        visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
+    },
     {
         path: `Experiments`,
         type: 'experiment',

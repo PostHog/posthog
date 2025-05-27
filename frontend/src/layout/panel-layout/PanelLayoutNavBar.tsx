@@ -295,7 +295,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Persons',
             id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? 'Persons' : 'Persons and groups',
             icon: <IconPeople />,
-            to: urls.persons(),
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Persons')

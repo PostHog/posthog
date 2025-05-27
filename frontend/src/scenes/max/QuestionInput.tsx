@@ -9,6 +9,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -16,8 +17,12 @@ interface QuestionInputProps {
 
 export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
-    const { question, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
-    const { askMax, setQuestion, stopGeneration } = useActions(maxLogic)
+
+    const { question } = useValues(maxLogic)
+    const { setQuestion } = useActions(maxLogic)
+
+    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration } = useActions(maxThreadLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
