@@ -9579,6 +9579,10 @@
                     "description": "Object's name and folder",
                     "type": "string"
                 },
+                "protocol": {
+                    "description": "Protocol of the item, defaults to \"project://\"",
+                    "type": "string"
+                },
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"

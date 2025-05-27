@@ -145,11 +145,12 @@ export function convertFileSystemEntryToTreeDataItem({
         )
         if (!folderNode) {
             const id = `${root}${fullPath}`
+            const protocol = id.includes('://') ? id.split('://', 2)[0] + '://' : 'project://'
             folderNode = {
                 id,
                 name: folderName,
                 displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm ?? ''} />,
-                record: { type: 'folder', id: null, path: fullPath },
+                record: { type: 'folder', id: null, protocol, path: fullPath },
                 children: [],
                 checked: checkedItems[id],
             }
