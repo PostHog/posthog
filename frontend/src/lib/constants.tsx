@@ -279,6 +279,7 @@ export const PRODUCT_VISUAL_ORDER = {
     revenueAnalytics: 30,
     sqlEditor: 40,
     dashboards: 50,
+    notebooks: 52,
     sessionReplay: 60,
     featureFlags: 70,
     experiments: 80,
