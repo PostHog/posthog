@@ -1,25 +1,20 @@
-import { Counter } from 'prom-client'
-
 import { Hub } from '../../types'
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionTypeType } from '../types'
 import { createInvocation } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-export const counterParseError = new Counter({
-    name: 'cdp_function_parse_error',
-    help: 'A function invocation was parsed with an error',
-    labelNames: ['error'],
-})
-
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSourceWebhooksConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['source_webhook']
     private cyclotronJobQueue: CyclotronJobQueue
+    private promiseScheduler: PromiseScheduler
 
     constructor(hub: Hub) {
         super(hub)
+        this.promiseScheduler = new PromiseScheduler()
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog', this.hogFunctionManager)
     }
 
@@ -47,10 +42,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         // Run the initial step - this allows functions not using fetches to respond immediately
         const result = this.hogExecutor.execute(invocation)
 
-        // TODO: Improve all this to be backgrounded
-        await this.hogFunctionMonitoringService.processInvocationResults([result])
-        await this.hogFunctionMonitoringService.produceQueuedMessages()
-        await this.hogWatcher.observeResults([result])
+        void this.promiseScheduler.schedule(
+            Promise.all([
+                this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
+                    return this.hogFunctionMonitoringService.produceQueuedMessages()
+                }),
+                this.hogWatcher.observeResults([result]),
+            ])
+        )
 
         // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
         await this.cyclotronJobQueue.queueInvocationResults([result])
@@ -67,6 +66,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         await super.stop()
         await this.cyclotronJobQueue.stop()
+        await this.promiseScheduler.waitForAllSettled()
     }
 
     public isHealthy() {
