@@ -318,6 +318,12 @@ export function PageHeaderCustom(): JSX.Element {
                                     overlay={
                                         <>
                                             <LemonButton
+                                                to={urls.experiment(`${experiment.id}`, 'duplicate')}
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonButton
                                                 onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
                                                 fullWidth
                                                 data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
