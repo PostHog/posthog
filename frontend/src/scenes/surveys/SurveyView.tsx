@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { IconGraph, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, lemonToast, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, lemonToast, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -506,9 +507,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         ))}
                 </>
             ) : (
-                <LemonBanner type="info">
-                    Your survey has not been answered yet. Once there is at least one response, they will appear here.
-                </LemonBanner>
+                <SurveyNoResponsesBanner type="survey" />
             )}
         </div>
     )
