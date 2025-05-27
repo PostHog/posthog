@@ -1,4 +1,12 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronDown,
+    IconChevronRight,
+    IconFolder,
+    IconFolderPlus,
+    IconPlusSmall,
+    IconX,
+} from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -36,6 +44,9 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { FiltersDropdown, PanelLayoutPanel } from '../PanelLayoutPanel'
+import { DashboardsMenu } from './menus/DashboardsMenu'
+import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
+import { SessionReplayMenu } from './menus/SessionReplayMenu'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
@@ -142,8 +153,19 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
+        // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
+        const productMenu =
+            item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
+                <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
+                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
+                <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : null
+
         return (
             <>
+                {productMenu}
                 {item.record?.protocol === 'products://' && item.record?.path && !item.disableSelect && !onlyTree ? (
                     <>
                         <MenuItem
@@ -449,6 +471,15 @@ export function ProjectTree({
                     return undefined
                 }
                 return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+            }}
+            itemSideActionIcon={(item) => {
+                if (item.record?.protocol === 'products://') {
+                    if (item.name === 'Product analytics') {
+                        return <IconPlusSmall className="text-tertiary" />
+                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
+                        return <IconChevronDown className="text-tertiary" />
+                    }
+                }
             }}
             emptySpaceContextMenu={() => {
                 return (
