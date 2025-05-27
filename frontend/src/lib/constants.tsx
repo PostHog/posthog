@@ -229,7 +229,6 @@ export const FEATURE_FLAGS = {
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     TREE_VIEW: 'tree-view', // owner: @mariusandra #team-devex
-    TREE_VIEW_PRODUCTS: 'tree-view-products', // owner: @mariusandra #team-devex
     EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
     RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST: 'experiments-new-query-runner-aa-test', // #team-experiments
@@ -280,12 +279,13 @@ export const PRODUCT_VISUAL_ORDER = {
     productAnalytics: 10,
     webAnalytics: 20,
     revenueAnalytics: 30,
-    dashboards: 31,
     sessionReplay: 40,
     featureFlags: 50,
     experiments: 60,
     surveys: 70,
     aiChat: 71,
+    dashboards: 72,
+    notebooks: 73,
     dataWarehouse: 80,
     userInterviews: 90,
     llmObservability: 100,
