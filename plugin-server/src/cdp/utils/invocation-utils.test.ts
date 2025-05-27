@@ -57,7 +57,7 @@ describe('Invocation utils', () => {
                 queue: 'hog',
                 queuePriority: 1,
                 queueMetadata: { foo: 'bar' },
-                queueScheduledAt: DateTime.now(),
+                queueScheduledAt: DateTime.utc(),
                 queueParameters: {
                     response: {
                         headers: {},
@@ -84,7 +84,7 @@ describe('Invocation utils', () => {
                     },
                   },
                   "queuePriority": 1,
-                  "queueScheduledAt": "2025-01-01T01:00:00.000+01:00",
+                  "queueScheduledAt": "2025-01-01T00:00:00.000Z",
                   "queueSource": "postgres",
                   "teamId": 1,
                   "timings": [],
