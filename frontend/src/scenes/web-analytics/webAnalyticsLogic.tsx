@@ -12,9 +12,6 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -31,7 +28,6 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
-    DatabaseSchemaDataWarehouseTable,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -55,7 +51,6 @@ import {
     Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
-    ExternalDataSource,
     FilterLogicalOperator,
     InsightLogicProps,
     InsightType,
@@ -417,12 +412,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            dataWarehouseSceneLogic,
-            ['dataWarehouseTablesBySourceType'],
-            databaseTableListLogic,
-            ['database', 'managedViews', 'dataWarehouseTables'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
         ],
     })),
     actions({
@@ -752,18 +741,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
-        enabledDataWarehouseSources: [
-            (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources?: { results: ExternalDataSource[] }): ExternalDataSource[] => {
-                return dataWarehouseSources?.results?.filter((source) => source.revenue_analytics_enabled) ?? []
-            },
-        ],
-        dataWarehouseTables_2: [
-            (s) => [s.dataWarehouseTables],
-            (dataWarehouseTables?: DatabaseSchemaDataWarehouseTable[]): DatabaseSchemaDataWarehouseTable[] => {
-                return dataWarehouseTables ?? []
-            },
-        ],
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
