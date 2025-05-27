@@ -12,12 +12,7 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginsServerConfig } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-    CyclotronJobQueueKind,
-} from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
