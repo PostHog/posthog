@@ -30,6 +30,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                         where min_first_timestamp <= now()
                         and min_first_timestamp >= now() - toIntervalDay(7)
                         group by session_id
+                        having date_diff('second', min (min_first_timestamp), max (max_last_timestamp)) > 5000
                         ) as q
                     group by p
                     order by c desc
