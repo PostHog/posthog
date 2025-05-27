@@ -194,7 +194,7 @@ describe('getFunnelQuery', () => {
                 math: CountPerActorMathType.Average,
             },
         }
-        const result = getFunnelQuery(metric, mockEventConfig, mockExperiment)
+        const result = getFunnelQuery(metric, mockExperiment, mockEventConfig)
         expect(result.kind).toBe(NodeKind.FunnelsQuery)
         if ('event' in result.series[0]) {
             expect(result.series[0].event).toBe('custom_event')
