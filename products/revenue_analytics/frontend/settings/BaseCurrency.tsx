@@ -7,7 +7,7 @@ import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function BaseCurrency(): JSX.Element {
     const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
-    const { updateBaseCurrency, save } = useActions(revenueAnalyticsSettingsLogic)
+    const { updateBaseCurrency } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>
@@ -20,7 +20,6 @@ export function BaseCurrency(): JSX.Element {
                 value={baseCurrency}
                 onChange={(currency) => {
                     updateBaseCurrency(currency as CurrencyCode)
-                    save()
                 }}
             />
         </div>

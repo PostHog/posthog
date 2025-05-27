@@ -1,4 +1,5 @@
 import { IconChat } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -31,6 +32,7 @@ export const manifest: ProductManifest = {
         user_interview: {
             icon: <IconChat />,
             href: (ref: string) => urls.userInterview(ref),
+            iconColor: ['var(--product-user-interviews-light)'],
         },
     },
     treeItemsProducts: [
@@ -38,6 +40,7 @@ export const manifest: ProductManifest = {
             path: 'User interviews',
             href: urls.userInterviews(),
             type: 'user_interview',
+            visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
         },
     ],
     fileSystemFilterTypes: {
