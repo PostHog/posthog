@@ -72,7 +72,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshots: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
-        loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
+        loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
+            sources,
+        }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
         markViewed: (delay?: number) => ({ delay }),
@@ -191,8 +193,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotsForSource: [
             null as SessionRecordingSnapshotSourceResponse | null,
             {
-                loadSnapshotsForSource: async ({ source }, breakpoint) => {
+                loadSnapshotsForSource: async ({ sources }, breakpoint) => {
                     let params: SessionRecordingSnapshotParams
+
+                    if (sources.length > 1) {
+                        throw new Error('Multiple sources provided, expected only one source')
+                    }
+                    const source = sources[0]
 
                     if (source.source === SnapshotSourceType.blob) {
                         if (!source.blob_key) {
@@ -465,7 +472,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             })
 
             if (nextSourceToLoad) {
-                return actions.loadSnapshotsForSource(nextSourceToLoad)
+                return actions.loadSnapshotsForSource([nextSourceToLoad])
             }
 
             if (
@@ -492,7 +499,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             // we could change this or add to it e.g. only poll if browser is visible to user
             if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
                 cache.realTimePollingTimeoutID = setTimeout(() => {
-                    actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
+                    actions.loadSnapshotsForSource([{ source: SnapshotSourceType.realtime }])
                 }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
             } else {
                 actions.stopRealtimePolling()
