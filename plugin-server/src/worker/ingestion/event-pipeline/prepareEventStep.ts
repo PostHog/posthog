@@ -5,6 +5,7 @@ import { PreIngestionEvent } from '~/src/types'
 import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { GroupStoreForDistinctIdBatch } from '../groups/group-store-for-distinct-id-batch'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
@@ -13,7 +14,8 @@ import { EventPipelineRunner } from './runner'
 export async function prepareEventStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
-    processPerson: boolean
+    processPerson: boolean,
+    groupStoreForDistinctId: GroupStoreForDistinctIdBatch
 ): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<void>[] = []
@@ -40,7 +42,8 @@ export async function prepareEventStep(
         team_id,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
-        processPerson
+        processPerson,
+        groupStoreForDistinctId
     )
     await Promise.all(tsParsingIngestionWarnings)
 
