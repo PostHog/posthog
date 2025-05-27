@@ -221,12 +221,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
         } as FileSystemImport,
         {
-            path: 'Data warehouse',
-            iconType: 'database',
-            href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataWarehouse,
-        } as FileSystemImport,
-        {
             path: 'Error tracking',
             iconType: 'bug',
             href: urls.errorTracking(),
