@@ -2045,6 +2045,8 @@ export interface FileSystemEntry {
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
@@ -2053,6 +2055,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
     /** Order of object in tree */
     visualOrder?: number
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
 }
 
 export interface PersistedFolder {
