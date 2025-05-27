@@ -226,7 +226,9 @@ export enum LicensePlan {
 export enum BillingPlan {
     Free = 'free',
     Paid = 'paid',
-    Teams = 'teams',
+    Teams = 'teams', // Legacy
+    Boost = 'boost',
+    Scale = 'scale',
     Enterprise = 'enterprise',
 }
 
@@ -1806,6 +1808,7 @@ export interface BillingProductV2Type {
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
     trial?: BillingTrialType
+    legacy_product?: boolean | null
 }
 
 export interface BillingProductV2AddonType {
@@ -1837,6 +1840,7 @@ export interface BillingProductV2AddonType {
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
     trial?: BillingTrialType
+    legacy_product?: boolean | null
 }
 export interface BillingType {
     customer_id: string
@@ -1939,7 +1943,7 @@ export interface TileLayout extends Omit<Layout, 'i'> {
 }
 
 export interface Tileable {
-    layouts: Record<DashboardLayoutSize, TileLayout> | Record<string, never> // allow an empty object or one with DashboardLayoutSize keys
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never> // allow an empty object or one with DashboardLayoutSize keys
     color: InsightColor | null
 }
 
@@ -5378,9 +5382,12 @@ export interface CoreMemory {
     text: string
 }
 
+export type FileSystemIconColor = [string] | [string, string]
+
 export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
+    iconColor?: FileSystemIconColor
 }
 
 export interface FileSystemFilterType {

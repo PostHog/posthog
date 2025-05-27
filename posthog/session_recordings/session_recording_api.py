@@ -1017,7 +1017,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError(f"Invalid version: {version}")
 
     @extend_schema(
-        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
+        exclude=True,
+        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API.",
     )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1057,6 +1058,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(response_data)
 
+    @extend_schema(
+        exclude=True,
+        description="Find recordings with similar event sequences to the given recording. This is in development and likely to change, you should not depend on this API.",
+    )
     @action(methods=["GET"], detail=True, url_path="analyze/similar")
     def similar_recordings(self, request: request.Request, **kwargs) -> Response:
         """Find recordings with similar event sequences to the given recording."""

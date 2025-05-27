@@ -8,12 +8,6 @@ on:
         paths:
             - 'ee/hogai/**'
             - '.github/workflows/ci-ai.yml'
-            # We use docker compose for tests, make sure we rerun on
-            # changes to docker-compose.dev.yml e.g. dependency
-            # version changes
-            - docker-compose.dev.yml
-            # These scripts are used in the CI
-            - bin/check_kafka_clickhouse_up
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
