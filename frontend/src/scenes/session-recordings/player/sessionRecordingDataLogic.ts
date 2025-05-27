@@ -112,14 +112,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaFailure: () => true,
             },
         ],
-        // we need to trigger some selectors when loading snapshots
-        // without copying the large snapshots data
-        successfulSnapshotSourceVersion: [
+        snapshotsBySourceSuccessCount: [
             0,
             {
-                loadSnapshotsForSourceSuccess: (state) => {
-                    return state + 1
-                },
+                loadSnapshotsForSourceSuccess: (state) => state + 1,
             },
         ],
         wasMarkedViewed: [
@@ -129,7 +125,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionComments: {
             loadRecordingComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
@@ -225,7 +221,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
                         (a, b) => a.timestamp - b.timestamp
                     )
-                    return { snapshots: parsedSnapshots, source }
+                    // we store the data in the cache, because we want to avoid copying this data as much as possible
+                    // and kea's immutability means we were copying all of the data on every snapshot call
+                    cache.snapshotsBySource = cache.snapshotsBySource || {}
+                    cache.snapshotsBySource[keyForSource(source)] = { snapshots: parsedSnapshots }
+                    return { source }
                 },
             },
         ],
@@ -428,14 +428,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
-            // first we store the result in the cache
-            // we want to avoid copying this data as much as possible
-            const sourceKey = keyForSource(snapshotsForSource.source)
-            cache.snapshotsBySource = cache.snapshotsBySource || {}
-            cache.snapshotsBySource[sourceKey] = snapshotsForSource
-
             const sources = values.snapshotSources
-            const snapshots = snapshotsForSource.snapshots
+            const sourceKey = keyForSource(snapshotsForSource.source)
+            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
 
             // Cache the last response count to detect if we're getting the same data over and over
             const newSnapshotsCount = snapshots.length
@@ -464,7 +459,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadNextSnapshotSource: () => {
-            cache.snapshotsBySource = cache.snapshotsBySource || {}
             const nextSourceToLoad = values.snapshotSources?.find((s) => {
                 const sourceKey = keyForSource(s)
                 return !cache.snapshotsBySource?.[sourceKey]
@@ -696,7 +690,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (snapshots, sessionPlayerMetaDataLoading, snapshotsLoading, sessionEventsDataLoading): boolean => {
                 // TODO: Do a proper check for all sources having been loaded
                 return (
-                    !!snapshots.length &&
+                    !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
                     !sessionEventsDataLoading
@@ -777,22 +771,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            // we take _successfulSnapshotSourceVersion only to recalculate snapshots when the cached data has changed
             (s, p) => [
                 s.snapshotSources,
                 s.viewportForTimestamp,
                 p.sessionRecordingId,
-                s.successfulSnapshotSourceVersion,
+                s.snapshotsBySourceSuccessCount,
             ],
             (
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                _successfulSnapshotSourceVersion
+                _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
-                cache.snapshotsBySource = cache.snapshotsBySource || {}
-                return processAllSnapshots(sources, cache.snapshotsBySource, viewportForTimestamp, sessionRecordingId)
+                if (!sources || !cache.snapshotsBySource) {
+                    return []
+                }
+                return processAllSnapshots(
+                    sources,
+                    cache.snapshotsBySource || {},
+                    viewportForTimestamp,
+                    sessionRecordingId
+                )
             },
         ],
 
