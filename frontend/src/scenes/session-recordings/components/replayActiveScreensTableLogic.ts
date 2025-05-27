@@ -32,7 +32,7 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
                 //     order by c desc limit 10
                 // `
                 const q = hogql`
-                    select cutQueryString(cutFragment(the_url)), count(distinct session_id) as c
+                    select cutQueryString(cutFragment(the_url)) as cut_url, count(distinct session_id) as c
                     from (with (select \`$session_id\` as session_id, properties.$current_url as url
                                 from events
                                 where timestamp >= now() - toIntervalDay(7)
@@ -55,8 +55,9 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
                               )
                           group by raw_session_replay_events.session_id
                           having date_diff('second', min (min_first_timestamp), max (max_last_timestamp)) > 5000)
-                    group by the_url
+                    group by cut_url
                     order by c desc
+                    limit 5
                 `
 
                 const qResponse = await api.query<HogQLQuery>({
