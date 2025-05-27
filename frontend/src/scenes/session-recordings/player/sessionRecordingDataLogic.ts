@@ -221,9 +221,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
                         (a, b) => a.timestamp - b.timestamp
                     )
+                    // we store the data in the cache, because we want to avoid copying this data as much as possible
+                    // and kea's immutability means we were copying all of the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
-                    cache.snapshotsBySource[keyForSource(source)] = parsedSnapshots
-                    console.log('setting cache for', source, parsedSnapshots.length)
+                    cache.snapshotsBySource[keyForSource(source)] = { snapshots: parsedSnapshots }
                     return { source }
                 },
             },
@@ -429,7 +430,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
             const sources = values.snapshotSources
             const sourceKey = keyForSource(snapshotsForSource.source)
-            const snapshots = (cache.snapshotsBySource||{})[sourceKey] || []
+            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
 
             // Cache the last response count to detect if we're getting the same data over and over
             const newSnapshotsCount = snapshots.length
@@ -458,12 +459,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadNextSnapshotSource: () => {
-            console.log('Loading next snapshot source... cache', cache)
             const nextSourceToLoad = values.snapshotSources?.find((s) => {
                 const sourceKey = keyForSource(s)
                 return !cache.snapshotsBySource?.[sourceKey]
             })
-            console.log('Next source to load:', nextSourceToLoad)
 
             if (nextSourceToLoad) {
                 return actions.loadSnapshotsForSource(nextSourceToLoad)
@@ -690,12 +689,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.snapshots, s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.sessionEventsDataLoading],
             (snapshots, sessionPlayerMetaDataLoading, snapshotsLoading, sessionEventsDataLoading): boolean => {
                 // TODO: Do a proper check for all sources having been loaded
-                console.log('fully loaded', {
-                    snapshots,
-                    sessionPlayerMetaDataLoading,
-                    snapshotsLoading,
-                    sessionEventsDataLoading,
-                })
                 return (
                     !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
@@ -778,20 +771,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s, p) => [s.snapshotSources, s.viewportForTimestamp, p.sessionRecordingId, s.snapshotsBySourceSuccessCount],
+            (s, p) => [
+                s.snapshotSources,
+                s.viewportForTimestamp,
+                p.sessionRecordingId,
+                s.snapshotsBySourceSuccessCount,
+            ],
             (
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCocopyunt
+                _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
-            if (!sources || !cache.snapshotsBySource) {
-                return []
-            }
-                const v = processAllSnapshots(sources, cache.snapshotsBySource || {}, viewportForTimestamp, sessionRecordingId)
-                console.log('snapshots... cache', cache, 'sources', sources)
-                console.log('processing snapshots selector', _snapshotsBySourceSuccessCount, 'results length',v.length, {inputlen: cache.snapshotsBySource, sources})
+                if (!sources || !cache.snapshotsBySource) {
+                    return []
+                }
+                return processAllSnapshots(
+                    sources,
+                    cache.snapshotsBySource || {},
+                    viewportForTimestamp,
+                    sessionRecordingId
+                )
             },
         ],
 
