@@ -634,10 +634,7 @@ export function ProjectTree({
                 if (root === 'games://') {
                     return <>Play {nameNode}</>
                 }
-                if (root === 'products://') {
-                    return <>View {nameNode}</>
-                }
-                if (root === 'data-management://') {
+                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
                 if (root === 'new://') {

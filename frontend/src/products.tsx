@@ -434,8 +434,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function/campaign',
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
     },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
-    { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
+    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
+    {
+        path: 'Early access features',
+        type: 'early_access_feature',
+        href: urls.earlyAccessFeatures(),
+        visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
+    },
     {
         path: `Experiments`,
         type: 'experiment',
@@ -448,7 +453,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.featureFlags(),
         visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
     },
-    { path: 'Group analytics', iconType: 'cohort', href: urls.groups(0), visualOrder: PRODUCT_VISUAL_ORDER.groups },
     {
         path: 'LLM observability',
         iconType: 'ai',
@@ -470,7 +474,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.LOGS,
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
     },
-    { path: 'Persons', iconType: 'cohort', href: urls.persons(), visualOrder: PRODUCT_VISUAL_ORDER.persons },
     {
         path: 'Product analytics',
         type: 'insight',
@@ -510,7 +513,6 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsDataManagement = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
 

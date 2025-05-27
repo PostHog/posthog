@@ -87,14 +87,14 @@ const SupportResponseTimesTable = ({
         link?: string
     }[] = [
         {
-            name: 'Totally free',
+            name: 'Free',
             current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasEnterprisePlan,
             features: [{ note: 'Community support only' }],
             plan_key: 'free',
             link: 'https://posthog.com/questions',
         },
         {
-            name: 'Ridiculously cheap',
+            name: 'Pay-as-you-go',
             current_plan:
                 billing?.subscription_level === 'paid' && !teamsAddonActive && !hasEnterprisePlan && !hasActiveTrial,
             features: [{ note: '2 business days' }],
@@ -359,8 +359,8 @@ export function SidePanelSupport(): JSX.Element {
                                 <Section title="">
                                     <h3>Can't find what you need in the docs?</h3>
                                     <p>
-                                        With the totally free plan you can ask the community via the link below, or
-                                        explore your upgrade choices for the ability to email a support engineer.
+                                        With the free plan you can ask the community via the link below, or explore your
+                                        upgrade choices for the ability to email a support engineer.
                                     </p>
                                 </Section>
                             )}
