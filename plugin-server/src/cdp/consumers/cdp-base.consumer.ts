@@ -5,12 +5,12 @@ import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
-import { HogFlowManagerService } from '../services/hog-flow-manager.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
 import { HogFlowExecutorService } from '../services/hogflow-executor.service'
+import { HogFlowManagerService } from '../services/hogflow-manager.service'
 import { HogFunctionTypeType } from '../types'
 
 export interface TeamIDWithConfig {
