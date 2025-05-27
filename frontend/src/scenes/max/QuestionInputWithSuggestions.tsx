@@ -7,11 +7,13 @@ import { router } from 'kea-router'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
 
 export function QuestionInputWithSuggestions(): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup, suggestionGroups } = useValues(maxLogic)
-    const { askMax, setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
+    const { setQuestion, focusInput, setActiveGroup } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     return (

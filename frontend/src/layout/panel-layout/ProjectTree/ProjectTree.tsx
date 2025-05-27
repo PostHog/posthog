@@ -632,10 +632,7 @@ export function ProjectTree({
                 if (root === 'games://') {
                     return <>Play {nameNode}</>
                 }
-                if (root === 'products://') {
-                    return <>View {nameNode}</>
-                }
-                if (root === 'data-management://') {
+                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
                 if (root === 'new://') {
@@ -690,10 +687,26 @@ export function ProjectTree({
                         >
                             {item.displayName}
                         </span>
+
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <span className="text-tertiary text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
+                        )}
+
+                        {root === 'products://' && item.tags?.length && (
+                            <>
+                                {item.tags?.map((tag) => (
+                                    <LemonTag
+                                        key={tag}
+                                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                                        size="small"
+                                        className="ml-2 relative top-[-1px]"
+                                    >
+                                        {tag.toUpperCase()}
+                                    </LemonTag>
+                                ))}
+                            </>
                         )}
                     </span>
                 )

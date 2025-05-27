@@ -341,8 +341,9 @@ export function GoalsConfiguration(): JSX.Element {
         <div>
             <h3 className="mb-2">Goals</h3>
             <p className="mb-4">
-                Set revenue targets for specific dates to track your progress. You can track monthly/quarterly/yearly
-                goals. These goals can be used to measure performance against targets in your revenue analytics.
+                Set monthly revenue targets for specific dates to track your progress. You can track goals based on your
+                monthly/quarterly/yearly targets. These goals can be used to measure performance against targets in your
+                Revenue analytics dashboard.
             </p>
 
             <LemonTable<RevenueAnalyticsGoal>
