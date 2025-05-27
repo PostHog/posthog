@@ -16,6 +16,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl } from 'kea-router'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -207,7 +208,7 @@ export function HogFunctionConfiguration({
         // Never allow editing for legacy plugins
         (!isLegacyPlugin &&
             !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
+            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
@@ -350,6 +351,17 @@ export function HogFunctionConfiguration({
                                         </LemonDropdown>
                                     ) : null}
                                 </div>
+
+                                {type === 'source_webhook' && (
+                                    <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
+                                        <LemonLabel>Webhook URL</LemonLabel>
+                                        <CodeSnippet thing="Webhook URL">
+                                            {!id
+                                                ? 'The webhook URL will be shown here once you save'
+                                                : window.location.origin + '/public/webhooks/' + id}
+                                        </CodeSnippet>
+                                    </div>
+                                )}
 
                                 {showFilters && <HogFunctionFilters />}
 

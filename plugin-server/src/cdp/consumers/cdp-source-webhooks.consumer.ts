@@ -1,8 +1,10 @@
+import express from 'express'
+
 import { Hub } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogFunctionInvocationGlobalsWithInputs, HogFunctionTypeType } from '../types'
+import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType, HogFunctionTypeType } from '../types'
 import { createInvocation } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -18,9 +20,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog', this.hogFunctionManager)
     }
 
-    public async processWebhook(webhookId: string, body: Record<string, any>) {
-        // Find the relevant webhook source
+    public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
+        const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
+        return hogFunction
+    }
+
+    public async processWebhook(webhookId: string, req: express.Request) {
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
         if (!hogFunction) {
@@ -29,7 +35,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         }
 
         const globals: HogFunctionInvocationGlobalsWithInputs = {
-            body,
+            body: req.body,
         }
 
         const globalsWithInputs = buildGlobalsWithInputs(globals, {
