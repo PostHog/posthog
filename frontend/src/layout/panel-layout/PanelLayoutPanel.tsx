@@ -1,8 +1,7 @@
-import { IconCdCase, IconCheck, IconDocument, IconFilter, IconPin, IconPinFilled, IconUser } from '@posthog/icons'
+import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -30,17 +29,9 @@ interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
     children: React.ReactNode
-    showFilterDropdown?: boolean
-    searchTerm: string
-    clearSearch: () => void
-    setSearchTerm: (searchTerm: string) => void
+    filterDropdown?: React.ReactNode
+    searchField?: React.ReactNode
 }
-
-// Match with FileSystemViewSet
-const productTypesMapped: [string, string][] = Object.entries(getTreeFilterTypes()).map(([key, value]) => [
-    key,
-    value.name,
-])
 
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
@@ -172,16 +163,18 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
 }
 
 export function PanelLayoutPanel({
-    searchPlaceholder,
-    searchTerm,
-    clearSearch,
-    setSearchTerm,
+    searchField,
     panelActions,
     children,
-    showFilterDropdown = false,
+    filterDropdown,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing, showLayoutPanel} = useActions(panelLayoutLogic)
-    const { isLayoutPanelPinned, isLayoutNavCollapsed, panelWidth: computedPanelWidth, panelWillHide } = useValues(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
+    const {
+        isLayoutPanelPinned,
+        isLayoutNavCollapsed,
+        panelWidth: computedPanelWidth,
+        panelWillHide,
+    } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -220,59 +213,15 @@ export function PanelLayoutPanel({
             </div>
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
-                <div className="flex gap-1 p-1 items-center justify-between">
-                    <SearchAutocomplete
-                        inputPlaceholder={searchPlaceholder}
-                        includeNegation
-                        searchData={[
-                            [
-                                {
-                                    value: 'user',
-                                    label: 'user',
-                                    hint: 'Search by user name',
-                                    icon: <IconUser />,
-                                },
-                                [{ value: 'me', label: 'Me', hint: 'My stuff', icon: <IconUser /> }],
-                                'enter a user, quotes are supported',
-                            ],
-                            [
-                                {
-                                    value: 'type',
-                                    label: 'type',
-                                    hint: 'Search by type',
-                                    icon: <IconCdCase />,
-                                },
-                                productTypesMapped.map(([value, label]) => ({ value, label })),
-                                'enter a type',
-                            ],
-                            [
-                                {
-                                    value: 'name',
-                                    label: 'name',
-                                    hint: 'Search by item name',
-                                    icon: <IconDocument />,
-                                },
-                                undefined,
-                                'enter a name, quotes are supported',
-                            ],
-                        ]}
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowDown') {
-                                e.preventDefault() // Prevent scrolling
-                                const visibleItems = panelTreeRef?.current?.getVisibleItems()
-                                if (visibleItems && visibleItems.length > 0) {
-                                    e.currentTarget.blur() // Remove focus from input
-                                    panelTreeRef?.current?.focusItem(visibleItems[0].id)
-                                }
-                            }
-                        }}
-                        onClear={() => clearSearch()}
-                        onChange={(value) => setSearchTerm(value)}
-                        autoFocus={true}
-                    />
-                    {showFilterDropdown && <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />}
-                </div>
-                <div className="border-b border-primary h-px" />
+                {searchField || filterDropdown ? (
+                    <>
+                        <div className="flex gap-1 p-1 items-center justify-between">
+                            {searchField ?? null}
+                            {filterDropdown ?? null}
+                        </div>
+                        <div className="border-b border-primary h-px" />
+                    </>
+                ) : null}
                 {children}
             </div>
         </nav>

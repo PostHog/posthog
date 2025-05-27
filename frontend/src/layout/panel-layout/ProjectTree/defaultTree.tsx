@@ -238,6 +238,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
             visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
+            tags: ['alpha'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {

@@ -37,7 +37,7 @@ export const manifest: ProductManifest = {
         early_access_feature: {
             icon: <IconRocket />,
             href: (ref: string) => urls.earlyAccessFeature(ref),
-            iconColor: ['var(--product-early-access-features-light)'],
+            iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
         },
     },
     treeItemsNew: [
