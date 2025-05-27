@@ -4,7 +4,7 @@ import {
     IconChevronRight,
     IconFolder,
     IconFolderPlus,
-    IconPlus,
+    IconPlusSmall,
     IconX,
 } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
@@ -475,7 +475,7 @@ export function ProjectTree({
             itemSideActionIcon={(item) => {
                 if (item.record?.protocol === 'products://') {
                     if (item.name === 'Product analytics') {
-                        return <IconPlus className="text-tertiary" />
+                        return <IconPlusSmall className="text-tertiary" />
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return <IconChevronDown className="text-tertiary" />
                     }
