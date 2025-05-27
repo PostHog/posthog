@@ -67,6 +67,16 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
     throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
 }
 
+const getQueryDateRange = (): {
+    date_from: string
+    date_to: string
+    explicitDate: boolean
+} => ({
+    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+    explicitDate: true,
+})
+
 export const getTotalCountQuery = (
     metric: ExperimentMetric,
     experiment: Experiment,
@@ -90,11 +100,7 @@ export const getTotalCountQuery = (
         ],
         trendsFilter: {},
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
+        dateRange: getQueryDateRange(),
     } as TrendsQuery
 }
 
@@ -129,11 +135,7 @@ export const getSumQuery = (
         ],
         trendsFilter: {},
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
+        dateRange: getQueryDateRange(),
     } as TrendsQuery
 }
 
@@ -158,11 +160,7 @@ export const getFunnelQuery = (
             funnelVizType: FunnelVizType.Steps,
         },
         filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
+        dateRange: getQueryDateRange(),
         interval: 'day',
     } as FunnelsQuery
 }
