@@ -1,6 +1,6 @@
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
@@ -23,62 +23,37 @@ export function ExperimentMetricModal({
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { setMetric, updateExperimentMetrics, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal } =
-        useActions(experimentLogic({ experimentId }))
+    const {
+        setMetric,
+        updateExperimentMetrics,
+        setExperiment,
+        closePrimaryMetricModal,
+        closeSecondaryMetricModal,
+        restoreUnmodifiedExperiment,
+    } = useActions(experimentLogic({ experimentId }))
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
 
-    const metrics = experiment[metricsField]
-    const originalMetric = metricIdx != null ? (metrics[metricIdx] as ExperimentMetric) : null
-
-    // Local state for the entire metric - only updates global state on save
-    const [localMetric, setLocalMetric] = useState<ExperimentMetric | null>(originalMetric)
-
-    // Update local state when metric changes (e.g., switching between metrics)
-    useEffect(() => {
-        setLocalMetric(originalMetric)
-    }, [originalMetric])
-
-    const handleSetLocalMetric = useCallback((newMetric: ExperimentMetric): void => {
-        setLocalMetric(newMetric)
-    }, [])
-
-    const handleNameChange = useCallback(
-        (newName: string) => {
-            if (!localMetric) {
+    const handleSetMetric = useCallback(
+        (newMetric: ExperimentMetric): void => {
+            if (metricIdx == null) {
                 return
             }
-            setLocalMetric({
-                ...localMetric,
-                name: newName,
-            })
+            setMetric({ metricIdx, metric: newMetric, isSecondary })
         },
-        [localMetric]
+        [metricIdx, isSecondary, setMetric]
     )
 
-    const saveMetric = useCallback(() => {
-        if (metricIdx == null || !localMetric) {
-            return
-        }
-        setMetric({ metricIdx, metric: localMetric, isSecondary })
-        updateExperimentMetrics()
-        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
-    }, [
-        metricIdx,
-        localMetric,
-        isSecondary,
-        setMetric,
-        updateExperimentMetrics,
-        closeSecondaryMetricModal,
-        closePrimaryMetricModal,
-    ])
-
-    if (metricIdx == null || !localMetric) {
+    if (metricIdx == null) {
         return <></>
     }
 
+    const metrics = experiment[metricsField]
+    const metric = metrics[metricIdx] as ExperimentMetric
+
     const onClose = (): void => {
+        restoreUnmodifiedExperiment()
         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
     }
 
@@ -126,7 +101,10 @@ export function ExperimentMetricModal({
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={saveMetric}
+                            onClick={() => {
+                                updateExperimentMetrics()
+                                isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
+                            }}
                             type="primary"
                             loading={experimentLoading}
                             data-attr="save-experiment-metric"
@@ -139,11 +117,23 @@ export function ExperimentMetricModal({
         >
             <div className="mb-4">
                 <LemonLabel className="mb-1">Name (optional)</LemonLabel>
-                <LemonInput value={localMetric.name || ''} onChange={handleNameChange} />
+                <LemonInput
+                    value={metric.name}
+                    onChange={(newName) => {
+                        setMetric({
+                            metricIdx,
+                            metric: {
+                                ...metric,
+                                name: newName,
+                            },
+                            isSecondary,
+                        })
+                    }}
+                />
             </div>
             <ExperimentMetricForm
-                metric={localMetric}
-                handleSetMetric={handleSetLocalMetric}
+                metric={metric}
+                handleSetMetric={handleSetMetric}
                 filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
             />
         </LemonModal>
