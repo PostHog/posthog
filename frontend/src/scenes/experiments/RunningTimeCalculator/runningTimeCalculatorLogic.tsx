@@ -91,14 +91,20 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
     throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
 }
 
-const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getTotalCountQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    eventConfig: EventConfig | null
+): TrendsQuery => {
     const baseProps = getSeriesItemProps(metric)
 
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                ...baseProps,
+                kind: NodeKind.EventsNode,
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
                 math: BaseMathType.UniqueUsers,
             },
             {
@@ -116,7 +122,11 @@ const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): T
     } as TrendsQuery
 }
 
-const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getSumQuery = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    eventConfig: EventConfig | null
+): TrendsQuery => {
     const baseProps = getSeriesItemProps(metric)
     const mathProperty =
         metric.metric_type === ExperimentMetricType.MEAN
@@ -130,7 +140,9 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                ...baseProps,
+                kind: NodeKind.EventsNode,
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
                 math: BaseMathType.UniqueUsers,
             },
             {
@@ -268,10 +280,14 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
                     metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? getTotalCountQuery(metric, values.experiment)
+                        ? getTotalCountQuery(
+                              metric,
+                              values.experiment,
+                              values.exposureEstimateConfig?.eventFilter ?? null
+                          )
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
-                        ? getSumQuery(metric, values.experiment)
+                        ? getSumQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
                         : getFunnelQuery(metric, values.exposureEstimateConfig?.eventFilter ?? null, values.experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
@@ -316,9 +332,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     metric: values.metric,
                 })
             }
-            actions.loadMetricResult()
-        },
-        setExposureEstimateConfig: () => {
             actions.loadMetricResult()
         },
         setManualConversionRate: () => {

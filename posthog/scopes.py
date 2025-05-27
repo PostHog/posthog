@@ -30,6 +30,7 @@ APIScopeObject = Literal[
     "organization",
     "organization_member",
     "person",
+    "persisted_folder",
     "plugin",
     "project",
     "property_definition",

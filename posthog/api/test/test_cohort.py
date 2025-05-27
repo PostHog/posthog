@@ -186,18 +186,18 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
     @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
     def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
-        materialize("events", "team_id", table_column="person_properties")
+        materialize("person", "favorite_number", table_column="properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         _create_person(
             team=self.team,
             distinct_ids=[f"person_1"],
-            properties={"team_id": 5},
+            properties={"favorite_number": 5},
         )
         _create_person(
             team=self.team,
             distinct_ids=[f"person_2"],
-            properties={"team_id": 6},
+            properties={"favorite_number": 6},
         )
         _create_event(
             team=self.team,
@@ -210,7 +210,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             steps_json=[
                 {
                     "event": "$pageview",
-                    "properties": [{"key": "team_id", "type": "person", "value": "5"}],
+                    "properties": [{"key": "favorite_number", "type": "person", "value": "5"}],
                 }
             ],
         )
@@ -255,7 +255,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 data={
                     "name": "whatever2",
                     "description": "A great cohort!",
-                    "groups": [{"properties": {"team_id": 6}}],
+                    "groups": [{"properties": {"favorite_number": 6}}],
                     "created_by": "something something",
                     "last_calculation": "some random date",
                     "errors_calculating": 100,
@@ -263,7 +263,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
 
-            self.assertIn(f"mat_pp_team_id", insert_statements[0])
+            # Assert that the cohort calculation uses the materialized column
+            # on the person table.
+            self.assertIn(f"person.pmat_favorite_number", insert_statements[0])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -1672,18 +1674,16 @@ email@example.org,
                                     {
                                         "key": "$initial_geoip_subdivision_1_name",
                                         "type": "person",
-                                        "value": "have_property",
+                                        "value": "New South Wales",
                                         "negation": False,
                                         "operator": "exact",
-                                        "value_property": ["New South Wales"],
                                     },
                                     {
                                         "key": "email",
                                         "type": "person",
-                                        "value": "have_property",
+                                        "value": "@byda.com.au",
                                         "negation": False,
                                         "operator": "exact",
-                                        "value_property": ["@byda.com.au"],
                                     },
                                 ],
                             }
@@ -1718,18 +1718,16 @@ email@example.org,
                                 {
                                     "key": "$initial_geoip_subdivision_1_name",
                                     "type": "person",
-                                    "value": "have_property",
+                                    "value": "New South Wales",
                                     "negation": False,
                                     "operator": "exact",
-                                    "value_property": ["New South Wales"],
                                 },
                                 {
                                     "key": "email",
                                     "type": "person",
-                                    "value": "have_property",
+                                    "value": "@byda.com.au",
                                     "negation": False,
                                     "operator": "exact",
-                                    "value_property": ["@byda.com.au"],
                                 },
                             ],
                         }
@@ -2190,6 +2188,53 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
+
+
+class TestCalculateCohortCommand(APIBaseTest):
+    def test_calculate_cohort_command_success(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 1",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch("posthog.management.commands.calculate_cohort.calculate_cohort_ch") as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the cohort is calculated
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            self.assertIn(f"Successfully calculated cohort {cohort.id}", out.getvalue())
+
+    def test_calculate_cohort_command_error(self):
+        # Create a test cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort 2",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+        # Call the command
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = StringIO()
+        with patch(
+            "posthog.management.commands.calculate_cohort.calculate_cohort_ch", side_effect=Exception("Test error 2")
+        ) as mock_calculate_cohort:
+            call_command("calculate_cohort", cohort_id=cohort.id, stdout=out)
+            # Verify the error was handled
+            cohort.refresh_from_db()
+            mock_calculate_cohort.assert_called_once_with(cohort.id, cohort.pending_version, None)
+            self.assertFalse(cohort.is_calculating)
+            output = out.getvalue()
+            self.assertIn("Error calculating cohort: Test error 2", output)
+            self.assertIn("Full traceback:", output)
+            self.assertIn("Exception: Test error 2", output)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

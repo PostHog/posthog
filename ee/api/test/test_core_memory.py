@@ -121,4 +121,4 @@ class TestCoreMemoryAPI(APIBaseTest):
         self.assertEqual(self.core_memory.text, "Valid update")
         self.assertEqual(self.core_memory.team, self.team)
         self.assertEqual(self.core_memory.initial_text, "")
-        self.assertIsNone(self.core_memory.scraping_status)
+        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)

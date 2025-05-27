@@ -23,7 +23,7 @@ function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, plu
     if (PROCESS_EVENT_CAPABILITIES.has(serverCapability)) {
         return pluginCapabilities.methods?.includes('processEvent')
     }
-    if (serverCapability === 'processAsyncOnEventHandlers' || serverCapability === 'cdpLegacyOnEvent') {
+    if (serverCapability === 'cdpLegacyOnEvent') {
         return pluginCapabilities.methods?.some((method) => ['onEvent', 'composeWebhook'].includes(method))
     }
 

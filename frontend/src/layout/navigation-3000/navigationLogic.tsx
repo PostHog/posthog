@@ -5,7 +5,6 @@ import {
     IconDashboard,
     IconDatabase,
     IconGraph,
-    IconGroups,
     IconHome,
     IconLive,
     IconLogomark,
@@ -29,10 +28,9 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
+import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -359,8 +357,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 s.hasOnboardedAnyProduct,
                 s.playlists,
                 s.playlistsLoading,
-                s.groupTypes,
-                s.groupsAccessStatus,
             ],
             (
                 featureFlags,
@@ -368,17 +364,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 pinnedDashboards,
                 hasOnboardedAnyProduct,
                 playlists,
-                playlistsLoading,
-                groupTypes,
-                groupsAccessStatus
+                playlistsLoading
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
-
-                const showGroupsIntroductionPage = [
-                    GroupsAccessStatus.HasAccess,
-                    GroupsAccessStatus.HasGroupTypes,
-                    GroupsAccessStatus.NoAccess,
-                ].includes(groupsAccessStatus)
 
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
@@ -440,7 +428,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'People' : 'People and groups',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -491,35 +479,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                            ? {
-                                  identifier: Scene.Groups,
-                                  label: 'B2B analytics',
-                                  icon: <IconGroups />,
-                                  to: urls.groups(0),
-                                  tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/product-analytics/group-analytics',
-                                  sideAction:
-                                      groupTypes.size > 1 && !showGroupsIntroductionPage
-                                          ? {
-                                                identifier: 'groups-dropdown',
-                                                dropdown: {
-                                                    overlay: (
-                                                        <LemonMenuOverlay
-                                                            items={Array.from(groupTypes.values()).map((groupType) => ({
-                                                                label: capitalizeFirstLetter(
-                                                                    groupType.name_plural || groupType.group_type
-                                                                ),
-                                                                to: urls.groups(groupType.group_type_index),
-                                                            }))}
-                                                        />
-                                                    ),
-                                                    placement: 'bottom-end',
-                                                },
-                                            }
-                                          : undefined,
-                              }
-                            : null,
 
                         featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
                             ? {
@@ -669,7 +628,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.LINK]
+                        featureFlags[FEATURE_FLAGS.LINKS]
                             ? {
                                   identifier: Scene.Links,
                                   label: 'Links',
