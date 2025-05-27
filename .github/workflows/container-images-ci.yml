@@ -20,8 +20,10 @@ jobs:
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
+                  predicate-quantifier: 'every'
                   filters: |
                       docker_files:
+                        - '**'
                         - '!rust/**'
                         - '!livestream/**'
 
