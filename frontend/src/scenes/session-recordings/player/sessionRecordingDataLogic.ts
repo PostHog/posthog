@@ -13,7 +13,7 @@ import {
     parseEncodedSnapshots,
     processAllSnapshots,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { keyForSource, SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -112,16 +112,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaFailure: () => true,
             },
         ],
-        snapshotsBySource: [
-            null as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+        // we need to trigger some selectors when loading snapshots
+        // without copying the large snapshots data
+        successfulSnapshotSourceVersion: [
+            0,
             {
-                loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
-                    const sourceKey = keyForSource(snapshotsForSource.source)
-
-                    return {
-                        ...state,
-                        [sourceKey]: snapshotsForSource,
-                    }
+                loadSnapshotsForSourceSuccess: (state) => {
+                    return state + 1
                 },
             },
         ],
@@ -431,6 +428,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
+            // first we store the result in the cache
+            // we want to avoid copying this data as much as possible
+            const sourceKey = keyForSource(snapshotsForSource.source)
+            cache.snapshotsBySource = cache.snapshotsBySource || {}
+            cache.snapshotsBySource[sourceKey] = snapshotsForSource
+
             const sources = values.snapshotSources
             const snapshots = snapshotsForSource.snapshots
 
@@ -461,9 +464,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
 
         loadNextSnapshotSource: () => {
+            cache.snapshotsBySource = cache.snapshotsBySource || {}
             const nextSourceToLoad = values.snapshotSources?.find((s) => {
                 const sourceKey = keyForSource(s)
-                return !values.snapshotsBySource?.[sourceKey]
+                return !cache.snapshotsBySource?.[sourceKey]
             })
 
             if (nextSourceToLoad) {
@@ -773,9 +777,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshots: [
-            (s, p) => [s.snapshotSources, s.snapshotsBySource, s.viewportForTimestamp, p.sessionRecordingId],
-            (sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId): RecordingSnapshot[] => {
-                return processAllSnapshots(sources, snapshotsBySource, viewportForTimestamp, sessionRecordingId)
+            // we take _successfulSnapshotSourceVersion only to recalculate snapshots when the cached data has changed
+            (s, p) => [
+                s.snapshotSources,
+                s.viewportForTimestamp,
+                p.sessionRecordingId,
+                s.successfulSnapshotSourceVersion,
+            ],
+            (
+                sources,
+                viewportForTimestamp,
+                sessionRecordingId,
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                _successfulSnapshotSourceVersion
+            ): RecordingSnapshot[] => {
+                cache.snapshotsBySource = cache.snapshotsBySource || {}
+                return processAllSnapshots(sources, cache.snapshotsBySource, viewportForTimestamp, sessionRecordingId)
             },
         ],
 
