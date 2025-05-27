@@ -453,7 +453,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.featureFlags(),
         visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
     },
-    { path: 'Group analytics', iconType: 'cohort', href: urls.groups(0), visualOrder: PRODUCT_VISUAL_ORDER.groups },
     {
         path: 'LLM observability',
         iconType: 'ai',
@@ -475,7 +474,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.LOGS,
         visualOrder: PRODUCT_VISUAL_ORDER.logs,
     },
-    { path: 'Persons', iconType: 'cohort', href: urls.persons(), visualOrder: PRODUCT_VISUAL_ORDER.persons },
     {
         path: 'Product analytics',
         type: 'insight',
@@ -515,7 +513,6 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsDataManagement = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
 

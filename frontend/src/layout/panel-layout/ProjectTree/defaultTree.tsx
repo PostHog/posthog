@@ -251,3 +251,18 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreePersons = (): FileSystemImport[] => [
+    {
+        path: 'Persons',
+        iconType: 'cohort',
+        href: urls.persons(),
+        visualOrder: 10,
+    },
+    {
+        path: 'Cohorts',
+        type: 'cohort',
+        href: urls.cohorts(),
+        visualOrder: 20,
+    },
+]
