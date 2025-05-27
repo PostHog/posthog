@@ -147,8 +147,9 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                 },
             ])
             expect(Object.keys(logic.cache.snapshotsBySource)).toEqual(['blob_v2-0', 'blob_v2-1'])
+            expect(logic.cache.snapshotsBySource['blob_v2-0'].snapshots).toHaveLength(11)
             // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
-            expect(logic.cache.snapshotsBySource['blob_v2-1']).toEqual([])
+            expect(logic.cache.snapshotsBySource['blob_v2-1']).toEqual({ snapshots: [] })
         })
     })
 })

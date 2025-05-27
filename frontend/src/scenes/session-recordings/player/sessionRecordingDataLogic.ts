@@ -251,7 +251,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     sources.forEach((s) => {
                         const k = keyForSource(s)
                         // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || []
+                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || { snapshots: [] }
                     })
 
                     return { sources: sources }
