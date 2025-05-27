@@ -14,7 +14,7 @@ export function ChatListItem({
     isUnread,
     isReply,
 }: {
-    person: PersonPropType
+    person: PersonPropType | undefined
     message: string
     subject: string
     source_url: string
