@@ -1,7 +1,6 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
@@ -81,18 +80,15 @@ export function ExperimentMetricForm({
     ]
 
     const metricFilter = metricToFilter(metric)
-    const previewQuery = useMemo(() => metricToQuery(metric, filterTestAccounts), [metric, filterTestAccounts])
+    const previewQuery = metricToQuery(metric, filterTestAccounts)
 
-    const queryConfig = useMemo(
-        () => ({
-            kind: NodeKind.InsightVizNode,
-            source: previewQuery,
-            showTable: false,
-            showLastComputation: true,
-            showLastComputationRefresh: false,
-        }),
-        [previewQuery]
-    )
+    const queryConfig = {
+        kind: NodeKind.InsightVizNode,
+        source: previewQuery,
+        showTable: false,
+        showLastComputation: true,
+        showLastComputationRefresh: false,
+    }
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
