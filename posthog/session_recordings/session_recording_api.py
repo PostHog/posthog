@@ -279,7 +279,8 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
 
 class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     # shared
-    source = serializers.CharField(required=False, allow_null=True)
+    # need to ignore type here because mypy is being weird
+    source = serializers.CharField(required=False, allow_null=True)  # type: ignore
     blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
     blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
 
@@ -704,7 +705,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         if is_personal_api_key:
-            used_key = request.successful_authenticator.personal_api_key
+            personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
+            used_key = personal_api_authenticator.personal_api_key
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
