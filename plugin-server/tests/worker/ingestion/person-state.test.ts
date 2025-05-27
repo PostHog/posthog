@@ -2257,3 +2257,514 @@ describe('PersonState.update()', () => {
         })
     })
 })
+
+describe('JSONB optimization flag compatibility', () => {
+    let hub: Hub
+    let teamId: number
+    let mainTeam: Team
+    let organizationId: string
+    let newUserUuid: string
+    let oldUserUuid: string
+    const newUserDistinctId = 'new-user-opt-test'
+    const oldUserDistinctId = 'old-user-opt-test'
+
+    beforeAll(async () => {
+        hub = await createHub({})
+        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+        organizationId = await createOrganization(hub.db.postgres)
+    })
+
+    beforeEach(async () => {
+        teamId = await createTeam(hub.db.postgres, organizationId)
+        mainTeam = (await getTeam(hub, teamId))!
+        newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
+        oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
+    })
+
+    afterAll(async () => {
+        await closeHub(hub)
+        await hub.db.clickhouseQuery('SYSTEM START MERGES')
+    })
+
+    async function testBothUpdatePaths(
+        testName: string,
+        eventData: Partial<PluginEvent>,
+        initialPersonProperties: Properties = {},
+        testFn: (person: InternalPerson, useOptimized: boolean) => void = () => {}
+    ) {
+        await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
+            { distinctId: newUserDistinctId },
+        ])
+
+        const legacyPersonState = new PersonState(
+            { team_id: teamId, properties: {}, ...eventData } as any,
+            mainTeam,
+            eventData.distinct_id!,
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, eventData.distinct_id!),
+            0,
+            false // useOptimizedJSONBUpdates - LEGACY UPDATE
+        )
+
+        const [legacyPerson, legacyKafkaAcks] = await legacyPersonState.updateProperties()
+        await hub.db.kafkaProducer.flush()
+        await legacyKafkaAcks
+
+        await createPerson(hub, timestamp, initialPersonProperties, {}, {}, teamId, null, false, oldUserUuid, [
+            { distinctId: oldUserDistinctId },
+        ])
+
+        const optimizedPersonState = new PersonState(
+            { team_id: teamId, properties: {}, ...eventData, distinct_id: oldUserDistinctId } as any,
+            mainTeam,
+            oldUserDistinctId,
+            timestamp,
+            true, // processPerson
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
+            0, // measurePersonJsonbSize
+            true // useOptimizedJSONBUpdates - OPTIMIZED
+        )
+
+        const [optimizedPerson, optimizedKafkaAcks] = await optimizedPersonState.updateProperties()
+        await hub.db.kafkaProducer.flush()
+        await optimizedKafkaAcks
+
+        // Compare the results - properties should be identical
+        expect(legacyPerson.properties).toEqual(optimizedPerson.properties)
+        expect(legacyPerson.is_identified).toEqual(optimizedPerson.is_identified)
+        expect(legacyPerson.version).toEqual(optimizedPerson.version)
+
+        testFn(legacyPerson, false)
+        testFn(optimizedPerson, true)
+
+        console.log(`✅ ${testName}: Legacy and optimized paths produced identical results`)
+    }
+
+    it('produces identical results for $set operations', async () => {
+        await testBothUpdatePaths(
+            '$set operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'John', age: 30, active: true },
+                },
+            },
+            { existing: 'value' }
+        )
+    })
+
+    it('produces identical results for $set_once operations', async () => {
+        await testBothUpdatePaths(
+            '$set_once operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set_once: { initial_source: 'google', first_seen: '2023-01-01' },
+                },
+            },
+            { existing: 'value', initial_source: 'existing' } // should not override existing
+        )
+    })
+
+    it('produces identical results for $unset operations', async () => {
+        await testBothUpdatePaths(
+            '$unset operations',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $unset: ['temp_property', 'old_field'],
+                },
+            },
+            {
+                keep_this: 'value',
+                temp_property: 'should_be_removed',
+                old_field: 'also_removed',
+                another_keeper: 123,
+            }
+        )
+    })
+
+    it('produces identical results for mixed operations', async () => {
+        await testBothUpdatePaths(
+            'mixed $set, $set_once, and $unset',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Updated', counter: 5 },
+                    $set_once: { initial_value: 'new', existing_initial: 'should_not_override' },
+                    $unset: ['temp_data', 'old_counter'],
+                },
+            },
+            {
+                name: 'Original',
+                existing_initial: 'keep_this',
+                temp_data: 'remove_me',
+                old_counter: 3,
+                permanent: 'stays',
+            }
+        )
+    })
+
+    it('produces identical results for special property values', async () => {
+        await testBothUpdatePaths('special values and edge cases', {
+            event: '$pageview',
+            distinct_id: newUserDistinctId,
+            properties: {
+                $set: {
+                    null_value: null,
+                    empty_string: '',
+                    zero: 0,
+                    false_value: false,
+                    array: [1, 2, 3],
+                    object: { nested: 'value' },
+                    null_byte: '\u0000', // Should get sanitized
+                },
+            },
+        })
+    })
+
+    it('produces identical results for person events vs regular events', async () => {
+        // Test with $set event (person event - should always update)
+        await testBothUpdatePaths(
+            'person event updates',
+            {
+                event: '$set',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { $current_url: 'https://new-url.com' },
+                },
+            },
+            { $current_url: 'https://old-url.com' }
+        )
+
+        // Test with $pageview (regular event - may skip some updates)
+        await testBothUpdatePaths(
+            'regular event updates',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { $current_url: 'https://new-url.com' },
+                },
+            },
+            { $current_url: 'https://old-url.com' }
+        )
+    })
+
+    it('produces identical results when no updates needed', async () => {
+        await testBothUpdatePaths(
+            'no-op updates',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Same' },
+                    $set_once: { existing: 'keep' },
+                },
+            },
+            { name: 'Same', existing: 'keep' }
+        )
+    })
+
+    it('produces identical results for is_identified updates', async () => {
+        const testWithIdentified = async (updateIsIdentified: boolean) => {
+            // Create persons with is_identified=false initially
+            await createPerson(
+                hub,
+                timestamp,
+                { test: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false, // is_identified = false
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+
+            await createPerson(
+                hub,
+                timestamp,
+                { test: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false, // is_identified = false
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+
+            const legacyPersonState = new PersonState(
+                { team_id: teamId, properties: {}, event: '$pageview', distinct_id: newUserDistinctId } as any,
+                mainTeam,
+                newUserDistinctId,
+                timestamp,
+                true,
+                hub.db.kafkaProducer,
+                new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, newUserDistinctId),
+                0,
+                false // legacy
+            )
+            legacyPersonState.updateIsIdentified = updateIsIdentified
+
+            const optimizedPersonState = new PersonState(
+                { team_id: teamId, properties: {}, event: '$pageview', distinct_id: oldUserDistinctId } as any,
+                mainTeam,
+                oldUserDistinctId,
+                timestamp,
+                true,
+                hub.db.kafkaProducer,
+                new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
+                0,
+                true // optimized
+            )
+            optimizedPersonState.updateIsIdentified = updateIsIdentified
+
+            const [legacyResult] = await legacyPersonState.updateProperties()
+            const [optimizedResult] = await optimizedPersonState.updateProperties()
+
+            expect(legacyResult.is_identified).toEqual(optimizedResult.is_identified)
+            expect(legacyResult.properties).toEqual(optimizedResult.properties)
+            expect(legacyResult.version).toEqual(optimizedResult.version)
+        }
+
+        await testWithIdentified(true)
+        await testWithIdentified(false)
+    })
+
+    // Test that database queries are different but results are the same
+    it('uses different SQL queries but produces same results', async () => {
+        const legacyQueries: string[] = []
+        const optimizedQueries: string[] = []
+
+        // Spy on database calls to capture the queries
+        const originalQuery = hub.db.postgres.query
+        jest.spyOn(hub.db.postgres, 'query').mockImplementation((...args) => {
+            const query = args[1] as string
+            if (query.includes('UPDATE posthog_person')) {
+                if (query.includes('properties ||') || query.includes('properties -')) {
+                    optimizedQueries.push(query)
+                } else {
+                    legacyQueries.push(query)
+                }
+            }
+            return originalQuery.apply(hub.db.postgres, args)
+        })
+
+        await testBothUpdatePaths(
+            'different SQL queries',
+            {
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { new_prop: 'value' },
+                    $unset: ['old_prop'],
+                },
+            },
+            { old_prop: 'remove_me', keep_prop: 'keep_me' }
+        )
+
+        // Verify we used different SQL approaches
+        expect(legacyQueries.length).toBeGreaterThan(0)
+        expect(optimizedQueries.length).toBeGreaterThan(0)
+
+        // Legacy should use simple SET with full properties replacement
+        expect(legacyQueries[0]).toContain('"properties" = $')
+        expect(legacyQueries[0]).not.toContain('||')
+        expect(legacyQueries[0]).not.toContain(' - ')
+
+        // Optimized should use JSONB operators
+        expect(optimizedQueries[0]).toContain('properties ||')
+        expect(optimizedQueries[0]).toContain('properties -')
+
+        jest.restoreAllMocks()
+    })
+
+    it('produces identical results for events that should not update persons', async () => {
+        // Test events that are explicitly excluded from person updates
+        const excludedEvents = ['$exception', '$$heatmap']
+
+        for (const eventType of excludedEvents) {
+            await testBothUpdatePaths(
+                `excluded event: ${eventType}`,
+                {
+                    event: eventType,
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $set: { should_not_update: 'value' },
+                        $set_once: { also_should_not: 'value' },
+                        $unset: ['existing_prop'],
+                    },
+                },
+                {
+                    existing_prop: 'should_stay',
+                    other: 'prop',
+                },
+                (person, _useOptimized) => {
+                    // Both paths should preserve original properties
+                    expect(person.properties).toEqual({
+                        existing_prop: 'should_stay',
+                        other: 'prop',
+                    })
+                    expect(person.version).toBe(0) // No version increment
+                }
+            )
+        }
+    })
+
+    it('produces identical results for GeoIP properties', async () => {
+        await testBothUpdatePaths(
+            'GeoIP property handling',
+            {
+                event: '$pageview', // Non-person event
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: {
+                        $geoip_country_name: 'United States',
+                        $initial_geoip_city_name: 'San Francisco',
+                        regular_prop: 'should_update',
+                    },
+                },
+            },
+            {
+                $geoip_country_name: 'Canada',
+                regular_prop: 'old_value',
+            },
+            (person, _useOptimized) => {
+                // GeoIP properties should be updated in memory but may not trigger DB update
+                expect(person.properties.$geoip_country_name).toBe('United States')
+                expect(person.properties.$initial_geoip_city_name).toBe('San Francisco')
+                expect(person.properties.regular_prop).toBe('should_update')
+            }
+        )
+    })
+
+    it('produces identical results for large property payloads', async () => {
+        // Test with a larger set of properties to ensure optimization works at scale
+        const largeProperties: Properties = {}
+        const initialProperties: Properties = {}
+
+        // Create 50 properties to update
+        for (let i = 0; i < 50; i++) {
+            largeProperties[`prop_${i}`] = `value_${i}`
+            if (i < 25) {
+                initialProperties[`prop_${i}`] = `old_value_${i}` // These will be updated
+            }
+        }
+
+        // Add some properties to unset
+        initialProperties.remove_me_1 = 'gone'
+        initialProperties.remove_me_2 = 'also_gone'
+        initialProperties.keep_me = 'stays'
+
+        await testBothUpdatePaths(
+            'large property payload',
+            {
+                event: '$set', // Person event to ensure update
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: largeProperties,
+                    $unset: ['remove_me_1', 'remove_me_2'],
+                },
+            },
+            initialProperties,
+            (person, _useOptimized) => {
+                // Verify all properties were set correctly
+                for (let i = 0; i < 50; i++) {
+                    expect(person.properties[`prop_${i}`]).toBe(`value_${i}`)
+                }
+                expect(person.properties.keep_me).toBe('stays')
+                expect(person.properties.remove_me_1).toBeUndefined()
+                expect(person.properties.remove_me_2).toBeUndefined()
+                expect(person.version).toBe(1) // Should be updated
+            }
+        )
+    })
+})
+
+describe('Environment variable control', () => {
+    let teamId: number
+    let mainTeam: Team
+    let organizationId: string
+
+    beforeAll(async () => {
+        const hub = await createHub({})
+        organizationId = await createOrganization(hub.db.postgres)
+        teamId = await createTeam(hub.db.postgres, organizationId)
+        mainTeam = (await getTeam(hub, teamId))!
+        await closeHub(hub)
+    })
+
+    it('respects PERSON_PROPERTY_UPDATE_OPTIMIZATION environment variable', () => {
+        const hub = {
+            db: { kafkaProducer: {} },
+        } as any
+
+        // Test default behavior (should be false)
+        delete process.env.PERSON_PROPERTY_UPDATE_OPTIMIZATION
+        const defaultState = new PersonState(
+            { team_id: teamId, properties: {} } as any,
+            mainTeam,
+            'test-id',
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, 'test-id'),
+            0
+        )
+        expect(defaultState['useOptimizedJSONBUpdates']).toBe(false)
+
+        // Test when explicitly enabled
+        process.env.PERSON_PROPERTY_UPDATE_OPTIMIZATION = 'true'
+        const enabledState = new PersonState(
+            { team_id: teamId, properties: {} } as any,
+            mainTeam,
+            'test-id',
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, 'test-id'),
+            0
+        )
+        expect(enabledState['useOptimizedJSONBUpdates']).toBe(true)
+
+        // Test when explicitly disabled
+        process.env.PERSON_PROPERTY_UPDATE_OPTIMIZATION = 'false'
+        const disabledState = new PersonState(
+            { team_id: teamId, properties: {} } as any,
+            mainTeam,
+            'test-id',
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, 'test-id'),
+            0
+        )
+        expect(disabledState['useOptimizedJSONBUpdates']).toBe(false)
+
+        // Test other values (should default to false)
+        process.env.PERSON_PROPERTY_UPDATE_OPTIMIZATION = 'maybe'
+        const maybeState = new PersonState(
+            { team_id: teamId, properties: {} } as any,
+            mainTeam,
+            'test-id',
+            timestamp,
+            true,
+            hub.db.kafkaProducer,
+            new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, 'test-id'),
+            0
+        )
+        expect(maybeState['useOptimizedJSONBUpdates']).toBe(false)
+
+        // Clean up
+        delete process.env.PERSON_PROPERTY_UPDATE_OPTIMIZATION
+    })
+})

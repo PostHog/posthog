@@ -258,7 +258,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             propertiesToUnset,
             otherUpdates,
             tx,
-            'updatePersonWithPropertiesDiff',
+            'updatePersonWithPropertiesDiffForUpdate',
             'forUpdate'
         )
     }
