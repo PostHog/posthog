@@ -74,8 +74,11 @@ class OAuthApplication(AbstractApplication):
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
     # Only admins of the organization should have permission to edit the application.
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True
+        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
     )
+
+    # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
+    user: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
 
 class OAuthAccessToken(AbstractAccessToken):
@@ -85,6 +88,14 @@ class OAuthAccessToken(AbstractAccessToken):
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="oauth_access_tokens",
+    )
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
@@ -98,6 +109,14 @@ class OAuthIDToken(AbstractIDToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="oauth_id_tokens",
+    )
+
 
 class OAuthRefreshToken(AbstractRefreshToken):
     class Meta(AbstractRefreshToken.Meta):
@@ -106,6 +125,12 @@ class OAuthRefreshToken(AbstractRefreshToken):
         swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        related_name="oauth_refresh_tokens",
+    )
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
@@ -126,6 +151,12 @@ class OAuthGrant(AbstractGrant):
         ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    user: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        related_name="oauth_grants",
+    )
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
