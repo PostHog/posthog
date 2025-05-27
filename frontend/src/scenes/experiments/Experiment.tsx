@@ -22,5 +22,5 @@ export function Experiment(): JSX.Element {
         return <NotFound object="experiment" />
     }
 
-    return ['create', 'update'].includes(action) ? <ExperimentForm /> : <ExperimentView />
+    return ['create', 'duplicate'].includes(action) ? <ExperimentForm /> : <ExperimentView />
 }
