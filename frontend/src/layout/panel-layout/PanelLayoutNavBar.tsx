@@ -10,6 +10,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPineapple,
+    IconPlus,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -27,6 +28,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -35,6 +37,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
@@ -291,22 +294,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
               ]
             : []),
         {
-            identifier: 'PersonsManagement',
-            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            identifier: 'Persons',
+            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? 'Persons' : 'Persons and groups',
             icon: <IconPeople />,
-            to: urls.persons(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.persons(), true)
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Persons')
+                }
             },
-            tooltip: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close persons' : 'Open persons',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -338,24 +335,49 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <OrganizationDropdownMenu />
 
                         {!isLayoutNavCollapsed && (
-                            <ButtonPrimitive
-                                size="base"
-                                iconOnly
-                                onClick={toggleSearchBar}
-                                data-attr="search-button"
-                                tooltip={
-                                    <div className="flex flex-col gap-0.5">
-                                        <span>
-                                            For search, press <KeyboardShortcut command k />
-                                        </span>
-                                        <span>
-                                            For commands, press <KeyboardShortcut command shift k />
-                                        </span>
-                                    </div>
-                                }
+                            <div
+                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                aria-label="Add a new item menu actions"
                             >
-                                <IconSearch className="text-secondary" />
-                            </ButtonPrimitive>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <ButtonPrimitive
+                                            size="base"
+                                            iconOnly
+                                            data-attr="search-button"
+                                            tooltip="Add new"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                            }}
+                                        >
+                                            <IconPlus className="text-secondary" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <NewMenu type="dropdown" />
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+
+                                <ButtonPrimitive
+                                    size="base"
+                                    iconOnly
+                                    onClick={toggleSearchBar}
+                                    data-attr="search-button"
+                                    tooltip={
+                                        <div className="flex flex-col gap-0.5">
+                                            <span>
+                                                For search, press <KeyboardShortcut command k />
+                                            </span>
+                                            <span>
+                                                For commands, press <KeyboardShortcut command shift k />
+                                            </span>
+                                        </div>
+                                    }
+                                >
+                                    <IconSearch className="text-secondary" />
+                                </ButtonPrimitive>
+                            </div>
                         )}
                     </div>
 

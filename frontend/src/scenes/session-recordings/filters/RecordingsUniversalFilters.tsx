@@ -271,10 +271,7 @@ export const RecordingsUniversalFilters = ({
                 </div>
             ),
         },
-    ]
-
-    if (savedFilters.results?.length > 0) {
-        tabs.push({
+        {
             key: 'saved',
             label: (
                 <div className="px-2 flex">
@@ -287,8 +284,8 @@ export const RecordingsUniversalFilters = ({
                 </div>
             ),
             content: <SavedFilters setFilters={setFilters} />,
-        })
-    }
+        },
+    ]
 
     return (
         <>

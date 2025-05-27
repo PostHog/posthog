@@ -32,7 +32,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
     ),
     "clickhouse_settings": Field(
         str,
-        default_value="max_execution_time=600",
+        default_value="max_execution_time=1200,max_bytes_before_external_group_by=21474836480,distributed_aggregation_memory_efficient=1",
         description="ClickHouse execution settings",
     ),
 }
@@ -190,8 +190,15 @@ def recreate_web_analytics_preaggregated_internal_data_daily(context: dagster.Sc
     while we test the integration. The usage of pre-aggregated tables is controlled
     by a query modifier AND is behind a feature flag.
     """
+    team_ids = [2]
+
     return dagster.RunRequest(
         run_config={
-            "team_ids": [2]  # We only care about the scheduler in prod so we're good with magic team
+            "ops": {
+                "web_analytics_overview_daily": {"config": {"team_ids": team_ids}},
+                "web_analytics_bounces_daily": {"config": {"team_ids": team_ids}},
+                "web_analytics_stats_table_daily": {"config": {"team_ids": team_ids}},
+                "web_analytics_paths_daily": {"config": {"team_ids": team_ids}},
+            }
         },
     )

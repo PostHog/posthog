@@ -74,7 +74,7 @@ export const RevenueGrowthRateTile = (): JSX.Element => {
             <div className="flex flex-row justify-between">
                 <h3 className="text-lg font-semibold">
                     Revenue growth rate&nbsp;
-                    <Tooltip title="Revenue growth rate is the percentage change in revenue from the previous month. You can also see the rolling growth rate for the last 3 and 6 months.">
+                    <Tooltip title="Growth rate is the percentage change in revenue compared to the previous month. You can also see the more stable average growth rate for the last 3 and 6 months.">
                         <IconInfo />
                     </Tooltip>
                 </h3>

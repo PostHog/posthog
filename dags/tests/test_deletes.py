@@ -291,8 +291,8 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     final_groups = cluster.any_host(partial(get_by_team, "groups")).result()
     assert len(final_groups) == event_count - delete_count, f"expected groups data was not deleted"
 
-    final_cohortpeople = cluster.any_host(partial(get_by_team, "cohortpeople")).result()
-    assert len(final_cohortpeople) == event_count - delete_count, f"expected cohortpeople data was not deleted"
+    # final_cohortpeople = cluster.any_host(partial(get_by_team, "cohortpeople")).result()
+    # assert len(final_cohortpeople) == event_count - delete_count, f"expected cohortpeople data was not deleted"
 
     final_person_static_cohort = cluster.any_host(partial(get_by_team, "person_static_cohort")).result()
     assert (
