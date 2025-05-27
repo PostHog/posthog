@@ -200,7 +200,7 @@ const loadMetrics = async ({
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => `${props.experimentId ?? 'new'}=${props.action}`),
+    key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
