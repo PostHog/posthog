@@ -61,7 +61,12 @@ export function ExperimentMetricForm({
     }
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
-        handleSetMetric(getDefaultExperimentMetric(newMetricType))
+        const newMetric = getDefaultExperimentMetric(newMetricType)
+        // Preserve the existing name when changing metric type
+        handleSetMetric({
+            ...newMetric,
+            name: metric.name,
+        })
     }
 
     const radioOptions = [
