@@ -110,10 +110,10 @@ function SurveyPreview(): JSX.Element {
                 ]}
                 barClassName="mb-0"
             />
-            <div className="flex flex-row gap-2 items-center justify-between min-w-full">
+            <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between flex-1 min-w-full max-w-full">
                 <LemonField.Pure
                     label="Current question"
-                    className="gap-1 flex-1"
+                    className="gap-1 max-w-full md:max-w-sm"
                     htmlFor="survey-preview-question-select"
                 >
                     <LemonSelect
@@ -141,7 +141,7 @@ function SurveyPreview(): JSX.Element {
                     checked={surveyPreviewBackground === 'light'}
                     onChange={(checked) => setSurveyPreviewBackground(checked ? 'light' : 'dark')}
                     label={surveyPreviewBackground === 'light' ? 'Light background' : 'Dark background'}
-                    className="self-end"
+                    className="md:self-end"
                 />
             </div>
             <div
@@ -204,7 +204,7 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
     return (
         <LemonModal isOpen={visible} onClose={onClose} fullScreen simple>
             <LemonModal.Header>Customize Survey Apperance</LemonModal.Header>
-            <LemonModal.Content className="flex flex-row flex-1 h-full gap-4 overflow-hidden">
+            <LemonModal.Content className="flex flex-col md:flex-row flex-1 h-full gap-4 overflow-hidden">
                 <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
                     {!surveysStylingAvailable && (
                         <PayGateMini feature={AvailableFeature.SURVEYS_STYLING} className="mb-4">

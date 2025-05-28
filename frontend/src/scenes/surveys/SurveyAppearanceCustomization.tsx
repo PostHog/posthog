@@ -9,10 +9,9 @@ import { PartialResponsesShuffleQuestionsBanner } from 'scenes/surveys/SurveyRes
 import { AvailableFeature, SurveyType } from '~/types'
 
 export function SurveyAppearanceCustomization(): JSX.Element {
-    const { hasBranchingLogic, survey } = useValues(surveyLogic)
+    const { hasBranchingLogic, survey, surveyShufflingQuestionsAvailable } = useValues(surveyLogic)
     const { deleteBranchingLogic, setIsAppearanceModalOpen } = useActions(surveyLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const surveyShufflingQuestionsAvailable = true
     const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
