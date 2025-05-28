@@ -69,7 +69,7 @@ class RateLimit:
     ttl: int = 60
     bypass_all: bool = False
     redis_client = redis.get_client()
-    retry: Optional[float] = False
+    retry: Optional[float] = None
     retry_timeout: datetime.timedelta = datetime.timedelta(milliseconds=10000)
 
     @contextmanager
