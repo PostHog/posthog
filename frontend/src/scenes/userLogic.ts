@@ -90,6 +90,7 @@ export const userLogic = kea<userLogicType>([
                         lemonToast.success('The email change request was cancelled successfully.')
                         return response
                     } catch (error: any) {
+                        console.error(error)
                         lemonToast.error(
                             'Failed to cancel email change request. Please try again later or contact support.'
                         )

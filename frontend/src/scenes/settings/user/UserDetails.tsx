@@ -48,8 +48,13 @@ export function UserDetails(): JSX.Element {
             </LemonField>
             {user?.pending_email && (
                 <div className="flex flex-row gap-1">
-                    <LemonTag type="highlight">Pending verification for {user.pending_email}</LemonTag>{' '}
-                    <LemonButton type="tertiary" size="xsmall" onClick={cancelEmailChangeRequest}>
+                    <LemonTag type="highlight">Pending verification for {user.pending_email}</LemonTag>
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        data-attr="cancel-email-change-request-button"
+                        onClick={cancelEmailChangeRequest}
+                    >
                         Cancel change
                     </LemonButton>
                 </div>

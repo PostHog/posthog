@@ -497,12 +497,11 @@ class UserViewSet(
 
         if not instance.pending_email:
             raise serializers.ValidationError(
-                f"No active email change requests found.", code="email_change_request_not_found"
+                "No active email change requests found.", code="email_change_request_not_found"
             )
 
         instance.pending_email = None
         instance.save()
-        instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
 
