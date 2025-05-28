@@ -16,7 +16,6 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl } from 'kea-router'
-import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -37,6 +36,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
@@ -352,16 +352,7 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
 
-                                {type === 'source_webhook' && (
-                                    <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-                                        <LemonLabel>Webhook URL</LemonLabel>
-                                        <CodeSnippet thing="Webhook URL">
-                                            {!id
-                                                ? 'The webhook URL will be shown here once you save'
-                                                : window.location.origin + '/public/webhooks/' + id}
-                                        </CodeSnippet>
-                                    </div>
-                                )}
+                                {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
                                 {showFilters && <HogFunctionFilters />}
 
