@@ -463,7 +463,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         isNewQuestionVizEnabled,
     } = useValues(surveyLogic)
 
-    const atLeastOneResonse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
     if (isAnyResultsLoading) {
         lemonToast.info('Loading survey results...', {
@@ -485,7 +485,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         <div className="deprecated-space-y-4">
             <SurveyResponseFilters />
             <SurveyStatsSummary />
-            {isAnyResultsLoading || atLeastOneResonse ? (
+            {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
                     {isNewQuestionVizEnabled ? <SurveyResponsesByQuestionV2 /> : <SurveyResponsesByQuestion />}
                     <LemonButton

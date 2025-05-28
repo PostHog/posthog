@@ -109,7 +109,7 @@ function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.
             <div className="mb-2 font-semibold text-secondary">
                 <Tooltip
                     placement="bottom"
-                    title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can ge from -100 to 100."
+                    title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
                 >
                     <IconInfo className="text-muted mr-1" />
                     Latest NPS Score

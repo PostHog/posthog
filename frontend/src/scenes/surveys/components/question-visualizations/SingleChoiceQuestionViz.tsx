@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -48,9 +49,15 @@ export function SingleChoiceQuestionViz({
                 </BindLogic>
             </div>
             <div
-                className={`grid h-full pl-4 ${
-                    data.length < 5 ? 'py-20' : data.length < 7 ? 'py-15' : data.length < 10 ? 'py-10' : 'py-5'
-                } grid-cols-${Math.min(Math.ceil(data.length / 10), 3)}`}
+                className={clsx(
+                    'grid h-full pl-4',
+                    data.length < 5 ? 'py-20' : data.length < 7 ? 'py-15' : data.length < 10 ? 'py-10' : 'py-5',
+                    Math.min(Math.ceil(data.length / 10), 3) === 1
+                        ? 'grid-cols-1'
+                        : Math.min(Math.ceil(data.length / 10), 3) === 2
+                        ? 'grid-cols-2'
+                        : 'grid-cols-3'
+                )}
             >
                 {data.map((d: { value: number; label: string }, i: number) => {
                     const percentage = ((d.value / totalResponses) * 100).toFixed(1)
