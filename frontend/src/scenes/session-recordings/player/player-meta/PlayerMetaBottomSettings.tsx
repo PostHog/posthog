@@ -13,6 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
+import { ReactPhotoEditor } from 'react-photo-editor'
 import {
     SettingsBar,
     SettingsButton,
@@ -91,16 +92,30 @@ function InspectDOM(): JSX.Element {
 }
 
 function Screenshot(): JSX.Element {
-    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+    const { takeScreenshot, saveScreenshotFile, setScreenshotFile } = useActions(sessionRecordingPlayerLogic)
+    const { screenshotFile } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <SettingsButton
-            title="Take a screenshot of the current frame"
-            label="Screenshot"
-            data-attr="screenshot"
-            onClick={takeScreenshot}
-            icon={<IconLlmPromptEvaluation />}
-        />
+        <>
+            {screenshotFile && (
+                <ReactPhotoEditor
+                    open={screenshotFile !== null}
+                    onClose={() => setScreenshotFile(null)}
+                    file={screenshotFile}
+                    onSaveImage={saveScreenshotFile}
+                    allowRotate={true}
+                    allowFlip={false}
+                    allowColorEditing={true}
+                />
+            )}
+            <SettingsButton
+                title="Take a screenshot of the current frame"
+                label="Screenshot"
+                data-attr="screenshot"
+                onClick={takeScreenshot}
+                icon={<IconLlmPromptEvaluation />}
+            />
+        </>
     )
 }
 

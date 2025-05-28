@@ -263,6 +263,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         confirmNextRecording: true,
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
+        setScreenshotFile: (file: File | null) => ({ file }),
+        saveScreenshotFile: (file: File) => ({ file }),
     }),
     reducers(() => ({
         maskingWindow: [
@@ -510,6 +512,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [] as string[],
             {
                 setSimilarRecordings: (_, { results }) => results,
+            },
+        ],
+        screenshotFile: [
+            null as File | null,
+            {
+                setScreenshotFile: (_, { file }) => file,
             },
         ],
     })),
@@ -1321,7 +1329,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         const file = new File([blob], `${props.sessionRecordingId}-screenshot.jpeg`, {
                             type: 'image/jpeg',
                         })
-                        downloadFile(file)
+                        actions.setScreenshotFile(file)
                         posthog.capture('session_recording_player_take_screenshot_success')
                     } else {
                         posthog.capture('session_recording_player_take_screenshot_error')
@@ -1334,6 +1342,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     pending: 'Taking screenshot...',
                 }
             )
+        },
+        saveScreenshotFile: (file: File) => {
+            downloadFile(file.file)
+            actions.setScreenshotFile(null)
         },
         openHeatmap: () => {
             actions.setPause()
