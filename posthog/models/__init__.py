@@ -43,7 +43,12 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from .experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
@@ -96,6 +101,7 @@ from .web_experiment import WebExperiment
 
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
+from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
     "AlertConfiguration",
@@ -135,6 +141,7 @@ __all__ = [
     "Experiment",
     "ExperimentHoldout",
     "ExperimentSavedMetric",
+    "ExperimentToSavedMetric",
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
@@ -161,6 +168,11 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OAuthAccessToken",
+    "OAuthApplication",
+    "OAuthGrant",
+    "OAuthIDToken",
+    "OAuthRefreshToken",
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",

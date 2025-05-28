@@ -343,6 +343,13 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         return query
 
+    def validate_name(self, name):
+        name_exists_in_hogql_database = self.context["database"].has_table(name)
+        if name_exists_in_hogql_database:
+            raise serializers.ValidationError("A table with this name already exists.")
+
+        return name
+
 
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
