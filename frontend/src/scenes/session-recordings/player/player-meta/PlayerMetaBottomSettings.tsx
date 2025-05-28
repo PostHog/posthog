@@ -1,4 +1,3 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { ReactPhotoEditor } from 'react-photo-editor'
 import {
     IconEllipsis,
