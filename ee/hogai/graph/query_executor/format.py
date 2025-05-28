@@ -22,7 +22,21 @@ from posthog.schema import (
     FunnelStepReference,
     FunnelVizType,
     RetentionPeriod,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    HogQLQuery,
 )
+from django.conf import settings
+from posthog.api.services.query import process_query_dict
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.clickhouse.client.execute_async import get_query_status
+from rest_framework.exceptions import APIException
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql.errors import ExposedHogQLError
+from time import sleep
+import json
+from django.core.serializers.json import DjangoJSONEncoder
 
 
 def _format_matrix(matrix: list[list[str]]) -> str:
@@ -527,3 +541,136 @@ class SQLResultsFormatter:
         for row in self._results:
             lines.append("|".join([str(cell) for cell in row.values()]))
         return "\n".join(lines)
+
+
+class QueryRunner:
+    """
+    Reusable class for executing queries and formatting results.
+    Can be used by QueryExecutorNode and other components that need to run and format queries.
+    """
+
+    def __init__(self, team, utc_now_datetime):
+        self._team = team
+        self._utc_now_datetime = utc_now_datetime
+
+    def run_and_format_query(self, query, execution_mode=None) -> str:
+        """
+        Run a query and format the results as a string.
+
+        Args:
+            query: The query object (AssistantTrendsQuery, AssistantFunnelsQuery, etc.)
+            execution_mode: Optional execution mode override
+
+        Returns:
+            Formatted results as a string
+        """
+        results, _ = self.run_and_format_query_with_fallback_info(query, execution_mode)
+        return results
+
+    def run_and_format_query_with_fallback_info(self, query, execution_mode=None) -> tuple[str, bool]:
+        """
+        Run a query and format the results as a string, with fallback information.
+
+        Args:
+            query: The query object (AssistantTrendsQuery, AssistantFunnelsQuery, etc.)
+            execution_mode: Optional execution mode override
+
+        Returns:
+            Tuple of (formatted results as string, whether fallback was used)
+        """
+        if execution_mode is None:
+            execution_mode = (
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                if not settings.TEST
+                else ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )
+
+        try:
+            results_response = process_query_dict(
+                self._team,
+                query.model_dump(mode="json"),
+                execution_mode=execution_mode,
+            )
+
+            # Handle the response properly - process_query_dict returns a dict, not a model
+            if isinstance(results_response, dict):
+                response_dict = results_response
+            else:
+                response_dict = results_response.model_dump(mode="json")
+
+            # If response has an async query_status, that's always the thing to use
+            if query_status := response_dict.get("query_status"):
+                if not query_status["complete"]:
+                    # If it's an in-progress (likely just kicked off) status, let's poll until complete
+                    for wait_ms in range(100, 12000, 100):  # 726 s in total, if my math is correct
+                        sleep(wait_ms / 1000)
+                        query_status = get_query_status(team_id=self._team.pk, query_id=query_status["id"]).model_dump(
+                            mode="json"
+                        )
+                        if query_status["complete"]:
+                            break
+                    else:
+                        raise APIException(
+                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
+                        )
+                # With results ready, let's first check for errors - then actually use the results
+                if query_status.get("error"):
+                    if error_message := query_status.get("error_message"):
+                        raise APIException(error_message)
+                    raise Exception("Query failed")
+                response_dict = query_status["results"]
+
+        except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
+            err_message = str(err)
+            if isinstance(err, APIException):
+                if isinstance(err.detail, dict):
+                    err_message = ", ".join(f"{key}: {value}" for key, value in err.detail.items())
+                elif isinstance(err.detail, list):
+                    err_message = ", ".join(map(str, err.detail))
+            raise Exception(f"There was an error running this query: {err_message}")
+        except Exception:
+            raise Exception("There was an unknown error running this query.")
+
+        try:
+            formatted_results = self._compress_results(query, response_dict)
+            return formatted_results, False  # No fallback used
+        except Exception as err:
+            if isinstance(err, NotImplementedError):
+                raise
+            # In case something is wrong with the compression, we fall back to the plain JSON.
+            fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+            return fallback_results, True  # Fallback was used
+
+    def _compress_results(self, query, response: dict) -> str:
+        """Format query results based on query type."""
+        # Handle assistant-specific queries directly
+        if isinstance(query, AssistantTrendsQuery):
+            return TrendsResultsFormatter(query, response["results"]).format()
+        elif isinstance(query, AssistantFunnelsQuery):
+            return FunnelResultsFormatter(query, response["results"], self._team, self._utc_now_datetime).format()
+        elif isinstance(query, AssistantRetentionQuery):
+            return RetentionResultsFormatter(query, response["results"]).format()
+        elif isinstance(query, AssistantHogQLQuery):
+            return SQLResultsFormatter(query, response["results"], response["columns"]).format()
+
+        # Handle full UI queries by casting to assistant query types
+        elif isinstance(query, TrendsQuery):
+            # Cast to AssistantTrendsQuery for formatting
+            assistant_query = cast(AssistantTrendsQuery, query)
+            return TrendsResultsFormatter(assistant_query, response["results"]).format()
+        elif isinstance(query, FunnelsQuery):
+            # Cast to AssistantFunnelsQuery for formatting
+            assistant_query = cast(AssistantFunnelsQuery, query)
+            return FunnelResultsFormatter(
+                assistant_query, response["results"], self._team, self._utc_now_datetime
+            ).format()
+        elif isinstance(query, RetentionQuery):
+            # Cast to AssistantRetentionQuery for formatting
+            assistant_query = cast(AssistantRetentionQuery, query)
+            return RetentionResultsFormatter(assistant_query, response["results"]).format()
+        elif isinstance(query, HogQLQuery):
+            # Cast to AssistantHogQLQuery for formatting
+            assistant_query = cast(AssistantHogQLQuery, query)
+            return SQLResultsFormatter(assistant_query, response["results"], response["columns"]).format()
+
+        raise NotImplementedError(f"Unsupported query type: {type(query)}")

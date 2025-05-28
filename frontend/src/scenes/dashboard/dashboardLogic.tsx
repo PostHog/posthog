@@ -35,6 +35,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { maxContextLogic } from '~/lib/ai/maxContextLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -206,7 +207,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic, maxContextLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -1278,6 +1279,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
+            // Clear dashboard context when unmounting
+            maxContextLogic.actions.clearDashboardContext()
         },
     })),
     sharedListeners(({ values, props }) => ({
@@ -1692,6 +1695,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (!values.dashboard) {
                 return // We hit a 404
+            }
+
+            // Set dashboard context for Max AI
+            if (values.dashboard.name || values.dashboard.description) {
+                maxContextLogic.actions.setDashboardContext({
+                    id: values.dashboard.id,
+                    name: values.dashboard.name,
+                    description: values.dashboard.description,
+                })
             }
 
             const { action, dashboardQueryId } = values.dashboardLoadTimerData

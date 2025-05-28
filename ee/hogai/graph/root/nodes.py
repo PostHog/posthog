@@ -2,7 +2,7 @@ import datetime
 import importlib
 import math
 import pkgutil
-from typing import Literal, TypeVar, cast
+from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -19,9 +19,11 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
+from ee.hogai.graph.query_executor.format import QueryRunner
 import products
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.ui_context_types import MaxContextShape
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -29,6 +31,11 @@ from posthog.schema import (
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    # Import full UI query types
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    HogQLQuery,
 )
 
 from ..base import AssistantNode
@@ -89,12 +96,16 @@ class RootNode(AssistantNode):
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
 
+        ui_context = self._get_ui_context(config)
+        ui_context_vars = self._format_ui_context(ui_context)
+
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
+                **ui_context_vars,
             },
             config,
         )
@@ -247,6 +258,96 @@ class RootNode(AssistantNode):
             if message.id == start_id:
                 return messages[idx:]
         return messages
+
+    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> dict[str, str]:
+        """Format UI context information for the prompt template."""
+        if not ui_context:
+            return {
+                "ui_context_dashboard": "",
+                "ui_context_insights": "",
+                "ui_context_navigation": "",
+            }
+
+        # Format dashboard context
+        dashboard_context = ""
+        if ui_context.active_dashboard:
+            dashboard = ui_context.active_dashboard
+            dashboard_context = (
+                f"<dashboard_context>\nCurrently viewing dashboard: {dashboard.name or f'Dashboard {dashboard.id}'}"
+            )
+            if dashboard.description:
+                dashboard_context += f"\nDescription: {dashboard.description}"
+
+        # Format insights context
+        insights_context = self._run_insights_from_ui_context(ui_context)
+
+        # Combine dashboard and insights context if both are present
+        if dashboard_context and insights_context:
+            dashboard_context += insights_context
+            dashboard_context += "\n</dashboard_context>"
+            insights_context = ""
+
+        # Format navigation context
+        navigation_context = ""
+        if ui_context.global_info and ui_context.global_info.navigation:
+            nav = ui_context.global_info.navigation
+            navigation_context = f"<navigation_context>\nCurrent page: {nav.path}"
+            if nav.page_title:
+                navigation_context += f"\nPage title: {nav.page_title}"
+            navigation_context += "\n</navigation_context>"
+
+        return {
+            "ui_context_dashboard": dashboard_context,
+            "ui_context_insights": insights_context,
+            "ui_context_navigation": navigation_context,
+        }
+
+    def _run_insights_from_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
+        """Run insights from UI context and return formatted results."""
+        if not ui_context or not ui_context.active_insights:
+            return ""
+
+        insights_results = []
+        query_runner = QueryRunner(self._team, self._utc_now_datetime)
+
+        # Map query kinds to their respective full UI query classes
+        query_class_map = {
+            "TrendsQuery": TrendsQuery,
+            "FunnelsQuery": FunnelsQuery,
+            "RetentionQuery": RetentionQuery,
+            "HogQLQuery": HogQLQuery,
+        }
+
+        for _, insight in ui_context.active_insights.items():
+            try:
+                # Convert the query dict to the appropriate query object
+                query_dict = insight.query
+                query_kind = query_dict.get("kind")
+
+                if not query_kind or query_kind not in query_class_map:
+                    continue  # Skip unsupported query types
+
+                query_class = query_class_map[query_kind]
+                query_obj = query_class.model_validate(query_dict)
+
+                # Run the query and format results
+                formatted_results = query_runner.run_and_format_query(query_obj)
+
+                _insight_result = f"## {insight.name or f'Insight {insight.id}'}"
+                if insight.description:
+                    _insight_result += f": {insight.description}"
+                _insight_result += f"\nQuery: {insight.query}"
+                _insight_result += f"\n\nResults:\n{formatted_results}"
+                insights_results.append(_insight_result)
+
+            except Exception:
+                # Skip insights that fail to run
+                continue
+
+        if insights_results:
+            joined_results = "\n\n".join(insights_results)
+            return f"<active_insights>\n{joined_results}\n</active_insights>"
+        return ""
 
 
 class RootNodeTools(AssistantNode):

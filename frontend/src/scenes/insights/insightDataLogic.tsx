@@ -190,7 +190,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
             // we don't want to override the query for example when updating the insight's name
             if (!overrideQuery) {
@@ -212,6 +212,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            // Update MaxAI context when query changes
+            const mountedInsightLogic = insightLogic.findMounted(props)
+            if (mountedInsightLogic) {
+                mountedInsightLogic.actions.setMaxContext()
+            }
+
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {
                 return

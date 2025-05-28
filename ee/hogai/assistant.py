@@ -120,11 +120,13 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        ui_context: Optional[dict[str, Any]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
         self._user = user
         self._conversation = conversation
+        self._ui_context = ui_context
         if not new_message and not tool_call_partial_state:
             raise ValueError("Either new_message or tool_call_partial_state must be provided")
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
@@ -254,6 +256,7 @@ class Assistant:
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team_id": self._team.id,
+                "ui_context": self._ui_context,
             },
         }
         return config
