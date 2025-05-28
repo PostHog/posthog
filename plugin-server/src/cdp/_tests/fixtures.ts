@@ -405,6 +405,7 @@ export const amplitudeInputs = {
         platformVersion: '',
     },
     internal_partner_action: 'logEventV2',
+    debug_mode: true,
 }
 
 export const pipedriveResponse = {
