@@ -136,7 +136,6 @@ export function QuestionBranchingInput({
     )
 }
 
-// Helper to get response configuration for different question types
 function getResponseConfiguration(
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 ): { value: string | number; label: string }[] {
@@ -225,7 +224,7 @@ function QuestionResponseBasedBranchingInput({
     }
 
     return (
-        <div className="mt-2 deprecated-space-y-2">
+        <div className="mt-2 flex flex-col gap-2">
             {responseConfig.map(({ value, label }, i) => (
                 <div key={i} className="flex">
                     <div className="w-2/3 flex items-center">
