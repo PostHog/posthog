@@ -271,7 +271,8 @@ export const FEATURE_FLAGS = {
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
     REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
-    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
+    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay,
+    EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN: 'experiments-new-query-runner-for-users-on-free-plan', // owner: #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
