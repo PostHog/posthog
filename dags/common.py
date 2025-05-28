@@ -1,6 +1,8 @@
 from enum import Enum
+
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
+from prometheus_client import Counter
 
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
@@ -56,3 +58,33 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                 ),
             ),
         )
+
+
+JOB_STATUS_COUNTER = Counter(
+    "dagster_run_status",
+    "Tracks Dagster job status state changes.",
+    labelnames=["job_name", "status"],
+)
+
+
+def report_job_status_metric(context: dagster.RunStatusSensorContext) -> None:
+    JOB_STATUS_COUNTER.labels(
+        job_name=context.dagster_run.job_name,
+        status=context.dagster_run.status.name,
+    )
+
+
+job_status_metrics_sensors = [
+    dagster.run_status_sensor(
+        name=f"{report_job_status_metric.__name__}_{status.name}",
+        run_status=status,
+        default_status=dagster.DefaultSensorStatus.RUNNING,
+        monitor_all_code_locations=True,
+    )(report_job_status_metric)
+    for status in [
+        dagster.DagsterRunStatus.STARTED,
+        dagster.DagsterRunStatus.SUCCESS,
+        dagster.DagsterRunStatus.FAILURE,
+        dagster.DagsterRunStatus.CANCELED,
+    ]
+]
