@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { UUIDT } from '~/src/utils/utils'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
-import { resetTestDatabase } from '~/tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub } from '../../types'
+import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { HOG_EXAMPLES } from '../_tests/examples'
@@ -24,6 +25,7 @@ jest.setTimeout(1000)
 describe('CdpCyclotronWorker', () => {
     let processor: CdpCyclotronWorker
     let hub: Hub
+    let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
     let invocation: CyclotronJobInvocationHogFunction
@@ -31,16 +33,21 @@ describe('CdpCyclotronWorker', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        team = await getFirstTeam(hub)
         processor = new CdpCyclotronWorker(hub)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        fn = createHogFunction({
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_INPUTS_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-        })
+        fn = await _insertHogFunction(
+            hub.postgres,
+            team.id,
+            createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+            })
+        )
 
         globals = {
             ...createHogExecutionGlobals({}),
@@ -84,7 +91,7 @@ describe('CdpCyclotronWorker', () => {
                     count: 1,
                     metric_kind: 'other',
                     metric_name: 'fetch',
-                    team_id: 1,
+                    team_id: team.id,
                 },
             ])
             expect(result.logs.map((x) => x.message)).toEqual([
@@ -160,7 +167,7 @@ describe('CdpCyclotronWorker', () => {
                     count: 1,
                     metric_kind: 'other',
                     metric_name: 'fetch',
-                    team_id: 1,
+                    team_id: team.id,
                 },
             ])
             expect(result2.logs.map((x) => x.message)).toEqual([
@@ -168,6 +175,18 @@ describe('CdpCyclotronWorker', () => {
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])
+        })
+
+        it('should dequeue an invocation if the hog function cannot be found', async () => {
+            const dequeueInvocationsSpy = jest
+                .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                .mockResolvedValue(undefined)
+            const invocation = createExampleInvocation(fn, globals)
+            invocation.functionId = new UUIDT().toString()
+            const results = await processor.processInvocations([invocation])
+            expect(results).toEqual([])
+
+            expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
     })
 })
