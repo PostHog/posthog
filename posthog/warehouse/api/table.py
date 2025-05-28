@@ -301,7 +301,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate table name format
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name) or not re.match(
+            r"^[a-zA-Z_][a-zA-Z0-9_]*$", file.name
+        ):
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
