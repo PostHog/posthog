@@ -24,6 +24,6 @@
         },
         "skipLibCheck": true
     },
-    "include": ["src", "tests", "functional_tests"],
+    "include": ["src", "tests"],
     "exclude": ["node_modules", "dist", "bin"]
 }

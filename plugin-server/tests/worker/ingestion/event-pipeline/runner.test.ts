@@ -169,7 +169,7 @@ describe('EventPipelineRunner', () => {
             team.api_token,
             pluginEvent.distinct_id
         )
-        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore, groupStore)
 
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
@@ -381,7 +381,7 @@ describe('EventPipelineRunner', () => {
                     team.api_token,
                     heatmapEvent.distinct_id
                 )
-                const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+                const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
                 runner = new TestEventPipelineRunner(hub, heatmapEvent, undefined, undefined, personsStore, groupStore)
 
                 const heatmapPreIngestionEvent = {
@@ -424,7 +424,7 @@ describe('EventPipelineRunner', () => {
                     team.api_token,
                     exceptionEvent.distinct_id
                 )
-                const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+                const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
 
                 runner = new TestEventPipelineRunner(
                     hub,
