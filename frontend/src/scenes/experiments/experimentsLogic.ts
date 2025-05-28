@@ -18,7 +18,7 @@ import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { isLegacyExperiment } from './utils'
 
-export const EXPERIMENTS_PER_PAGE = 2
+export const EXPERIMENTS_PER_PAGE = 100
 
 export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> {
     /* not in the API response */
@@ -77,8 +77,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     })),
     actions({
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
         setExperimentsFilters: (filters: Partial<ExperimentsFilters>, replace?: boolean) => ({ filters, replace }),
     }),
@@ -92,8 +90,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                     return { ...state, ...filters }
                 },
-                setSearchTerm: (state, { searchTerm }) => ({ ...state, search: searchTerm, page: 1 }),
-                setSearchStatus: (state, { status }) => ({ ...state, status, page: 1 }),
             },
         ],
         tab: [
@@ -114,16 +110,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 actions.setExperimentsTab(ExperimentsTabs.All)
                 router.actions.push('/experiments/shared-metrics')
             }
-        },
-        setSearchTerm: async (_, breakpoint) => {
-            await breakpoint(300)
-            actions.loadExperiments()
-        },
-        setSearchStatus: () => {
-            actions.loadExperiments()
-        },
-        setUserFilter: () => {
-            actions.loadExperiments()
         },
     })),
     loaders(({ values }) => ({

@@ -57,7 +57,7 @@ export function Experiments(): JSX.Element {
         'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
     const page = filters.page || 1
-    const startCount = (page - 1) * EXPERIMENTS_PER_PAGE + 1
+    const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
     const endCount = page * EXPERIMENTS_PER_PAGE < count ? page * EXPERIMENTS_PER_PAGE : count
 
     const getExperimentDuration = (experiment: Experiment): number | undefined => {
@@ -332,10 +332,8 @@ export function Experiments(): JSX.Element {
                                         value={filters.created_by_id ?? null}
                                         onChange={(user) => {
                                             if (!user) {
-                                                if (filters) {
-                                                    const { created_by_id, ...restFilters } = filters
-                                                    setExperimentsFilters({ ...restFilters, page: 1 }, true)
-                                                }
+                                                const { created_by_id, ...restFilters } = filters
+                                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
                                             } else {
                                                 setExperimentsFilters({ created_by_id: user.id, page: 1 })
                                             }

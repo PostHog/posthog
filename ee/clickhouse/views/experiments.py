@@ -5,7 +5,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from django.db.models import QuerySet, Q
-from django.utils import timezone
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -431,7 +430,6 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         # archived
         # Only apply for list view, not detail view
         if self.action == "list":
-            # archived
             archived = self.request.query_params.get("archived")
             if archived is not None:
                 archived_bool = archived.lower() == "true"
@@ -439,27 +437,10 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             else:
                 queryset = queryset.filter(archived=False)
 
-        # created_by
-        created_by = self.request.query_params.get("created_by")
-        if created_by:
-            queryset = queryset.filter(created_by__uuid=created_by)
-
-        # search
+        # search by name
         search = self.request.query_params.get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
-
-        # status
-        status = self.request.query_params.get("status")
-        if status and status != "all":
-            if status == "draft":
-                queryset = queryset.filter(start_date__isnull=True)
-            elif status == "running":
-                queryset = queryset.filter(start_date__isnull=False).filter(Q(end_date__isnull=True))
-            elif status == "complete":
-                queryset = queryset.filter(
-                    start_date__isnull=False, end_date__isnull=False, end_date__lte=timezone.now()
-                )
+            queryset = queryset.filter(Q(name__icontains=search))
 
         # Ordering
         order = self.request.query_params.get("order")
