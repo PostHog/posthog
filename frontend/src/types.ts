@@ -5394,11 +5394,12 @@ export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
     iconColor?: FileSystemIconColor
-}
-
-export interface FileSystemFilterType {
+    // Visual name of the product
     name: string
+    // Flag to determine if the product is enabled
     flag?: string
+    // Used to filter the tree items by product
+    filterKey?: string
 }
 
 export interface ProductManifest {
@@ -5412,7 +5413,6 @@ export interface ProductManifest {
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
     treeItemsDataManagement?: FileSystemImport[]
-    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {
