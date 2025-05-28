@@ -4,6 +4,9 @@ on:
     push:
         branches:
             - master
+        paths:
+            - 'ee/hogai/**'
+            - '.github/workflows/ci-ai.yml'
     pull_request:
         paths:
             - 'ee/hogai/**'

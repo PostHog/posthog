@@ -4483,6 +4483,15 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'GoogleAds',
+    'MetaAds',
+    'Klaviyo',
+    'Mailchimp',
+    'Braze',
+    'Mailjet',
+    'Redshift',
+    'GoogleSheets',
+    'Mongodb',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4990,6 +4999,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     oauthPayload?: string[]
     existingSource?: boolean
+    unreleasedSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
@@ -5394,11 +5404,12 @@ export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
     iconColor?: FileSystemIconColor
-}
-
-export interface FileSystemFilterType {
+    // Visual name of the product
     name: string
+    // Flag to determine if the product is enabled
     flag?: string
+    // Used to filter the tree items by product
+    filterKey?: string
 }
 
 export interface ProductManifest {
@@ -5412,7 +5423,6 @@ export interface ProductManifest {
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
     treeItemsDataManagement?: FileSystemImport[]
-    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {
