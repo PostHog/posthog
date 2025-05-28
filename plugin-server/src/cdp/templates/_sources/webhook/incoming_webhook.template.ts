@@ -68,7 +68,7 @@ postHogCapture({
         {
             key: 'auth_header',
             type: 'string',
-            label: 'Secret auth token',
+            label: 'Authorization header value',
             description:
                 'If set, the incoming Authorization header must match this value exactly. e.g. "Bearer SECRET_TOKEN"',
             secret: true,
