@@ -687,7 +687,12 @@ export function ProjectTree({
             }
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        logicKey={logicKey}
+                        uniqueKey={uniqueKey}
+                    />
                 </BindLogic>
             }
             panelActions={
