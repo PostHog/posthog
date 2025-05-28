@@ -74,5 +74,5 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.VITALLY: VITALLY_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.BIGQUERY: {},
     ExternalDataSource.Type.CHARGEBEE: CHARGEBEE_INCREMENTAL_FIELDS,
-    ExternalDataSource.Type.GOOGLEADS: (),
+    ExternalDataSource.Type.GOOGLEADS: {},
 }

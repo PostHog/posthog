@@ -1065,7 +1065,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "incremental_field": None,
                     "sync_type": None,
                 }
-                for name, _ in google_ads_schemas
+                for name, _ in google_ads_schemas.items()
             ]
 
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
