@@ -13,7 +13,7 @@ import {
     createHogFunction,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)
@@ -26,7 +26,7 @@ describe('CdpCyclotronWorker', () => {
     let hub: Hub
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-    let invocation: HogFunctionInvocation
+    let invocation: CyclotronJobInvocationHogFunction
 
     beforeEach(async () => {
         await resetTestDatabase()

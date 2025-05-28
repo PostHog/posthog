@@ -12,6 +12,7 @@ import {
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -89,12 +90,9 @@ export class HogFlowExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-        }
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hogflow',
+        })
 
         // TODO: Implement!
 
