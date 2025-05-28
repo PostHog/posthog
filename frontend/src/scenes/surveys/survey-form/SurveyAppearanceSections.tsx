@@ -59,7 +59,7 @@ export function SurveyContainerAppearance({
             <span className="col-span-2 text-secondary">
                 These options are only applied in the web surveys. Not on native mobile apps.
             </span>
-            <LemonField.Pure label="Max width" className="flex-1 gap-1">
+            <LemonField.Pure label="Survey width" className="flex-1 gap-1">
                 <LemonInput
                     value={appearance.maxWidth}
                     onChange={(maxWidth) => onAppearanceChange({ ...appearance, maxWidth })}

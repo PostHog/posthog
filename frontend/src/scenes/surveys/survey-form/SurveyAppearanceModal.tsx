@@ -1,28 +1,29 @@
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonSwitch, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useState } from 'react'
 import { SurveyColorsAppearance, SurveyContainerAppearance } from 'scenes/surveys/survey-form/SurveyAppearanceSections'
 
-import {
-    AvailableFeature,
-    SurveyAppearance,
-    SurveyQuestionBranchingType,
-    SurveyQuestionType,
-    SurveyType,
-} from '~/types'
+import { AvailableFeature, SurveyAppearance, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
 import { defaultSurveyAppearance } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
 
-interface SurveyAppearanceModalProps {
+interface Props {
     visible: boolean
     onClose: () => void
+    appearance: SurveyAppearance
+    onAppearanceChange: (appearance: Partial<SurveyAppearance>) => void
+    validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
+    surveyType: SurveyType
+    hasRatingButtons: boolean
+    hasPlaceholderText: boolean
 }
 
 type PreviewScreenSize = 'mobile' | 'tablet' | 'desktop'
@@ -126,23 +127,19 @@ function SurveyPreview(): JSX.Element {
     )
 }
 
-export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModalProps): JSX.Element | null {
-    const { survey, surveyErrors } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+export function SurveyAppearanceModal({
+    visible,
+    onClose,
+    appearance,
+    onAppearanceChange,
+    surveyType,
+    validationErrors,
+    hasRatingButtons,
+    hasPlaceholderText,
+}: Props): JSX.Element | null {
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
-    const appearance: SurveyAppearance = { ...defaultSurveyAppearance, ...(survey.appearance || {}) }
-    const validationErrors = surveyErrors?.appearance
-    const surveyType = survey.type
-
-    const onAppearanceChange = (newAppearance: Partial<SurveyAppearance>): void => {
-        setSurveyValue('appearance', { ...appearance, ...newAppearance })
-    }
-
-    const customizeRatingButtons = survey.questions.some((question) => question.type === SurveyQuestionType.Rating)
-    const customizePlaceholderText = survey.questions.some((question) => question.type === SurveyQuestionType.Open)
-
-    if (survey.type === SurveyType.API) {
+    if (surveyType === SurveyType.API) {
         return null
     }
 
@@ -167,8 +164,8 @@ export function SurveyAppearanceModal({ visible, onClose }: SurveyAppearanceModa
                         appearance={appearance}
                         onAppearanceChange={onAppearanceChange}
                         validationErrors={validationErrors}
-                        customizeRatingButtons={customizeRatingButtons}
-                        customizePlaceholderText={customizePlaceholderText}
+                        customizeRatingButtons={hasRatingButtons}
+                        customizePlaceholderText={hasPlaceholderText}
                     />
                 </div>
                 <SurveyPreview />

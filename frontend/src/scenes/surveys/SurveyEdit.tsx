@@ -51,7 +51,7 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -1088,6 +1088,11 @@ export default function SurveyEdit(): JSX.Element {
                 <SurveyAppearanceModal
                     visible={isAppearanceModalOpen}
                     onClose={() => setIsAppearanceModalOpen(false)}
+                    appearance={survey.appearance || defaultSurveyAppearance}
+                    surveyType={survey.type}
+                    onAppearanceChange={(appearance) =>
+                        setSurveyValue('appearance', { ...survey.appearance, ...appearance })
+                    }
                 />
             )}
         </div>
