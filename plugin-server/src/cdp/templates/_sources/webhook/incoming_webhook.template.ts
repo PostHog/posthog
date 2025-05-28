@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-source-webhook',
     name: 'HTTP Incoming Webhook',
     description: 'Capture an event via a custom incoming webhook',
-    icon_url: '/static/posthog-icon.svg',
+    icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
     hog: `
 
