@@ -305,6 +305,7 @@ export interface HogQLQueryModifiers {
     usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
+    convertToProjectTimezone?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -765,8 +766,9 @@ export interface DataTableNode
 export interface GoalLine {
     label: string
     value: number
-    displayLabel?: boolean
     borderColor?: string
+    displayLabel?: boolean
+    displayIfCrossed?: boolean
 }
 
 export interface ChartAxis {
@@ -1671,6 +1673,7 @@ export interface WebOverviewItem {
     kind: WebOverviewItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
+    usedPreAggregatedTables?: boolean
 }
 
 export interface SamplingRate {
@@ -1932,6 +1935,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterTestAccounts?: boolean
     searchQuery?: string
     volumeResolution: integer
+    withAggregations?: boolean
+    withFirstEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -1945,7 +1950,6 @@ export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
-    volumeDay: number[]
     volumeRange: number[]
 }
 
@@ -1962,8 +1966,12 @@ export interface ErrorTrackingRelationalIssue {
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
-    earliest?: string
-    aggregations: ErrorTrackingIssueAggregations
+    first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
 
@@ -2037,12 +2045,29 @@ export interface FileSystemEntry {
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: string
     flag?: string
+    /** Order of object in tree */
+    visualOrder?: number
+    /** Tag for the product 'beta' / 'alpha' */
+    tags?: ('alpha' | 'beta')[]
+    /** Protocol of the item, defaults to "project://" */
+    protocol?: string
+}
+
+export interface PersistedFolder {
+    id: string
+    type: string
+    protocol: string
+    path: string
+    created_at: string
+    updated_at: string
 }
 
 export type InsightQueryNode =
@@ -2992,6 +3017,12 @@ export interface RevenueAnalyticsEventItem {
     currencyAwareDecimal: boolean
 }
 
+export interface RevenueAnalyticsGoal {
+    name: string
+    due_date: string
+    goal: number
+}
+
 export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
@@ -3002,6 +3033,11 @@ export interface RevenueAnalyticsConfig {
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
+
+    /**
+     * @default []
+     */
+    goals: RevenueAnalyticsGoal[]
 }
 
 export interface PageURL {

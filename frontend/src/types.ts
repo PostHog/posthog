@@ -36,7 +36,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -226,7 +226,9 @@ export enum LicensePlan {
 export enum BillingPlan {
     Free = 'free',
     Paid = 'paid',
-    Teams = 'teams',
+    Teams = 'teams', // Legacy
+    Boost = 'boost',
+    Scale = 'scale',
     Enterprise = 'enterprise',
 }
 
@@ -1058,14 +1060,19 @@ export type SessionRecordingSnapshotParams =
           blob_key?: string
       }
     | {
+          source: 'blob_v2'
+          start_blob_key?: string
+          end_blob_key?: string
+      }
+    | {
           source: 'realtime'
-          // originally realtime snapshots were returned in a different format than blob snapshots
-          // since version 2024-04-30 they are returned in the same format
-          version: '2024-04-30'
       }
 
 export interface SessionRecordingSnapshotSourceResponse {
-    source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    // v1 loaded each source separately
+    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    // with v2 we can load multiple sources at once
+    sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
 }
 
@@ -1806,6 +1813,7 @@ export interface BillingProductV2Type {
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
     trial?: BillingTrialType
+    legacy_product?: boolean | null
 }
 
 export interface BillingProductV2AddonType {
@@ -1837,6 +1845,7 @@ export interface BillingProductV2AddonType {
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
     trial?: BillingTrialType
+    legacy_product?: boolean | null
 }
 export interface BillingType {
     customer_id: string
@@ -1939,7 +1948,7 @@ export interface TileLayout extends Omit<Layout, 'i'> {
 }
 
 export interface Tileable {
-    layouts: Record<DashboardLayoutSize, TileLayout> | Record<string, never> // allow an empty object or one with DashboardLayoutSize keys
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never> // allow an empty object or one with DashboardLayoutSize keys
     color: InsightColor | null
 }
 
@@ -4140,6 +4149,7 @@ export interface ExportedAssetType {
     filename: string
     created_at: string
     expires_after?: string
+    exception?: string
 }
 
 export enum FeatureFlagReleaseType {
@@ -5353,7 +5363,7 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
-    messages: AssistantMessage[]
+    messages: RootAssistantMessage[]
 }
 
 export enum UserRole {
@@ -5378,14 +5388,18 @@ export interface CoreMemory {
     text: string
 }
 
+export type FileSystemIconColor = [string] | [string, string]
+
 export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
-}
-
-export interface FileSystemFilterType {
+    iconColor?: FileSystemIconColor
+    // Visual name of the product
     name: string
+    // Flag to determine if the product is enabled
     flag?: string
+    // Used to filter the tree items by product
+    filterKey?: string
 }
 
 export interface ProductManifest {
@@ -5399,7 +5413,6 @@ export interface ProductManifest {
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
     treeItemsDataManagement?: FileSystemImport[]
-    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {

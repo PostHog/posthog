@@ -183,8 +183,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
 
         if data["type"] == "transformation":
-            allowed_teams = [int(team_id) for team_id in settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS]
-            if team.id not in allowed_teams:
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
                 if not template:
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}
