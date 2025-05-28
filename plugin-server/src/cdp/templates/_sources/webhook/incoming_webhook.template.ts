@@ -59,7 +59,6 @@ postHogCapture({
             default: {
                 $ip: '{request.ip}',
                 $lib: 'posthog-webhook',
-                $lib_version: '1.0.0',
                 $source_url: '{source.url}',
             },
             secret: false,
@@ -69,12 +68,14 @@ postHogCapture({
             key: 'auth_header',
             type: 'string',
             label: 'Secret auth token',
-            description: 'If set, the incoming Authorization header must match this value exactly',
+            description:
+                'If set, the incoming Authorization header must match this value exactly. e.g. "Bearer SECRET_TOKEN"',
             secret: true,
             required: false,
         },
         {
             key: 'debug',
+
             type: 'boolean',
             label: 'Log payloads',
             description: 'Logs the incoming request for debugging',

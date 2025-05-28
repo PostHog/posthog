@@ -53,10 +53,11 @@ export class CdpApi {
 
     async start() {
         await this.hogFunctionManager.start()
+        await this.cdpSourceWebhooksConsumer.start()
     }
 
     async stop() {
-        await this.hogFunctionManager.stop()
+        await Promise.all([this.hogFunctionManager.stop(), this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy() {
@@ -340,11 +341,24 @@ export class CdpApi {
             try {
                 const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
 
-                if (!result.error) {
+                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                    // TODO: Better validation here before we directly use the result
+                    const httpResponse = result.execResult.httpResponse as { status: number; body: any }
+                    if (typeof httpResponse.body === 'string') {
+                        return res.status(httpResponse.status).send(httpResponse.body)
+                    } else if (typeof httpResponse.body === 'object') {
+                        return res.status(httpResponse.status).json(httpResponse.body)
+                    } else {
+                        return res.status(httpResponse.status).send('')
+                    }
+                }
+
+                if (result.error) {
                     return res.status(500).json({
                         status: 'Unhandled error',
                     })
-                } else if (!result.finished) {
+                }
+                if (!result.finished) {
                     return res.status(201).json({
                         status: 'queued',
                     })

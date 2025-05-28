@@ -69,7 +69,8 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     type === 'transformation' ||
                     type === 'destination' ||
                     type === 'site_destination' ||
-                    type === 'site_app'
+                    type === 'site_app' ||
+                    type === 'source_webhook'
                 ) {
                     return [
                         {
@@ -85,6 +86,8 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                                     ? PipelineTab.Destinations
                                     : type === 'site_app'
                                     ? PipelineTab.SiteApps
+                                    : type === 'source_webhook'
+                                    ? PipelineTab.Sources
                                     : PipelineTab.Transformations
                             ),
                         },
