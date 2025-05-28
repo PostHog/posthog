@@ -77,9 +77,10 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
         ValidationErrorType
     > | null>(null)
 
-    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
-        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
-    )
+    const [editableSurveyConfig, setEditableSurveyConfig] = useState({
+        ...defaultSurveyAppearance,
+        ...currentTeam?.survey_config?.appearance,
+    })
 
     const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
 
