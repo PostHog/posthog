@@ -823,7 +823,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        key_file = payload.get("key_file", {})
+        customer_id = payload.get("customer_id", "")
+        resource_name = payload.get("resource_name", "")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -833,11 +834,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs=key_file,
+            job_inputs={"customer_id": customer_id, "resource_name": resource_name},
             prefix=prefix,
         )
 
-        schemas = get_google_ads_schemas()
+        schemas = get_google_ads_schemas(GoogleAdsServiceAccountSourceConfig.from_dict(new_source_model.job_inputs))
 
         return new_source_model, list(schemas.keys())
 
