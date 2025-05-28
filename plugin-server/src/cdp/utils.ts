@@ -13,9 +13,7 @@ import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationLogEntry,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
@@ -319,47 +317,6 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
     })
 
     return preparedLogs
-}
-
-export function createInvocation(
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType
-): HogFunctionInvocation {
-    return {
-        id: new UUIDT().toString(),
-        globals,
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: isLegacyPluginHogFunction(hogFunction)
-            ? 'plugin'
-            : isSegmentPluginHogFunction(hogFunction)
-            ? 'segment'
-            : 'hog',
-        queuePriority: 1,
-        timings: [],
-    }
-}
-
-/**
- * Clones an invocation, removing all queue related values
- */
-export function cloneInvocation(
-    invocation: HogFunctionInvocation,
-    params: Pick<
-        Partial<HogFunctionInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<HogFunctionInvocation, 'queue'>
-): HogFunctionInvocation {
-    return {
-        ...invocation,
-        queueMetadata: params.queueMetadata ?? undefined,
-        queueScheduledAt: params.queueScheduledAt ?? undefined,
-        queuePriority: params.queuePriority ?? 0,
-        queue: params.queue,
-        queueParameters: params.queueParameters ?? undefined,
-        queueSource: undefined, // This is always set by the consumer
-    }
 }
 
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
