@@ -7,13 +7,13 @@ import {
     IconCursor,
     IconDashboard,
     IconExternal,
+    IconFlask,
     IconGraph,
     IconMessage,
     IconNotebook,
     IconPeople,
     IconRewindPlay,
     IconRocket,
-    IconTestTube,
     IconToggle,
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
@@ -333,7 +333,7 @@ export const fileSystemTypes = {
     },
     experiment: {
         name: 'Experiment',
-        icon: <IconTestTube />,
+        icon: <IconFlask />,
         href: (ref: string) => urls.experiment(ref),
         iconColor: ['var(--product-experiments-light)'],
         filterKey: 'experiment',
