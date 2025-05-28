@@ -187,7 +187,7 @@ export function HogFunctionList({
                     columns={columns}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
-                            'No destinations found'
+                            `No ${humanizedType}s found`
                         ) : (
                             <>
                                 No {humanizedType}s matching filters.{' '}

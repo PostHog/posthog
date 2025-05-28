@@ -63,12 +63,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                 />
             ) : null}
             <div>
-                <HogFunctionList
-                    logicKey={logicKey}
-                    type={kind}
-                    additionalTypes={additionalKinds}
-                    extraControls={<>{newButton}</>}
-                />
+                <HogFunctionList logicKey={logicKey} type={kind} additionalTypes={additionalKinds} />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
                     <HogFunctionTemplateList defaultFilters={{}} type={kind} additionalTypes={additionalKinds} />

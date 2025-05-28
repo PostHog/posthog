@@ -61,6 +61,9 @@ export function HogFunctionOrderModal(): JSX.Element {
                 {} as Record<string, number>
             )
             setInitialOrders(orders)
+        } else {
+            setInitialOrders({})
+            setNewOrders({})
         }
     }, [reorderModalOpen, enabledHogFunctions])
 

@@ -69,7 +69,7 @@ export function DataPipelinesOverview(): JSX.Element {
                         type="transformation"
                         extraControls={
                             <>
-                                <LemonButton type="primary" size="small">
+                                <LemonButton type="primary" size="small" to={urls.dataPipelinesNew('transformation')}>
                                     New transformation
                                 </LemonButton>
                             </>
@@ -90,7 +90,7 @@ export function DataPipelinesOverview(): JSX.Element {
                         type="destination"
                         extraControls={
                             <>
-                                <LemonButton type="primary" size="small">
+                                <LemonButton type="primary" size="small" to={urls.dataPipelinesNew('destination')}>
                                     New destination
                                 </LemonButton>
                             </>
