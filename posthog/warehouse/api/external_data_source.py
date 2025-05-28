@@ -475,7 +475,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.CHARGEBEE:
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
-            new_source_model = self._handle_google_ads_source(request, *args, **kwargs)
+            new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -491,6 +491,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = snowflake_schemas
         elif source_type == ExternalDataSource.Type.BIGQUERY:
             default_schemas = bigquery_schemas
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            default_schemas = google_ads_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
