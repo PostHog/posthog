@@ -11,7 +11,6 @@ import {
     ISOTimestamp,
     Plugin,
     PluginConfigId,
-    PluginsServerConfig,
     TimestampFormat,
 } from '../types'
 import { logger } from './logger'
