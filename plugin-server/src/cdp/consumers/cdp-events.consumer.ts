@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -11,7 +12,6 @@ import { captureException } from '../../utils/posthog'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const counterParseError = new Counter({
@@ -79,8 +79,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         globals
                     )
 
-                    this.hogFunctionMonitoringService.produceAppMetrics(metrics)
-                    this.hogFunctionMonitoringService.produceLogs(logs)
+                    this.hogFunctionMonitoringService.queueAppMetrics(metrics)
+                    this.hogFunctionMonitoringService.queueLogs(logs)
 
                     return invocations
                 })
@@ -93,7 +93,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
-                    this.hogFunctionMonitoringService.produceAppMetric({
+                    this.hogFunctionMonitoringService.queueAppMetric({
                         team_id: item.globals.project.id,
                         app_source_id: item.hogFunction.id,
                         metric_kind: 'failure',
@@ -116,7 +116,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // Now we can filter by masking configs
             const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
 
-            this.hogFunctionMonitoringService.produceAppMetrics(
+            this.hogFunctionMonitoringService.queueAppMetrics(
                 masked.map((item) => ({
                     team_id: item.globals.project.id,
                     app_source_id: item.hogFunction.id,

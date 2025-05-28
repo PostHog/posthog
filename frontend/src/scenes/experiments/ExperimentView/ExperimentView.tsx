@@ -95,7 +95,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -108,7 +108,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}
@@ -129,7 +129,7 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {shouldUseExperimentMetrics ? (
+                        {usesNewQueryRunner ? (
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />

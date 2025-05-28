@@ -1,4 +1,5 @@
 import { IconMessage } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,6 +17,7 @@ export const manifest: ProductManifest = {
         survey: {
             icon: <IconMessage />,
             href: (ref: string) => urls.survey(ref),
+            iconColor: ['var(--product-surveys-light)'],
         },
     },
     treeItemsNew: [
@@ -30,6 +32,7 @@ export const manifest: ProductManifest = {
             path: 'Surveys',
             type: 'survey',
             href: urls.surveys(),
+            visualOrder: PRODUCT_VISUAL_ORDER.surveys,
         },
     ],
 }
