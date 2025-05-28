@@ -62,3 +62,6 @@ unit_bindings = "deny"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[package.metadata.dist]
+npm-package = "cli"
