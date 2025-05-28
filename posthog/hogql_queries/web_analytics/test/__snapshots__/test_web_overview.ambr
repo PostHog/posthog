@@ -46,13 +46,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), 0))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -99,13 +97,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -149,14 +145,12 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/bar'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                                                         and isNull('https://www.example.com/bar')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -198,13 +192,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -246,13 +238,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -294,13 +284,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -344,14 +332,12 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                                                         and isNull('https://www.example.com/foo')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -395,14 +381,12 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                                                         and isNull('https://www.example.com/foo')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -449,13 +433,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -502,13 +484,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -555,8 +535,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
@@ -565,8 +544,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -613,8 +591,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -624,13 +601,11 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -677,13 +652,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -730,13 +703,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -783,13 +754,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -836,13 +805,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -889,13 +856,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -939,14 +904,12 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                                                         and isNull('https://www.example.com/foo')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -990,14 +953,12 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                                                         and isNull('https://www.example.com/foo')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), 0))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1039,13 +1000,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1087,13 +1046,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'purchase')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1143,13 +1100,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'purchase')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1194,13 +1149,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'purchase')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1245,13 +1198,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'purchase1')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1296,13 +1247,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'purchase')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1352,13 +1301,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), or(equals(events.event, 'purchase1'), equals(events.event, 'purchase2'))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -1408,13 +1355,11 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), 0), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,

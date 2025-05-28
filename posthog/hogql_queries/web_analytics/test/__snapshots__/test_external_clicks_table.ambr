@@ -34,8 +34,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -44,8 +43,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -80,8 +78,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -90,8 +87,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -126,8 +122,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -136,8 +131,7 @@
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -172,8 +166,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -182,8 +175,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -218,8 +210,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -229,8 +220,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                                                                                                                                                       allow_experimental_join_condition=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
      GROUP BY events.`$session_id`,
@@ -239,8 +229,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -275,8 +264,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -285,8 +273,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -321,8 +308,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -331,8 +317,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -367,8 +352,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -377,8 +361,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -413,8 +396,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -423,8 +405,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -459,8 +440,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -469,8 +449,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -505,8 +484,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                    allow_experimental_join_condition=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$event_type'), ''), 'null'), '^"|"$', ''), 'click'), 0), isNotNull(url), ifNull(notEquals(url, ''), 1), ifNull(notEquals(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')), cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''))), isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$external_click_url'), ''), 'null'), '^"|"$', '')))
                                                                                                                                                                                                                                                                                        or isNotNull(cutToFirstSignificantSubdomain(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), 1))
      GROUP BY events.`$session_id`,
@@ -515,8 +493,7 @@
   ORDER BY `context.columns.clicks` DESC,
            `context.columns.url` ASC
   LIMIT 101
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,

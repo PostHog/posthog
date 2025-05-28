@@ -5,8 +5,7 @@
   SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -24,8 +23,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%qw%'), 0))
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -43,8 +41,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%QW%'), 0))
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -62,8 +59,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%6%'), 0))
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -81,8 +77,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), equals(events.event, 'random event'), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%6%'), 0))
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -100,8 +95,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%6%'), 0))
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -119,8 +113,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), equals(events.event, '404_i_dont_exist'), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%qw%'), 0))
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -152,8 +145,7 @@
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')))
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -171,8 +163,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%qw%'), 0))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -190,8 +181,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%QW%'), 0))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -209,8 +199,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%6%'), 0))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -228,8 +217,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, 'random event'), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%6%'), 0))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -247,8 +235,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%6%'), 0))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -266,8 +253,7 @@
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, '404_i_dont_exist'), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%qw%'), 0))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
