@@ -62,7 +62,13 @@ from posthog.test.base import (
 )
 from posthog.test.fixtures import create_app_metric2
 from posthog.utils import get_previous_day
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSource, ExternalDataSchema
+from posthog.warehouse.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSource,
+    ExternalDataSchema,
+)
 
 logger = structlog.get_logger(__name__)
 

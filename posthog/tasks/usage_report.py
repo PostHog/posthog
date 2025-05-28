@@ -880,11 +880,13 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
         .annotate(total=Count("id"))
     )
 
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_batch_exports_in_period() -> list:
     # get all batch exports that are active or completed at run time
     return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
