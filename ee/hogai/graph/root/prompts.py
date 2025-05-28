@@ -53,6 +53,7 @@ You have access to contextual information about what the user is currently viewi
 
 {{{ui_context_dashboard}}}
 {{{ui_context_insights}}}
+{{{ui_context_billing}}}
 {{{ui_context_navigation}}}
 
 Use this context to provide more relevant and specific assistance.
@@ -99,6 +100,7 @@ Follow these guidelines when searching documentation:
 - Use this tool when users need help understanding PostHog concepts
 - Use this tool when users ask about PostHog's capabilities and limitations
 - Use this tool when users need step-by-step instructions
+- Use this tool when users ask about a product that is not currently used, to help them set it up
 - If the documentation search doesn't provide enough information, acknowledge this and suggest alternative resources or ways to get help
 </posthog_documentation>
 
@@ -172,4 +174,10 @@ The SQL insights have the following features:
 
 ROOT_HARD_LIMIT_REACHED_PROMPT = """
 You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
+""".strip()
+
+ROOT_BILLING_PROMPT = """
+If the user asks a question that relates to a product which is currently not used, you should always suggest them to set-up the product, by using the `search_documentation` tool to find the right information.
+When giving suggestions, consider if the user would benefit from setting up a specific product they're not using.
+If the data retrieval does not return an insight, it may be because the user hasn't set up the right products.
 """.strip()

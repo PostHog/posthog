@@ -289,6 +289,29 @@ class RootNode(AssistantNode):
 
         # Format navigation context
         navigation_context = ""
+        # Format billing context
+        billing_context = ""
+        if ui_context.global_info and ui_context.global_info.billing:
+            billing = ui_context.global_info.billing
+            billing_context = f"<billing_context>\nSubscription: {billing.subscription_level}"
+            if billing.billing_plan:
+                billing_context += f" ({billing.billing_plan})"
+
+            if billing.trial and billing.trial.is_active:
+                billing_context += f"\nActive trial expires: {billing.trial.expires_at}"
+
+            if billing.products:
+                billing_context += "\nProducts:"
+                for product in billing.products:
+                    billing_context += f"\n- {product.name}: {product.percentage_usage:.1f}% usage"
+                    if product.has_exceeded_limit:
+                        billing_context += " (EXCEEDED LIMIT)"
+
+            if billing.total_current_amount_usd:
+                billing_context += f"\nCurrent amount: ${billing.total_current_amount_usd}"
+
+            billing_context += "\n{ROOT_BILLING_PROMPT}</billing_context>"
+
         if ui_context.global_info and ui_context.global_info.navigation:
             nav = ui_context.global_info.navigation
             navigation_context = f"<navigation_context>\nCurrent page: {nav.path}"
@@ -299,6 +322,7 @@ class RootNode(AssistantNode):
         return {
             "ui_context_dashboard": dashboard_context,
             "ui_context_insights": insights_context,
+            "ui_context_billing": billing_context,
             "ui_context_navigation": navigation_context,
         }
 
