@@ -366,29 +366,27 @@ describe('Event Pipeline integration test', () => {
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
 
-    it('can set and update group properties when reading event', async () => {
+    it('can set and update group properties with $groupidentify events', async () => {
         const groupKey = 'group_key'
         const distinctId = new UUIDT().toString()
 
-        let event: PluginEvent = {
-            event: '$groupidentify',
-            properties: {
-                $group_type: 'organization',
-                $group_key: groupKey,
-                $group_set: {
-                    foo: 'bar',
+        // First group identify event
+        const event1 = createGroupIdentifyEvent(
+            {
+                properties: {
+                    distinct_id: distinctId,
+                    $group_type: 'organization',
+                    $group_key: groupKey,
+                    $group_set: {
+                        foo: 'bar',
+                    },
                 },
             },
-            distinct_id: distinctId,
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: team.id,
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
+            distinctId,
+            groupKey
+        )
 
-        await ingestEvent(event)
+        await ingestEvent(event1)
 
         let group = await hub.db.fetchGroup(team.id, 0, groupKey)
 
@@ -402,22 +400,23 @@ describe('Event Pipeline integration test', () => {
             })
         )
 
-        event = {
-            ...event,
-            properties: {
-                distinct_id: distinctId,
-                $group_type: 'organization',
-                $group_key: groupKey,
-                $group_set: {
-                    prop: 'value',
+        // Second group identify event
+        const event2 = createGroupIdentifyEvent(
+            {
+                properties: {
+                    distinct_id: distinctId,
+                    $group_type: 'organization',
+                    $group_key: groupKey,
+                    $group_set: {
+                        prop: 'value',
+                    },
                 },
             },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            uuid: new UUIDT().toString(),
-        }
+            distinctId,
+            groupKey
+        )
 
-        await ingestEvent(event)
+        await ingestEvent(event2)
 
         group = await hub.db.fetchGroup(team.id, 0, groupKey)
 
@@ -437,5 +436,96 @@ describe('Event Pipeline integration test', () => {
         expect(events[0].properties.$group_set).toEqual({ foo: 'bar' })
         expect(events[1].event).toEqual('$groupidentify')
         expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
+    })
+
+    it('can handle $groupidentify with no properties', async () => {
+        const event = createGroupIdentifyEvent({
+            properties: {},
+        })
+
+        await ingestEvent(event)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(1)
+        expect(events[0].event).toEqual('$groupidentify')
+        expect(events[0].properties).toEqual({})
+    })
+
+    it('can $set and update person properties when reading event', async () => {
+        let event = createCaptureEvent('$identify', {
+            properties: {
+                $set: { prop: 'value' },
+            },
+        })
+
+        await ingestEvent(event)
+
+        event = createCaptureEvent('identify', {
+            properties: {
+                $set: { prop: 'updated value' },
+            },
+        })
+
+        await ingestEvent(event)
+
+        event = createCaptureEvent('$identify', {
+            properties: {
+                $set: { value: 'new value' },
+            },
+        })
+        await ingestEvent(event)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(3)
+        expect(events[0].event).toEqual('$identify')
+        expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[1].event).toEqual('identify')
+        expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'updated value' }))
+        expect(events[2].event).toEqual('$identify')
+        expect(events[2].person_properties).toEqual(
+            expect.objectContaining({ prop: 'updated value', value: 'new value' })
+        )
+    })
+
+    const createGroupIdentifyEvent = (
+        overrides: Partial<PluginEvent> = {},
+        distinctId: string = 'abc',
+        groupKey: string = 'posthog'
+    ): PluginEvent => {
+        return {
+            event: '$groupidentify',
+            properties: {
+                distinct_id: distinctId,
+                $group_type: 'organization',
+                $group_key: groupKey,
+            },
+            distinct_id: distinctId,
+            timestamp: new Date().toISOString(),
+            now: new Date().toISOString(),
+            team_id: team.id,
+            ip: null,
+            site_url: 'https://example.com',
+            uuid: new UUIDT().toString(),
+            ...overrides,
+        }
+    }
+
+    const createCaptureEvent = (
+        event: string,
+        overrides: Partial<PluginEvent> = {},
+        distinctId: string = 'abc'
+    ): PluginEvent => ({
+        event: event,
+        properties: {
+            distinct_id: distinctId,
+        },
+        distinct_id: distinctId,
+        timestamp: new Date().toISOString(),
+        now: new Date().toISOString(),
+        team_id: team.id,
+        ip: null,
+        site_url: 'https://example.com',
+        uuid: new UUIDT().toString(),
+        ...overrides,
     })
 })
