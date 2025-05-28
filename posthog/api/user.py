@@ -488,6 +488,24 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @action(
+        methods=["PATCH"],
+        detail=False,
+    )
+    def cancel_email_change_request(self, request, **kwargs):
+        instance = request.user
+
+        if not instance.pending_email:
+            raise serializers.ValidationError(
+                f"No active email change requests found.", code="email_change_request_not_found"
+            )
+
+        instance.pending_email = None
+        instance.save()
+        instance.refresh_from_db()
+
+        return Response(self.get_serializer(instance=instance).data)
+
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):
         instance = self.get_object()
