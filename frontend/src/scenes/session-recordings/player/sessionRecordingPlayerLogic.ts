@@ -774,8 +774,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 const snapshot = snapshots[currIndex]
                 return {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
+                    width: (snapshot.data as any).width,
+                    height: (snapshot.data as any).height,
                 }
             },
             {
@@ -1343,8 +1343,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             )
         },
-        saveScreenshotFile: (file: File) => {
-            downloadFile(file.file)
+        saveScreenshotFile: ({ file }: { file: File }) => {
+            downloadFile(file)
             actions.setScreenshotFile(null)
         },
         openHeatmap: () => {
