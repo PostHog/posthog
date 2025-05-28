@@ -3,7 +3,7 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 export interface AlertDestinationSelectorProps {
-    alertId?: string
+    alertId: string
 }
 
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
@@ -25,7 +25,7 @@ export function AlertDestinationSelector({ alertId }: AlertDestinationSelectorPr
                         properties: [
                             {
                                 key: 'alert_id',
-                                value: alertId ?? 'new',
+                                value: alertId,
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.Event,
                             },

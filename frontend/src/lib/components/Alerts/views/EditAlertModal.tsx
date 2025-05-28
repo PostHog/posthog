@@ -365,7 +365,7 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                {!creatingNewAlert && insightAlertsCDPFlag && (
+                                {!!alertId && insightAlertsCDPFlag && (
                                     <div className="deprecated-space-y-5">
                                         <div className="flex flex-col">
                                             <AlertDestinationSelector alertId={alertId} />
