@@ -587,9 +587,6 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'games://') {
-                    return <>Play {nameNode}</>
-                }
                 if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
