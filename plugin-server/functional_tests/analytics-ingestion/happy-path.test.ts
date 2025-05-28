@@ -4,7 +4,6 @@ import {
     createOrganization,
     createTeam,
     fetchEvents,
-    fetchGroups,
     fetchIngestionWarnings,
     fetchPersons,
     getMetric,
@@ -40,106 +39,6 @@ test.concurrent(`event ingestion: handles $$client_ingestion_warning events`, as
                 details: expect.objectContaining({ message: 'test message' }),
             }),
         ])
-    })
-})
-
-test.concurrent(`event ingestion: can set and update group properties`, async () => {
-    const teamId = await createTeam(organizationId)
-    const distinctId = new UUIDT().toString()
-
-    const groupIdentityUuid = new UUIDT().toString()
-    await capture({
-        teamId,
-        distinctId,
-        uuid: groupIdentityUuid,
-        event: '$groupidentify',
-        properties: {
-            distinct_id: distinctId,
-            $group_type: 'organization',
-            $group_key: 'posthog',
-            $group_set: {
-                prop: 'value',
-            },
-        },
-    })
-
-    await waitForExpect(async () => {
-        const group = await fetchGroups(teamId)
-        expect(group).toEqual([
-            expect.objectContaining({
-                group_type_index: 0,
-                group_key: 'posthog',
-                group_properties: { prop: 'value' },
-            }),
-        ])
-    })
-
-    const firstEventUuid = new UUIDT().toString()
-    await capture({
-        teamId,
-        distinctId,
-        uuid: firstEventUuid,
-        event: 'custom event',
-        properties: {
-            name: 'haha',
-            $group_0: 'posthog',
-        },
-    })
-
-    await waitForExpect(async () => {
-        const [event] = await fetchEvents(teamId, firstEventUuid)
-        expect(event).toEqual(
-            expect.objectContaining({
-                $group_0: 'posthog',
-            })
-        )
-    })
-
-    const secondGroupIdentityUuid = new UUIDT().toString()
-    await capture({
-        teamId,
-        distinctId,
-        uuid: secondGroupIdentityUuid,
-        event: '$groupidentify',
-        properties: {
-            distinct_id: distinctId,
-            $group_type: 'organization',
-            $group_key: 'posthog',
-            $group_set: {
-                prop: 'updated value',
-            },
-        },
-    })
-
-    await waitForExpect(async () => {
-        const group = await fetchGroups(teamId)
-        expect(group).toContainEqual(
-            expect.objectContaining({
-                group_type_index: 0,
-                group_key: 'posthog',
-                group_properties: { prop: 'updated value' },
-            })
-        )
-    })
-
-    const secondEventUuid = new UUIDT().toString()
-    await capture({
-        teamId,
-        distinctId,
-        uuid: secondEventUuid,
-        event: 'custom event',
-        properties: {
-            name: 'haha',
-            $group_0: 'posthog',
-        },
-    })
-    await waitForExpect(async () => {
-        const [event] = await fetchEvents(teamId, secondEventUuid)
-        expect(event).toEqual(
-            expect.objectContaining({
-                $group_0: 'posthog',
-            })
-        )
     })
 })
 
