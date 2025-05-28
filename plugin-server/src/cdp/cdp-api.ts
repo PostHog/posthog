@@ -20,7 +20,8 @@ import {
     HogFunctionType,
     LogEntry,
 } from './types'
-import { cloneInvocation, convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionInvocationGlobals } from './utils'
+import { createInvocationResult } from './utils/invocation-utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -221,25 +222,28 @@ export class CdpApi {
                                         invocation.queueParameters as HogFunctionQueueParametersFetchRequest
                                     )
 
-                                response = {
-                                    invocation: cloneInvocation(invocation, {
+                                response = createInvocationResult(
+                                    invocation,
+                                    {
                                         queue: 'hog',
                                         queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
-                                    }),
-                                    finished: false,
-                                    logs: [
-                                        {
-                                            level: 'info',
-                                            timestamp: DateTime.now(),
-                                            message: `Async function 'fetch' was mocked with arguments:`,
-                                        },
-                                        {
-                                            level: 'info',
-                                            timestamp: DateTime.now(),
-                                            message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
-                                        },
-                                    ],
-                                }
+                                    },
+                                    {
+                                        finished: false,
+                                        logs: [
+                                            {
+                                                level: 'info',
+                                                timestamp: DateTime.now(),
+                                                message: `Async function 'fetch' was mocked with arguments:`,
+                                            },
+                                            {
+                                                level: 'info',
+                                                timestamp: DateTime.now(),
+                                                message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
+                                            },
+                                        ],
+                                    }
+                                )
                             } else {
                                 response = await this.fetchExecutor.execute(invocation)
                             }
@@ -292,7 +296,7 @@ export class CdpApi {
                 }
 
                 const wasSkipped = response.invocationResults.some((r) =>
-                    r.metrics?.some((m) => m.metric_name === 'filtered')
+                    r.metrics.some((m) => m.metric_name === 'filtered')
                 )
 
                 res.json({
