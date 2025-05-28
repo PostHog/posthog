@@ -6,9 +6,17 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useCallback, useEffect, useMemo } from 'react'
 import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
+import { MergeTagsModal } from './MergeTagsModal'
+
+/*
+const engine = useMemo(() => new Liquid({
+    // you can register custom tags/filters here
+  }), [])
+*/
 
 function EmailTemplaterForm({
     mode,
@@ -17,13 +25,141 @@ function EmailTemplaterForm({
 }: EmailTemplaterLogicProps & {
     mode: 'full' | 'preview'
 }): JSX.Element {
-    const { setEmailEditorRef, emailEditorReady, setIsModalOpen, applyTemplate } = useActions(
+    const { setEmailEditorRef, emailEditorReady, setIsModalOpen, applyTemplate, setIsMergeTagsModalOpen } = useActions(
         emailTemplaterLogic(props)
     )
-    const { appliedTemplate, templates, templatesLoading } = useValues(emailTemplaterLogic(props))
+    const { appliedTemplate, templates, templatesLoading, isMergeTagsModalOpen } = useValues(emailTemplaterLogic(props))
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
+
+    // Available merge tags based on globals - memoize with stable dependencies
+    const availableMergeTags = useMemo(() => {
+        const tags = []
+
+        // Add customer properties
+        if (props.globals?.customer) {
+            Object.keys(props.globals.customer).forEach((key) => {
+                tags.push({
+                    label: `Customer ${capitalizeFirstLetter(key.replace(/_/g, ' '))}`,
+                    value: `{{ customer.${key} }}`,
+                    category: 'Customer',
+                })
+            })
+        }
+
+        // Add common merge tags
+        tags.push(
+            { label: 'Current Date', value: '{{ "now" | date: "%Y-%m-%d" }}', category: 'Date/Time' },
+            { label: 'Current Time', value: '{{ "now" | date: "%H:%M" }}', category: 'Date/Time' },
+            { label: 'Current Year', value: '{{ "now" | date: "%Y" }}', category: 'Date/Time' }
+        )
+
+        return tags
+    }, [JSON.stringify(props.globals?.customer)]) // Use JSON.stringify for stable comparison
+
+    // Custom JS for merge tags functionality - only regenerate when tags actually change
+    const customJS = useMemo(() => {
+        return `
+// Function to open merge tags modal
+window.openMergeTagsModal = function() {
+  window.dispatchEvent(new CustomEvent('openMergeTagsModal'));
+};
+
+// Register custom property editor for merge tag selection
+unlayer.registerPropertyEditor({
+  name: 'merge_tag_selector',
+  Widget: unlayer.createWidget({
+    render(value, updateValue, data) {
+      return \`
+        <div>
+          <input type="text" value="\${value || ''}" class="merge-tag-input" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 8px;" placeholder="Enter merge tag..." />
+          <button class="select-merge-tag-btn" style="width: 100%; padding: 8px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer;">Select from List</button>
+        </div>
+      \`;
+    },
+    mount(node, value, updateValue, data) {
+      const input = node.querySelector('.merge-tag-input');
+      const button = node.querySelector('.select-merge-tag-btn');
+      
+      input.addEventListener('input', function(e) {
+        updateValue(e.target.value);
+      });
+      
+      button.addEventListener('click', function() {
+        window.currentUpdateValue = updateValue;
+        window.openMergeTagsModal();
+      });
+    },
+  }),
+});
+
+// Register merge tags tool
+unlayer.registerTool({
+  name: 'merge_tag',
+  label: 'Merge Tag',
+  icon: 'fa-tags',
+  supportedDisplayModes: ['email'],
+  options: {
+    default: {
+      title: null,
+    },
+    content: {
+      title: 'Merge Tag',
+      position: 1,
+      options: {
+        tagValue: {
+          label: 'Tag Value',
+          defaultValue: '{{ customer.email }}',
+          widget: 'merge_tag_selector',
+        },
+      },
+    },
+  },
+  values: {
+    tagValue: '{{ customer.email }}',
+  },
+  renderer: {
+    Viewer: unlayer.createViewer({
+      render(values) {
+        const tag = values.tagValue || '{{ merge.tag }}';
+        return \`<span style="background-color: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 3px; font-family: monospace; border: 1px solid #bbdefb; display: inline-block;">\${tag}</span>\`;
+      },
+    }),
+    exporters: {
+      email: function (values) {
+        return values.tagValue || '{{ merge.tag }}';
+      },
+    },
+    head: {
+      css: function (values) {},
+      js: function (values) {},
+    },
+  },
+});
+        `
+    }, []) // Empty dependency array since this doesn't depend on dynamic data
+
+    // Set up event listener for merge tags modal - use useCallback to prevent recreation
+    const handleOpenMergeTagsModal = useCallback(() => {
+        setIsMergeTagsModalOpen(true)
+    }, [setIsMergeTagsModalOpen])
+
+    useEffect(() => {
+        window.addEventListener('openMergeTagsModal', handleOpenMergeTagsModal)
+
+        return () => {
+            window.removeEventListener('openMergeTagsModal', handleOpenMergeTagsModal)
+        }
+    }, [handleOpenMergeTagsModal])
+
+    // Memoize email editor options to prevent unnecessary re-renders
+    const emailEditorOptions = useMemo(
+        () => ({
+            customJS: [`data:text/javascript;base64,${btoa(customJS)}`],
+        }),
+        [customJS]
+    )
 
     return (
         <>
@@ -78,7 +214,11 @@ function EmailTemplaterForm({
                 ))}
 
                 {mode === 'full' ? (
-                    <EmailEditor ref={(r) => setEmailEditorRef(r)} onReady={() => emailEditorReady()} />
+                    <EmailEditor
+                        ref={(r) => setEmailEditorRef(r)}
+                        onReady={() => emailEditorReady()}
+                        options={emailEditorOptions}
+                    />
                 ) : (
                     <LemonField
                         name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}html`}
@@ -99,6 +239,20 @@ function EmailTemplaterForm({
                     </LemonField>
                 )}
             </Form>
+
+            <MergeTagsModal
+                isOpen={isMergeTagsModalOpen}
+                onClose={() => setIsMergeTagsModalOpen(false)}
+                mergeTags={availableMergeTags}
+                onSelectTag={(tag) => {
+                    // Update the current property editor if available
+                    if (window.currentUpdateValue) {
+                        window.currentUpdateValue(tag.value)
+                        window.currentUpdateValue = null
+                    }
+                    setIsMergeTagsModalOpen(false)
+                }}
+            />
         </>
     )
 }

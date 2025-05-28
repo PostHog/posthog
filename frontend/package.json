@@ -148,6 +148,7 @@
         "kea-test-utils": "^0.2.4",
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0",
+        "liquidjs": "^10.21.1",
         "lodash.debounce": "^4.0.8",
         "lodash.isequal": "^4.5.0",
         "lodash.merge": "^4.6.2",
