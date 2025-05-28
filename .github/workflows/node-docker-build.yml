@@ -144,13 +144,13 @@ jobs:
         steps:
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@v3
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
               with:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
             - name: Trigger Node deployment
-              uses: peter-evans/repository-dispatch@v3
+              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
