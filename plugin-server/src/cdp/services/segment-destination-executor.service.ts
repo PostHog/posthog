@@ -123,11 +123,12 @@ export class SegmentDestinationExecutorService {
         return fetch(...args)
     }
 
-    private handleFetchFailure(
+    private async handleFetchFailure(
         invocation: HogFunctionInvocation,
         response: FetchResponse | null,
-        error: any | null
-    ): HogFunctionInvocationResult | null {
+        error: any | null,
+        result: HogFunctionInvocationResult
+    ): Promise<HogFunctionInvocationResult> {
         let kind: CyclotronFetchFailureKind = 'requesterror'
 
         if (error?.message.toLowerCase().includes('timeout')) {
@@ -205,7 +206,44 @@ export class SegmentDestinationExecutorService {
         }
 
         // If we've exceeded retries, return all failures in trace
-        return null
+        const errorText = response ? await response.text() : undefined
+        result.logs.push({
+            level: 'error',
+            timestamp: DateTime.now(),
+            message: `Error executing function on event ${
+                invocation?.globals?.event?.uuid || 'Unknown event'
+            }: Request failed with status ${response?.status} (${errorText})`,
+        })
+        return createInvocationResult(
+            invocation,
+            {
+                queue: 'segment',
+                queueParameters: {
+                    response: response
+                        ? {
+                              status: response?.status,
+                              headers: response?.headers,
+                          }
+                        : null,
+                    body: errorText,
+                    trace: updatedMetadata.trace,
+                    timings: [],
+                },
+            },
+            {
+                finished: true,
+                logs: result.logs,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
+            }
+        )
     }
 
     public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
@@ -381,14 +419,8 @@ export class SegmentDestinationExecutorService {
 
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            let errorMessage = e
             if (e instanceof FetchError) {
-                const retryResult = this.handleFetchFailure(invocation, e.fetchResponse, e.fetchError)
-                if (retryResult) {
-                    return retryResult
-                }
-                const errorText = e.fetchResponse ? await e.fetchResponse?.text() : 'Something went wrong'
-                errorMessage = `Request failed with status ${e.fetchResponse?.status} (${errorText})`
+                return await this.handleFetchFailure(invocation, e.fetchResponse, e.fetchError, result)
             }
 
             logger.error('💩', 'Segment destination errored', {
@@ -399,12 +431,7 @@ export class SegmentDestinationExecutorService {
 
             result.error = e
 
-            addLog(
-                'error',
-                `Error executing function on event ${
-                    invocation?.globals?.event?.uuid || 'Unknown event'
-                }: ${errorMessage}`
-            )
+            addLog('error', `Function failed: ${e.message}`)
         }
 
         return result

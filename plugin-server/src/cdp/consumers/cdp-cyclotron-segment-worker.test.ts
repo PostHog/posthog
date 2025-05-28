@@ -192,7 +192,27 @@ describe('CdpCyclotronWorkerSegment', () => {
                 id: expect.any(String),
                 queue: 'segment',
                 queueMetadata: undefined,
-                queueParameters: undefined,
+                queueParameters: {
+                    body: '{"error":"Forbidden"}',
+                    response: {
+                        headers: {
+                            'retry-after': '60',
+                        },
+                        status: 403,
+                    },
+                    timings: [],
+                    trace: [
+                        {
+                            headers: {
+                                'retry-after': '60',
+                            },
+                            kind: 'failurestatus',
+                            message: 'Received failure status: 403',
+                            status: 403,
+                            timestamp: expect.any(Object),
+                        },
+                    ],
+                },
                 queuePriority: 0,
                 queueScheduledAt: undefined,
                 queueSource: undefined,
@@ -282,11 +302,11 @@ describe('CdpCyclotronWorkerSegment', () => {
                 timings: [],
             })
 
-            const minBackoffMs = DateTime.utc().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
-            const maxBackoffMs = DateTime.utc()
+            let minBackoffMs = DateTime.utc().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            let maxBackoffMs = DateTime.utc()
                 .plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS * 2 })
                 .toMillis()
-            const scheduledAt = DateTime.fromISO(
+            let scheduledAt = DateTime.fromISO(
                 jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation
                     .queueScheduledAt as unknown as string
             ).toMillis()
@@ -307,6 +327,56 @@ describe('CdpCyclotronWorkerSegment', () => {
             expect(invocationResults2.length).toBe(1)
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(2)
+
+            expect(
+                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0][0].invocation
+            ).toEqual({
+                globals: expect.any(Object),
+                hogFunction: expect.any(Object),
+                id: expect.any(String),
+                queue: 'segment',
+                queueMetadata: {
+                    trace: [
+                        {
+                            headers: {
+                                'retry-after': '60',
+                            },
+                            kind: 'failurestatus',
+                            message: 'Received failure status: 429',
+                            status: 429,
+                            timestamp: expect.any(Object),
+                        },
+                        {
+                            headers: {
+                                'retry-after': '60',
+                            },
+                            kind: 'failurestatus',
+                            message: 'Received failure status: 429',
+                            status: 429,
+                            timestamp: expect.any(Object),
+                        },
+                    ],
+                    tries: 2,
+                },
+                queueParameters: undefined,
+                queuePriority: 2,
+                queueScheduledAt: expect.any(Object),
+                queueSource: undefined,
+                teamId: 2,
+                timings: [],
+            })
+
+            minBackoffMs = DateTime.utc()
+                .plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS * 2 })
+                .toMillis()
+            maxBackoffMs = DateTime.utc()
+                .plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS * 3 })
+                .toMillis()
+            scheduledAt = DateTime.fromISO(
+                jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0][0].invocation
+                    .queueScheduledAt as unknown as string
+            ).toMillis()
+            expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0]).toMatchObject([
                 {
@@ -354,7 +424,45 @@ describe('CdpCyclotronWorkerSegment', () => {
                     ],
                     tries: 2,
                 },
-                queueParameters: undefined,
+                queueParameters: {
+                    body: '{"error":"Too many requests"}',
+                    response: {
+                        headers: {
+                            'retry-after': '60',
+                        },
+                        status: 429,
+                    },
+                    trace: [
+                        {
+                            headers: {
+                                'retry-after': '60',
+                            },
+                            kind: 'failurestatus',
+                            message: 'Received failure status: 429',
+                            status: 429,
+                            timestamp: expect.any(Object),
+                        },
+                        {
+                            headers: {
+                                'retry-after': '60',
+                            },
+                            kind: 'failurestatus',
+                            message: 'Received failure status: 429',
+                            status: 429,
+                            timestamp: expect.any(Object),
+                        },
+                        {
+                            headers: {
+                                'retry-after': '60',
+                            },
+                            kind: 'failurestatus',
+                            message: 'Received failure status: 429',
+                            status: 429,
+                            timestamp: expect.any(Object),
+                        },
+                    ],
+                    timings: [],
+                },
                 queuePriority: 0,
                 queueScheduledAt: undefined,
                 queueSource: undefined,
