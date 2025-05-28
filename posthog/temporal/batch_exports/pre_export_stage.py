@@ -547,11 +547,15 @@ class ProducerFromInternalS3Stage:
             data_interval_end=data_interval_end,
         )
         dataset_path = f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}/"
-        dataset = ds.dataset(
-            dataset_path,
-            format="parquet",
-            filesystem=s3,
-        )
+        try:
+            dataset = ds.dataset(
+                dataset_path,
+                format="parquet",
+                filesystem=s3,
+            )
+        except FileNotFoundError:
+            await self.logger.ainfo("Dataset not found in S3 -> assuming no data to export")
+            return
 
         # Read in batches
         try:

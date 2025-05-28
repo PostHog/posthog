@@ -834,7 +834,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        internal_logger = get_internal_logger()
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
@@ -895,17 +894,15 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=s3_default_fields(),
         )
-        # TODO
-        if inputs.team_id in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
-            await internal_logger.ainfo("Using internal S3 stage")
-            result = await execute_batch_export_insert_activity_using_s3_stage(
+        if str(inputs.team_id) in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
+            await execute_batch_export_insert_activity_using_s3_stage(
                 insert_into_s3_activity_from_stage,
                 insert_inputs,
                 interval=inputs.interval,
                 non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
                 finish_inputs=finish_inputs,
             )
-            return result
+            return
 
         await execute_batch_export_insert_activity(
             insert_into_s3_activity,
