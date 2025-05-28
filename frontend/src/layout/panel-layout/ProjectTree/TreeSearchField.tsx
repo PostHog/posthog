@@ -1,6 +1,7 @@
 import { IconCdCase, IconDocument, IconUser } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { fileSystemTypes } from '~/products'
 import { FileSystemType } from '~/types'
@@ -10,10 +11,11 @@ import { projectTreeLogic } from './projectTreeLogic'
 
 // TODO: This is a duplicate of TreeFiltersDropdownMenu.tsx
 const productTypesMapped = Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
-    ([key, value]): { value: string; label: string; icon: React.ReactNode } => ({
+    ([key, value]): { value: string; label: string; icon: React.ReactNode; flag?: string } => ({
         value: value.filterKey || key,
         label: value.name,
         icon: value.icon,
+        flag: value.flag,
     })
 )
 
@@ -28,6 +30,7 @@ export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: Tree
     const { panelTreeRef } = useValues(panelLayoutLogic)
     const { searchTerm } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
@@ -65,7 +68,10 @@ export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: Tree
                                   hint: 'Search by type',
                                   icon: <IconCdCase />,
                               },
-                              productTypesMapped,
+                              productTypesMapped.filter(
+                                  (productType) =>
+                                      !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
+                              ),
                               'enter a type',
                           ],
                           [

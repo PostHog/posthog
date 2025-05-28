@@ -5389,8 +5389,11 @@ export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
     iconColor?: FileSystemIconColor
+    // Visual name of the product
     name: string
+    // Flag to determine if the product is enabled
     flag?: string
+    // Used to filter the tree items by product
     filterKey?: string
 }
 
