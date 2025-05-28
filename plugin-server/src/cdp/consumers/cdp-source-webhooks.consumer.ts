@@ -12,7 +12,6 @@ import {
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
     HogFunctionType,
-    HogFunctionTypeType,
 } from '../types'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -23,7 +22,6 @@ const getFirstHeaderValue = (value: string | string[] | undefined): string | und
 
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSourceWebhooksConsumer'
-    protected hogTypes: HogFunctionTypeType[] = ['source_webhook']
     private cyclotronJobQueue: CyclotronJobQueue
     private promiseScheduler: PromiseScheduler
 
@@ -36,11 +34,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
+        if (hogFunction?.type !== 'source_webhook') {
+            return null
+        }
+
         return hogFunction
     }
 
     public async processWebhook(webhookId: string, req: express.Request) {
-        const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
+        const hogFunction = await this.getWebhook(webhookId)
 
         if (!hogFunction) {
             // TODO: Maybe better error types?
