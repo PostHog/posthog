@@ -32,7 +32,7 @@ export function PinnedFolder(): JSX.Element {
                     </ButtonPrimitive>
                 </div>
             )}
-            <div className="flex flex-col mt-[-0.25rem] h-full">
+            <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
             {modalVisible ? (
@@ -52,7 +52,12 @@ export function PinnedFolder(): JSX.Element {
                     }
                 >
                     <div className="w-192 max-w-full">
-                        <FolderSelect value={selectedFolder} onChange={setSelectedFolder} includeProtocol />
+                        <FolderSelect
+                            value={selectedFolder}
+                            onChange={setSelectedFolder}
+                            includeProtocol
+                            className="h-[60vh] min-h-[200px]"
+                        />
                     </div>
                 </LemonModal>
             ) : null}

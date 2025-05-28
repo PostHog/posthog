@@ -315,7 +315,7 @@ def property_definitions_ingestion_job():
     cron_schedule="5 * * * *",  # Run 5 minutes after the hour
     execution_timezone="UTC",
 )
-def property_definitions_hourly_schedule(context):
+def property_definitions_hourly_schedule():
     """
     Schedule the property definitions ingestion job to run hourly.
 
@@ -325,6 +325,13 @@ def property_definitions_hourly_schedule(context):
     now = datetime.datetime.now(datetime.UTC)
     previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
     target_hour = previous_hour.isoformat()
-
-    config = PropertyDefinitionsConfig(start_at=target_hour, duration="1 hour")
-    return {"ops": {setup_job.name: config}}
+    return dagster.RunRequest(
+        run_key=target_hour,
+        run_config={
+            "ops": {
+                setup_job.name: {
+                    "config": PropertyDefinitionsConfig(start_at=target_hour, duration="1 hour").model_dump()
+                }
+            }
+        },
+    )
