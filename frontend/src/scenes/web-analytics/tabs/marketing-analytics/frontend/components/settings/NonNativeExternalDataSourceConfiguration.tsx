@@ -43,8 +43,11 @@ export function NonNativeExternalDataSourceConfiguration({
         )
         .flat()
 
-    const isColumnTypeCompatible = (columnType: string, schemaFieldTypes: string[]): boolean => {
-        return schemaFieldTypes.includes(columnType)
+    const isColumnTypeCompatible = (
+        columnType: string,
+        schemaField: { required: boolean; type: string[] }
+    ): boolean => {
+        return schemaField.type.includes(columnType)
     }
 
     const renderColumnMappingDropdown = (
@@ -58,8 +61,7 @@ export function NonNativeExternalDataSourceConfiguration({
         const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
 
         // Filter columns based on type compatibility
-        const compatibleColumns =
-            table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes as unknown as string[])) || []
+        const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
 
         const columnOptions = [
             { label: 'None', value: null as string | null },
@@ -126,8 +128,7 @@ export function NonNativeExternalDataSourceConfiguration({
                     ...Object.keys(MARKETING_ANALYTICS_SCHEMA).map((column) => ({
                         key: column,
                         title: column.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-                        render: (_: any, item: any) =>
-                            renderColumnMappingDropdown(item, column as keyof typeof MARKETING_ANALYTICS_SCHEMA),
+                        render: (_: any, item: any) => renderColumnMappingDropdown(item, column),
                     })),
                     {
                         key: 'actions',

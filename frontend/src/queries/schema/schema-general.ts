@@ -3084,39 +3084,21 @@ export interface EventsHeatMapStructuredResult {
     allAggregations: integer
 }
 
-export const MARKETING_ANALYTICS_SCHEMA = {
-    campaign_name: ['string'],
-    total_cost: ['float', 'integer'],
-    pageviews: ['integer', 'number', 'float'],
-    clicks: ['integer', 'number', 'float'],
-    impressions: ['integer', 'number', 'float'],
-    date: ['datetime', 'date'],
-    source_name: ['string'],
+export type MarketingAnalyticsSchemaField = {
+    type: string[]
+    required: boolean
+}
+
+export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchemaField> = {
+    campaign_name: { type: ['string'], required: true },
+    total_cost: { type: ['float', 'integer'], required: true },
+    clicks: { type: ['integer', 'number', 'float'], required: true },
+    impressions: { type: ['integer', 'number', 'float'], required: true },
+    date: { type: ['datetime', 'date'], required: true },
+    source_name: { type: ['string'], required: false },
 } as const
 
-export type MarketingAnalyticsSchema = {
-    [K in keyof typeof MARKETING_ANALYTICS_SCHEMA]: (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'string'
-        ? string
-        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'number'
-        ? number
-        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'float'
-        ? number
-        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'datetime'
-        ? Date
-        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'date'
-        ? Date
-        : never
-}
-
-export interface SourceMap extends Record<keyof MarketingAnalyticsSchema, string | undefined> {
-    transformations?: {
-        [fieldName: string]: {
-            // this might be necessary for different currencies
-            type: 'multiply' | 'divide'
-            value?: number | string
-        }
-    }
-}
+export type SourceMap = Record<keyof typeof MARKETING_ANALYTICS_SCHEMA, string | undefined>
 
 export interface MarketingAnalyticsConfig {
     /**

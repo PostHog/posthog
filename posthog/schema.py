@@ -1415,11 +1415,12 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
-class MarketingAnalyticsSchema(BaseModel):
-    pass
+class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    required: bool
+    type: list[str]
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -1874,33 +1875,6 @@ class SnapshotSource(StrEnum):
 class Storage(StrEnum):
     OBJECT_STORAGE_LTS = "object_storage_lts"
     OBJECT_STORAGE = "object_storage"
-
-
-class Type4(StrEnum):
-    MULTIPLY = "multiply"
-    DIVIDE = "divide"
-
-
-class Transformations(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    type: Type4
-    value: Optional[Union[float, str]] = None
-
-
-class SourceMap(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    campaign_name: Optional[str] = None
-    clicks: Optional[str] = None
-    date: Optional[str] = None
-    impressions: Optional[str] = None
-    pageviews: Optional[str] = None
-    source_name: Optional[str] = None
-    total_cost: Optional[str] = None
-    transformations: Optional[dict[str, Transformations]] = None
 
 
 class StepOrderValue(StrEnum):
@@ -3028,7 +3002,7 @@ class MarketingAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     base_currency: Optional[CurrencyCode] = CurrencyCode.USD
-    sources_map: Optional[dict[str, SourceMap]] = None
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):

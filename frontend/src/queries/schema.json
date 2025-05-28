@@ -12331,8 +12331,20 @@
             "required": ["base_currency"],
             "type": "object"
         },
-        "MarketingAnalyticsSchema": {
+        "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
+            "properties": {
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "required"],
             "type": "object"
         },
         "MatchedRecording": {
@@ -17871,46 +17883,15 @@
             "type": "object"
         },
         "SourceMap": {
-            "additionalProperties": false,
-            "properties": {
-                "campaign_name": {
-                    "type": "string"
-                },
-                "clicks": {
-                    "type": "string"
-                },
-                "date": {
-                    "type": "string"
-                },
-                "impressions": {
-                    "type": "string"
-                },
-                "pageviews": {
-                    "type": "string"
-                },
-                "source_name": {
-                    "type": "string"
-                },
-                "total_cost": {
-                    "type": "string"
-                },
-                "transformations": {
-                    "additionalProperties": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "type": {
-                                "enum": ["multiply", "divide"],
-                                "type": "string"
-                            },
-                            "value": {
-                                "type": ["number", "string"]
-                            }
-                        },
-                        "required": ["type"],
-                        "type": "object"
+            "additionalProperties": {
+                "anyOf": [
+                    {
+                        "type": "string"
                     },
-                    "type": "object"
-                }
+                    {
+                        "not": {}
+                    }
+                ]
             },
             "type": "object"
         },
