@@ -190,10 +190,9 @@ export interface OpenQuestionResponseData {
     personProperties?: Record<string, any>
 }
 
-// single question and rating are effectively the same, since we count the frequency of each choice
 export interface ChoiceQuestionProcessedResponses {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
-    data?: ChoiceQuestionResponseData[]
+    data: ChoiceQuestionResponseData[]
     totalResponses: number
 }
 
