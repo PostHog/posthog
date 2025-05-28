@@ -2,11 +2,17 @@ import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub } from '../../types'
+import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUIDT } from '../../utils/utils'
 import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType, HogFunctionTypeType } from '../types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationResult,
+    HogFunctionType,
+    HogFunctionTypeType,
+} from '../types'
 import { createInvocation } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -36,7 +42,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             throw new Error('Not found')
         }
 
-        const globals: HogFunctionInvocationGlobalsWithInputs = {
+        const globals: HogFunctionInvocationGlobals = {
+            project: {
+                id: hogFunction.team_id,
+                name: '',
+                url: '',
+            },
             event: {
                 event: '$incoming_webhook',
                 properties: {},
@@ -44,33 +55,47 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 distinct_id: req.body.distinct_id,
                 elements_chain: '',
                 timestamp: DateTime.now().toISO(),
-                url: req.url,
+                url: '',
             },
-            // TODO: Fix this typing
             body: req.body,
         }
 
-        const globalsWithInputs = buildGlobalsWithInputs(globals, {
-            ...(hogFunction.inputs ?? {}),
-            ...(hogFunction.encrypted_inputs ?? {}),
-        })
+        let result: HogFunctionInvocationResult
 
-        // TODO: Do we want to use hogwatcher here as well?
-        const invocation = createInvocation(globalsWithInputs, hogFunction)
-        // Run the initial step - this allows functions not using fetches to respond immediately
-        const result = this.hogExecutor.execute(invocation)
+        try {
+            // TODO: Add error handling and logging
+            const globalsWithInputs = buildGlobalsWithInputs(globals, {
+                ...(hogFunction.inputs ?? {}),
+                ...(hogFunction.encrypted_inputs ?? {}),
+            })
 
-        void this.promiseScheduler.schedule(
-            Promise.all([
-                this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
-                    return this.hogFunctionMonitoringService.produceQueuedMessages()
-                }),
-                this.hogWatcher.observeResults([result]),
-            ])
-        )
+            // TODO: Do we want to use hogwatcher here as well?
+            const invocation = createInvocation(globalsWithInputs, hogFunction)
+            // Run the initial step - this allows functions not using fetches to respond immediately
+            result = this.hogExecutor.execute(invocation)
 
-        // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-        await this.cyclotronJobQueue.queueInvocationResults([result])
+            void this.promiseScheduler.schedule(
+                Promise.all([
+                    this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
+                        return this.hogFunctionMonitoringService.produceQueuedMessages()
+                    }),
+                    this.hogWatcher.observeResults([result]),
+                ])
+            )
+
+            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+            await this.cyclotronJobQueue.queueInvocationResults([result])
+        } catch (error) {
+            // TODO: Add error handling and logging
+            logger.error('Error executing hog function', { error })
+            result = {
+                invocation: createInvocation({} as any, hogFunction),
+                finished: true,
+                error: error,
+                logs: [],
+                metrics: [],
+            }
+        }
 
         return result
     }
