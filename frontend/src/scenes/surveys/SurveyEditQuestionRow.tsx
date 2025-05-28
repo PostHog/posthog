@@ -17,8 +17,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import { QuestionBranchingInput } from './components/question-branching/QuestionBranchingInput'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
@@ -109,16 +109,6 @@ export function SurveyEditQuestionHeader({
     )
 }
 
-function canQuestionHaveBranchingInput(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return (
-        question.type === SurveyQuestionType.Rating ||
-        question.type === SurveyQuestionType.SingleChoice ||
-        question.type === SurveyQuestionType.MultipleChoice
-    )
-}
-
 function canQuestionSkipSubmitButton(
     question: SurveyQuestion
 ): question is RatingSurveyQuestion | MultipleSurveyQuestion {
@@ -152,8 +142,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     }
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
-
-    const canHaveBranchingInput = canQuestionHaveBranchingInput(question)
 
     return (
         <Group name={`questions.${index}`} key={index}>
@@ -442,7 +430,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         )}
                     </>
                 </LemonField>
-                {canHaveBranchingInput && <QuestionBranchingInput questionIndex={index} question={question} />}
+                <QuestionBranchingInput questionIndex={index} question={question} />
             </div>
         </Group>
     )
