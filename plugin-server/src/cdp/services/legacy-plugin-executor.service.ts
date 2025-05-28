@@ -5,7 +5,6 @@ import { Histogram } from 'prom-client'
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
 import { fetch, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
@@ -19,6 +18,7 @@ import {
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
 import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -116,13 +116,9 @@ export class LegacyPluginExecutorService {
         invocation: HogFunctionInvocation,
         options?: LegacyPluginExecutorOptions
     ): Promise<HogFunctionInvocationResult> {
-        const result: HogFunctionInvocationResult = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-            metrics: [],
-        }
+        const result = createInvocationResult(invocation, {
+            queue: 'plugin',
+        })
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -318,12 +314,6 @@ export class LegacyPluginExecutorService {
             if (e instanceof RetryError) {
                 // NOTE: Schedule as a retry to cyclotron?
             }
-
-            logger.error('💩', 'Plugin errored', {
-                error: e.message,
-                pluginId,
-                invocationId: invocation.id,
-            })
 
             result.error = e
 

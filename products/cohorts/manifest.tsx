@@ -23,4 +23,5 @@ export const manifest: ProductManifest = {
         },
     ],
     treeItemsProducts: [],
+    treeItemsDataManagement: [],
 }

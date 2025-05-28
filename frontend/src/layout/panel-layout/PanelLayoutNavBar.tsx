@@ -2,14 +2,13 @@ import {
     IconCdCase,
     IconChevronRight,
     IconClock,
-    IconDashboard,
     IconDatabase,
     IconFolderOpen,
     IconGear,
     IconHome,
-    IconNotebook,
     IconPeople,
     IconPineapple,
+    IconPlus,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -22,11 +21,11 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
@@ -35,6 +34,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { SidePanelTab } from '~/types'
@@ -70,7 +70,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         setActivePanelIdentifier,
         clearActivePanelIdentifier,
         toggleLayoutNavCollapsed,
-        setVisibleSideAction,
         showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
@@ -79,11 +78,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         mainContentRef,
         isLayoutPanelPinned,
         isLayoutNavCollapsed,
-        visibleSideAction,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { mobileLayout: isMobileLayout, navbarItems } = useValues(navigation3000Logic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen } = useValues(navigationLogic)
@@ -118,15 +116,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         }
     }
 
-    const filteredNavItemsIdentifiers = [
-        'ProjectHomepage',
-        'Max',
-        'Activity',
-        'Dashboards',
-        'Notebooks',
-        'DataManagement',
-        'PersonsManagement',
-    ]
     const navItems = [
         ...(isLayoutNavCollapsed
             ? [
@@ -187,93 +176,46 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Recent' ? 'Close recent' : 'Open recent',
         },
-        ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-            ? [
-                  {
-                      identifier: 'Products',
-                      id: 'Tools',
-                      icon: <IconCdCase />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Products')
-                          }
-                      },
-                      showChevron: true,
-                      tooltip:
-                          isLayoutPanelVisible && activePanelIdentifier === 'Products'
-                              ? 'Close products'
-                              : 'Open products',
-                  },
-                  {
-                      identifier: 'Shortcuts',
-                      id: 'Shortcuts',
-                      icon: <IconShortcut />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Shortcuts')
-                          }
-                      },
-                      showChevron: true,
-                      tooltip:
-                          isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts'
-                              ? 'Close shortcuts'
-                              : 'Open shortcuts',
-                  },
-              ]
-            : []),
-        ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-            ? [
-                  {
-                      identifier: 'Data management',
-                      id: 'Data management',
-                      icon: <IconDatabase />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Data management')
-                          }
-                      },
-                      showChevron: true,
-                      tooltip:
-                          isLayoutPanelVisible && activePanelIdentifier === 'Data management'
-                              ? 'Close data management'
-                              : 'Open data management',
-                  },
-              ]
-            : [
-                  {
-                      identifier: 'Dashboards',
-                      id: 'Dashboards',
-                      icon: <IconDashboard />,
-                      to: urls.dashboards(),
-                      onClick: () => {
-                          handleStaticNavbarItemClick(urls.dashboards(), true)
-                      },
-                      tooltip: 'Dashboards',
-                      tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
-                  },
-                  {
-                      identifier: 'Notebooks',
-                      id: 'Notebooks',
-                      icon: <IconNotebook />,
-                      to: urls.notebooks(),
-                      onClick: () => {
-                          handleStaticNavbarItemClick(urls.notebooks(), true)
-                      },
-                      tooltip: 'Notebooks',
-                      tooltipDocLink: 'https://posthog.com/docs/notebooks',
-                  },
-                  {
-                      identifier: 'DataManagement',
-                      id: 'Data management',
-                      icon: <IconDatabase />,
-                      to: urls.eventDefinitions(),
-                      onClick: () => {
-                          handleStaticNavbarItemClick(urls.eventDefinitions(), true)
-                      },
-                      tooltip: 'Data management',
-                      tooltipDocLink: 'https://posthog.com/docs/data',
-                  },
-              ]),
+        {
+            identifier: 'Products',
+            id: 'Products',
+            icon: <IconCdCase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Products')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
+        },
+        {
+            identifier: 'Shortcuts',
+            id: 'Shortcuts',
+            icon: <IconShortcut />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Shortcuts')
+                }
+            },
+            showChevron: true,
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
+        },
+        {
+            identifier: 'Data management',
+            id: 'Data management',
+            icon: <IconDatabase />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Data management')
+                }
+            },
+            showChevron: true,
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Data management'
+                    ? 'Close data management'
+                    : 'Open data management',
+        },
         ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
             ? [
                   {
@@ -291,22 +233,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
               ]
             : []),
         {
-            identifier: 'PersonsManagement',
-            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            identifier: 'Persons',
+            id: 'Persons',
             icon: <IconPeople />,
-            to: urls.persons(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.persons(), true)
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Persons')
+                }
             },
-            tooltip: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
-                ? 'Persons'
-                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
-                ? 'Persons and cohorts'
-                : 'Persons and groups',
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Persons' ? 'Close persons' : 'Open persons',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -338,24 +274,49 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <OrganizationDropdownMenu />
 
                         {!isLayoutNavCollapsed && (
-                            <ButtonPrimitive
-                                size="base"
-                                iconOnly
-                                onClick={toggleSearchBar}
-                                data-attr="search-button"
-                                tooltip={
-                                    <div className="flex flex-col gap-0.5">
-                                        <span>
-                                            For search, press <KeyboardShortcut command k />
-                                        </span>
-                                        <span>
-                                            For commands, press <KeyboardShortcut command shift k />
-                                        </span>
-                                    </div>
-                                }
+                            <div
+                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                aria-label="Add a new item menu actions"
                             >
-                                <IconSearch className="text-secondary" />
-                            </ButtonPrimitive>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <ButtonPrimitive
+                                            size="base"
+                                            iconOnly
+                                            data-attr="search-button"
+                                            tooltip="Add new"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                            }}
+                                        >
+                                            <IconPlus className="text-secondary" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <NewMenu type="dropdown" />
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+
+                                <ButtonPrimitive
+                                    size="base"
+                                    iconOnly
+                                    onClick={toggleSearchBar}
+                                    data-attr="search-button"
+                                    tooltip={
+                                        <div className="flex flex-col gap-0.5">
+                                            <span>
+                                                For search, press <KeyboardShortcut command k />
+                                            </span>
+                                            <span>
+                                                For commands, press <KeyboardShortcut command shift k />
+                                            </span>
+                                        </div>
+                                    }
+                                >
+                                    <IconSearch className="text-secondary" />
+                                </ButtonPrimitive>
+                            </div>
                         )}
                     </div>
 
@@ -443,202 +404,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div className="border-b border-primary h-px my-1" />
 
-                                {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
-                                    <div
-                                        className={!isLayoutNavCollapsed ? 'pt-1' : 'flex flex-col gap-px items-center'}
-                                    >
-                                        <PinnedFolder />
-                                    </div>
-                                ) : (
-                                    <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
-                                        {!isLayoutNavCollapsed && (
-                                            <div className="flex justify-between items-center pl-2 pr-0 pb-2">
-                                                <span className="text-xs font-semibold text-quaternary">Products</span>
-                                            </div>
-                                        )}
-                                        <div
-                                            className={`flex flex-col gap-px ${
-                                                isLayoutNavCollapsed ? 'items-center' : ''
-                                            }`}
-                                        >
-                                            {navbarItems.map((section, index) => (
-                                                <ul key={index} className="flex flex-col gap-px ">
-                                                    {section.map((item) => {
-                                                        if (filteredNavItemsIdentifiers.includes(item.identifier)) {
-                                                            return null
-                                                        }
-
-                                                        const notEnabled =
-                                                            item.featureFlag && !featureFlags[item.featureFlag]
-
-                                                        return notEnabled ? null : (
-                                                            <ButtonGroupPrimitive menuItem fullWidth>
-                                                                <ListBox.Item
-                                                                    asChild
-                                                                    key={item.identifier}
-                                                                    onClick={() => {
-                                                                        handleStaticNavbarItemClick(
-                                                                            'to' in item ? item.to : undefined,
-                                                                            false
-                                                                        )
-                                                                    }}
-                                                                    onKeyDown={(e) => {
-                                                                        if (e.key === 'Enter') {
-                                                                            handleStaticNavbarItemClick(
-                                                                                'to' in item ? item.to : undefined,
-                                                                                true
-                                                                            )
-                                                                        }
-                                                                    }}
-                                                                >
-                                                                    <Link
-                                                                        data-attr={`menu-item-${item.identifier
-                                                                            .toString()
-                                                                            .toLowerCase()}`}
-                                                                        buttonProps={{
-                                                                            menuItem: !isLayoutNavCollapsed,
-                                                                            className:
-                                                                                'group data-[focused=true]:bg-fill-button-tertiary-hover',
-                                                                            hasSideActionRight:
-                                                                                item.sideAction && !isLayoutNavCollapsed
-                                                                                    ? true
-                                                                                    : false,
-                                                                            iconOnly: isLayoutNavCollapsed,
-                                                                        }}
-                                                                        to={'to' in item ? item.to : undefined}
-                                                                        tooltip={
-                                                                            isLayoutNavCollapsed
-                                                                                ? item.label
-                                                                                : undefined
-                                                                        }
-                                                                        tooltipPlacement="right"
-                                                                        tooltipDocLink={item.tooltipDocLink}
-                                                                    >
-                                                                        <span
-                                                                            className={`flex text-tertiary group-hover:text-primary ${
-                                                                                isLayoutNavCollapsed
-                                                                                    ? '[&_svg]:size-5'
-                                                                                    : ''
-                                                                            }`}
-                                                                        >
-                                                                            {item.icon}
-                                                                        </span>
-
-                                                                        {!isLayoutNavCollapsed && (
-                                                                            <>
-                                                                                <span className="truncate">
-                                                                                    {item.label}
-                                                                                </span>
-
-                                                                                {item.tag && (
-                                                                                    <LemonTag
-                                                                                        type={
-                                                                                            item.tag === 'alpha'
-                                                                                                ? 'completion'
-                                                                                                : item.tag === 'beta'
-                                                                                                ? 'warning'
-                                                                                                : 'success'
-                                                                                        }
-                                                                                        size="small"
-                                                                                        className="ml-auto"
-                                                                                    >
-                                                                                        {item.tag.toUpperCase()}
-                                                                                    </LemonTag>
-                                                                                )}
-                                                                            </>
-                                                                        )}
-                                                                    </Link>
-                                                                </ListBox.Item>
-
-                                                                {!isLayoutNavCollapsed &&
-                                                                    item.sideAction &&
-                                                                    item.identifier === 'SavedInsights' && (
-                                                                        <ListBox.Item
-                                                                            asChild
-                                                                            key={item.identifier}
-                                                                            onClick={() => {
-                                                                                handleStaticNavbarItemClick(
-                                                                                    urls.insightNew(),
-                                                                                    false
-                                                                                )
-                                                                            }}
-                                                                            onKeyDown={(e) => {
-                                                                                if (e.key === 'Enter') {
-                                                                                    handleStaticNavbarItemClick(
-                                                                                        urls.insightNew(),
-                                                                                        true
-                                                                                    )
-                                                                                }
-                                                                            }}
-                                                                        >
-                                                                            <Link
-                                                                                buttonProps={{
-                                                                                    isSideActionRight: true,
-                                                                                }}
-                                                                                tooltip={item.sideAction.tooltip}
-                                                                                tooltipPlacement="right"
-                                                                                to={urls.insightNew()}
-                                                                            >
-                                                                                {item.sideAction.icon}
-                                                                            </Link>
-                                                                        </ListBox.Item>
-                                                                    )}
-
-                                                                {!isLayoutNavCollapsed &&
-                                                                    item.sideAction &&
-                                                                    item.identifier === 'Groups' &&
-                                                                    item.sideAction.dropdown?.overlay && (
-                                                                        <ListBox.Item
-                                                                            asChild
-                                                                            key={`${item.identifier}-dropdown`}
-                                                                        >
-                                                                            <Popover
-                                                                                visible={
-                                                                                    visibleSideAction ===
-                                                                                    item.identifier
-                                                                                }
-                                                                                overlay={
-                                                                                    item.sideAction.dropdown.overlay
-                                                                                }
-                                                                                placement={
-                                                                                    item.sideAction.dropdown.placement
-                                                                                }
-                                                                                showArrow={false}
-                                                                                onClickInside={() => {
-                                                                                    setVisibleSideAction('')
-                                                                                }}
-                                                                                onClickOutside={() => {
-                                                                                    setVisibleSideAction('')
-                                                                                }}
-                                                                            >
-                                                                                <ButtonPrimitive
-                                                                                    isSideActionRight
-                                                                                    active={
-                                                                                        visibleSideAction ===
-                                                                                        item.identifier
-                                                                                    }
-                                                                                    onClick={() => {
-                                                                                        visibleSideAction ===
-                                                                                        item.identifier
-                                                                                            ? setVisibleSideAction('')
-                                                                                            : setVisibleSideAction(
-                                                                                                  item.identifier
-                                                                                              )
-                                                                                    }}
-                                                                                >
-                                                                                    <IconChevronRight className="size-3 text-secondary" />
-                                                                                </ButtonPrimitive>
-                                                                            </Popover>
-                                                                        </ListBox.Item>
-                                                                    )}
-                                                            </ButtonGroupPrimitive>
-                                                        )
-                                                    })}
-                                                </ul>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                                <div
+                                    className={cn(
+                                        'flex flex-col gap-px h-full',
+                                        !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
+                                    )}
+                                >
+                                    <PinnedFolder />
+                                </div>
                             </ListBox>
                         </ScrollableShadows>
 

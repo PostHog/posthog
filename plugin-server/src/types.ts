@@ -15,6 +15,7 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
 import { z } from 'zod'
 
@@ -64,7 +65,6 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
-    async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -74,6 +74,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
     cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -391,7 +392,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
@@ -402,6 +402,7 @@ export interface PluginServerCapabilities {
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpCyclotronWorkerSegment?: boolean
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -1011,6 +1012,11 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
+    type: 'hogql'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
@@ -1045,6 +1051,7 @@ export type PropertyFilter =
     | CohortPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | HogQLPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
@@ -1216,6 +1223,17 @@ export enum OrganizationMembershipLevel {
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
+}
+
+export interface IncomingEvent {
+    message: Message
+    event: PipelineEvent
+}
+
+export interface IncomingEventWithTeam {
+    message: Message
+    event: PipelineEvent
+    team: Team
 }
 
 export type RedisPool = GenericPool<Redis>
