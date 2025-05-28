@@ -40,7 +40,7 @@ impl ReleaseRecord {
             r#"
             SELECT r.id, r.team_id, r.hash_id, r.created_at, r.version, r.project, r.metadata
             FROM posthog_errortrackingsymbolset ss
-            LEFT JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
+            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
             WHERE ss.ref = $1 AND ss.team_id = $2
             "#,
             symbol_set_ref,
