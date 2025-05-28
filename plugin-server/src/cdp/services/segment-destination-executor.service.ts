@@ -337,11 +337,6 @@ export class SegmentDestinationExecutorService {
                         } as FetchResponse)
                     }
 
-                    fetchOptions.headers = {
-                        ...fetchOptions.headers,
-                        endpoint: endpoint + '?' + params.toString(),
-                    }
-
                     if (config.debug_mode) {
                         addLog('debug', 'fetchOptions', fetchOptions)
                     }
