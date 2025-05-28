@@ -115,9 +115,22 @@ const NEW_EXPERIMENT: Experiment = {
 
 export const DEFAULT_MDE = 30
 
+export const formModes = {
+    create: 'create',
+    duplicate: 'duplicate',
+    update: 'update',
+} as const
+
+/**
+ * get the values of formModes as a union type
+ * we don't really need formModes unless we need to do formModes[num]
+ * this could be just an union type
+ */
+export type FormModes = (typeof formModes)[keyof typeof formModes]
+
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
-    action?: string | null
+    formMode?: FormModes
 }
 
 interface MetricLoadingConfig {
@@ -856,7 +869,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             let response: Experiment | null = null
-            const isUpdate = props.action === 'update'
+            const isUpdate = props.formMode === 'update'
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -897,7 +910,7 @@ export const experimentLogic = kea<experimentLogicType>([
                              * the recommended running time. If we are duplicating we want to
                              * preserve this values.
                              */
-                            props.action === 'create'
+                            props.formMode === 'create'
                                 ? {
                                       ...values.experiment?.parameters,
                                       recommended_running_time: recommendedRunningTime,
@@ -1411,10 +1424,12 @@ export const experimentLogic = kea<experimentLogicType>([
                          * if we are duplicating, we need to clear a lot of props to ensure that
                          * the experiment will be in draft mode and available for launch
                          */
-                        if (props.action === 'duplicate') {
+                        if (props.formMode === 'duplicate') {
                             response = {
                                 ...response,
                                 name: `${response.name} (duplicate)`,
+                                feature_flag: undefined,
+                                feature_flag_key: '',
                                 archived: false,
                                 start_date: undefined,
                                 end_date: undefined,
@@ -1510,7 +1525,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        action: [() => [(_, props) => props.action], (action: 'create' | 'duplicate') => action],
+        formMode: [() => [(_, props) => props.formMode], (action: FormModes) => action],
         getInsightType: [
             () => [],
             () =>
@@ -1961,7 +1976,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             }),
             submit: () => {
-                if (values.experimentId && ['create', 'duplicate'].includes(props.action!)) {
+                if (values.experimentId && (['create', 'duplicate'] as FormModes[]).includes(props.formMode!)) {
                     actions.createExperiment(true)
                 } else {
                     openSaveToModal({
@@ -1997,7 +2012,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        '/experiments/:id/:action': ({ id }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id/:formMode': ({ id }, _, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             if (id && didPathChange) {

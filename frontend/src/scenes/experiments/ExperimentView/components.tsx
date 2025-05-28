@@ -48,7 +48,7 @@ import {
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getIndexForVariant } from '../experimentCalculations'
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, formModes } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
 
@@ -318,7 +318,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     overlay={
                                         <>
                                             <LemonButton
-                                                to={urls.experiment(`${experiment.id}`, 'duplicate')}
+                                                to={urls.experiment(`${experiment.id}`, formModes.duplicate)}
                                                 fullWidth
                                             >
                                                 Duplicate

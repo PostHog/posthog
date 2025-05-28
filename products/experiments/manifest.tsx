@@ -12,13 +12,13 @@ export const manifest: ProductManifest = {
     urls: {
         experiment: (
             id: string | number,
-            action?: string | null,
+            formMode?: string | null,
             options?: {
                 metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
                 name?: string
             }
         ): string => {
-            const baseUrl = action ? `/experiments/${id}/${action}` : `/experiments/${id}`
+            const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
             return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
         },
         experiments: (): string => '/experiments',
