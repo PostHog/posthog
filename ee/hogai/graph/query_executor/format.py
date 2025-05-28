@@ -26,6 +26,9 @@ from posthog.schema import (
     FunnelsQuery,
     RetentionQuery,
     HogQLQuery,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsTopCustomersQuery,
 )
 from django.conf import settings
 from posthog.api.services.query import process_query_dict
@@ -543,6 +546,111 @@ class SQLResultsFormatter:
         return "\n".join(lines)
 
 
+class RevenueAnalyticsOverviewResultsFormatter:
+    """
+    Compresses and formats revenue analytics overview results into a LLM-friendly string.
+
+    Example answer:
+    ```
+    Revenue: $12,345.67
+    Paying Customer Count: 123
+    Average Revenue Per Customer: $100.37
+    ```
+    """
+
+    def __init__(self, query: RevenueAnalyticsOverviewQuery, results: list[dict[str, Any]]):
+        self._query = query
+        self._results = results
+
+    def format(self) -> str:
+        if not self._results:
+            return "No revenue data available for this time period."
+
+        lines: list[str] = []
+        for item in self._results:
+            key = item.get("key", "")
+            value = item.get("value", 0)
+
+            if key == "revenue":
+                lines.append(f"Revenue: ${_format_number(value)}")
+            elif key == "paying_customer_count":
+                lines.append(f"Paying Customer Count: {_format_number(value)}")
+            elif key == "avg_revenue_per_customer":
+                lines.append(f"Average Revenue Per Customer: ${_format_number(value)}")
+            else:
+                # Fallback for any other keys
+                formatted_key = key.replace("_", " ").title()
+                lines.append(f"{formatted_key}: {_format_number(value)}")
+
+        return "\n".join(lines)
+
+
+class RevenueAnalyticsGrowthRateResultsFormatter:
+    """
+    Compresses and formats revenue analytics growth rate results into a LLM-friendly string.
+
+    Example answer:
+    ```
+    Month|MRR|Previous MRR|Growth Rate
+    2024-01|$1,000|$900|11.11%
+    2024-02|$1,100|$1,000|10.00%
+    ```
+    """
+
+    def __init__(self, query: RevenueAnalyticsGrowthRateQuery, results: list[list[Any]]):
+        self._query = query
+        self._results = results
+
+    def format(self) -> str:
+        if not self._results:
+            return "No growth rate data available for this time period."
+
+        matrix: list[list[str]] = [["Month", "MRR", "Previous MRR", "Growth Rate"]]
+
+        for row in self._results:
+            if len(row) >= 4:
+                month = str(row[0])
+                mrr = f"${_format_number(row[1])}"
+                prev_mrr = f"${_format_number(row[2])}" if row[2] is not None else "N/A"
+                growth_rate = _format_percentage(row[3]) if row[3] is not None else "N/A"
+                matrix.append([month, mrr, prev_mrr, growth_rate])
+
+        return _format_matrix(matrix)
+
+
+class RevenueAnalyticsTopCustomersResultsFormatter:
+    """
+    Compresses and formats revenue analytics top customers results into a LLM-friendly string.
+
+    Example answer:
+    ```
+    Customer|Customer ID|Revenue|Month
+    Customer A|123|$1,000|2024-01
+    Customer B|456|$800|2024-01
+    ```
+    """
+
+    def __init__(self, query: RevenueAnalyticsTopCustomersQuery, results: list[list[Any]]):
+        self._query = query
+        self._results = results
+
+    def format(self) -> str:
+        if not self._results:
+            return "No top customers data available for this time period."
+
+        matrix: list[list[str]] = [["Customer", "Customer ID", "Revenue", "Month"]]
+
+        for row in self._results:
+            if len(row) >= 4:
+                customer_name = str(row[0]) if row[0] is not None else "Unknown"
+                customer_id = str(row[1]) if row[1] is not None else "N/A"
+                revenue = f"${_format_number(row[2])}" if row[2] is not None else "$0"
+                month = str(row[3]) if row[3] is not None else "N/A"
+                matrix.append([customer_name, customer_id, revenue, month])
+
+        return _format_matrix(matrix)
+
+
 class QueryRunner:
     """
     Reusable class for executing queries and formatting results.
@@ -654,6 +762,14 @@ class QueryRunner:
             return SQLResultsFormatter(query, response["results"], response["columns"]).format()
 
         # Handle full UI queries by casting to assistant query types
+        # Handle revenue analytics queries
+        elif isinstance(query, RevenueAnalyticsOverviewQuery):
+            return RevenueAnalyticsOverviewResultsFormatter(query, response["results"]).format()
+        elif isinstance(query, RevenueAnalyticsGrowthRateQuery):
+            return RevenueAnalyticsGrowthRateResultsFormatter(query, response["results"]).format()
+        elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
+            return RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
+
         elif isinstance(query, TrendsQuery):
             # Cast to AssistantTrendsQuery for formatting
             assistant_query = cast(AssistantTrendsQuery, query)

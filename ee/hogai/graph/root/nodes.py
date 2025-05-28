@@ -31,6 +31,9 @@ from posthog.schema import (
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
     # Import full UI query types
     TrendsQuery,
     FunnelsQuery,
@@ -316,6 +319,9 @@ class RootNode(AssistantNode):
             "FunnelsQuery": FunnelsQuery,
             "RetentionQuery": RetentionQuery,
             "HogQLQuery": HogQLQuery,
+            "RevenueAnalyticsOverviewQuery": RevenueAnalyticsOverviewQuery,
+            "RevenueAnalyticsGrowthRateQuery": RevenueAnalyticsGrowthRateQuery,
+            "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
         }
 
         for _, insight in ui_context.active_insights.items():

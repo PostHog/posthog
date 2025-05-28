@@ -7,6 +7,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
+import { maxContextLogic } from '~/lib/ai/maxContextLogic'
 import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaManagedViewTableKind,
@@ -81,7 +82,12 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             revenueAnalyticsSettingsLogic,
             ['baseCurrency', 'events', 'dataWarehouseSources', 'goals as revenueGoals'],
         ],
-        actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
+        actions: [
+            dataWarehouseSettingsLogic,
+            ['loadSourcesSuccess'],
+            maxContextLogic,
+            ['addRevenueAnalyticsQueries', 'clearRevenueAnalyticsQueries'],
+        ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -344,6 +350,12 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 dataWarehouseSources: dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
             })
         },
+        setDates: () => {
+            actions.addRevenueAnalyticsQueries(values.queries)
+        },
+        setRevenueSources: () => {
+            actions.addRevenueAnalyticsQueries(values.queries)
+        },
     })),
     afterMount(({ actions, values }) => {
         if (values.events !== null && values.dataWarehouseSources !== null) {
@@ -353,6 +365,11 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     (source) => source.revenue_analytics_enabled
                 ),
             })
+        }
+
+        // Add queries to max context on mount
+        if (values.queries) {
+            actions.addRevenueAnalyticsQueries(values.queries)
         }
     }),
 ])

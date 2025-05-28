@@ -2,6 +2,12 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import {
+    isInsightVizNode,
+    isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsOverviewQuery,
+    isRevenueAnalyticsTopCustomersQuery,
+} from '~/queries/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import type { maxContextLogicType } from './maxContextLogicType'
@@ -27,6 +33,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
         clearNavigationContext: true,
         setDashboardContext: (dashboardContext: DashboardDisplayContext) => ({ dashboardContext }),
         clearDashboardContext: true,
+        addRevenueAnalyticsQueries: (queries: Record<string, any>) => ({ queries }),
+        clearRevenueAnalyticsQueries: true,
     },
     reducers: {
         activeInsights: [
@@ -61,11 +69,19 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 clearDashboardContext: () => null,
             },
         ],
+        revenueAnalyticsQueries: [
+            null as Record<string, any> | null,
+            {
+                addRevenueAnalyticsQueries: (_: any, { queries }: { queries: Record<string, any> }) => queries,
+                clearRevenueAnalyticsQueries: () => null,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         [router.actionTypes.locationChanged]: () => {
             actions.clearAllActiveInsights()
             actions.clearDashboardContext()
+            actions.clearRevenueAnalyticsQueries()
         },
         [sceneLogic.actionTypes.setScene]: () => {
             // Scene has been set, now update navigation with proper title
@@ -81,11 +97,12 @@ export const maxContextLogic = kea<maxContextLogicType>({
     }),
     selectors: {
         compiledContext: [
-            (s: any) => [s.activeInsights, s.navigation, s.dashboardContext],
+            (s: any) => [s.activeInsights, s.navigation, s.dashboardContext, s.revenueAnalyticsQueries],
             (
                 activeInsights: MultiInsightContainer | null,
                 navigation: MaxNavigationContext | null,
-                dashboardContext: DashboardDisplayContext | null
+                dashboardContext: DashboardDisplayContext | null,
+                revenueAnalyticsQueries: Record<string, any> | null
             ): MaxContextShape | null => {
                 const context: MaxContextShape = {}
                 let hasData = false
@@ -101,6 +118,31 @@ export const maxContextLogic = kea<maxContextLogicType>({
                     hasData = true
                 }
 
+                // Add revenue analytics queries as insights if available
+                if (revenueAnalyticsQueries) {
+                    const revenueInsights: MultiInsightContainer = {}
+                    Object.entries(revenueAnalyticsQueries).forEach(([key, query]) => {
+                        revenueInsights[`revenue-analytics-${key}`] = {
+                            id: `revenue-analytics-${key}`,
+                            name: isRevenueAnalyticsOverviewQuery(query)
+                                ? 'Revenue Analytics Overview'
+                                : isRevenueAnalyticsGrowthRateQuery(query)
+                                ? 'Revenue Analytics Growth Rate'
+                                : isRevenueAnalyticsTopCustomersQuery(query)
+                                ? 'Revenue Analytics Top Customers'
+                                : 'Revenue Analytics',
+                            query: isInsightVizNode(query) ? query.source : query,
+                            insight_type:
+                                (isInsightVizNode(query) ? query.source.kind : query.kind) || 'REVENUE_ANALYTICS',
+                        }
+                    })
+
+                    if (Object.keys(revenueInsights).length > 0) {
+                        context.active_insights = { ...(context.active_insights || {}), ...revenueInsights }
+                        hasData = true
+                    }
+                }
+
                 if (navigation) {
                     context.global_info = { ...(context.global_info || {}), navigation }
                     hasData = true
@@ -112,7 +154,8 @@ export const maxContextLogic = kea<maxContextLogicType>({
             (s: any) => [s.activeInsights, s.dashboardContext, s.revenueAnalyticsQueries],
             (
                 activeInsights: MultiInsightContainer | null,
-                dashboardContext: DashboardDisplayContext | null
+                dashboardContext: DashboardDisplayContext | null,
+                revenueAnalyticsQueries: Record<string, any> | null
             ): { items: Array<{ icon: 'dashboard' | 'insights'; text: string }> } | null => {
                 const contextItems: Array<{ icon: 'dashboard' | 'insights'; text: string }> = []
 
@@ -126,6 +169,9 @@ export const maxContextLogic = kea<maxContextLogicType>({
                 let totalInsights = 0
                 if (activeInsights && Object.keys(activeInsights).length > 0) {
                     totalInsights += Object.keys(activeInsights).length
+                }
+                if (revenueAnalyticsQueries && Object.keys(revenueAnalyticsQueries).length > 0) {
+                    totalInsights += Object.keys(revenueAnalyticsQueries).length
                 }
 
                 if (totalInsights > 0) {
