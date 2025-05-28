@@ -62,7 +62,7 @@ describe('BatchWritingGroupStore', () => {
         jest.clearAllMocks()
     })
 
-    describe('Batch Writing Disabled, cache enabled', () => {
+    describe('Batch Writing Disabled', () => {
         beforeEach(() => {
             groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: false })
         })
@@ -131,7 +131,7 @@ describe('BatchWritingGroupStore', () => {
         })
     })
 
-    describe('Batch Writing and cache Enabled', () => {
+    describe('Batch Writing Enabled', () => {
         beforeEach(() => {
             groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: true })
         })
