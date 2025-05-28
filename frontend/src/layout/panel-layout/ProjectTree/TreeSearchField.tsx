@@ -8,9 +8,13 @@ import { FileSystemType } from '~/types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
-const productTypesMapped: [string, string][] = Object.entries(
-    fileSystemTypes as unknown as Record<string, FileSystemType>
-).map(([key, value]): [string, string] => [value.filterKey || key, value.name])
+const productTypesMapped = Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
+    ([key, value]): { value: string; label: string; icon: React.ReactNode } => ({
+        value: value.filterKey || key,
+        label: value.name,
+        icon: value.icon,
+    })
+)
 
 interface TreeSearchFieldProps {
     root?: string
@@ -58,7 +62,7 @@ export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: Tree
                                   hint: 'Search by type',
                                   icon: <IconCdCase />,
                               },
-                              productTypesMapped.map(([value, label]) => ({ value, label })),
+                              productTypesMapped,
                               'enter a type',
                           ],
                           [
