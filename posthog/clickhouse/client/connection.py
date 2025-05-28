@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from contextlib import contextmanager
@@ -5,14 +6,18 @@ from enum import Enum
 from functools import cache
 from collections.abc import Mapping
 
+from cachetools import cached, TTLCache
+from contextlib import suppress
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
+import posthoganalytics
+
 
 from posthog.settings import data_stores
-from posthog.utils import patchable
+from posthog.utils import patchable, get_instance_region
 
 
 class Workload(Enum):
@@ -83,15 +88,15 @@ class ProxyClient:
         self._client = client
 
     def execute(
-            self,
-            query,
-            params=None,
-            with_column_types=False,
-            external_tables=None,
-            query_id=None,
-            settings=None,
-            types_check=False,
-            columnar=False,
+        self,
+        query,
+        params=None,
+        with_column_types=False,
+        external_tables=None,
+        query_id=None,
+        settings=None,
+        types_check=False,
+        columnar=False,
     ):
         if query_id:
             settings["query_id"] = query_id
@@ -142,11 +147,20 @@ def get_http_client(**overrides):
     yield ProxyClient(get_client(**kwargs))
 
 
+@cached(cache=TTLCache(maxsize=1, ttl=900))
+def get_teams_enabled_for_clickhouse_http() -> set[int]:
+    if instance_region := get_instance_region():
+        with suppress(Exception):
+            cfg = json.loads(posthoganalytics.get_remote_config_payload("team-enabled-for-clickhouse-http"))
+            return set(cfg[instance_region]) or set[int]()
+    return set[int]()
+
+
 def get_kwargs_for_client(
-        workload: Workload = Workload.DEFAULT,
-        team_id=None,
-        readonly=False,
-        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+    team_id=None,
+    readonly=False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     if workload == Workload.LOGS:
         return {
@@ -172,7 +186,7 @@ def get_kwargs_for_client(
         }
 
     if (
-            workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
+        workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return {**base_kwargs, "host": settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, "verify": False}
 
@@ -181,10 +195,10 @@ def get_kwargs_for_client(
 
 @patchable
 def get_client_from_pool(
-        workload: Workload = Workload.DEFAULT,
-        team_id=None,
-        readonly=False,
-        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+    team_id=None,
+    readonly=False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     """
     Returns the client for a given workload.
@@ -192,7 +206,7 @@ def get_client_from_pool(
     The connection pool for HTTP is managed by a library.
     """
 
-    if settings.CLICKHOUSE_USE_HTTP:
+    if settings.CLICKHOUSE_USE_HTTP or team_id in get_teams_enabled_for_clickhouse_http():
         kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
         return get_http_client(**kwargs)
 
@@ -200,10 +214,10 @@ def get_client_from_pool(
 
 
 def get_pool(
-        workload: Workload = Workload.DEFAULT,
-        team_id=None,
-        readonly=False,
-        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+    team_id=None,
+    readonly=False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     """
     Returns the right connection pool given a workload.
