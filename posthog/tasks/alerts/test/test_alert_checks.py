@@ -1,13 +1,11 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
-from datetime import datetime
 
 from freezegun import freeze_time
 
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.utils import send_notifications_for_breaches, trigger_alert_hog_functions
-from posthog.cdp.internal_events import InternalEventEvent
+from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.alerts.checks import check_alert
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
 from posthog.api.test.dashboards import DashboardAPI
