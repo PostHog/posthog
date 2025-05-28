@@ -441,7 +441,18 @@ class FeatureFlagSerializer(
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
+        old_key = instance.key
         self._update_filters(validated_data)
+
+        # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
+        if validated_key and validated_key != old_key:
+            filters = validated_data.get("filters", instance.filters) or {}
+            if "super_groups" in filters:
+                for group in filters["super_groups"]:
+                    for prop in group.get("properties", []):
+                        if prop.get("key", "").startswith("$feature_enrollment/"):
+                            prop["key"] = f"$feature_enrollment/{validated_key}"
+                validated_data["filters"] = filters
 
         if validated_data.get("has_encrypted_payloads", False):
             if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
