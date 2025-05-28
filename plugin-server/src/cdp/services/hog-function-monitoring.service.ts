@@ -108,18 +108,6 @@ export class HogFunctionMonitoringService {
                 await Promise.all(
                     results.map(async (result) => {
                         const source = 'hogFunction' in result.invocation ? 'hog_function' : 'hog_flow'
-                        if (result.finished || result.error) {
-                            this.queueAppMetric(
-                                {
-                                    team_id: result.invocation.teamId,
-                                    app_source_id: result.invocation.functionId,
-                                    metric_kind: result.error ? 'failure' : 'success',
-                                    metric_name: result.error ? 'failed' : 'succeeded',
-                                    count: 1,
-                                },
-                                source
-                            )
-                        }
 
                         this.queueLogs(
                             result.logs.map((logEntry) => ({
@@ -134,6 +122,19 @@ export class HogFunctionMonitoringService {
 
                         if (result.metrics) {
                             this.queueAppMetrics(result.metrics, source)
+                        }
+
+                        if (result.finished || result.error) {
+                            this.queueAppMetric(
+                                {
+                                    team_id: result.invocation.teamId,
+                                    app_source_id: result.invocation.functionId,
+                                    metric_kind: result.error ? 'failure' : 'success',
+                                    metric_name: result.error ? 'failed' : 'succeeded',
+                                    count: 1,
+                                },
+                                source
+                            )
                         }
 
                         // Clear the logs so we don't pass them on to the next invocation
