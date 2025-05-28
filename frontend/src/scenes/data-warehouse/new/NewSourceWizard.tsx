@@ -193,7 +193,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                                                 posthog.capture(SurveyEventName.SENT, {
                                                     [SurveyEventProperties.SURVEY_ID]:
                                                         '0190ff15-5032-0000-722a-e13933c140ac',
-                                                    [`${SurveyEventProperties.SURVEY_RESPONSE}_030277-3642-4abf-b6b0-7ecb449f07e8`]:
+                                                    [`${SurveyEventProperties.SURVEY_RESPONSE}_ad030277-3642-4abf-b6b0-7ecb449f07e8`]:
                                                         sourceConfig.label ?? sourceConfig.name,
                                                 })
                                                 posthog.capture('source_notify_me', {
