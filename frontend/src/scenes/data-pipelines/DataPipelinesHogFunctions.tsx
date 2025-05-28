@@ -16,6 +16,22 @@ export type DataPipelinesHogFunctionsProps = {
     additionalKinds?: HogFunctionTypeType[]
 }
 
+export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; description: string }>> = {
+    destination: {
+        key: ProductKey.PIPELINE_DESTINATIONS,
+        description: 'Pipeline destinations allow you to send your data to external systems.',
+    },
+    transformation: {
+        key: ProductKey.PIPELINE_TRANSFORMATIONS,
+        description:
+            'Pipeline transformations allow you to enrich your data with additional information, such as geolocation.',
+    },
+    site_app: {
+        key: ProductKey.SITE_APPS,
+        description: 'Site apps allow you to add custom functionality to your website using PostHog.',
+    },
+}
+
 export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelinesHogFunctionsProps): JSX.Element {
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
@@ -29,25 +45,25 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
             New {humanizedKind}
         </LemonButton>
     )
+
+    const productInfoMapping = MAPPING[kind]
+
     return (
         <>
             <PageHeader buttons={newButton} />
-            <ProductIntroduction
-                productName="Pipeline transformations"
-                thingName="transformation"
-                productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
-                description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
-                docsURL="https://posthog.com/docs/cdp"
-                actionElementOverride={newButton}
-                isEmpty={hogFunctions.length === 0 && !loading}
-            />
-            <div>
-                <HogFunctionList
-                    logicKey={logicKey}
-                    type={kind}
-                    additionalTypes={additionalKinds}
-                    extraControls={<>{newButton}</>}
+            {productInfoMapping ? (
+                <ProductIntroduction
+                    productName={`Pipeline ${humanizedKind}s`}
+                    thingName={humanizedKind}
+                    productKey={productInfoMapping.key}
+                    description={productInfoMapping.description}
+                    docsURL="https://posthog.com/docs/cdp"
+                    actionElementOverride={newButton}
+                    isEmpty={hogFunctions.length === 0 && !loading}
                 />
+            ) : null}
+            <div>
+                <HogFunctionList logicKey={logicKey} type={kind} additionalTypes={additionalKinds} />
                 <div>
                     <h2 className="mt-4">Create a new {humanizedKind}</h2>
                     <HogFunctionTemplateList defaultFilters={{}} type={kind} additionalTypes={additionalKinds} />
