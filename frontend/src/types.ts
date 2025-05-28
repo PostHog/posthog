@@ -5394,11 +5394,6 @@ export interface FileSystemType {
     filterKey?: string
 }
 
-export interface FileSystemFilterType {
-    name: string
-    flag?: string
-}
-
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -5410,7 +5405,6 @@ export interface ProductManifest {
     treeItemsProducts?: FileSystemImport[]
     treeItemsGames?: FileSystemImport[]
     treeItemsDataManagement?: FileSystemImport[]
-    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {

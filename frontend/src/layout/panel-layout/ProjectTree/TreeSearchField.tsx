@@ -8,6 +8,7 @@ import { FileSystemType } from '~/types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
+// TODO: This is a duplicate of TreeFiltersDropdownMenu.tsx
 const productTypesMapped = Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
     ([key, value]): { value: string; label: string; icon: React.ReactNode } => ({
         value: value.filterKey || key,
@@ -25,6 +26,7 @@ interface TreeSearchFieldProps {
 
 export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: TreeSearchFieldProps): JSX.Element {
     const { panelTreeRef } = useValues(panelLayoutLogic)
+    const { searchTerm } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
@@ -42,6 +44,7 @@ export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: Tree
         <SearchAutocomplete
             inputPlaceholder={placeholder}
             includeNegation
+            defaultValue={searchTerm}
             searchData={
                 root === 'project://'
                     ? [

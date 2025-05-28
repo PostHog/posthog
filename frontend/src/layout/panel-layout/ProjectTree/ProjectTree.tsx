@@ -43,11 +43,12 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
-import { FiltersDropdown, PanelLayoutPanel } from '../PanelLayoutPanel'
+import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { DashboardsMenu } from './menus/DashboardsMenu'
 import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
 import { SessionReplayMenu } from './menus/SessionReplayMenu'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
 
@@ -676,7 +677,9 @@ export function ProjectTree({
     return (
         <PanelLayoutPanel
             filterDropdown={
-                showFilterDropdown ? <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} /> : null
+                showFilterDropdown ? (
+                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
+                ) : null
             }
             searchField={
                 <TreeSearchField

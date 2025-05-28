@@ -35,15 +35,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
-import {
-    ActionType,
-    DashboardType,
-    FileSystemFilterType,
-    InsightShortId,
-    InsightType,
-    RecordingUniversalFilters,
-    ReplayTabs,
-} from './types'
+import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -553,6 +545,3 @@ export const getTreeItemsDataManagement = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
-
-/** This const is auto-generated, as is the whole file */
-export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({})
