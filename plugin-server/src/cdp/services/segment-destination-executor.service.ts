@@ -10,6 +10,7 @@ import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -95,13 +96,9 @@ export class SegmentDestinationExecutorService {
     }
 
     public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
-        const result: HogFunctionInvocationResult = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-            metrics: [],
-        }
+        const result = createInvocationResult(invocation, {
+            queue: 'segment',
+        })
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({

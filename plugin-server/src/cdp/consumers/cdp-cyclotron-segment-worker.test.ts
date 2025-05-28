@@ -6,7 +6,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createSegmentInvocation, insertHogFunction as _insertHogFunction } from '../_tests/fixtures'
+import { createExampleSegmentInvocation, insertHogFunction as _insertHogFunction } from '../_tests/fixtures'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { HogFunctionType } from '../types'
 import { CdpCyclotronWorkerSegment } from './cdp-cyclotron-segment-worker.consumer'
@@ -257,7 +257,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 template_id: 'segment-amplitude',
             })
 
-            const invocation = createSegmentInvocation(fn, amplitudeInputs)
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
 
             mockFetch.mockResolvedValue({
                 status: 200,
@@ -890,7 +890,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 template_id: 'segment-amplitude',
             })
 
-            const invocation = createSegmentInvocation(fn, amplitudeInputs)
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
@@ -1346,7 +1346,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 template_id: 'segment-pipedrive',
             })
 
-            const invocation = createSegmentInvocation(fn, pipedriveInputs)
+            const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)
 
             mockFetch.mockResolvedValue({
                 status: 200,

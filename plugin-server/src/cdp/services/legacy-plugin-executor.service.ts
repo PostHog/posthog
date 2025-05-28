@@ -18,6 +18,7 @@ import {
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
 import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -115,13 +116,9 @@ export class LegacyPluginExecutorService {
         invocation: HogFunctionInvocation,
         options?: LegacyPluginExecutorOptions
     ): Promise<HogFunctionInvocationResult> {
-        const result: HogFunctionInvocationResult = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-            metrics: [],
-        }
+        const result = createInvocationResult(invocation, {
+            queue: 'plugin',
+        })
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({

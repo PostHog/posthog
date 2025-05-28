@@ -12,7 +12,8 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../types'
-import { cloneInvocation, createInvocation } from '../../utils'
+import { cloneInvocation } from '../../utils/invocation-utils'
+import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
