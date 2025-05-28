@@ -57,84 +57,118 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
 
-    def _bounce_rate_query(self, include_filters: bool = False) -> str:
+    def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         previous_period_filter, current_period_filter = self.get_date_ranges()
 
-        query_str = f"""
-        SELECT
-            entry_pathname as `context.columns.breakdown_value`,
-            tuple(
-                uniqMergeIf(persons_uniq_state, {current_period_filter}),
-                uniqMergeIf(persons_uniq_state, {previous_period_filter})
-            ) AS `context.columns.visitors`,
-            tuple(
-                sumMergeIf(pageviews_count_state, {current_period_filter}),
-                sumMergeIf(pageviews_count_state, {previous_period_filter})
-            ) as `context.columns.views`,
-            tuple(
-                (sumMergeIf(bounces_count_state, {current_period_filter}) / nullif(uniqMergeIf(sessions_uniq_state, {current_period_filter}), 0)),
-                (sumMergeIf(bounces_count_state, {previous_period_filter}) / nullif(uniqMergeIf(sessions_uniq_state, {previous_period_filter}), 0))
-            ) as `context.columns.bounce_rate`
-        FROM web_bounces_daily
-        GROUP BY `context.columns.breakdown_value`
-        """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_value} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`,
+                {bounce_rate_tuple} as `context.columns.bounce_rate`
+            FROM web_bounces_daily
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
+                        current_period_filter, previous_period_filter
+                    ),
+                },
+            ),
+        )
 
-        return query_str
+        return query
 
-    def _path_query(self) -> str:
-        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="p")
+    def _path_query(self) -> ast.SelectQuery:
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_daily")
 
-        query_str = f"""
-        SELECT
-            pathname as `context.columns.breakdown_value`,
-            tuple(
-                uniqMergeIf(p.persons_uniq_state, {current_period_filter}),
-                uniqMergeIf(p.persons_uniq_state, {previous_period_filter})
-            ) AS `context.columns.visitors`,
-            tuple(
-                sumMergeIf(p.pageviews_count_state, {current_period_filter}),
-                sumMergeIf(p.pageviews_count_state, {previous_period_filter})
-            ) as `context.columns.views`,
-            any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
-        FROM
-            web_stats_daily p
-        LEFT JOIN ({self._bounce_rate_query()}) bounces
-            ON p.pathname = bounces.`context.columns.breakdown_value`
-        GROUP BY `context.columns.breakdown_value`
-        """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_value} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`,
+                any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
+            FROM
+                web_stats_daily
+            LEFT JOIN ({bounce_subquery}) bounces
+                ON {join_condition}
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state",
+                        "uniqMergeIf",
+                        current_period_filter,
+                        previous_period_filter,
+                        table_prefix="web_stats_daily",
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state",
+                        "sumMergeIf",
+                        current_period_filter,
+                        previous_period_filter,
+                        table_prefix="web_stats_daily",
+                    ),
+                    "bounce_subquery": self._bounce_rate_query(),
+                    "join_condition": ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_daily", "pathname"])),
+                        right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
+                    ),
+                },
+            ),
+        )
 
-        return query_str
+        return query
 
     def get_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges()
-
-        query_str = ""
-        table_name = "web_stats_daily"
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
-            query_str = self._bounce_rate_query()
+            query = self._bounce_rate_query()
             table_name = "web_bounces_daily"
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
-            query_str = self._path_query()
-            table_name = "p"
+            query = self._path_query()
+            table_name = "web_stats_daily"
         else:
-            breakdown_field = self._get_breakdown_field()
-            query_str = f"""
-            SELECT
-                {breakdown_field} as `context.columns.breakdown_value`,
-                tuple(
-                    uniqMergeIf(persons_uniq_state, {current_period_filter}),
-                    uniqMergeIf(persons_uniq_state, {previous_period_filter})
-                ) AS `context.columns.visitors`,
-                tuple(
-                    sumMergeIf(pageviews_count_state, {current_period_filter}),
-                    sumMergeIf(pageviews_count_state, {previous_period_filter})
-                ) as `context.columns.views`
-            FROM web_stats_daily
-            GROUP BY `context.columns.breakdown_value`
-            """
+            previous_period_filter, current_period_filter = self.get_date_ranges()
 
-        query = cast(ast.SelectQuery, parse_select(query_str))
+            query = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
+                SELECT
+                    {breakdown_field} as `context.columns.breakdown_value`,
+                    {visitors_tuple} AS `context.columns.visitors`,
+                    {views_tuple} as `context.columns.views`
+                FROM web_stats_daily
+                GROUP BY `context.columns.breakdown_value`
+                """,
+                    placeholders={
+                        "breakdown_field": self._get_breakdown_field(),
+                        "visitors_tuple": self._period_comparison_tuple(
+                            "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                        ),
+                        "views_tuple": self._period_comparison_tuple(
+                            "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                        ),
+                    },
+                ),
+            )
+            table_name = "web_stats_daily"
 
         filters = self._get_filters(table_name=table_name)
         if filters:
@@ -169,30 +203,116 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
             case WebStatsBreakdown.DEVICE_TYPE:
-                return "device_type"
+                return ast.Field(chain=["device_type"])
             case WebStatsBreakdown.BROWSER:
-                return "browser"
+                return ast.Field(chain=["browser"])
             case WebStatsBreakdown.OS:
-                return "os"
+                return ast.Field(chain=["os"])
             case WebStatsBreakdown.VIEWPORT:
-                return "concat(toString(viewport_width), 'x', toString(viewport_height))"
+                return ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=["viewport_width"])],
+                        ),
+                        ast.Constant(value="x"),
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=["viewport_height"])],
+                        ),
+                    ],
+                )
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
-                return "referring_domain"
+                return ast.Field(chain=["referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
-                return "utm_source"
+                return ast.Field(chain=["utm_source"])
             case WebStatsBreakdown.INITIAL_UTM_MEDIUM:
-                return "utm_medium"
+                return ast.Field(chain=["utm_medium"])
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
-                return "utm_campaign"
+                return ast.Field(chain=["utm_campaign"])
             case WebStatsBreakdown.INITIAL_UTM_TERM:
-                return "utm_term"
+                return ast.Field(chain=["utm_term"])
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
-                return "utm_content"
+                return ast.Field(chain=["utm_content"])
             case WebStatsBreakdown.COUNTRY:
-                return "country_name"
+                return ast.Field(chain=["country_name"])
             case WebStatsBreakdown.CITY:
-                return "city_name"
+                return ast.Field(chain=["city_name"])
             case WebStatsBreakdown.REGION:
-                return "region_code"
+                return ast.Field(chain=["region_code"])
             case WebStatsBreakdown.EXIT_PAGE:
-                return "end_pathname"
+                return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
+
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        """Apply path cleaning to path expressions, similar to the non-pre-aggregated version"""
+        if not self.runner.query.doPathCleaning:
+            return path_expr
+
+        return self.runner._apply_path_cleaning(path_expr)
+
+    def _period_comparison_tuple(
+        self,
+        state_field: str,
+        function_name: str,
+        current_period_filter: ast.Expr,
+        previous_period_filter: ast.Expr,
+        table_prefix: str | None = None,
+    ) -> ast.Tuple:
+        field_chain: list[str | int] = [table_prefix, state_field] if table_prefix else [state_field]
+
+        return ast.Tuple(
+            exprs=[
+                ast.Call(
+                    name=function_name,
+                    args=[
+                        ast.Field(chain=field_chain),
+                        current_period_filter,
+                    ],
+                ),
+                ast.Call(
+                    name=function_name,
+                    args=[
+                        ast.Field(chain=field_chain),
+                        previous_period_filter,
+                    ],
+                ),
+            ]
+        )
+
+    def _bounce_rate_calculation_tuple(
+        self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
+    ) -> ast.Tuple:
+        def safe_bounce_rate(period_filter: ast.Expr) -> ast.Call:
+            return ast.Call(
+                name="divide",
+                args=[
+                    ast.Call(
+                        name="sumMergeIf",
+                        args=[
+                            ast.Field(chain=["bounces_count_state"]),
+                            period_filter,
+                        ],
+                    ),
+                    ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Call(
+                                name="uniqMergeIf",
+                                args=[
+                                    ast.Field(chain=["sessions_uniq_state"]),
+                                    period_filter,
+                                ],
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ],
+            )
+
+        return ast.Tuple(
+            exprs=[
+                safe_bounce_rate(current_period_filter),
+                safe_bounce_rate(previous_period_filter),
+            ]
+        )
