@@ -89,7 +89,6 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     labelnames=["source"],
 )
 
-
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
     "session_snapshots_generate_pre_signed_url_histogram",
     "Time taken to generate a pre-signed URL for a session snapshot",
