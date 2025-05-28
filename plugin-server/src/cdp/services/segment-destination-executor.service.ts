@@ -387,9 +387,8 @@ export class SegmentDestinationExecutorService {
                 if (retryResult) {
                     return retryResult
                 }
-                errorMessage = `Request failed with status ${
-                    e.fetchResponse?.status
-                } (${await e.fetchResponse?.text()})`
+                const errorText = e.fetchResponse ? await e.fetchResponse?.text() : 'Something went wrong'
+                errorMessage = `Request failed with status ${e.fetchResponse?.status} (${errorText})`
             }
 
             logger.error('💩', 'Segment destination errored', {
