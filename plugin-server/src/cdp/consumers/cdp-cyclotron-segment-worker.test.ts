@@ -85,7 +85,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 template_id: 'segment-amplitude',
             })
 
-            const invocation = createSegmentInvocation(fn, amplitudeInputs)
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
 
             mockFetch.mockResolvedValue({
                 status: 200,
@@ -147,7 +147,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 template_id: 'segment-amplitude',
             })
 
-            const invocation = createSegmentInvocation(fn, amplitudeInputs)
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
@@ -211,7 +211,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 template_id: 'segment-pipedrive',
             })
 
-            const invocation = createSegmentInvocation(fn, pipedriveInputs)
+            const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)
 
             mockFetch.mockResolvedValue({
                 status: 200,

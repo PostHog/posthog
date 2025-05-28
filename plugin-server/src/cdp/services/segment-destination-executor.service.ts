@@ -25,6 +25,7 @@ import {
 } from '../types'
 import { CDP_TEST_ID, cloneInvocation, isSegmentPluginHogFunction } from '../utils'
 import { RETRIABLE_STATUS_CODES } from './fetch-executor.service'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -206,13 +207,9 @@ export class SegmentDestinationExecutorService {
     }
 
     public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
-        const result: HogFunctionInvocationResult = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-            metrics: [],
-        }
+        const result = createInvocationResult(invocation, {
+            queue: 'segment',
+        })
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({

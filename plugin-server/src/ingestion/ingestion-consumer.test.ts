@@ -11,13 +11,14 @@ import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, PipelineEvent, Team } from '../../src/types'
+import { Hub, IncomingEventWithTeam, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
+
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -31,27 +32,42 @@ jest.mock('../utils/posthog', () => {
 
 let offsetIncrementer = 0
 
+const createKafkaMessage = (event: PipelineEvent): Message => {
+    // TRICKY: This is the slightly different format that capture sends
+    const captureEvent = {
+        uuid: event.uuid,
+        distinct_id: event.distinct_id,
+        ip: event.ip,
+        now: event.now,
+        token: event.token,
+        data: JSON.stringify(event),
+    }
+    return {
+        key: `${event.token}:${event.distinct_id}`,
+        value: Buffer.from(JSON.stringify(captureEvent)),
+        size: 1,
+        topic: 'test',
+        offset: offsetIncrementer++,
+        timestamp: DateTime.now().toMillis(),
+        partition: 1,
+    }
+}
+
 const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => {
-    return events.map((event) => {
-        // TRICKY: This is the slightly different format that capture sends
-        const captureEvent = {
-            uuid: event.uuid,
-            distinct_id: event.distinct_id,
-            ip: event.ip,
-            now: event.now,
-            token: event.token,
-            data: JSON.stringify(event),
-        }
-        return {
-            key: `${event.token}:${event.distinct_id}`,
-            value: Buffer.from(JSON.stringify(captureEvent)),
-            size: 1,
-            topic: 'test',
-            offset: offsetIncrementer++,
-            timestamp: DateTime.now().toMillis(),
-            partition: 1,
-        }
-    })
+    return events.map(createKafkaMessage)
+}
+
+const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): IncomingEventWithTeam[] => {
+    return events.map<IncomingEventWithTeam>(
+        (e): IncomingEventWithTeam => ({
+            event: {
+                ...e,
+                team_id: team.id,
+            },
+            team: team,
+            message: createKafkaMessage(e),
+        })
+    )
 }
 
 describe('IngestionConsumer', () => {
@@ -83,6 +99,7 @@ describe('IngestionConsumer', () => {
         event: '$pageview',
         properties: {
             $current_url: 'http://localhost:8000',
+            ...(event?.properties || {}),
         },
         ...event,
     })
@@ -462,16 +479,24 @@ describe('IngestionConsumer', () => {
             ingester = await createIngestionConsumer(hub)
         })
 
-        it('should batch events based on the distinct_id', async () => {
-            const messages = createKafkaMessages([
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ distinct_id: 'distinct-id-2' }),
-                createEvent({ distinct_id: 'distinct-id-1' }),
-                createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' }),
-            ])
+        it('should batch events based on the distinct_id', () => {
+            const messages = [
+                ...createIncomingEventsWithTeam(
+                    [
+                        createEvent({ distinct_id: 'distinct-id-1' }),
+                        createEvent({ distinct_id: 'distinct-id-1' }),
+                        createEvent({ distinct_id: 'distinct-id-2' }),
+                        createEvent({ distinct_id: 'distinct-id-1' }),
+                    ],
+                    team
+                ),
+                ...createIncomingEventsWithTeam(
+                    [createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' })],
+                    team2
+                ),
+            ]
 
-            const batches = await ingester['parseKafkaBatch'](messages)
+            const batches = ingester['groupEventsByDistinctId'](messages)
 
             expect(Object.keys(batches)).toHaveLength(3)
 
@@ -867,7 +892,8 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                const result = await ingester.handleKafkaBatch(messages)
+                await result.backgroundTask
 
                 // Verify metrics were published
                 const metricsMessages =
@@ -946,7 +972,8 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                const result = await ingester.handleKafkaBatch(messages)
+                await result.backgroundTask
 
                 // Verify metrics were published
                 const metricsMessages =

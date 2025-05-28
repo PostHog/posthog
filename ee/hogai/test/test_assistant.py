@@ -44,6 +44,7 @@ from posthog.schema import (
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
 
+from ee.hogai.graph.memory import prompts as onboarding_prompts
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
 
@@ -806,30 +807,44 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output)
         self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])  # viz message must have this id
 
-    @patch("ee.hogai.graph.memory.nodes.MemoryInitializerInterruptNode._model")
+    @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
-    def test_onboarding_flow_accepts_memory(self, model_mock, interruption_model_mock):
+    def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock):
         self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
-        interruption_model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+
+        def mock_response(input_dict):
+            input_str = str(input_dict)
+            if "You are tasked with gathering information" in input_str:
+                return "===What is your target market?"
+            return "[Done]"
+
+        onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team).add_memory_initializer(AssistantNodeName.END).compile()
+        graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
 
         # First run - get the product description
-        output, _ = self._run_assistant_graph(graph, is_new_conversation=True)
+        output, _ = self._run_assistant_graph(
+            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
+        )
         expected_output = [
             ("conversation", self._serialize_conversation()),
-            ("message", HumanMessage(content="Hello")),
+            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
             (
                 "message",
                 AssistantMessage(
                     content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
                 ),
             ),
-            ("message", AssistantMessage(content="PostHog is a product analytics platform.")),
+            (
+                "message",
+                AssistantMessage(
+                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                ),
+            ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
         ]
         self.assertConversationEqual(output, expected_output)
@@ -844,38 +859,49 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content=memory_prompts.SCRAPING_CONFIRMATION_MESSAGE)),
             (
                 "message",
-                AssistantMessage(content=memory_prompts.SCRAPING_MEMORY_SAVED_MESSAGE),
+                AssistantMessage(content="What is your target market?"),
             ),
         ]
         self.assertConversationEqual(output, expected_output)
 
         # Verify the memory was saved
         core_memory = CoreMemory.objects.get(team=self.team)
-        self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
-        self.assertIsNotNone(core_memory.text)
+        self.assertEqual(
+            core_memory.initial_text,
+            "Question: What does the company do?\nAnswer: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
+        )
 
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
-    def test_onboarding_flow_rejects_memory(self, model_mock):
+    @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
+    def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock):
         self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+        onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team).add_memory_initializer(AssistantNodeName.END).compile()
+        graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
 
         # First run - get the product description
-        output, _ = self._run_assistant_graph(graph, is_new_conversation=True)
+        output, _ = self._run_assistant_graph(
+            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
+        )
         expected_output = [
             ("conversation", self._serialize_conversation()),
-            ("message", HumanMessage(content="Hello")),
+            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
             (
                 "message",
                 AssistantMessage(
                     content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
                 ),
             ),
-            ("message", AssistantMessage(content="PostHog is a product analytics platform.")),
+            (
+                "message",
+                AssistantMessage(
+                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                ),
+            ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
         ]
         self.assertConversationEqual(output, expected_output)
@@ -891,16 +917,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_TERMINATION_MESSAGE,
+                    content="What is your target market?",
                 ),
             ),
         ]
         self.assertConversationEqual(output, expected_output)
 
-        # Verify the memory was skipped
         core_memory = CoreMemory.objects.get(team=self.team)
-        self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.SKIPPED)
-        self.assertEqual(core_memory.text, "")
+        self.assertEqual(core_memory.initial_text, "Question: What is your target market?\nAnswer:")
 
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model")
     def test_memory_collector_flow(self, model_mock):

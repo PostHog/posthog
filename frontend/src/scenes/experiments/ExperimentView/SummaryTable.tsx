@@ -24,6 +24,14 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+} from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { getViewRecordingFilters } from '../utils'
 import { VariantTag } from './components'
@@ -44,12 +52,7 @@ export function SummaryTable({
         secondaryMetricResults,
         tabularExperimentResults,
         getInsightType,
-        exposureCountDataForVariant,
-        conversionRateForVariant,
         experimentMathAggregationForTrends,
-        countDataForVariant,
-        getHighestProbabilityVariant,
-        credibleIntervalForVariant,
         featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
@@ -150,28 +153,19 @@ export function SummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const controlVariant = (result.variants as TrendExperimentVariant[]).find(
-                    ({ key }) => key === 'control'
-                ) as TrendExperimentVariant
-
-                if (
-                    !variant.count ||
-                    !variant.absolute_exposure ||
-                    !controlVariant ||
-                    !controlVariant.count ||
-                    !controlVariant.absolute_exposure
-                ) {
+                const deltaResult = calculateDelta(result, variant.key, insightType)
+                if (!deltaResult) {
                     return <div className="font-semibold">—</div>
                 }
 
-                const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                const variantMean = variant.count / variant.absolute_exposure
-                const delta = ((variantMean - controlMean) / controlMean) * 100
-
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${
+                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                        }`}
+                    >
+                        {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
+                    </div>
                 )
             },
         })

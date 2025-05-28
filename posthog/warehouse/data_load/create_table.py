@@ -3,6 +3,7 @@ import uuid
 from django.conf import settings
 
 from posthog.warehouse.models import (
+    DataWarehouseSavedQuery,
     aget_or_create_datawarehouse_credential,
     DataWarehouseTable,
     DataWarehouseCredential,
@@ -16,6 +17,23 @@ from posthog.warehouse.models import (
 from asgiref.sync import sync_to_async
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
+
+from posthog.warehouse.s3 import get_size_of_folder
+
+
+async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int) -> float:
+    logger = await bind_temporal_worker_logger(team_id=team_id)
+
+    logger.debug("Calculating table size in S3")
+
+    folder_name = saved_query.folder_path
+    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}"
+
+    total_mib = get_size_of_folder(s3_folder)
+
+    logger.debug(f"Total size in MiB = {total_mib:.2f}")
+
+    return total_mib
 
 
 async def create_table_from_saved_query(
@@ -68,6 +86,13 @@ async def create_table_from_saved_query(
         saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
         if saved_query:
+            table_size = await calculate_table_size(saved_query, team_id)
+
+            logger.debug(f"Total size in MiB = {table_size:.2f}")
+
+            table_created.size_in_s3_mib = table_size
+            await asave_datawarehousetable(table_created)
+
             saved_query.table = table_created
             await asave_saved_query(saved_query)
 
