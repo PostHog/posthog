@@ -22,6 +22,8 @@ import {
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     type FunnelsQuery,
+    InsightQueryNode,
+    InsightVizNode,
     NodeKind,
     type TrendsQuery,
 } from '~/queries/schema/schema-general'
@@ -682,6 +684,49 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
+    }
+}
+
+type AllowedNodeKind =
+    | typeof NodeKind.ExperimentTrendsQuery
+    | typeof NodeKind.ExperimentFunnelsQuery
+    | typeof NodeKind.ExperimentMetric
+    | typeof NodeKind.ExperimentQuery
+
+type AllowedQuery = { kind: AllowedNodeKind } & Record<string, any>
+
+type QueryHandler = (query: AllowedQuery) => InsightQueryNode | undefined
+
+const queryKindtoSource: Record<AllowedNodeKind, QueryHandler> = {
+    /**
+     * Legacy Experiments
+     */
+    [NodeKind.ExperimentTrendsQuery]: ({ count_query }) => count_query,
+    [NodeKind.ExperimentFunnelsQuery]: ({ funnels_query }) => funnels_query,
+    /**
+     * I know that this may be confusing. With the Legacy Engine,
+     * metrics had a query property, but the ExperimentMetric
+     * has a more flatten structure, and we have the helper functions
+     * to convert to queries. Experiment stores Metrics, results come from queries.
+     */
+    [NodeKind.ExperimentMetric]: (query) => metricToQuery(query as ExperimentMetric, false),
+    [NodeKind.ExperimentQuery]: ({ metric }) => metricToQuery(metric, false),
+}
+
+export const toInsightVizNode = <T extends AllowedQuery>(query: T): InsightVizNode => {
+    const handler = queryKindtoSource[query.kind]
+    if (!handler) {
+        throw new Error(`Unsupported query kind: ${query.kind}`)
+    }
+
+    const source = handler(query)
+    if (!source) {
+        throw new Error(`Could not transform query into insight`)
+    }
+
+    return {
+        kind: NodeKind.InsightVizNode,
+        source,
     }
 }
 
