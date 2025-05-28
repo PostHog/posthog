@@ -1,4 +1,4 @@
-import { IconCdCase, IconDocument, IconUser } from '@posthog/icons'
+import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,15 +9,25 @@ import { FileSystemType } from '~/types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
+const missingProductTypes: { value: string; label: string; icon?: React.ReactNode; flag?: string }[] = [
+    { value: 'destination', label: 'Destinations', icon: <IconPlug /> },
+    { value: 'site_app', label: 'Site apps', icon: <IconPlug /> },
+    { value: 'source', label: 'Sources', icon: <IconPlug /> },
+    { value: 'transformation', label: 'Transformations', icon: <IconPlug /> },
+]
+
 // TODO: This is a duplicate of TreeFiltersDropdownMenu.tsx
-const productTypesMapped = Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
-    ([key, value]): { value: string; label: string; icon: React.ReactNode; flag?: string } => ({
-        value: value.filterKey || key,
-        label: value.name,
-        icon: value.icon,
-        flag: value.flag,
-    })
-)
+const productTypesMapped = [
+    ...Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
+        ([key, value]): { value: string; label: string; icon: React.ReactNode; flag?: string } => ({
+            value: value.filterKey || key,
+            label: value.name,
+            icon: value.icon,
+            flag: value.flag,
+        })
+    ),
+    ...missingProductTypes,
+]
 
 interface TreeSearchFieldProps {
     root?: string

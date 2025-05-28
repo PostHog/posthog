@@ -20,14 +20,23 @@ interface FiltersDropdownProps {
     searchTerm: string
 }
 
+const missingProductTypes: { value: string; label: string; flag?: string }[] = [
+    { value: 'destination', label: 'Destinations' },
+    { value: 'site_app', label: 'Site apps' },
+    { value: 'source', label: 'Sources' },
+    { value: 'transformation', label: 'Transformations' },
+]
 // TODO: This is a duplicate of TreeSearchField.tsx
-const productTypesMapped = Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
-    ([key, value]): { value: string; label: string; flag?: string } => ({
-        value: value.filterKey || key,
-        label: value.name,
-        flag: value.flag,
-    })
-)
+const productTypesMapped = [
+    ...Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
+        ([key, value]): { value: string; label: string; flag?: string } => ({
+            value: value.filterKey || key,
+            label: value.name,
+            flag: value.flag,
+        })
+    ),
+    ...missingProductTypes,
+]
 
 export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
