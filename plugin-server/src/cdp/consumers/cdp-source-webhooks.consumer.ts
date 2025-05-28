@@ -55,7 +55,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         // TODO: Should this be filled via other headers?
         const ip = req.ip
 
+        const projectUrl = `${this.hub.SITE_URL ?? ''}/project/${hogFunction.team_id}`
+
         const globals: HogFunctionInvocationGlobals = {
+            source: {
+                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                url: `${projectUrl}/functions/${hogFunction.id}`,
+            },
             project: {
                 id: hogFunction.team_id,
                 name: '',

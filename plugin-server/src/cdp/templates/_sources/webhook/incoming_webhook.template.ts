@@ -58,6 +58,9 @@ postHogCapture({
             description: 'A mapping of the incoming webhook body to the PostHog event properties',
             default: {
                 $ip: '{request.ip}',
+                $lib: 'posthog-webhook',
+                $lib_version: '1.0.0',
+                $source_url: '{source.url}',
             },
             secret: false,
             required: false,
