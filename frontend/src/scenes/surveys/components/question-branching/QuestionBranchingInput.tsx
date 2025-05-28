@@ -187,13 +187,17 @@ function QuestionResponseBasedBranchingInput({
 }: {
     questionIndex: number
     question: RatingSurveyQuestion | MultipleSurveyQuestion
-}): JSX.Element {
+}): JSX.Element | null {
     const { survey, getResponseBasedBranchingDropdownValue } = useValues(surveyLogic)
     const { setResponseBasedBranchingForQuestion } = useActions(surveyLogic)
 
     const availableQuestions = getAvailableQuestionOptions(survey.questions, questionIndex, 28)
     const responseConfig = getResponseConfiguration(question)
     const isLastQuestion = questionIndex >= survey.questions.length - 1
+
+    if (responseConfig.length === 0) {
+        return null
+    }
 
     // Build dropdown options for response-based branching destinations
     const responseDestinationOptions = [
