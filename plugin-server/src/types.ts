@@ -15,11 +15,12 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
 import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
-import { CyclotronJobQueueKind } from './cdp/types'
+import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
@@ -73,7 +74,9 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
     cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
+    cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     functional_tests = 'functional-tests',
@@ -104,7 +107,7 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueKind
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
@@ -399,7 +402,9 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
+    cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpCyclotronWorkerSegment?: boolean
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -1009,6 +1014,11 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
+    type: 'hogql'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
@@ -1043,6 +1053,7 @@ export type PropertyFilter =
     | CohortPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | HogQLPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
@@ -1216,6 +1227,17 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
+export interface IncomingEvent {
+    message: Message
+    event: PipelineEvent
+}
+
+export interface IncomingEventWithTeam {
+    message: Message
+    event: PipelineEvent
+    team: Team
+}
+
 export type RedisPool = GenericPool<Redis>
 
 export type RRWebEvent = Record<string, any> & {
@@ -1269,24 +1291,4 @@ export interface HookPayload {
             created_at: ISOTimestamp | null
         }
     }
-}
-
-export type AppMetric2Type = {
-    team_id: number
-    timestamp: ClickHouseTimestamp
-    app_source: string
-    app_source_id: string
-    instance_id?: string
-    metric_kind: 'failure' | 'success' | 'other'
-    metric_name:
-        | 'succeeded'
-        | 'failed'
-        | 'filtered'
-        | 'disabled_temporarily'
-        | 'disabled_permanently'
-        | 'masked'
-        | 'filtering_failed'
-        | 'inputs_failed'
-        | 'fetch'
-    count: number
 }

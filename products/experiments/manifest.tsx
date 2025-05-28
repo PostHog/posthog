@@ -1,4 +1,5 @@
 import { IconTestTube } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -23,8 +24,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         experiment: {
+            name: 'Experiment',
             icon: <IconTestTube />,
             href: (ref: string) => urls.experiment(ref),
+            iconColor: ['var(--product-experiments-light)'],
+            filterKey: 'experiment',
         },
     },
     treeItemsNew: [
@@ -39,9 +43,7 @@ export const manifest: ProductManifest = {
             path: `Experiments`,
             type: 'experiment',
             href: urls.experiments(),
+            visualOrder: PRODUCT_VISUAL_ORDER.experiments,
         },
     ],
-    fileSystemFilterTypes: {
-        experiment: { name: 'Experiments' },
-    },
 }
