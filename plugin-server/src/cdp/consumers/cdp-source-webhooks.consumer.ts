@@ -13,7 +13,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
 } from '../types'
-import { createInvocation } from '../utils'
+import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
@@ -86,15 +86,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
             await this.cyclotronJobQueue.queueInvocationResults([result])
         } catch (error) {
-            // TODO: Add error handling and logging
+            // TODO: Make this more robust
             logger.error('Error executing hog function', { error })
-            result = {
-                invocation: createInvocation({} as any, hogFunction),
-                finished: true,
-                error: error,
-                logs: [],
-                metrics: [],
-            }
+            result = createInvocationResult(
+                createInvocation({} as any, hogFunction),
+                { queue: 'hog' },
+                {
+                    finished: true,
+                    error: error.message,
+                    logs: [{ level: 'error', message: error.message, timestamp: DateTime.now() }],
+                }
+            )
         }
 
         return result

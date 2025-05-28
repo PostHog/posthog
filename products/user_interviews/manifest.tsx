@@ -41,6 +41,7 @@ export const manifest: ProductManifest = {
             href: urls.userInterviews(),
             type: 'user_interview',
             visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
+            tags: ['alpha'],
         },
     ],
     fileSystemFilterTypes: {

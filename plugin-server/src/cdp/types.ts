@@ -240,9 +240,8 @@ export type HogFunctionInvocationResult = {
     invocation: HogFunctionInvocation
     finished: boolean
     error?: any
-    // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
-    metrics?: HogFunctionAppMetric[]
+    metrics: HogFunctionAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }

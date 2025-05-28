@@ -1,8 +1,16 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { FetchExecutorService } from '../services/fetch-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogFunctionInvocation, HogFunctionInvocationJobQueue, HogFunctionInvocationResult } from '../types'
+import {
+    HogFunctionAppMetric,
+    HogFunctionInvocation,
+    HogFunctionInvocationJobQueue,
+    HogFunctionInvocationResult,
+    HogFunctionTypeType,
+    LogEntry,
+} from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 /**
@@ -10,7 +18,10 @@ import { CdpConsumerBase } from './cdp-base.consumer'
  */
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
-    private cyclotronJobQueue: CyclotronJobQueue
+    protected cyclotronJobQueue: CyclotronJobQueue
+    protected fetchExecutor: FetchExecutorService
+
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
     private queue: HogFunctionInvocationJobQueue
 
     constructor(hub: Hub, queue: HogFunctionInvocationJobQueue = 'hog') {
@@ -19,10 +30,60 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, this.hogFunctionManager, (batch) =>
             this.processBatch(batch)
         )
+        this.fetchExecutor = new FetchExecutorService(this.hub)
+    }
+
+    /**
+     * Processes a single invocation. This is the core of the worker and is responsible for executing the hog code and any fetch requests.
+     */
+    private async processInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+        let performedAsyncRequest = false
+        let result: HogFunctionInvocationResult | null = null
+        const metrics: HogFunctionAppMetric[] = []
+        const logs: LogEntry[] = []
+
+        while (!result || !result.finished) {
+            const nextInvocation: HogFunctionInvocation = result?.invocation ?? invocation
+
+            if (nextInvocation.queue === 'hog') {
+                result = this.hogExecutor.execute(nextInvocation)
+                // Heartbeat and free the event loop to handle health checks
+                this.heartbeat()
+                await new Promise((resolve) => process.nextTick(resolve))
+            } else if (nextInvocation.queue === 'fetch') {
+                // Fetch requests we only perform if we haven't already performed one
+                if (result && performedAsyncRequest) {
+                    // if we have performed an async request already then we break the loop and return the result
+                    break
+                }
+                result = await this.fetchExecutor.execute(nextInvocation)
+                performedAsyncRequest = true
+            } else {
+                throw new Error(`Unhandled queue: ${nextInvocation.queue}`)
+            }
+
+            result?.logs?.forEach((log) => {
+                logs.push(log)
+            })
+            result?.metrics?.forEach((metric) => {
+                metrics.push(metric)
+            })
+
+            if (!result?.finished && result?.invocation.queueScheduledAt) {
+                // If the invocation is scheduled to run later then we break the loop and return the result for it to be queued
+                break
+            }
+        }
+
+        // Override the result with the metrics and logs we have gathered to ensure we have all the data
+        result.metrics = metrics
+        result.logs = logs
+
+        return result
     }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
+        return await Promise.all(invocations.map((item) => this.processInvocation(item)))
     }
 
     public async processBatch(
@@ -60,18 +121,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
-        invocations.forEach((item) => {
-            if (item.invocation.queue === 'fetch') {
-                // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                this.hogFunctionMonitoringService.queueAppMetric({
-                    team_id: item.invocation.teamId,
-                    app_source_id: item.invocation.hogFunction.id,
-                    metric_kind: 'other',
-                    metric_name: 'fetch',
-                    count: 1,
-                })
-            }
-        })
     }
 
     public async start() {
