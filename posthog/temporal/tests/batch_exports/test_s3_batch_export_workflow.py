@@ -80,13 +80,19 @@ create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJ
 async def check_valid_credentials() -> bool:
     """Check if there are valid AWS credentials in the environment."""
     session = aioboto3.Session()
-    sts = await session.client("sts")
-    try:
-        await sts.get_caller_identity()
-    except botocore.exceptions.ClientError:
-        return False
-    else:
-        return True
+    async with session.client("sts") as sts:
+        try:
+            await sts.get_caller_identity()
+        except botocore.exceptions.ClientError:
+            return False
+        else:
+            return True
+
+
+def has_valid_credentials() -> bool:
+    """Synchronous wrapper around check_valid_credentials."""
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(check_valid_credentials())
 
 
 @pytest.fixture
@@ -936,12 +942,88 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
+async def _run_s3_batch_export_workflow(
+    model: BatchExportModel | BatchExportSchema | None,
+    ateam,
+    batch_export_id,
+    s3_destination_config,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    s3_key_prefix,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    clickhouse_client,
+    s3_client,
+):
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    workflow_id = str(uuid.uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=batch_export_id,
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=batch_export_model,
+        batch_export_schema=batch_export_schema,
+        **s3_destination_config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_s3_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                S3BatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(minutes=10),
+            )
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export_id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=s3_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        compression=compression,
+        file_format=file_format,
+    )
+
+
 @pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
-async def test_s3_export_workflow_with_minio_bucket(
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_models(
     clickhouse_client,
     minio_client,
     ateam,
@@ -970,63 +1052,106 @@ async def test_s3_export_workflow_with_minio_bucket(
         # Eventually, this setting should be part of the model via some "filters" attribute.
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
-    workflow_id = str(uuid.uuid4())
-    inputs = S3BatchExportInputs(
-        team_id=ateam.pk,
+    await _run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
         batch_export_id=str(s3_batch_export.id),
-        data_interval_end=data_interval_end.isoformat(),
-        interval=interval,
-        batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
-        **s3_batch_export.destination.config,
-    )
-
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-            workflows=[S3BatchExportWorkflow],
-            activities=[
-                start_batch_export_run,
-                insert_into_s3_activity,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(minutes=10),
-            )
-
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
-    assert len(runs) == 1
-
-    run = runs[0]
-    assert run.status == "Completed"
-
-    await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
-        clickhouse_client=clickhouse_client,
+        s3_destination_config=s3_batch_export.destination.config,
         bucket_name=bucket_name,
-        key_prefix=s3_key_prefix,
-        team_id=ateam.pk,
+        interval=interval,
+        compression=compression,
+        exclude_events=exclude_events,
+        s3_key_prefix=s3_key_prefix,
+        file_format=file_format,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_model=model,
-        exclude_events=exclude_events,
+        clickhouse_client=clickhouse_client,
+        s3_client=minio_client,
+    )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
+async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
+    clickhouse_client,
+    minio_client,
+    ateam,
+    s3_batch_export,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    s3_key_prefix,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+):
+    """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and various compression and file formats."""
+
+    await _run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_batch_export.id),
+        s3_destination_config=s3_batch_export.destination.config,
+        bucket_name=bucket_name,
+        interval=interval,
         compression=compression,
+        exclude_events=exclude_events,
+        s3_key_prefix=s3_key_prefix,
         file_format=file_format,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=minio_client,
+    )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("model", TEST_S3_MODELS)
+async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
+    clickhouse_client,
+    minio_client,
+    ateam,
+    s3_batch_export,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    s3_key_prefix,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+):
+    """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and excluding events."""
+    if isinstance(model, BatchExportModel) and model.name in ["persons", "sessions"]:
+        # Eventually, this setting should be part of the model via some "filters" attribute.
+        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
+
+    await _run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_batch_export.id),
+        s3_destination_config=s3_batch_export.destination.config,
+        bucket_name=bucket_name,
+        interval=interval,
+        compression=compression,
+        exclude_events=exclude_events,
+        s3_key_prefix=s3_key_prefix,
+        file_format=file_format,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=minio_client,
     )
 
 
@@ -1222,17 +1347,17 @@ async def s3_client(bucket_name, s3_key_prefix):
 
 
 @pytest.mark.skipif(
-    "S3_TEST_BUCKET" not in os.environ or not check_valid_credentials(),
+    "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials(),
     reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
 )
 @pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
-@pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
-async def test_s3_export_workflow_with_s3_bucket(
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("encryption", [None], indirect=True)
+@pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
+@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_models(
     s3_client,
     clickhouse_client,
     interval,
@@ -1265,69 +1390,83 @@ async def test_s3_export_workflow_with_s3_bucket(
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
-
-    workflow_id = str(uuid.uuid4())
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,
         "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
         "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
     }
-    inputs = S3BatchExportInputs(
-        team_id=ateam.pk,
+
+    await _run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
         batch_export_id=str(s3_batch_export.id),
-        data_interval_end=data_interval_end.isoformat(),
-        interval=interval,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
-        **destination_config,
-    )
-
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-            workflows=[S3BatchExportWorkflow],
-            activities=[
-                start_batch_export_run,
-                insert_into_s3_activity,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=10),
-            )
-
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
-    assert len(runs) == 1
-
-    run = runs[0]
-    assert run.status == "Completed"
-
-    await assert_clickhouse_records_in_s3(
-        s3_compatible_client=s3_client,
-        clickhouse_client=clickhouse_client,
+        s3_destination_config=destination_config,
         bucket_name=bucket_name,
-        key_prefix=s3_key_prefix,
-        team_id=ateam.pk,
+        interval=interval,
+        compression=compression,
+        exclude_events=exclude_events,
+        s3_key_prefix=s3_key_prefix,
+        file_format=file_format,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_model=model,
-        exclude_events=exclude_events,
-        include_events=None,
+        clickhouse_client=clickhouse_client,
+        s3_client=s3_client,
+    )
+
+
+@pytest.mark.skipif(
+    "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials(),
+    reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
+)
+@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
+async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
+    s3_client,
+    clickhouse_client,
+    interval,
+    s3_batch_export,
+    bucket_name,
+    compression,
+    s3_key_prefix,
+    encryption,
+    exclude_events,
+    ateam,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+):
+    """Test S3 Export Workflow end-to-end by using an S3 bucket with various file formats, compression, and
+    encryption.
+    """
+
+    destination_config = s3_batch_export.destination.config | {
+        "endpoint_url": None,
+        "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+        "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+    }
+
+    await _run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_batch_export.id),
+        s3_destination_config=destination_config,
+        bucket_name=bucket_name,
+        interval=interval,
         compression=compression,
+        exclude_events=exclude_events,
+        s3_key_prefix=s3_key_prefix,
         file_format=file_format,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=s3_client,
     )
 
 
