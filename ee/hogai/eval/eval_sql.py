@@ -273,6 +273,7 @@ Query:
 SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
 FROM events
 WHERE event = '$pageview'
+AND timestamp >= now() - interval 14 day
 GROUP BY day
 ORDER BY day
 """
