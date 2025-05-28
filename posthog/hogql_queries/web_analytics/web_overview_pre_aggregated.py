@@ -74,8 +74,8 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 "avg_session_duration_previous": self._safe_avg_sessions(
                     "total_session_duration_state", previous_period_filter
                 ),
-                "bounce_rate_current": self._safe_avg_sessions("total_bounces_state", current_period_filter),
-                "bounce_rate_previous": self._safe_avg_sessions("total_bounces_state", previous_period_filter),
+                "bounce_rate_current": self._safe_avg_sessions("bounces_count_state", current_period_filter),
+                "bounce_rate_previous": self._safe_avg_sessions("bounces_count_state", previous_period_filter),
             },
         )
 
