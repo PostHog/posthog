@@ -487,6 +487,315 @@ describe('Event Pipeline integration test', () => {
         )
     })
 
+    it('can handle events with $process_person_profile=false', async () => {
+        const distinctId = new UUIDT().toString()
+        const event = createCaptureEvent(
+            '$identify',
+            {
+                properties: {
+                    distinct_id: distinctId,
+                    $set: { prop: 'value' },
+                },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event)
+
+        // Personless event tries to $set, $set_once, $unset and use groups, but none of these
+        // should work.
+        const personlessEvent = createCaptureEvent(
+            'custom event',
+            {
+                properties: {
+                    distinctId: distinctId,
+                    $process_person_profile: false,
+                    $group_0: 'group_key',
+                    $set: {
+                        c: 3,
+                    },
+                    $set_once: {
+                        d: 4,
+                    },
+                    $unset: ['prop'],
+                },
+                $set: {
+                    a: 1,
+                },
+                $set_once: {
+                    b: 2,
+                },
+            },
+            distinctId
+        )
+
+        await ingestEvent(personlessEvent)
+
+        // Another normal ("full") event sees the existing person property (it wasn't $unset)
+
+        const newIdentifyEvent = createCaptureEvent(
+            'custom event',
+            {
+                properties: {},
+            },
+            distinctId
+        )
+
+        await ingestEvent(newIdentifyEvent)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(3)
+        expect(events[0].event).toEqual('$identify')
+        expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[1].event).toEqual('custom event')
+        expect(events[1].person_properties).toEqual({})
+        expect(events[2].event).toEqual('custom event')
+        expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+    })
+
+    it('can $set and update person properties with top level $set', async () => {
+        const distinctId = new UUIDT().toString()
+        const event = createCaptureEvent(
+            '$identify',
+            {
+                properties: {
+                    distinct_id: distinctId,
+                },
+                $set: { prop: 'value' },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(1)
+        expect(events[0].event).toEqual('$identify')
+        expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+    })
+
+    it('should guarantee that person properties are set in the order of the events', async () => {
+        const distinctId = new UUIDT().toString()
+        const event = createCaptureEvent(
+            '$identify',
+            {
+                properties: {
+                    distinct_id: distinctId,
+                    $set: { prop: 'value' },
+                },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event)
+
+        const event2 = createCaptureEvent(
+            'custom event',
+            {
+                properties: {},
+            },
+            distinctId
+        )
+
+        await ingestEvent(event2)
+
+        const event3 = createCaptureEvent(
+            'custom event',
+            {
+                properties: {
+                    $set: {
+                        prop: 'updated value',
+                        new_prop: 'new value',
+                    },
+                },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event3)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(3)
+        expect(events[0].event).toEqual('$identify')
+        expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[1].event).toEqual('custom event')
+        expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[2].event).toEqual('custom event')
+        expect(events[2].person_properties).toEqual(
+            expect.objectContaining({ prop: 'updated value', new_prop: 'new value' })
+        )
+    })
+
+    it('should be able to $set_once person properties but not update', async () => {
+        const distinctId = new UUIDT().toString()
+        const event = createCaptureEvent(
+            '$identify',
+            {
+                properties: {
+                    distinct_id: distinctId,
+                    $set_once: { prop: 'value' },
+                },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event)
+
+        const event2 = createCaptureEvent(
+            '$identify',
+            {
+                properties: {
+                    $set_once: { prop: 'updated value' },
+                },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event2)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(2)
+        expect(events[0].event).toEqual('$identify')
+        expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[1].event).toEqual('$identify')
+        expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+    })
+
+    it('should be able to $set_once person properties but not update, at the top level', async () => {
+        const distinctId = new UUIDT().toString()
+        const event = createCaptureEvent(
+            '$identify',
+            {
+                properties: {
+                    distinct_id: distinctId,
+                },
+                $set_once: { prop: 'value' },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event)
+
+        const event2 = createCaptureEvent(
+            '$identify',
+            {
+                properties: {},
+                $set_once: { prop: 'updated value' },
+            },
+            distinctId
+        )
+
+        await ingestEvent(event2)
+
+        const event3 = createCaptureEvent(
+            'custom event',
+            {
+                properties: {},
+            },
+            distinctId
+        )
+
+        await ingestEvent(event3)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(3)
+        expect(events[0].event).toEqual('$identify')
+        expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[1].event).toEqual('$identify')
+        expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+        expect(events[2].event).toEqual('custom event')
+        expect(events[2].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+    })
+
+    it('should identify previous events with $anon_distinct_id', async () => {
+        const initialDistinctId = new UUIDT().toString()
+        const personIdentifier = 'test@posthog.com'
+
+        const event1 = createCaptureEvent('custom event', {
+            distinct_id: initialDistinctId,
+            properties: {},
+        })
+
+        await ingestEvent(event1)
+
+        const event2 = createCaptureEvent('$identify', {
+            distinct_id: personIdentifier,
+            properties: {
+                distinct_id: personIdentifier,
+                $anon_distinct_id: initialDistinctId,
+            },
+        })
+
+        await ingestEvent(event2)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(2)
+        expect(events[0].event).toEqual('custom event')
+        expect(events[0].distinct_id).toEqual(initialDistinctId)
+        expect(events[0].person_id).toEqual(events[1].person_id)
+    })
+
+    it('should perserve all events if merge fails', async () => {
+        const illegalDistinctId = '0'
+        const distinctId = new UUIDT().toString()
+
+        const event = createCaptureEvent('custom event', {
+            distinct_id: illegalDistinctId,
+        })
+        const event2 = createCaptureEvent('custom event', {
+            distinct_id: distinctId,
+        })
+
+        await ingestEvent(event)
+        await ingestEvent(event2)
+
+        const persons = await delayUntilEventIngested(() => hub.db.fetchPersons())
+        expect(persons.length).toEqual(2)
+
+        const mergeEvent = createCaptureEvent('$merge_dangerously', {
+            distinct_id: distinctId,
+            properties: {
+                distinct_id: distinctId,
+                alias: illegalDistinctId,
+                $set: { prop: 'value' },
+            },
+        })
+
+        await ingestEvent(mergeEvent)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(3)
+        // Assert that there are 2 different persons in person_id column
+        const personIds = new Set(events.map((event) => event.person_id))
+        expect(personIds.size).toEqual(2)
+    })
+
+    it('should preserve properties if merge fails', async () => {
+        const illegalDistinctId = '0'
+        const distinctId = new UUIDT().toString()
+        const event = createCaptureEvent('$merge_dangerously', {
+            distinct_id: distinctId,
+            properties: {
+                distinct_id: distinctId,
+                alias: illegalDistinctId,
+                $set: { prop: 'value' },
+            },
+        })
+
+        await ingestEvent(event)
+
+        const capture_event = createCaptureEvent('custom event', {
+            distinct_id: distinctId,
+            properties: {},
+        })
+
+        await ingestEvent(capture_event)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        expect(events.length).toEqual(2)
+        expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+    })
+
     const createGroupIdentifyEvent = (
         overrides: Partial<PluginEvent> = {},
         distinctId: string = 'abc',
