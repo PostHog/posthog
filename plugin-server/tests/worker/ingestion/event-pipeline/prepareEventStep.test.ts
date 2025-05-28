@@ -1,13 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { BatchWritingGroupStoreForDistinctIdBatch } from '../../../..//src/worker/ingestion/groups/batch-writing-group-store'
 import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { GroupStoreForDistinctIdBatch } from '../../../../src/worker/ingestion/groups/group-store-for-distinct-id-batch'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 
@@ -58,7 +56,6 @@ const teamTwo: Team = {
 describe('prepareEventStep()', () => {
     let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
     let hub: Hub
-    let groupStore: GroupStoreForDistinctIdBatch
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -77,8 +74,6 @@ describe('prepareEventStep()', () => {
             return teamId === 2 ? teamTwo : null
         })
 
-        groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
-
         runner = {
             hub,
             eventsProcessor: new EventsProcessor(hub),
@@ -90,7 +85,7 @@ describe('prepareEventStep()', () => {
     })
 
     it('goes to `createEventStep` for normal events', async () => {
-        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false, groupStore)
+        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false)
 
         expect(response).toEqual({
             distinctId: 'my_id',
@@ -115,7 +110,7 @@ describe('prepareEventStep()', () => {
             anonymize_ips: true,
         })
 
-        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false, groupStore)
+        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false)
 
         expect(response).toEqual({
             distinctId: 'my_id',
@@ -134,7 +129,7 @@ describe('prepareEventStep()', () => {
     // Tests combo of prepareEvent + createEvent
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
-        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false, groupStore)
+        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
         const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
@@ -151,7 +146,7 @@ describe('prepareEventStep()', () => {
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
             },
         }
-        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false, groupStore)
+        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
         const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
@@ -165,7 +160,7 @@ describe('prepareEventStep()', () => {
             ip: null,
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
-        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false, groupStore)
+        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
         const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
