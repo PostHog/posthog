@@ -13,7 +13,12 @@ import { GroupStore } from './group-store'
 import { GroupStoreForBatch } from './group-store-for-batch'
 import { CacheMetrics, GroupStoreForDistinctIdBatch } from './group-store-for-distinct-id-batch'
 import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
-import { groupCacheOperationsCounter, groupCacheSizeCounter } from './metrics'
+import {
+    groupCacheOperationsCounter,
+    groupCacheSizeCounter,
+    groupDatabaseOperationsPerBatchHistogram,
+    groupOptimisticUpdateConflictsPerBatchCounter,
+} from './metrics'
 
 interface PropertiesUpdate {
     updated: boolean
@@ -46,6 +51,7 @@ export class BatchWritingGroupStore implements GroupStore {
 
 export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     private distinctIdStores: Map<string, BatchWritingGroupStoreForDistinctIdBatch>
+    private databaseOperationCounts: Map<string, number>
     /**
      * A cache of groups that have been read from the database.
      *
@@ -62,6 +68,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     constructor(private db: DB, private options: BatchWritingGroupStoreOptions) {
         this.distinctIdStores = new Map()
         this.groupCache = new Map()
+        this.databaseOperationCounts = new Map()
     }
 
     forDistinctID(token: string, distinctId: string): GroupStoreForDistinctIdBatch {
@@ -69,7 +76,12 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         if (!this.distinctIdStores.has(key)) {
             this.distinctIdStores.set(
                 key,
-                new BatchWritingGroupStoreForDistinctIdBatch(this.db, this.groupCache, this.options)
+                new BatchWritingGroupStoreForDistinctIdBatch(
+                    this.db,
+                    this.groupCache,
+                    this.databaseOperationCounts,
+                    this.options
+                )
             )
         } else {
             logger.warn('⚠️', 'Reusing existing persons store for distinct ID in batch', { token, distinctId })
@@ -82,56 +94,67 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
 
-        for (const [_, update] of this.groupCache.entries()) {
-            if (!update) {
-                continue
-            }
+        await Promise.all(
+            Array.from(this.groupCache.entries())
+                .filter(([_, update]) => update !== null)
+                .map(async ([_, update]) => {
+                    if (!update) {
+                        return
+                    }
 
-            let success = false
-            while (!success) {
-                const actualVersion = await this.db.updateGroupOptimistically(
-                    update.team_id,
-                    update.group_type_index,
-                    update.group_key,
-                    update.version,
-                    update.group_properties,
-                    update.created_at,
-                    {},
-                    {}
-                )
+                    let success = false
+                    while (!success) {
+                        this.incrementDatabaseOperation('updateGroupOptimistically')
+                        const actualVersion = await this.db.updateGroupOptimistically(
+                            update.team_id,
+                            update.group_type_index,
+                            update.group_key,
+                            update.version,
+                            update.group_properties,
+                            update.created_at,
+                            {},
+                            {}
+                        )
 
-                if (actualVersion !== undefined) {
-                    success = true
-                } else {
-                    // Fetch latest version and remerge properties
-                    const latestGroup = await this.db.fetchGroup(
+                        if (actualVersion !== undefined) {
+                            success = true
+                        } else {
+                            groupOptimisticUpdateConflictsPerBatchCounter.inc()
+                            // Fetch latest version and remerge properties
+                            this.incrementDatabaseOperation('fetchGroup')
+                            const latestGroup = await this.db.fetchGroup(
+                                update.team_id,
+                                update.group_type_index,
+                                update.group_key
+                            )
+                            if (latestGroup) {
+                                // Merge our pending changes with latest DB state
+                                const propertiesUpdate = calculateUpdate(
+                                    latestGroup.group_properties || {},
+                                    update.group_properties
+                                )
+                                if (propertiesUpdate.updated) {
+                                    update.group_properties = propertiesUpdate.properties
+                                }
+                                update.version = latestGroup.version
+                            }
+                        }
+                    }
+
+                    await this.db.upsertGroupClickhouse(
                         update.team_id,
                         update.group_type_index,
-                        update.group_key
+                        update.group_key,
+                        update.group_properties,
+                        update.created_at,
+                        update.version
                     )
-                    if (latestGroup) {
-                        // Merge our pending changes with latest DB state
-                        const propertiesUpdate = calculateUpdate(
-                            latestGroup.group_properties || {},
-                            update.group_properties
-                        )
-                        if (propertiesUpdate.updated) {
-                            update.group_properties = propertiesUpdate.properties
-                        }
-                        update.version = latestGroup.version
-                    }
-                }
-            }
+                })
+        )
+    }
 
-            await this.db.upsertGroupClickhouse(
-                update.team_id,
-                update.group_type_index,
-                update.group_key,
-                update.group_properties,
-                update.created_at,
-                update.version
-            )
-        }
+    private incrementDatabaseOperation(operation: string): void {
+        this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
     }
 
     reportBatch(): void {
@@ -140,6 +163,9 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             groupCacheOperationsCounter.inc({ operation: 'hit' }, cacheMetrics.cacheHits)
             groupCacheOperationsCounter.inc({ operation: 'miss' }, cacheMetrics.cacheMisses)
             groupCacheSizeCounter.inc({ operation: 'size' }, cacheMetrics.cacheSize)
+        }
+        for (const [operation, count] of this.databaseOperationCounts.entries()) {
+            groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
         }
     }
 }
@@ -151,6 +177,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
     constructor(
         private db: DB,
         private groupCache: Map<string, GroupUpdate | null>,
+        private databaseOperationCounts: Map<string, number>,
         private options: BatchWritingGroupStoreOptions = {
             batchWritingEnabled: false,
         }
@@ -403,6 +430,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         expectedVersion: number,
         tx: any
     ): Promise<number> {
+        this.incrementDatabaseOperation('insertGroup')
         const insertedVersion = await this.db.insertGroup(
             teamId,
             groupTypeIndex,
@@ -448,5 +476,9 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
 
     private getCacheKey(teamId: number, groupKey: string): string {
         return `${teamId}:${groupKey}`
+    }
+
+    private incrementDatabaseOperation(operation: string): void {
+        this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
     }
 }
