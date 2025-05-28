@@ -11,6 +11,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-segment-worker.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
+import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
@@ -254,6 +255,14 @@ export class PluginServer {
             if (capabilities.cdpCyclotronWorkerFetch) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorkerFetch(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerHogFlow) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerHogFlow(hub)
                     await worker.start()
                     return worker.service
                 })

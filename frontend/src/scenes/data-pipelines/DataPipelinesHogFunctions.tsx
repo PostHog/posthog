@@ -19,12 +19,12 @@ export type DataPipelinesHogFunctionsProps = {
 export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; description: string }>> = {
     destination: {
         key: ProductKey.PIPELINE_DESTINATIONS,
-        description: 'Pipeline destinations allow you to send your data to external systems.',
+        description: 'Destinations allow you to send your data to external systems.',
     },
     transformation: {
         key: ProductKey.PIPELINE_TRANSFORMATIONS,
         description:
-            'Pipeline transformations allow you to enrich your data with additional information, such as geolocation.',
+            'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
     },
     site_app: {
         key: ProductKey.SITE_APPS,

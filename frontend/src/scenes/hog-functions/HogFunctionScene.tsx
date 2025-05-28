@@ -16,13 +16,21 @@ import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTest
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb, PipelineTab } from '~/types'
+import { ActivityScope, Breadcrumb, HogFunctionTypeType, PipelineTab } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
+
+const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, PipelineTab>> = {
+    transformation: PipelineTab.Transformations,
+    destination: PipelineTab.Destinations,
+    site_destination: PipelineTab.Destinations,
+    site_app: PipelineTab.SiteApps,
+    source_webhook: PipelineTab.Sources,
+}
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
@@ -65,13 +73,9 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     name: configuration?.name || '(Untitled)',
                 }
 
-                if (
-                    type === 'transformation' ||
-                    type === 'destination' ||
-                    type === 'site_destination' ||
-                    type === 'site_app' ||
-                    type === 'source_webhook'
-                ) {
+                const pipelineTab = DataPipelinesSceneMapping[type]
+
+                if (pipelineTab) {
                     return [
                         {
                             key: Scene.Pipeline,
@@ -81,15 +85,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
-                            path: urls.pipeline(
-                                type === 'destination' || type === 'site_destination'
-                                    ? PipelineTab.Destinations
-                                    : type === 'site_app'
-                                    ? PipelineTab.SiteApps
-                                    : type === 'source_webhook'
-                                    ? PipelineTab.Sources
-                                    : PipelineTab.Transformations
-                            ),
+                            path: urls.pipeline(pipelineTab),
                         },
                         finalCrumb,
                     ]

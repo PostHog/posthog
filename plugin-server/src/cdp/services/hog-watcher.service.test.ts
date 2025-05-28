@@ -10,12 +10,12 @@ import {
     HogWatcherService,
     HogWatcherState,
 } from '../../../src/cdp/services/hog-watcher.service'
-import { HogFunctionInvocationResult } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
 import { createExampleInvocation } from '../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../_tests/redis'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
@@ -25,27 +25,23 @@ const createResult = (options: {
     duration?: number
     finished?: boolean
     error?: string
-}): HogFunctionInvocationResult => {
-    return createInvocationResult(
+}): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+    const invocation = createExampleInvocation({ id: options.id, team_id: 2 })
+    invocation.state.timings = [
         {
-            ...createExampleInvocation({ id: options.id }),
-            id: 'invocation-id',
-            teamId: 2,
-            timings: [
-                {
-                    kind: 'hog',
-                    duration_ms: options.duration ?? 0,
-                },
-            ],
+            kind: 'hog',
+            duration_ms: options.duration ?? 0,
         },
+    ]
+
+    return createInvocationResult(
+        invocation,
         {
             queue: 'hog',
         },
         {
             finished: options.finished ?? true,
             error: options.error,
-            logs: [],
-            metrics: [],
         }
     )
 }
@@ -120,7 +116,10 @@ describe('HogWatcher', () => {
             `)
     })
 
-    const cases: [{ cost: number; state: number }, HogFunctionInvocationResult[]][] = [
+    const cases: [
+        { cost: number; state: number },
+        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
+    ][] = [
         [{ cost: 0, state: 1 }, [createResult({ id: 'id1' })]],
         [
             { cost: 0, state: 1 },
@@ -167,10 +166,13 @@ describe('HogWatcher', () => {
     it('should calculate costs per individual timing not based on total duration', async () => {
         // Create a result with multiple timings that would have different costs
         // if calculated individually vs. summed together
-        const result = createResult({ id: 'id1', finished: true }) as HogFunctionInvocationResult
+        const result = createResult({
+            id: 'id1',
+            finished: true,
+        }) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
 
         // Replace the default timing with multiple timings
-        result.invocation.timings = [
+        result.invocation.state.timings = [
             { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
             { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
             { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost

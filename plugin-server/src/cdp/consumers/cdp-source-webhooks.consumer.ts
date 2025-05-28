@@ -8,13 +8,18 @@ import { UUIDT } from '../../utils/utils'
 import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../types'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
+
+const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
+    return Array.isArray(value) ? value[0] : value
+}
 
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSourceWebhooksConsumer'
@@ -25,7 +30,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     constructor(hub: Hub) {
         super(hub)
         this.promiseScheduler = new PromiseScheduler()
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog', this.hogFunctionManager)
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
     }
 
     public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
@@ -46,14 +51,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         for (const [key, value] of Object.entries(req.headers)) {
             // TODO: WE should filter the headers to only include ones we know are safe to expose
-            if (value) {
-                headers[key.toLowerCase()] = Array.isArray(value) ? value[0] : value
+            const firstValue = getFirstHeaderValue(value)
+            if (firstValue) {
+                headers[key.toLowerCase()] = firstValue
             }
         }
 
         const body: Record<string, any> = req.body
         // TODO: Should this be filled via other headers?
-        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip
+        const ip = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
 
         const projectUrl = `${this.hub.SITE_URL ?? ''}/project/${hogFunction.team_id}`
 
@@ -83,7 +89,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             },
         }
 
-        let result: HogFunctionInvocationResult
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
 
         try {
             // TODO: Add error handling and logging

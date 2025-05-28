@@ -1,18 +1,27 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { UUIDT } from '../../utils/utils'
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionInvocationResult } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionInvocationGlobalsWithInputs,
+} from '../types'
 import { HogFunctionType } from '../types'
 import { isLegacyPluginHogFunction, isSegmentPluginHogFunction } from '../utils'
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
     hogFunction: HogFunctionType
-): HogFunctionInvocation {
+): CyclotronJobInvocationHogFunction {
     return {
         id: new UUIDT().toString(),
-        globals,
+        state: {
+            globals,
+            timings: [],
+        },
         teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
         hogFunction,
         queue: isLegacyPluginHogFunction(hogFunction)
             ? 'plugin'
@@ -20,21 +29,21 @@ export function createInvocation(
             ? 'segment'
             : 'hog',
         queuePriority: 0,
-        timings: [],
     }
 }
 
 /**
  * Clones an invocation, removing all queue related values
  */
-export function cloneInvocation(
-    invocation: HogFunctionInvocation,
+
+export function cloneInvocation<T extends CyclotronJobInvocation>(
+    invocation: T,
     params: Pick<
-        Partial<HogFunctionInvocation>,
+        Partial<CyclotronJobInvocation>,
         'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
     > &
-        Pick<HogFunctionInvocation, 'queue'>
-): HogFunctionInvocation {
+        Pick<CyclotronJobInvocation, 'queue'>
+): T {
     return {
         ...invocation,
         // The target queue is always required
@@ -55,18 +64,18 @@ export function cloneInvocation(
 /**
  * Safely creates an invocation result from an invocation, cloning it and resetting the relevant queue parameters
  */
-export function createInvocationResult(
-    invocation: HogFunctionInvocation,
+export function createInvocationResult<T extends CyclotronJobInvocation>(
+    invocation: CyclotronJobInvocation,
     invocationParams: Pick<
-        Partial<HogFunctionInvocation>,
+        Partial<CyclotronJobInvocation>,
         'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
     > &
-        Pick<HogFunctionInvocation, 'queue'>,
+        Pick<CyclotronJobInvocation, 'queue'>,
     resultParams: Pick<
-        Partial<HogFunctionInvocationResult>,
+        Partial<CyclotronJobInvocationResult>,
         'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error'
     > = {}
-): HogFunctionInvocationResult {
+): CyclotronJobInvocationResult<T> {
     return {
         // Clone the invocation for the result cleaned
         finished: true,
@@ -74,6 +83,6 @@ export function createInvocationResult(
         logs: [],
         metrics: [],
         ...resultParams,
-        invocation: cloneInvocation(invocation, invocationParams),
+        invocation: cloneInvocation(invocation, invocationParams) as T,
     }
 }

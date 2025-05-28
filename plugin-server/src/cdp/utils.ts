@@ -14,9 +14,9 @@ import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationLogEntry,
-    HogFunctionLogEntrySerialized,
     HogFunctionType,
+    LogEntry,
+    LogEntrySerialized,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
@@ -289,8 +289,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return parseJSON(res.toString())
 }
 
-export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
-    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
+    const preparedLogs: LogEntrySerialized[] = []
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -309,7 +309,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
         previousTimestamp = logEntry.timestamp
 
-        const sanitized: HogFunctionLogEntrySerialized = {
+        const sanitized: LogEntrySerialized = {
             ...logEntry,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
