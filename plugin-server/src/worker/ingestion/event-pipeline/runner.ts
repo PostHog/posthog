@@ -103,7 +103,7 @@ export class EventPipelineRunner {
 
         const preparedEvent = await this.runStep(
             prepareEventStep,
-            [this, normalizedEvent, processPerson, this.groupStoreForDistinctId],
+            [this, normalizedEvent, processPerson],
             event.team_id
         )
 
@@ -276,7 +276,7 @@ export class EventPipelineRunner {
 
         const preparedEvent = await this.runStep(
             prepareEventStep,
-            [this, postPersonEvent, processPerson, this.groupStoreForDistinctId],
+            [this, postPersonEvent, processPerson],
             event.team_id
         )
 
