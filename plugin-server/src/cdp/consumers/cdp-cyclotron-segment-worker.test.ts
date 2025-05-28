@@ -149,9 +149,9 @@ describe('CdpCyclotronWorkerSegment', () => {
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
 
             mockFetch.mockResolvedValue({
-                status: 429,
-                json: () => Promise.resolve({ error: 'Too many requests' }),
-                text: () => Promise.resolve(JSON.stringify({ error: 'Too many requests' })),
+                status: 403,
+                json: () => Promise.resolve({ error: 'Forbidden' }),
+                text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
             })
 
@@ -165,7 +165,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 }
             })
 
-            expect(invocationResults[0].logs).toMatchInlineSnapshot(`[]`)
+            expect(invocationResults[0].logs).toMatchSnapshot()
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(amplitudeAction.perform!).mock.calls[0][1])).toMatchSnapshot()
@@ -191,23 +191,10 @@ describe('CdpCyclotronWorkerSegment', () => {
                 hogFunction: expect.any(Object),
                 id: expect.any(String),
                 queue: 'segment',
-                queueMetadata: {
-                    trace: [
-                        {
-                            headers: {
-                                'retry-after': '60',
-                            },
-                            kind: 'failurestatus',
-                            message: 'Received failure status: 429',
-                            status: 429,
-                            timestamp: expect.any(Object),
-                        },
-                    ],
-                    tries: 1,
-                },
+                queueMetadata: undefined,
                 queueParameters: undefined,
-                queuePriority: 1,
-                queueScheduledAt: expect.any(Object),
+                queuePriority: 0,
+                queueScheduledAt: undefined,
                 queueSource: undefined,
                 teamId: 2,
                 timings: [],
