@@ -186,9 +186,42 @@ describe('CdpCyclotronWorkerSegment', () => {
                 ]
             `)
 
+            expect({
+                ...jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation,
+                globals: {},
+                hogFunction: {},
+            }).toMatchInlineSnapshot(`
+                {
+                  "globals": {},
+                  "hogFunction": {},
+                  "id": "01941f29-7c00-0005-9dab-793890c25413",
+                  "queue": "segment",
+                  "queueMetadata": {
+                    "trace": [
+                      {
+                        "headers": {
+                          "retry-after": "60",
+                        },
+                        "kind": "failurestatus",
+                        "message": "Received failure status: 429",
+                        "status": 429,
+                        "timestamp": "2025-01-01T00:00:00.000Z",
+                      },
+                    ],
+                    "tries": 1,
+                  },
+                  "queueParameters": undefined,
+                  "queuePriority": 1,
+                  "queueScheduledAt": "2025-01-01T00:00:01.699Z",
+                  "queueSource": undefined,
+                  "teamId": 2,
+                  "timings": [],
+                }
+            `)
+
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
                 {
-                    finished: true,
+                    finished: false,
                 },
             ])
         }, 10000)
