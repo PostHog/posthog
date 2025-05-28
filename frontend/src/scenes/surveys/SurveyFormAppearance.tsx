@@ -43,7 +43,7 @@ export function SurveyFormAppearance({
                     )
                 }}
             />
-            <LemonField.Pure label="Current question" className="max-w-sm gap-1" htmlFor="current-question-select">
+            <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
                 <LemonSelect
                     onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
                     className="whitespace-nowrap"

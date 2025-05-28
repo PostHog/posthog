@@ -61,7 +61,7 @@ import {
     validateColor,
 } from './utils'
 
-export type SurveyBaseStatTuple = [string, number, number, string | null, string | null]
+export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 
@@ -423,6 +423,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING DISMISSED AND SENT COUNT
                         SELECT count()
                         FROM (
                             SELECT person_id
@@ -1201,25 +1202,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
 
                 // Use survey start date as lower bound if needed
-                const surveyStartDayjs = survey.start_date ? dayjs(survey.start_date) : null
+                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
                 if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
                     fromDateDayjs = surveyStartDayjs
                 }
 
                 // Fall back to survey start date if no valid from date
-                const fromDate = fromDateDayjs ? fromDateDayjs.format(DATE_FORMAT) : getSurveyStartDateForQuery(survey)
+                const fromDate = fromDateDayjs
+                    ? fromDateDayjs.utc().format(DATE_FORMAT)
+                    : getSurveyStartDateForQuery(survey)
 
                 // ----- Handle TO date -----
                 // Parse the date string or use current time
-                let toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
+                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
 
                 // Use survey end date as upper bound if it exists
-                const surveyEndDayjs = survey.end_date ? dayjs(survey.end_date) : null
-                if (surveyEndDayjs && toDateDayjs.isAfter(surveyEndDayjs)) {
-                    toDateDayjs = surveyEndDayjs
-                }
-
-                const toDate = toDateDayjs.format(DATE_FORMAT)
+                const toDate = survey.end_date
+                    ? getSurveyEndDateForQuery(survey)
+                    : toDateDayjs.utc().format(DATE_FORMAT)
 
                 return `AND timestamp >= '${fromDate}'
                 AND timestamp <= '${toDate}'`

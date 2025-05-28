@@ -6,10 +6,12 @@ import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from './maxLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 
 export function QuestionSuggestions(): JSX.Element {
     const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted, tools } = useValues(maxLogic)
-    const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
+    const { shuffleVisibleSuggestions } = useActions(maxLogic)
+    const { askMax } = useActions(maxThreadLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
