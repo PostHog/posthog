@@ -131,10 +131,10 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
 @contextmanager
 def get_http_client(**overrides):
     kwargs = {
-        "host": settings.QUERYSERVICE_HOST,
+        "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
-        "secure": settings.QUERYSERVICE_SECURE,
-        "username": settings.CLICKHOUSE_USER,
+        "secure": settings.CLICKHOUSE_SECURE,
+        "user": settings.CLICKHOUSE_USER,  # kwargs have user not username
         "password": settings.CLICKHOUSE_PASSWORD,
         "settings": {"mutations_sync": "1"} if settings.TEST else {},
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
@@ -181,8 +181,8 @@ def get_kwargs_for_client(
     # Note that `readonly` does nothing if the relevant vars are not set!
     if readonly and settings.READONLY_CLICKHOUSE_USER is not None and settings.READONLY_CLICKHOUSE_PASSWORD:
         return {
-            user: settings.READONLY_CLICKHOUSE_USER,
-            password: settings.READONLY_CLICKHOUSE_PASSWORD,
+            "user": settings.READONLY_CLICKHOUSE_USER,
+            "password": settings.READONLY_CLICKHOUSE_PASSWORD,
         }
 
     if (
