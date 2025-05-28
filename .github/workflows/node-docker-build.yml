@@ -121,7 +121,7 @@ jobs:
                   $DOCKER_RUN ./bin/plugin-server &> /tmp/logs/server.txt &
 
             - name: Wait for PostHog
-              uses: iFaxity/wait-on-action@v1.2.1
+              uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
               timeout-minutes: 3
               with:
                   verbose: true
