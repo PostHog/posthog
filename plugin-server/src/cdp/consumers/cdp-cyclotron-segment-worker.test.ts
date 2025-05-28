@@ -8,7 +8,7 @@ import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import {
     amplitudeInputs,
-    createSegmentInvocation,
+    createExampleSegmentInvocation,
     insertHogFunction as _insertHogFunction,
     pipedriveResponse,
 } from '../_tests/fixtures'
