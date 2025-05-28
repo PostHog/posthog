@@ -45,7 +45,7 @@ export function DataPipelinesSources(): JSX.Element {
                 </FlaggedFeature>
 
                 <div>
-                    <h2>Managed sources</h2>
+                    <h2>Managed data warehouse sources</h2>
                     <p>
                         PostHog can connect to external sources and automatically import data from them into the PostHog
                         data warehouse
@@ -53,7 +53,7 @@ export function DataPipelinesSources(): JSX.Element {
                     <DataWarehouseManagedSourcesTable />
                 </div>
                 <div>
-                    <h2>Self-managed sources</h2>
+                    <h2>Self-managed data warehouse sources</h2>
                     <p>Connect to your own data sources, making them queryable in PostHog</p>
                     <DataWarehouseSelfManagedSourcesTable />
                 </div>

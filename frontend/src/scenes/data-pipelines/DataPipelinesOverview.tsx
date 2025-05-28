@@ -66,10 +66,10 @@ export function DataPipelinesOverview(): JSX.Element {
                         <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />
                     </Section>
                 </FlaggedFeature>
-                <Section title="Managed sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <Section title="Managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
                     <DataWarehouseManagedSourcesTable />
                 </Section>
-                <Section title="Self-managed sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <Section title="Self-managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
                     <DataWarehouseSelfManagedSourcesTable />
                 </Section>
                 <Section title="Transformations" to={urls.pipeline(PipelineTab.Transformations)}>

@@ -199,7 +199,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 ]}
             />
 
-            <h2 className="mt-4">Data warehouse self-managed sources</h2>
+            <h2 className="mt-4">Self-managed data warehouse sources</h2>
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}

@@ -1,4 +1,5 @@
 import { kea, path, props, selectors, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
@@ -9,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export type DataPipelinesNewSceneProps = {
     kind: 'transformation' | 'destination' | 'source' | 'site_app'
