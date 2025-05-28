@@ -1017,13 +1017,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     return block_index, None
 
             with timer("fetch_blocks_parallel__stream_blob_v2_to_client"):
-                # Create tasks for all block fetches
                 tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
 
-                # Wait for all tasks to complete
                 results = await asyncio.gather(*tasks)
 
-                # Process results in order
                 decompressed_blocks: list[str | None] = [None] * len(results)
                 block_errors: list[int] = []
 
