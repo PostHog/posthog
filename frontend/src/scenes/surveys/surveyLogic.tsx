@@ -178,28 +178,40 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
+export interface ChoiceQuestionResponseData {
+    label: string
+    value: number
+    isPredefined: boolean
+}
+
+export interface OpenQuestionResponseData {
+    distinctId: string
+    response: string
+    personProperties?: Record<string, any>
+}
+
 // single question and rating are effectively the same, since we count the frequency of each choice
-export interface ChoiceQuestionProcessedData {
+export interface ChoiceQuestionProcessedResponses {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
-    data?: { label: string; value: number; isPredefined: boolean }[]
+    data?: ChoiceQuestionResponseData[]
     totalResponses: number
 }
 
-export interface OpenQuestionProcessedData {
+export interface OpenQuestionProcessedResponses {
     type: SurveyQuestionType.Open
-    data: { distinctId: string; response: string; personProperties?: Record<string, any> }[]
+    data: OpenQuestionResponseData[]
     totalResponses: number
 }
 
-export type QuestionProcessedData = ChoiceQuestionProcessedData | OpenQuestionProcessedData
+export type QuestionProcessedResponses = ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
 
 interface ResponsesByQuestion {
-    [questionId: string]: QuestionProcessedData
+    [questionId: string]: QuestionProcessedResponses
 }
 
 export interface ConsolidatedSurveyResults {
     responsesByQuestion: {
-        [questionId: string]: QuestionProcessedData
+        [questionId: string]: QuestionProcessedResponses
     }
 }
 
@@ -219,7 +231,7 @@ function processSingleChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
     results: Array<string | string[]>
-): ChoiceQuestionProcessedData {
+): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     let total = 0
 
@@ -258,7 +270,7 @@ function processRatingQuestion(
     question: RatingSurveyQuestion,
     questionIndex: number,
     results: Array<string | string[]>
-): ChoiceQuestionProcessedData {
+): ChoiceQuestionProcessedResponses {
     const scaleSize = question.scale === 10 ? 11 : question.scale
     const counts = new Array(scaleSize).fill(0)
     let total = 0
@@ -291,7 +303,7 @@ function processMultipleChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
     results: Array<string | string[]>
-): ChoiceQuestionProcessedData {
+): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     let total = 0
 
@@ -330,7 +342,7 @@ function processMultipleChoiceQuestion(
     }
 }
 
-function processOpenQuestion(questionIndex: number, results: Array<string | string[]>): OpenQuestionProcessedData {
+function processOpenQuestion(questionIndex: number, results: Array<string | string[]>): OpenQuestionProcessedResponses {
     const data: { distinctId: string; response: string; personProperties?: Record<string, any> }[] = []
     let totalResponses = 0
 
@@ -379,7 +391,7 @@ function processResultsForSurveyQuestions(
             return
         }
 
-        let processedData: QuestionProcessedData
+        let processedData: QuestionProcessedResponses
 
         switch (question.type) {
             case SurveyQuestionType.SingleChoice:

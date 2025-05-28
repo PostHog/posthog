@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify'
 import { dayjs } from 'lib/dayjs'
-import { QuestionProcessedData, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
@@ -117,7 +117,7 @@ interface NPSRawData {
 /**
  * Extracts raw NPS data from processed survey data
  */
-function extractNPSRawData(processedData: QuestionProcessedData): NPSRawData | null {
+function extractNPSRawData(processedData: QuestionProcessedResponses): NPSRawData | null {
     if (
         !processedData?.data ||
         processedData.type !== SurveyQuestionType.Rating ||
@@ -170,7 +170,7 @@ function calculateNPSFromRawData(rawData: NPSRawData): NPSBreakdown {
     }
 }
 
-export function calculateNpsBreakdownFromProcessedData(processedData: QuestionProcessedData): NPSBreakdown | null {
+export function calculateNpsBreakdownFromProcessedData(processedData: QuestionProcessedResponses): NPSBreakdown | null {
     const rawData = extractNPSRawData(processedData)
     return rawData ? calculateNPSFromRawData(rawData) : null
 }
