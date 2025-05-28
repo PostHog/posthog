@@ -188,7 +188,7 @@ def get_token(data, request) -> Optional[str]:
 
 def get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
-        return int(request.POST["project_id"])
+        return int(request.GET["project_id"])
     if request.POST.get("project_id"):
         return int(request.POST["project_id"])
     if isinstance(data, list):

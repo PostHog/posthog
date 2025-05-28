@@ -8,6 +8,7 @@ from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
+from posthog.api.test.test_hog_function import _create_template_from_mock
 from rest_framework import status
 from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -52,6 +53,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
+
+            _create_template_from_mock(MOCK_NODE_TEMPLATES[12])
+            _create_template_from_mock(MOCK_NODE_TEMPLATES[16])
 
     def _get_plugin_activity(self, expected_status: int = status.HTTP_200_OK):
         activity = self.client.get(f"/api/organizations/@current/plugins/activity")
