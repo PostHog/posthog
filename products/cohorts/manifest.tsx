@@ -11,8 +11,10 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         cohort: {
+            name: 'Cohort',
             icon: <IconPeople />,
             href: (ref: string) => urls.cohort(ref),
+            filterKey: 'cohort',
         },
     },
     treeItemsNew: [
@@ -23,4 +25,5 @@ export const manifest: ProductManifest = {
         },
     ],
     treeItemsProducts: [],
+    treeItemsDataManagement: [],
 }

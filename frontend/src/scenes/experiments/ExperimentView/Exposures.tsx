@@ -4,6 +4,7 @@ import { Chart, ChartConfiguration } from 'chart.js/auto'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
@@ -42,20 +43,35 @@ export function Exposures(): JSX.Element {
             return
         }
 
+        let labels = exposures.timeseries[0].days
+        let datasets = exposures.timeseries.map((series: Record<string, any>, index: number) => ({
+            label: series.variant,
+            data: series.exposure_counts,
+            borderColor: getSeriesColor(index),
+            backgroundColor: getSeriesBackgroundColor(index),
+            fill: false,
+            tension: 0,
+            borderWidth: 2,
+            pointRadius: 0,
+        }))
+
+        // If only one day, pad with a previous day of zeros
+        if (exposures.timeseries[0].days.length === 1) {
+            const firstDay = dayjs(labels[0])
+            const previousDay = firstDay.subtract(1, 'day').format('YYYY-MM-DD')
+
+            labels = [previousDay, ...labels]
+            datasets = datasets.map((dataset: Record<string, any>) => ({
+                ...dataset,
+                data: [0, ...dataset.data],
+            }))
+        }
+
         const config: ChartConfiguration = {
             type: 'line',
             data: {
-                labels: exposures.timeseries[0].days,
-                datasets: exposures.timeseries.map((series: Record<string, any>, index: number) => ({
-                    label: series.variant,
-                    data: series.exposure_counts,
-                    borderColor: getSeriesColor(index),
-                    backgroundColor: getSeriesBackgroundColor(index),
-                    fill: false,
-                    tension: 0,
-                    borderWidth: 2,
-                    pointRadius: 0,
-                })),
+                labels,
+                datasets,
             },
             options: {
                 responsive: true,

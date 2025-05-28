@@ -1,6 +1,8 @@
 import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { EventType } from '~/types'
 
@@ -10,6 +12,7 @@ import { MetadataHeader } from './MetadataHeader'
 
 export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
@@ -17,6 +20,11 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
             input: eventProperties.$ai_input,
         })
     }
+
+    const showPlaygroundButton =
+        eventProperties.$ai_model &&
+        eventProperties.$ai_input &&
+        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
     return (
         <>
@@ -29,7 +37,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     latency={eventProperties.$ai_latency}
                 />
 
-                {eventProperties.$ai_model && eventProperties.$ai_input && (
+                {showPlaygroundButton && (
                     <LemonButton
                         type="secondary"
                         size="small"

@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import exceptions, filters, request, response, serializers, status, viewsets, parsers
+from rest_framework import filters, request, response, serializers, status, viewsets, parsers
 from posthog.api.utils import action
 from django.conf import settings
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
@@ -18,6 +18,8 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+import posthoganalytics
+from posthog.models import Team
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -97,14 +99,6 @@ class TableSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         team_id = self.context["team_id"]
 
-        table_name_exists = (
-            DataWarehouseTable.objects.exclude(deleted=True)
-            .filter(team_id=team_id, name=validated_data["name"])
-            .exists()
-        )
-        if table_name_exists:
-            raise exceptions.ValidationError("Table name already exists.")
-
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
         if validated_data.get("credential"):
@@ -123,6 +117,13 @@ class TableSerializer(serializers.ModelSerializer):
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
+
+    def validate_name(self, name):
+        name_exists_in_hogql_database = self.context["database"].has_table(name)
+        if name_exists_in_hogql_database:
+            raise serializers.ValidationError("A table with this name already exists.")
+
+        return name
 
 
 class SimpleTableSerializer(serializers.ModelSerializer):
@@ -278,6 +279,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parser_classes=[parsers.MultiPartParser, parsers.FormParser],
     )
     def file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = Team.objects.get(id=self.team_id)
+        is_warehouse_api_enabled = posthoganalytics.feature_enabled(
+            "warehouse-api",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
+
+        if not is_warehouse_api_enabled:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": "Warehouse API is not enabled for this endpoint"}
+            )
+
         if "file" not in request.FILES:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
 

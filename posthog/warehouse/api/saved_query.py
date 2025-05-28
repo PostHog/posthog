@@ -170,8 +170,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     view.columns = columns
 
                 view.external_tables = view.s3_tables
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
+            except Exception:
+                raise serializers.ValidationError("Failed to retrieve types for view")
 
         with transaction.atomic():
             view.save()
@@ -275,8 +275,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                         view.external_tables = view.s3_tables
                     except RecursionError:
                         raise serializers.ValidationError("Model contains a cycle")
-                    except Exception as err:
-                        raise serializers.ValidationError(str(err))
+                    except Exception:
+                        raise serializers.ValidationError("Failed to retrieve types for view")
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
@@ -343,6 +343,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         return query
 
+    def validate_name(self, name):
+        # if it's an upsert, we don't want to validate the name
+        if self.instance is not None:
+            if self.instance.name == name:
+                return name
+
+        name_exists_in_hogql_database = self.context["database"].has_table(name)
+        if name_exists_in_hogql_database:
+            raise serializers.ValidationError("A table with this name already exists.")
+
+        return name
+
 
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -393,19 +405,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         return base_queryset
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
         # Check for UPSERT logic
         saved_query = DataWarehouseSavedQuery.objects.filter(
-            team_id=self.team_id, name=serializer.validated_data.get("name")
+            team_id=self.team_id, name=request.data.get("name")
         ).first()
         if saved_query:
             # Update logic
-            serializer = self.get_serializer(saved_query, data=serializer.validated_data, partial=True)
+            serializer = self.get_serializer(saved_query, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
             return Response(serializer.data, status=status.HTTP_200_OK)
         else:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
             # Create logic
             self.perform_create(serializer)
             return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -564,8 +564,8 @@ export function gatherProductManifests(__dirname) {
     const fileSystemTypes = []
     const treeItemsNew = {}
     const treeItemsGames = {}
+    const treeItemsDataManagement = {}
     const treeItemsProducts = {}
-    const fileSystemFilterTypes = []
 
     const sourceFiles = []
     for (const product of products) {
@@ -654,10 +654,6 @@ export function gatherProductManifests(__dirname) {
                     for (const property of node.initializer.properties) {
                         fileSystemTypes.push(cloneNode(property))
                     }
-                } else if (node.name.text === 'fileSystemFilterTypes') {
-                    for (const property of node.initializer.properties) {
-                        fileSystemFilterTypes.push(cloneNode(property))
-                    }
                 } else {
                     ts.forEachChild(node, visit)
                 }
@@ -680,7 +676,7 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsGames')
+                (node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsDataManagement' || node.name.text === 'treeItemsGames')
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
@@ -689,6 +685,8 @@ export function gatherProductManifests(__dirname) {
                         if (path) {
                             if (node.name.text === 'treeItemsProducts') {
                                 treeItemsProducts[path] = cloneNode(element)
+                            } else if (node.name.text === 'treeItemsDataManagement') {
+                                treeItemsDataManagement[path] = cloneNode(element)
                             } else {
                                 treeItemsGames[path] = cloneNode(element)
                             }
@@ -767,9 +765,13 @@ export function gatherProductManifests(__dirname) {
         ),
         sourceFile
     )
-    const manifestTreeFilterTypes = printer.printNode(
+    const manifestTreeItemsDataManagement = printer.printNode(
         ts.EmitHint.Unspecified,
-        ts.factory.createObjectLiteralExpression(fileSystemFilterTypes),
+        ts.factory.createArrayLiteralExpression(
+            Object.keys(treeItemsDataManagement)
+                .sort()
+                .map((key) => treeItemsDataManagement[key])
+        ),
         sourceFile
     )
 
@@ -813,7 +815,7 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const getTreeItemsGames = (): FileSystemImport[] => ${manifestTreeItemsGames}\n
         ${autogenComment}
-        export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
+        export const getTreeItemsDataManagement = (): FileSystemImport[] => ${manifestTreeItemsDataManagement}\n
     `
 
     // safe temporary path in /tmp
