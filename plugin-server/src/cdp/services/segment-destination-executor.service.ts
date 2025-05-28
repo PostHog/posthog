@@ -23,9 +23,9 @@ import {
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
-import { CDP_TEST_ID, cloneInvocation, isSegmentPluginHogFunction } from '../utils'
-import { RETRIABLE_STATUS_CODES } from './fetch-executor.service'
+import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
+import { RETRIABLE_STATUS_CODES } from './fetch-executor.service'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -189,17 +189,19 @@ export class SegmentDestinationExecutorService {
                 retryCount: updatedMetadata.tries,
             })
 
-            return {
-                invocation: cloneInvocation(invocation, {
+            return createInvocationResult(
+                invocation,
+                {
                     queue: 'segment', // Keep in segment queue for retry
                     queueMetadata: updatedMetadata,
                     queueParameters: invocation.queueParameters, // Keep the same parameters
                     queuePriority: invocation.queuePriority + 1, // Decrease priority for retries
                     queueScheduledAt: nextScheduledAt,
-                }),
-                finished: false,
-                logs: [],
-            }
+                },
+                {
+                    finished: false,
+                }
+            )
         }
 
         // If we've exceeded retries, return all failures in trace
@@ -249,6 +251,7 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
+                    endpoint = 'http://localhost:2080/4586c403-cb53-49dd-b291-747d5cd8812f'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
