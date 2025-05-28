@@ -1,6 +1,6 @@
 import json
 import xml.etree.ElementTree as ET
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
@@ -47,12 +47,6 @@ class InsightRagContextNode(AssistantNode):
         return PartialAssistantState(
             rag_context=self._retrieve_actions(vector, trace_id=trace_id, distinct_id=distinct_id)
         )
-
-    def router(self, state: AssistantState) -> NextRagNode:
-        if state.root_tool_insight_type and state.root_tool_insight_type not in NEXT_RAG_NODES:
-            raise ValueError(f"Invalid insight type: {state.root_tool_insight_type}")
-        next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
-        return next_node
 
     def _retrieve_actions(
         self, embedding: list[float], trace_id: Any | None = None, distinct_id: Any | None = None

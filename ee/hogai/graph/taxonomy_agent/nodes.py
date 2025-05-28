@@ -16,6 +16,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from ee.hogai.graph.sql.prompts import SQL_REACT_SYSTEM_PROMPT
+
 from .parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -39,7 +41,7 @@ from .prompts import (
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
 )
-from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
+from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion, ToolkitTool
 from ee.hogai.utils.helpers import remove_line_breaks
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -320,3 +322,54 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             )
         ]
         return reset_state
+
+
+class QueryTaxonomyAgentToolkit(TaxonomyAgentToolkit):
+    def _get_tools(self) -> list[ToolkitTool]:
+        return [
+            *self._default_tools,
+            {
+                "name": "final_answer",
+                "signature": "(final_response: str)",
+                "description": """
+                    Use this tool to provide the final answer to the user's question.
+
+                    Answer in the following format:
+                    ```
+                    Logic:
+                    - description of each logical layer of the query (if aggregations needed, include which concrete aggregation to use)
+
+
+                    Sources:
+                    - event 1
+                        - how it will be used, most importantly conditions
+                    - action ID 2
+                        - how it will be used, most importantly conditions
+                    - data warehouse table 3
+                        - how it will be used, most importantly conditions
+                    - repeat for each event/action/data warehouse table...
+                    ```
+
+                    Args:
+                        final_response: List all events and properties that you want to use to answer the question.
+                """,
+            },
+        ]
+
+
+class QueryPlannerNode(TaxonomyAgentPlannerNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        toolkit = QueryTaxonomyAgentToolkit(self._team)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SQL_REACT_SYSTEM_PROMPT),
+            ],
+            template_format="mustache",
+        )
+        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+
+
+class QueryPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        toolkit = QueryTaxonomyAgentToolkit(self._team)
+        return super()._run_with_toolkit(state, toolkit, config=config)

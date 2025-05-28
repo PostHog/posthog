@@ -467,7 +467,7 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_insight_type=tool_call.args["query_kind"],
+                root_tool_insight_type=None,  # We used to set this here based on the tool call, but now we figure out insight type later
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_documentation":
@@ -518,7 +518,7 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            if state.root_tool_insight_type:
+            if state.root_tool_insight_plan:
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"

@@ -292,16 +292,7 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case (
-                AssistantNodeName.TRENDS_PLANNER
-                | AssistantNodeName.TRENDS_PLANNER_TOOLS
-                | AssistantNodeName.FUNNEL_PLANNER
-                | AssistantNodeName.FUNNEL_PLANNER_TOOLS
-                | AssistantNodeName.RETENTION_PLANNER
-                | AssistantNodeName.RETENTION_PLANNER_TOOLS
-                | AssistantNodeName.SQL_PLANNER
-                | AssistantNodeName.SQL_PLANNER_TOOLS
-            ):
+            case AssistantNodeName.QUERY_PLANNER | AssistantNodeName.QUERY_PLANNER_TOOLS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
