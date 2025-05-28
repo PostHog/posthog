@@ -35,7 +35,7 @@ const ResultsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         metricResultsLoading,
-        hasEnoughDataForResults,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
@@ -53,14 +53,14 @@ const ResultsTab = (): JSX.Element => {
                 </>
             )}
             {/* Show overview if there's only a single primary metric */}
-            {hasSinglePrimaryMetric && hasEnoughDataForResults && (
+            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
             <MetricsView isSecondary={false} />
             {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+            {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
