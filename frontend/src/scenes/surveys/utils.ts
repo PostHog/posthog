@@ -315,9 +315,7 @@ export function isSurveyRunning(survey: Survey): boolean {
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 export function getSurveyStartDateForQuery(survey: Survey): string {
-    return survey.start_date
-        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
-        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
+    return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Survey): string {

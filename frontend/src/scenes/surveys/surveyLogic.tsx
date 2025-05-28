@@ -1493,7 +1493,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Parse the date string to a dayjs object
                 let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
 
-                // Use survey start date as lower bound if needed
+                // Use survey creation date as lower bound if needed
                 const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
                 if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
                     fromDateDayjs = surveyStartDayjs
@@ -1815,7 +1815,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         getBranchingDropdownValue: [
             (s) => [s.survey],
-            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+            (survey) => (questionIndex: number, question: SurveyQuestion) => {
                 if (question.branching?.type) {
                     const { type } = question.branching
 
