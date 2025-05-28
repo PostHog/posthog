@@ -196,7 +196,15 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(invocationResults[0].error).toBeInstanceOf(Error)
-            expect(forSnapshot(invocationResults[0].logs)).toMatchInlineSnapshot(`[]`)
+            expect(forSnapshot(invocationResults[0].logs)).toMatchInlineSnapshot(`
+                [
+                  {
+                    "level": "error",
+                    "message": "Plugin execution failed: Service is down, retry later",
+                    "timestamp": "2025-01-01T01:00:00.000+01:00",
+                  },
+                ]
+            `)
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
                 {
