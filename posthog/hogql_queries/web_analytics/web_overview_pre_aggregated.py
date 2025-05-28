@@ -10,6 +10,25 @@ if TYPE_CHECKING:
 SUPPORTED_PROPERTIES = {
     "$host": "host",
     "$device_type": "device_type",
+    # We convert the pathname to entry_pathname when filtering by pathname for the overview only.
+    # This is the same workaround as the one used in the stats_table.py (see _event_properties_for_bounce_rate)
+    # The actual way to keep 100% accuracy with the existing version is to join with web_stats_daily
+    # and filter by pathname there. This is a compromise to keep the query simpler in the meantime as we
+    # don't have access to all events to filter the inner query here.
+    "$pathname": "entry_pathname",
+    "$entry_pathname": "entry_pathname",
+    "$end_pathname": "end_pathname",
+    "$browser": "browser",
+    "$os": "os",
+    "$referring_domain": "referring_domain",
+    "$entry_utm_source": "utm_source",
+    "$entry_utm_medium": "utm_medium",
+    "$entry_utm_campaign": "utm_campaign",
+    "$entry_utm_term": "utm_term",
+    "$entry_utm_content": "utm_content",
+    "$geoip_country_code": "country_code",
+    "$geoip_city_name": "city_name",
+    "$geoip_subdivision_1_code": "region_code",
 }
 
 
@@ -40,8 +59,8 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
                 NULL AS revenue,
                 NULL AS previous_revenue
-            FROM web_overview_daily
-            """,
+        FROM web_bounces_daily
+        """,
             placeholders={
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
                 "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", previous_period_filter),
@@ -55,14 +74,14 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 "avg_session_duration_previous": self._safe_avg_sessions(
                     "total_session_duration_state", previous_period_filter
                 ),
-                "bounce_rate_current": self._safe_avg_sessions("total_bounces_state", current_period_filter),
-                "bounce_rate_previous": self._safe_avg_sessions("total_bounces_state", previous_period_filter),
+                "bounce_rate_current": self._safe_avg_sessions("bounces_count_state", current_period_filter),
+                "bounce_rate_previous": self._safe_avg_sessions("bounces_count_state", previous_period_filter),
             },
         )
 
         assert isinstance(query, ast.SelectQuery)
 
-        filters = self._get_filters(table_name="web_overview_daily")
+        filters = self._get_filters(table_name="web_bounces_daily")
         if filters:
             query.where = filters
 

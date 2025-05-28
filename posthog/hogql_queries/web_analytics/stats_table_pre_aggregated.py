@@ -209,7 +209,20 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["os"])
             case WebStatsBreakdown.VIEWPORT:
-                return ast.Field(chain=["viewport"])
+                return ast.Call(
+                    name="concat",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=["viewport_width"])],
+                        ),
+                        ast.Constant(value="x"),
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=["viewport_height"])],
+                        ),
+                    ],
+                )
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:

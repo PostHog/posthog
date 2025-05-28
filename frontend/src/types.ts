@@ -4231,7 +4231,7 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
-    | 'warehouse_saved_query'
+    | 'warehouse_view'
     | 'warehouse_table'
 
 export enum AccessControlLevel {
@@ -4446,7 +4446,6 @@ export interface DataWarehouseSavedQuery {
     status?: string
     latest_error: string | null
     latest_history_id?: string
-    managed?: boolean
 }
 
 export interface DataWarehouseViewLink {
@@ -4486,6 +4485,15 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'GoogleAds',
+    'MetaAds',
+    'Klaviyo',
+    'Mailchimp',
+    'Braze',
+    'Mailjet',
+    'Redshift',
+    'GoogleSheets',
+    'Mongodb',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4993,6 +5001,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     oauthPayload?: string[]
     existingSource?: boolean
+    unreleasedSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
