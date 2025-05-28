@@ -4,14 +4,14 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     featureFlagLogic as sceneFeatureFlagLogic,
     indexToVariantKeyFeatureFlagPayloads,
@@ -47,6 +47,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    BillingType,
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
@@ -81,6 +82,7 @@ import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
     percentageDistribution,
+    shouldUseNewQueryRunnerForNewObjects,
     toInsightVizNode,
     transformFiltersForWinningVariant,
 } from './utils'
@@ -211,6 +213,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['featureFlags'],
             holdoutsLogic,
             ['holdouts'],
+            billingLogic,
+            ['billing'],
             // Hook the insight state to get the results for the sample size estimation
             funnelDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
             ['results as funnelResults', 'conversionMetrics'],
@@ -249,6 +253,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['addProductIntent'],
             featureFlagsLogic,
             ['updateFlag'],
+            billingLogic,
+            ['loadBillingSuccess'],
         ],
     })),
     actions({
@@ -1519,6 +1525,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
+        isOnPaidPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                return !!billing?.has_active_subscription
+            },
+        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
@@ -1866,8 +1878,8 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         usesNewQueryRunner: [
-            (s) => [s.experiment, s.featureFlags],
-            (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
+            (s) => [s.experiment, s.featureFlags, s.billing],
+            (experiment: Experiment, featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
                 const hasLegacyMetrics = isLegacyExperiment(experiment)
 
                 const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
@@ -1881,7 +1893,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+                // If the experiment has no experiment metrics, we use the new query runner if the feature is enabled
+                return shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)
             },
         ],
         hasMinimumExposureForResults: [
