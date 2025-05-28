@@ -345,7 +345,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     def validate_name(self, name):
         # if it's an upsert, we don't want to validate the name
-        if self.instance is not None:
+        if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
             if self.instance.name == name:
                 return name
 
