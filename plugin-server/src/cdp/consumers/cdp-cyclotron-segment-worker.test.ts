@@ -166,7 +166,7 @@ describe('CdpCyclotronWorkerSegment', () => {
                 }
             })
 
-            expect(invocationResults[0].logs).toMatchSnapshot()
+            expect(invocationResults[0].logs).toMatchInlineSnapshot(`[]`)
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(amplitudeAction.perform!).mock.calls[0][1])).toMatchSnapshot()

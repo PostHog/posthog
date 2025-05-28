@@ -398,8 +398,6 @@ exports[`CdpCyclotronWorkerSegment segment plugins should call the plugin perfor
 }
 `;
 
-exports[`CdpCyclotronWorkerSegment segment plugins should handle fetch errors 1`] = `[]`;
-
 exports[`CdpCyclotronWorkerSegment segment plugins should handle fetch errors 2`] = `
 {
   "payload": {
