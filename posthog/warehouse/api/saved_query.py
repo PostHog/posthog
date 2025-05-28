@@ -170,8 +170,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     view.columns = columns
 
                 view.external_tables = view.s3_tables
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
+            except Exception:
+                raise serializers.ValidationError("Failed to retrieve types for view")
 
         with transaction.atomic():
             view.save()
@@ -275,8 +275,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                         view.external_tables = view.s3_tables
                     except RecursionError:
                         raise serializers.ValidationError("Model contains a cycle")
-                    except Exception as err:
-                        raise serializers.ValidationError(str(err))
+                    except Exception:
+                        raise serializers.ValidationError("Failed to retrieve types for view")
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
