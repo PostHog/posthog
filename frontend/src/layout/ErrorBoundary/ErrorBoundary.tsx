@@ -28,31 +28,29 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
             additionalProperties={additionalProperties}
             fallback={({ error: { stack, name, message } }: { error: Error }) => (
                 <div className={clsx('ErrorBoundary', className)}>
-                    <>
-                        <h2>An error has occurred</h2>
-                        <pre>
-                            <code>
-                                {stack || (
-                                    <>
-                                        {name}
-                                        <br />
-                                        {message}
-                                    </>
-                                )}
-                            </code>
-                        </pre>
-                        Please help us resolve the issue by sending a screenshot of this message.
-                        <LemonButton
-                            type="primary"
-                            fullWidth
-                            center
-                            onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
-                            targetBlank
-                            className="mt-2"
-                        >
-                            Email an engineer
-                        </LemonButton>
-                    </>
+                    <h2>An error has occurred</h2>
+                    <pre>
+                        <code>
+                            {stack || (
+                                <>
+                                    {name}
+                                    <br />
+                                    {message}
+                                </>
+                            )}
+                        </code>
+                    </pre>
+                    Please help us resolve the issue by sending a screenshot of this message.
+                    <LemonButton
+                        type="primary"
+                        fullWidth
+                        center
+                        onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
+                        targetBlank
+                        className="mt-2"
+                    >
+                        Email an engineer
+                    </LemonButton>
                 </div>
             )}
         >

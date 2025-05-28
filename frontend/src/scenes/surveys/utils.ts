@@ -159,7 +159,7 @@ function calculateNPSFromRawData(rawData: NPSRawData): NPSBreakdown {
     const passives = rawData.values.slice(NPS_PASSIVE_MIN, NPS_PROMOTER_MIN).reduce((acc, curr) => acc + curr, 0)
     const detractors = rawData.values.slice(0, NPS_PASSIVE_MIN).reduce((acc, curr) => acc + curr, 0)
 
-    const score = rawData.total > 0 ? ((promoters - detractors) / rawData.total) * 100 : 0
+    const score = ((promoters - detractors) / rawData.total) * 100
 
     return {
         total: rawData.total,
