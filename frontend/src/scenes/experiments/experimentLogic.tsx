@@ -44,8 +44,6 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
-    InsightQueryNode,
-    InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -83,6 +81,7 @@ import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
     percentageDistribution,
+    toInsightVizNode,
     transformFiltersForWinningVariant,
 } from './utils'
 
@@ -1247,13 +1246,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...singleMetrics,
                         ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
                     ].reverse()
+
+                    // debugger
+
                     for (const query of metrics) {
-                        const insightQuery: InsightVizNode = {
-                            kind: NodeKind.InsightVizNode,
-                            source: (query.kind === NodeKind.ExperimentTrendsQuery
-                                ? query.count_query
-                                : query.funnels_query) as InsightQueryNode,
-                        }
+                        const insightQuery = toInsightVizNode(query)
+
                         await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
                             query: insightQuery,

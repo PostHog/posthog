@@ -1,20 +1,27 @@
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { urls } from 'scenes/urls'
 
-import { PipelineStage, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
-import { NewButton } from '../NewButton'
-
-export function Sources(): JSX.Element {
+export function DataPipelinesSources(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
+
+    const newButton = (
+        <LemonButton to={urls.dataPipelinesNew('source')} type="primary" icon={<IconPlusSmall />} size="small">
+            New source
+        </LemonButton>
+    )
 
     return (
         <>
-            <PageHeader buttons={<NewButton stage={PipelineStage.Source} />} />
+            <PageHeader buttons={newButton} />
             <div className="deprecated-space-y-4">
                 {!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0 ? (
                     <ProductIntroduction
@@ -24,7 +31,7 @@ export function Sources(): JSX.Element {
                         description="Use data warehouse sources to import data from your external data into PostHog."
                         isEmpty={dataWarehouseSources.results.length === 0 && !dataWarehouseSourcesLoading}
                         docsURL="https://posthog.com/docs/data-warehouse"
-                        actionElementOverride={<NewButton stage={PipelineStage.Source} />}
+                        actionElementOverride={newButton}
                     />
                 ) : null}
 

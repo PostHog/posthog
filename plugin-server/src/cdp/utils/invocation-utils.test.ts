@@ -33,9 +33,10 @@ describe('Invocation utils', () => {
             const cloned = cloneInvocation(invocation, {
                 queue: 'hog',
             })
-            const { id, globals, hogFunction, ...rest } = cloned
+            const { id, state, hogFunction, functionId, ...rest } = cloned
             expect(id).toBe(invocation.id)
-            expect(globals).toBe(invocation.globals)
+            expect(functionId).toBe(invocation.functionId)
+            expect(state).toBe(invocation.state)
             expect(hogFunction).toBe(invocation.hogFunction)
 
             expect(rest).toMatchInlineSnapshot(`
@@ -47,7 +48,6 @@ describe('Invocation utils', () => {
                   "queueScheduledAt": undefined,
                   "queueSource": "postgres",
                   "teamId": 1,
-                  "timings": [],
                 }
             `)
         })
@@ -66,9 +66,10 @@ describe('Invocation utils', () => {
                 },
             })
 
-            const { id, globals, hogFunction, ...rest } = cloned
+            const { id, state, hogFunction, functionId, ...rest } = cloned
             expect(id).toBe(invocation.id)
-            expect(globals).toBe(invocation.globals)
+            expect(functionId).toBe(invocation.functionId)
+            expect(state).toBe(invocation.state)
             expect(hogFunction).toBe(invocation.hogFunction)
 
             expect(rest).toMatchInlineSnapshot(`
@@ -87,7 +88,6 @@ describe('Invocation utils', () => {
                   "queueScheduledAt": "2025-01-01T00:00:00.000Z",
                   "queueSource": "postgres",
                   "teamId": 1,
-                  "timings": [],
                 }
             `)
         })
