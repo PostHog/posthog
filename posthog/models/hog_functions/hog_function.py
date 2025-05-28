@@ -127,6 +127,9 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
             href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.SOURCE_WEBHOOK:
+            folder = "Unfiled/Sources"
+            href = f"/functions/{self.pk}/configuration"
         elif self.type == HogFunctionType.BROADCAST:
             folder = "Unfiled/Broadcasts"
             href = f"/messaging/broadcasts/{self.pk}"
