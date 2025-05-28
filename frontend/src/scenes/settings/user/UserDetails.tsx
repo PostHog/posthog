@@ -1,5 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -8,6 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
+    const { cancelEmailChangeRequest } = useActions(userLogic)
 
     return (
         <Form
@@ -45,7 +46,14 @@ export function UserDetails(): JSX.Element {
                     disabled={userLoading}
                 />
             </LemonField>
-            {user?.pending_email && <LemonTag type="highlight">Pending verification for {user.pending_email}</LemonTag>}
+            {user?.pending_email && (
+                <div className="flex flex-row gap-1">
+                    <LemonTag type="highlight">Pending verification for {user.pending_email}</LemonTag>{' '}
+                    <LemonButton type="tertiary" size="xsmall" onClick={cancelEmailChangeRequest}>
+                        Cancel change
+                    </LemonButton>
+                </div>
+            )}
 
             <LemonButton
                 type="primary"
