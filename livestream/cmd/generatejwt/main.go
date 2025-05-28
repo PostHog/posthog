@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/posthog/posthog/livestream/auth"
 )
-
-const ExpectedScope = "posthog:livestream" // Must match the main application
 
 func main() {
 	teamIDStr := flag.String("teamid", "", "Team ID (integer)")
@@ -40,7 +39,7 @@ func main() {
 	claims := jwt.MapClaims{
 		"team_id":   float64(teamID), // As expected by your existing getDataFromClaims
 		"api_token": *apiToken,
-		"aud":       ExpectedScope,
+		"aud":       auth.ExpectedScope,
 		"exp":       time.Now().Add(time.Hour * 72).Unix(), // Token expires in 3 days
 		"iat":       time.Now().Unix(),                     // Issued at
 	}
@@ -53,4 +52,4 @@ func main() {
 	}
 
 	fmt.Printf("Generated JWT (use this as the Bearer token):\nBearer %s\n", signedToken)
-} 
+}
