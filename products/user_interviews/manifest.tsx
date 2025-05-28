@@ -30,9 +30,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         user_interview: {
+            name: 'User interview',
             icon: <IconChat />,
             href: (ref: string) => urls.userInterview(ref),
             iconColor: ['var(--product-user-interviews-light)'],
+            filterKey: 'user_interview',
         },
     },
     treeItemsProducts: [
@@ -44,7 +46,4 @@ export const manifest: ProductManifest = {
             tags: ['alpha'],
         },
     ],
-    fileSystemFilterTypes: {
-        user_interview: { name: 'User interviews' },
-    },
 }

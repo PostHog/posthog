@@ -5389,6 +5389,9 @@ export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
     iconColor?: FileSystemIconColor
+    name: string
+    flag?: string
+    filterKey?: string
 }
 
 export interface FileSystemFilterType {

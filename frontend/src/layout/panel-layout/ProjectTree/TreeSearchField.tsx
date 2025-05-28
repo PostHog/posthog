@@ -2,15 +2,15 @@ import { IconCdCase, IconDocument, IconUser } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 
-import { getTreeFilterTypes } from '~/products'
+import { fileSystemTypes } from '~/products'
+import { FileSystemType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
-// Match with FileSystemViewSet
-const productTypesMapped: [string, string][] = Object.entries(getTreeFilterTypes()).map(
-    ([key, value]): [string, string] => [key, value.name]
-)
+const productTypesMapped: [string, string][] = Object.entries(
+    fileSystemTypes as unknown as Record<string, FileSystemType>
+).map(([key, value]): [string, string] => [value.filterKey || key, value.name])
 
 interface TreeSearchFieldProps {
     root?: string
