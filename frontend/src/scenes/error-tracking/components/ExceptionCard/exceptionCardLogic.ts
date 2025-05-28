@@ -20,8 +20,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
 
     reducers({
         showDetails: [
-            false,
-            { persist: true },
+            true,
             {
                 setShowDetails: (_, { showDetails }: { showDetails: boolean }) => showDetails,
             },
