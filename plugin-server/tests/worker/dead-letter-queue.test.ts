@@ -66,7 +66,7 @@ describe('events dead letter queue', () => {
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
         const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'test', 'distinct_id')
-        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
             event,

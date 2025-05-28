@@ -121,7 +121,7 @@ async function processEvent(
     } as any as PluginEvent
 
     const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, String(teamId), distinctId)
-    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
     const runner = new EventPipelineRunner(
         hub,
         pluginEvent,
@@ -196,7 +196,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         String(team.id),
         event.distinct_id
     )
-    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId, groupStoreForDistinctId)
     await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
@@ -547,7 +547,7 @@ test('capture new person', async () => {
 })
 
 test('capture bad team', async () => {
-    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+    const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',

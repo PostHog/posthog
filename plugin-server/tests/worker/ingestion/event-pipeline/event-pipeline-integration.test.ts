@@ -52,7 +52,7 @@ describe('Event Pipeline integration test', () => {
 
     const ingestEvent = async (event: PluginEvent) => {
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         const runner = new EventPipelineRunner(hub, event, undefined, undefined, personsStore, groupStore)
         const result = await runner.runEventPipeline(event, team)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
@@ -276,7 +276,7 @@ describe('Event Pipeline integration test', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         await new EventPipelineRunner(hub, event, undefined, undefined, personsStore, groupStore).runEventPipeline(
             event,
             team
@@ -368,7 +368,7 @@ describe('Event Pipeline integration test', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'foo', event.distinct_id!)
-        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStore = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         const result = await new EventPipelineRunner(
             hub,
             event,

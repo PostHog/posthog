@@ -201,16 +201,16 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
     ): Promise<void> {
         try {
             if (this.options.batchWritingEnabled) {
-                await this.handleBatchUpsert(teamId, groupTypeIndex, groupKey, properties, timestamp)
+                await this.addGroupUpsertToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp)
             } else {
-                await this.handleImmediateUpsert(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate)
+                await this.upsertGroupDirectly(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate)
             }
         } catch (error) {
             await this.handleUpsertError(error, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
     }
 
-    private async handleBatchUpsert(
+    private async addGroupUpsertToBatch(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -221,7 +221,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
 
         if (!group) {
             // For new groups, we need to insert immediately
-            await this.handleImmediateUpsert(teamId, groupTypeIndex, groupKey, properties, timestamp, false)
+            await this.upsertGroupDirectly(teamId, groupTypeIndex, groupKey, properties, timestamp, false)
             return
         }
 
@@ -239,7 +239,7 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         }
     }
 
-    private async handleImmediateUpsert(
+    private async upsertGroupDirectly(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -250,7 +250,8 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
         const [propertiesUpdate, createdAt, actualVersion] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'upsertGroup',
-            async (tx) => this.handleGroupUpsert(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
+            async (tx) =>
+                this.groupUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
         )
 
         if (propertiesUpdate.updated) {
@@ -263,6 +264,123 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
                 actualVersion
             )
         }
+    }
+
+    private async groupUpsertTransaction(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        timestamp: DateTime,
+        forUpdate: boolean,
+        tx: any
+    ): Promise<[PropertiesUpdate, DateTime, number]> {
+        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, forUpdate, tx)
+        const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
+        const expectedVersion = (group?.version || 0) + 1
+        const propertiesUpdate = calculateUpdate(group?.group_properties || {}, properties)
+
+        if (!group) {
+            propertiesUpdate.updated = true
+        }
+
+        let actualVersion = expectedVersion
+
+        if (propertiesUpdate.updated) {
+            if (group) {
+                actualVersion = await this.updateGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    propertiesUpdate.properties,
+                    createdAt,
+                    expectedVersion,
+                    'upsertGroup',
+                    tx
+                )
+            } else {
+                actualVersion = await this.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    propertiesUpdate.properties,
+                    createdAt,
+                    expectedVersion,
+                    tx
+                )
+                this.addGroupTocache(teamId, groupKey, {
+                    team_id: teamId,
+                    group_type_index: groupTypeIndex,
+                    group_key: groupKey,
+                    group_properties: propertiesUpdate.properties,
+                    created_at: createdAt,
+                    version: actualVersion,
+                })
+            }
+        }
+
+        return [propertiesUpdate, createdAt, actualVersion]
+    }
+
+    private async updateGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        createdAt: DateTime,
+        expectedVersion: number,
+        tag: string,
+        tx: any
+    ): Promise<number> {
+        const updatedVersion = await this.db.updateGroup(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            createdAt,
+            {},
+            {},
+            tag,
+            tx
+        )
+
+        if (updatedVersion !== undefined) {
+            const versionDisparity = updatedVersion - expectedVersion
+            if (versionDisparity > 0) {
+                logVersionMismatch(teamId, groupTypeIndex, groupKey, versionDisparity)
+            }
+            return updatedVersion
+        } else {
+            logMissingRow(teamId, groupTypeIndex, groupKey)
+            return expectedVersion
+        }
+    }
+
+    private async insertGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        createdAt: DateTime,
+        expectedVersion: number,
+        tx: any
+    ): Promise<number> {
+        this.incrementDatabaseOperation('insertGroup')
+        const insertedVersion = await this.db.insertGroup(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            createdAt,
+            {},
+            {},
+            tx
+        )
+        const versionDisparity = insertedVersion - expectedVersion
+        if (versionDisparity > 0) {
+            logVersionMismatch(teamId, groupTypeIndex, groupKey, versionDisparity)
+        }
+        return insertedVersion
     }
 
     private isGroupCached(teamId: TeamId, groupKey: string) {
@@ -329,123 +447,6 @@ export class BatchWritingGroupStoreForDistinctIdBatch implements GroupStoreForDi
             this.fetchPromises.set(cacheKey, fetchPromise)
         }
         return fetchPromise
-    }
-
-    private async handleGroupUpsert(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        properties: Properties,
-        timestamp: DateTime,
-        forUpdate: boolean,
-        tx: any
-    ): Promise<[PropertiesUpdate, DateTime, number]> {
-        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, forUpdate, tx)
-        const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
-        const expectedVersion = (group?.version || 0) + 1
-        const propertiesUpdate = calculateUpdate(group?.group_properties || {}, properties)
-
-        if (!group) {
-            propertiesUpdate.updated = true
-        }
-
-        let actualVersion = expectedVersion
-
-        if (propertiesUpdate.updated) {
-            if (group) {
-                actualVersion = await this.updateExistingGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    propertiesUpdate.properties,
-                    createdAt,
-                    expectedVersion,
-                    'upsertGroup',
-                    tx
-                )
-            } else {
-                actualVersion = await this.insertNewGroup(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    propertiesUpdate.properties,
-                    createdAt,
-                    expectedVersion,
-                    tx
-                )
-                this.addGroupTocache(teamId, groupKey, {
-                    team_id: teamId,
-                    group_type_index: groupTypeIndex,
-                    group_key: groupKey,
-                    group_properties: propertiesUpdate.properties,
-                    created_at: createdAt,
-                    version: actualVersion,
-                })
-            }
-        }
-
-        return [propertiesUpdate, createdAt, actualVersion]
-    }
-
-    private async updateExistingGroup(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        properties: Properties,
-        createdAt: DateTime,
-        expectedVersion: number,
-        tag: string,
-        tx: any
-    ): Promise<number> {
-        const updatedVersion = await this.db.updateGroup(
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            properties,
-            createdAt,
-            {},
-            {},
-            tag,
-            tx
-        )
-
-        if (updatedVersion !== undefined) {
-            const versionDisparity = updatedVersion - expectedVersion
-            if (versionDisparity > 0) {
-                logVersionMismatch(teamId, groupTypeIndex, groupKey, versionDisparity)
-            }
-            return updatedVersion
-        } else {
-            logMissingRow(teamId, groupTypeIndex, groupKey)
-            return expectedVersion
-        }
-    }
-
-    private async insertNewGroup(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        properties: Properties,
-        createdAt: DateTime,
-        expectedVersion: number,
-        tx: any
-    ): Promise<number> {
-        this.incrementDatabaseOperation('insertGroup')
-        const insertedVersion = await this.db.insertGroup(
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            properties,
-            createdAt,
-            {},
-            {},
-            tx
-        )
-        const versionDisparity = insertedVersion - expectedVersion
-        if (versionDisparity > 0) {
-            logVersionMismatch(teamId, groupTypeIndex, groupKey, versionDisparity)
-        }
-        return insertedVersion
     }
 
     private async handleUpsertError(

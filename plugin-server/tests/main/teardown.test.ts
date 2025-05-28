@@ -74,7 +74,7 @@ describe('teardown', () => {
             String(event.team_id),
             event.distinct_id
         )
-        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         const result = await new EventPipelineRunner(
             hub,
             event,

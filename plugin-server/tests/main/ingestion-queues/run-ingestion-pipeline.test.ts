@@ -66,7 +66,7 @@ describe('workerTasks.runEventPipeline()', () => {
             String(teamId),
             event.distinct_id
         )
-        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map())
+        const groupStoreForDistinctId = new BatchWritingGroupStoreForDistinctIdBatch(hub.db, new Map(), new Map())
         await expect(
             new EventPipelineRunner(
                 hub,
