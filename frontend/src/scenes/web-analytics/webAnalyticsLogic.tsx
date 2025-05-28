@@ -175,7 +175,9 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
     [TileId.MARKETING]: 16,
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 17,
+
+    // Marketing Tiles
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -2399,12 +2401,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         campaignCostsBreakdown: [
             // this is a temporary query to get the campaign costs breakdown
-            (s) => [s.dateFilter],
-            (dateFilter: {
-                dateFrom: string | null
-                dateTo: string | null
-                interval: IntervalType
-            }): DataTableNode => ({
+            () => [],
+            (): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.HogQLQuery,
@@ -2456,12 +2454,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ORDER BY cc.total_cost DESC
                         LIMIT 20
                     `,
-                    filters: {
-                        dateRange: {
-                            date_from: dateFilter.dateFrom || '-7d',
-                            date_to: dateFilter.dateTo || 'now()',
-                        },
-                    },
                 },
                 full: true,
                 showDateRange: false,
