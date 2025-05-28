@@ -42,6 +42,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             throw new Error('Not found')
         }
 
+        const headers: Record<string, string> = {}
+
+        for (const [key, value] of Object.entries(req.headers)) {
+            // TODO: WE should filter the headers to only include ones we know are safe to expose
+            if (value) {
+                headers[key.toLowerCase()] = Array.isArray(value) ? value[0] : value
+            }
+        }
+
+        const body: Record<string, any> = req.body
+
         const globals: HogFunctionInvocationGlobals = {
             project: {
                 id: hogFunction.team_id,
@@ -57,7 +68,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 timestamp: DateTime.now().toISO(),
                 url: '',
             },
-            body: req.body,
+            body: body,
+            headers: headers,
         }
 
         let result: HogFunctionInvocationResult

@@ -31,6 +31,7 @@ describe('incoming webhook template', () => {
                         nestedLevel: 'nestedLevelValue',
                     },
                 },
+                headers: {},
             }
         )
 
@@ -53,5 +54,57 @@ describe('incoming webhook template', () => {
               },
             ]
         `)
+    })
+
+    it('should return 401 if the auth header is incorrect', async () => {
+        const response = await tester.invoke(
+            {
+                event: '{body.eventName}',
+                distinct_id: 'hardcoded',
+                auth_header: 'Bearer my-secret-token',
+            },
+            {
+                body: {
+                    eventName: 'the event',
+                },
+                headers: {
+                    authorization: 'Bearer wrong-token',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+
+        expect(response.execResult).toEqual({
+            httpResponse: {
+                status: 401,
+                body: 'Unauthorized',
+            },
+        })
+    })
+
+    it('should pass if the auth header is correct', async () => {
+        const response = await tester.invoke(
+            {
+                event: '{body.eventName}',
+                distinct_id: 'hardcoded',
+                auth_header: 'Bearer my-secret-token',
+            },
+            {
+                body: {
+                    eventName: 'the event',
+                },
+                headers: {
+                    authorization: 'Bearer my-secret-token',
+                },
+            }
+        )
+
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+        expect(response.execResult).toBeNull()
     })
 })

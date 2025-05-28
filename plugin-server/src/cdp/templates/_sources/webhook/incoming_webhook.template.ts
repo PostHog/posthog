@@ -18,6 +18,15 @@ if(empty(inputs.distinct_id)) {
   throw Error('"event" cannot be empty')
 }
 
+if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, headers['authorization'])) {
+  return {
+    'httpResponse': {
+      'status': 401,
+      'body': 'Unauthorized',
+    }
+  }
+}
+
 postHogCapture({
     'event': inputs.event,
     'distinct_id': inputs.distinct_id,
@@ -49,6 +58,14 @@ postHogCapture({
             description: 'A mapping of the incoming webhook body to the PostHog event properties',
             default: {},
             secret: false,
+            required: false,
+        },
+        {
+            key: 'auth_header',
+            type: 'string',
+            label: 'Secret auth token',
+            description: 'If set, the incoming Authorization header must match this value exactly',
+            secret: true,
             required: false,
         },
         {
