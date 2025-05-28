@@ -31,16 +31,15 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/utils'
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     filterToMetricConfig,
+    getFunnelPreviewSeries,
     getViewRecordingFilters,
     isLegacyExperiment,
     isLegacyExperimentQuery,
-    isLegacySharedMetric,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -853,6 +852,41 @@ describe('metricToQuery', () => {
         })
     })
 
+    it('returns the correct query for a mean metric with unique sessions math type', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: ExperimentMetricMathType.UniqueSessions,
+            },
+        }
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: ExperimentMetricMathType.UniqueSessions,
+                },
+            ],
+        })
+    })
+
     it('returns undefined for unsupported metric types', () => {
         const metric = {
             kind: NodeKind.ExperimentMetric,
@@ -866,6 +900,44 @@ describe('metricToQuery', () => {
 
         const query = metricToQuery(metric as ExperimentMetric, false)
         expect(query).toBeUndefined()
+    })
+
+    it('returns the correct query for a mean metric with an action source', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ActionsNode,
+                id: 123,
+                name: 'test action',
+                math: ExperimentMetricMathType.Sum,
+                math_property: 'property_value',
+            },
+        }
+
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 123,
+                    name: 'test action',
+                    math: PropertyMathType.Sum,
+                    math_property: 'property_value',
+                },
+            ],
+        })
     })
 })
 
@@ -955,8 +1027,10 @@ describe('hasLegacyMetrics', () => {
             metrics_secondary: [],
             saved_metrics: [
                 {
-                    kind: NodeKind.ExperimentTrendsQuery,
-                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    query: {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
                 },
             ],
         } as unknown as Experiment
@@ -991,33 +1065,74 @@ describe('hasLegacyMetrics', () => {
 
         expect(isLegacyExperiment(experiment)).toBe(false)
     })
-})
-
-describe('hasLegacySharedMetrics', () => {
-    it('returns true if shared metrics contain legacy query', () => {
-        const sharedMetric = {
-            query: {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: { kind: NodeKind.TrendsQuery, series: [] },
-            },
-        } as unknown as SharedMetric
-
-        expect(isLegacySharedMetric(sharedMetric)).toBe(true)
-    })
 
     it('returns false if shared metrics contain no legacy queries', () => {
-        const sharedMetric = {
-            query: {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.MEAN,
-                source: { kind: NodeKind.EventsNode, event: 'test' },
-            },
-        } as unknown as SharedMetric
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    query: {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                },
+            ],
+        } as unknown as Experiment
 
-        expect(isLegacySharedMetric(sharedMetric)).toBe(false)
+        expect(isLegacyExperiment(experiment)).toBe(false)
     })
+})
 
-    it('returns false for empty shared metrics array', () => {
-        expect(isLegacySharedMetric({} as SharedMetric)).toBe(false)
+describe('getFunnelPreviewSeries', () => {
+    it('returns the correct series for a funnel metric with events and actions', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    event: 'checkout started',
+                    kind: NodeKind.EventsNode,
+                    name: 'checkout started',
+                },
+                {
+                    id: 1,
+                    kind: NodeKind.ActionsNode,
+                    name: 'purchase completed',
+                },
+                {
+                    event: 'survey submitted',
+                    kind: NodeKind.EventsNode,
+                    name: 'survey submitted',
+                },
+            ],
+        }
+
+        const series = getFunnelPreviewSeries(metric)
+        expect(series).toEqual([
+            {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                custom_name: 'Placeholder for experiment exposure',
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: 'checkout started',
+                name: 'checkout started',
+            },
+            {
+                kind: NodeKind.ActionsNode,
+                id: 1,
+                name: 'purchase completed',
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: 'survey submitted',
+                name: 'survey submitted',
+            },
+        ])
     })
 })

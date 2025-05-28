@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import fetch from 'node-fetch'
+import { fetch } from 'undici'
 
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
@@ -46,12 +46,9 @@ describe('hooks', () => {
 
             expect(fetch).toHaveBeenCalledTimes(1)
 
-            // @ts-expect-error mock exists because we mock it ourselves
-            expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/",
-                  {
-                    "body": "{
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
+                "{
                     "hook": {
                         "id": "id",
                         "event": "foo",
@@ -63,14 +60,7 @@ describe('hooks', () => {
                         "elementsList": [],
                         "person": {}
                     }
-                }",
-                    "headers": {
-                      "Content-Type": "application/json",
-                    },
-                    "method": "POST",
-                    "timeout": 20000,
-                  },
-                ]
+                }"
             `)
         })
 
@@ -96,12 +86,9 @@ describe('hooks', () => {
             )
             expect(fetch).toHaveBeenCalledTimes(1)
 
-            // @ts-expect-error mock exists because we mock it ourselves
-            expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/",
-                  {
-                    "body": "{
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
+                "{
                     "hook": {
                         "id": "id",
                         "event": "foo",
@@ -123,33 +110,23 @@ describe('hooks', () => {
                             "created_at": "2024-01-01T00:00:00.000Z"
                         }
                     }
-                }",
-                    "headers": {
-                      "Content-Type": "application/json",
-                    },
-                    "method": "POST",
-                    "timeout": 20000,
-                  },
-                ]
+                }"
             `)
         })
 
         test('private IP hook forbidden in prod', async () => {
             process.env.NODE_ENV = 'production'
 
-            // Unmock the node-fetch module
-
-            const realFetch = jest.requireActual('node-fetch')
-            jest.mocked(fetch).mockImplementation(realFetch.default)
-
-            await expect(
-                hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
+            const err = await hookCommander
+                .postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
                     ...hook,
                     target: 'http://localhost:8000',
                 })
-            ).rejects.toThrowErrorMatchingInlineSnapshot(
-                `"request to http://localhost:8000/ failed, reason: Internal hostname"`
-            )
+                .catch((err) => err)
+
+            expect(err.name).toBe('TypeError')
+            expect(err.cause.name).toBe('SecureRequestError')
+            expect(err.cause.message).toContain('Internal hostname')
         })
     })
 })

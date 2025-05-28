@@ -392,6 +392,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             ),
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
+                        valuesEndpoint: (key) =>
+                            `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
                         getPopoverHeader: () => 'Issues',
                     },
                     {
@@ -552,11 +554,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Session properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.SessionProperties,
-                        options: undefined,
+                        ...(propertyAllowList
+                            ? {
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
+                                      (property) => ({
+                                          name: property,
+                                          value: property,
+                                      })
+                                  ),
+                              }
+                            : {
+                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                              }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
-                        endpoint: `api/environments/${teamId}/sessions/property_definitions`,
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {

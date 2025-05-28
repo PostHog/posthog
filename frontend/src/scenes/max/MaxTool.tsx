@@ -47,6 +47,7 @@ export function MaxTool({
     name,
     displayName,
     context,
+    introOverride,
     callback,
     children: Children,
     initialMaxPrompt,
@@ -61,11 +62,11 @@ export function MaxTool({
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, context, callback })
+        registerTool({ name, displayName, context, introOverride, callback })
         return () => {
             deregisterTool(name)
         }
-    }, [name, displayName, JSON.stringify(context), callback, registerTool, deregisterTool])
+    }, [name, displayName, JSON.stringify(context), introOverride, callback, registerTool, deregisterTool])
 
     let content: JSX.Element
     if (!isMaxAvailable) {
@@ -117,10 +118,11 @@ export function MaxTool({
     }
     return (
         <div
-            className={
+            className={clsx(
+                'relative',
                 // Rounding is +1px to account for the border
-                isMaxOpen ? 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]' : ''
-            }
+                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]'
+            )}
         >
             {content}
         </div>

@@ -3468,3 +3468,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
+
+    def test_create_insight_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {
+                "name": "My test insight in folder",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "_create_in_folder": "Special Folder/Subfolder",
+                "saved": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        insight_id = response.json()["short_id"]
+
+        assert insight_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(insight_id), type="insight").first()
+        assert fs_entry is not None
+        assert "Special Folder/Subfolder" in fs_entry.path

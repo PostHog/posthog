@@ -3407,12 +3407,12 @@
                     "table": null,
                     "type": "string"
                 },
-                "currency_is_zero_decimal": {
+                "enable_currency_aware_divider": {
                     "chain": null,
                     "fields": null,
-                    "hogql_value": "currency_is_zero_decimal",
+                    "hogql_value": "enable_currency_aware_divider",
                     "id": null,
-                    "name": "currency_is_zero_decimal",
+                    "name": "enable_currency_aware_divider",
                     "schema_valid": true,
                     "table": null,
                     "type": "boolean"
@@ -3436,7 +3436,7 @@
                 "kind": "HogQLQuery",
                 "modifiers": null,
                 "name": null,
-                "query": "SELECT id AS id, created_at AS timestamp, customer_id AS customer_id, toDecimal(amount_captured, 10) AS original_amount, upper(currency) AS original_currency, in(original_currency, ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS currency_is_zero_decimal, if(currency_is_zero_decimal, toDecimal(1, 10), toDecimal(100, 10)) AS amount_decimal_divider, divideDecimal(original_amount, amount_decimal_divider) AS adjusted_original_amount, 'USD' AS currency, convertCurrency(original_currency, currency, adjusted_original_amount, _toDate(ifNull(timestamp, toDateTime(0)))) AS amount FROM production_stripe_charge WHERE equals(status, 'succeeded')",
+                "query": "SELECT id AS id, created_at AS timestamp, customer_id AS customer_id, toDecimal(amount_captured, 10) AS original_amount, upper(currency) AS original_currency, in(original_currency, ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider, if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider, divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount, 'USD' AS currency, convertCurrency(original_currency, currency, currency_aware_amount, _toDate(ifNull(timestamp, toDateTime(0)))) AS amount FROM production_stripe_charge WHERE equals(status, 'succeeded')",
                 "response": null,
                 "values": null,
                 "variables": null

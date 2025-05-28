@@ -59,7 +59,11 @@ class LimitContext(StrEnum):
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
-    if limit_context in (LimitContext.EXPORT, LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+    if limit_context in (
+        LimitContext.EXPORT,
+        LimitContext.QUERY,
+        LimitContext.QUERY_ASYNC,
+    ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M

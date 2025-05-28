@@ -278,7 +278,7 @@ export interface LineGraphProps {
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
-        <ErrorBoundary tags={{ feature: 'LineGraph' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'LineGraph' }}>
             {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
@@ -589,7 +589,9 @@ export function LineGraph_({
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
-        const goalLines = _goalLines || []
+        const goalLines = (_goalLines || []).filter(
+            (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
+        )
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
@@ -743,13 +745,14 @@ export function LineGraph_({
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
+
                                         return (
                                             <div className="datum-label-column">
                                                 {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
                                                         hasBreakdown={hasBreakdown}
-                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                        seriesIndex={datum.action?.order ?? datum.id}
                                                         seriesColor={datum.color}
                                                     />
                                                 )}

@@ -17,10 +17,9 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { type ErrorTrackingAssignmentRule, errorTrackingAutoAssignmentLogic } from './errorTrackingAutoAssignmentLogic'
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
-    const logic = errorTrackingAutoAssignmentLogic({ startWithNewEditableRule: true })
-    const { allRules, initialLoadComplete, localRules, hasNewRule } = useValues(logic)
+    const { allRules, initialLoadComplete, localRules, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
     const { loadRules, addRule, updateLocalRule, deleteRule, saveRule, setRuleEditable, unsetRuleEditable } =
-        useActions(logic)
+        useActions(errorTrackingAutoAssignmentLogic)
 
     useEffect(() => {
         loadRules()
@@ -87,13 +86,12 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                             <PropertyFilters
                                 editable={editable}
                                 propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                 onChange={(properties: AnyPropertyFilter[]) =>
                                     updateLocalRule({ ...rule, filters: { ...rule.filters, values: properties } })
                                 }
                                 pageKey={`error-tracking-auto-assignment-properties-${rule.id}`}
                                 buttonSize="small"
-                                excludedProperties={{ [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] }}
                                 propertyGroupType={rule.filters.type}
                                 hasRowOperator={false}
                                 disablePopover

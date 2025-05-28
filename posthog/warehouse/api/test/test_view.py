@@ -67,6 +67,7 @@ class TestView(APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": f"select distinct_id as distinct_id from events LIMIT 100",
                 },
+                "edited_history_id": view["latest_history_id"],
             },
         )
 

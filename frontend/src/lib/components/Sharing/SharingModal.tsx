@@ -135,9 +135,9 @@ export function SharingModalContent({
                                         data-attr="sharing-link-button"
                                         type="secondary"
                                         onClick={() => {
-                                            // TRICKY: there's a chance this was sending useless errors to Sentry
+                                            // TRICKY: there's a chance this was sending useless errors to error tracking
                                             // even when it succeeded, so we're explicitly ignoring the promise success
-                                            // and naming the error when reported to Sentry - @pauldambra
+                                            // and naming the error when reported to error tracking - @pauldambra
                                             copyToClipboard(shareLink, shareLink).catch((e) =>
                                                 posthog.captureException(
                                                     new Error('unexpected sharing modal clipboard error: ' + e.message)

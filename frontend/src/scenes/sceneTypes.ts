@@ -13,7 +13,6 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingAlert = 'ErrorTrackingAlert',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
@@ -89,6 +88,8 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    Links = 'Links',
+    Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     MessagingCampaigns = 'MessagingCampaigns',
     MessagingProviders = 'MessagingProviders',
@@ -96,6 +97,12 @@ export enum Scene {
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
+    HogFunction = 'HogFunction',
+    DataPipelines = 'DataPipelines',
+    DataPipelinesNew = 'DataPipelinesNew',
+    UserInterviews = 'UserInterviews',
+    UserInterview = 'UserInterview',
+    Game368 = 'Game368',
 }
 
 export type SceneProps = Record<string, any>

@@ -3,6 +3,7 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -26,7 +27,7 @@ import { userLogic } from 'scenes/userLogic'
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -347,7 +348,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+                if (featureFlag.id) {
+                    actions.saveFeatureFlag(featureFlag)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Feature Flags',
+                        callback: (folder) => actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: folder }),
+                    })
+                }
             },
         },
     })),
@@ -960,8 +968,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
-                callback: () => {
+                callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
+                    if (undo) {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    } else {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    }
                     // Load latest change so a backwards navigation shows the flag as deleted
                     actions.loadFeatureFlag()
                     router.actions.push(urls.featureFlags())
@@ -973,7 +986,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 undo: true,
-                callback: () => {
+                callback: (undo) => {
+                    if (undo) {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    } else {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    }
                     actions.loadFeatureFlag()
                 },
             })

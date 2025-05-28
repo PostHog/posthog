@@ -1,6 +1,6 @@
 from django.db import models
 from posthog.models.team import Team
-from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem
+from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.exceptions import ValidationError
@@ -22,11 +22,17 @@ assert len(CURRENCY_CODE_CHOICES) == 152
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
     base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=CurrencyCode.USD.value)
+    notified_first_sync = models.BooleanField(default=False, null=True)
+
+    # Mangled fields incoming:
+    # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
+    # that are then wrapped by schema-validation getters/setters
     _events = models.JSONField(default=list, db_column="events")
+    _goals = models.JSONField(default=list, db_column="goals", null=True, blank=True)
 
     @property
     def events(self) -> list[RevenueAnalyticsEventItem]:
-        return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events]
+        return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events or []]
 
     @events.setter
     def events(self, value: list[dict]) -> None:
@@ -36,6 +42,22 @@ class TeamRevenueAnalyticsConfig(models.Model):
             self._events = dumped_value
         except Exception as e:
             raise ValidationError(f"Invalid events schema: {str(e)}")
+
+    @property
+    def goals(self) -> list[RevenueAnalyticsGoal]:
+        return [RevenueAnalyticsGoal.model_validate(goal) for goal in self._goals or []]
+
+    @goals.setter
+    def goals(self, value: list[dict]) -> None:
+        value = value or []
+        try:
+            dumped_value = sorted(
+                [RevenueAnalyticsGoal.model_validate(goal).model_dump() for goal in value],
+                key=lambda x: x["due_date"],
+            )
+            self._goals = dumped_value
+        except Exception as e:
+            raise ValidationError(f"Invalid goals schema: {str(e)}")
 
 
 # This is best effort, we always attempt to create the config manually

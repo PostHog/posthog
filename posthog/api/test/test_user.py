@@ -19,6 +19,8 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.test.base import APIBaseTest
 
 
@@ -852,17 +854,81 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    # DELETING USER
+    def test_cannot_delete_user_with_organization_memberships(self):
+        user = self._create_user("activeorgmemberships@posthog.com", password="test")
 
-    def test_deleting_current_user_is_not_supported(self):
-        """
-        Self-serve account deletion is currently not supported.
-        """
-        response = self.client.delete("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), self.method_not_allowed_response("DELETE"))
+        self.client.force_login(user)
 
-        self.user.refresh_from_db()
+        user.join(organization=self.new_org, level=OrganizationMembership.Level.MEMBER)
+
+        assert OrganizationMembership.objects.filter(user=user, organization=self.new_org).exists()
+
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    def test_can_delete_user_with_no_organization_memberships(self):
+        user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
+
+        self.client.force_login(user)
+
+        user.join(organization=self.new_org, level=OrganizationMembership.Level.MEMBER)
+
+        assert OrganizationMembership.objects.filter(user=user, organization=self.new_org).exists()
+
+        OrganizationMembership.objects.filter(user=user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(uuid=user.uuid).exists()
+
+    def test_cannot_delete_another_user_with_no_org_memberships(self):
+        user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        user_with_no_org_memberships = self._create_user("userwithnoorgmemberships@posthog.com", password="test")
+
+        OrganizationMembership.objects.filter(user=user_with_no_org_memberships).delete()
+
+        assert not OrganizationMembership.objects.filter(user=user_with_no_org_memberships).exists()
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/users/{user_with_no_org_memberships.uuid}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.filter(uuid=user_with_no_org_memberships.uuid).exists()
+
+    def test_forbidden_to_delete_another_user_with_org_memberships(self):
+        user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        user_with_org_memberships = self._create_user("userwithorgmemberships@posthog.com", password="test")
+
+        assert OrganizationMembership.objects.filter(user=user_with_org_memberships).exists()
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/users/{user_with_org_memberships.uuid}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.filter(uuid=user_with_org_memberships.uuid).exists()
+
+    def test_cannot_delete_own_user_account_with_personal_api_key(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Delete User Account Key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+
+        OrganizationMembership.objects.filter(user=self.user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=self.user).exists()
+
+        self.client.logout()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):

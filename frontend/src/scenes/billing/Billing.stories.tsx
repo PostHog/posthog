@@ -20,6 +20,13 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-03-10',
+        testOptions: {
+            // Needs a slightly larger width to push the rendered scene away from breakpoint boundary
+            viewport: {
+                width: 1300,
+                height: 720,
+            },
+        },
     },
     decorators: [
         mswDecorator({

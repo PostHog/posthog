@@ -384,7 +384,6 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
-        or property.type == "error_tracking_issue_property"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -438,15 +437,12 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
-            chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type == "error_tracking_issue" or property.type == "error_tracking_issue_property":
-            # TODO - I'm not sure what the distinction between error_tracking_issue and error_tracking_issue_property is
-            chain = ["issue"]
+        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
+            chain = []
         else:
             chain = ["properties"]
 
@@ -460,6 +456,23 @@ def property_to_expr(
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
+
+        is_string_array_property = property.type == "event" and property.key in [
+            "$exception_types",
+            "$exception_values",
+            "$exception_sources",
+            "$exception_functions",
+        ]
+
+        if is_string_array_property:
+            # if materialized these columns will be strings so we need to extract them
+            extracted_field = ast.Call(
+                name="JSONExtract",
+                args=[
+                    ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                    ast.Constant(value="Array(String)"),
+                ],
+            )
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -478,9 +491,23 @@ def property_to_expr(
                         if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
                         else ast.CompareOperationOp.NotIn
                     )
-                    return ast.CompareOperation(
-                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+
+                    left = ast.Field(chain=["v"]) if is_string_array_property else field
+                    expr = ast.CompareOperation(
+                        op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
+
+                    if is_string_array_property:
+                        return parse_expr(
+                            "arrayExists(v -> {expr}, {key})",
+                            {
+                                "expr": expr,
+                                "key": extracted_field,
+                            },
+                        )
+                    else:
+                        return expr
+
                 exprs = [
                     property_to_expr(
                         Property(
@@ -504,8 +531,8 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        return _expr_to_compare_op(
-            expr=expr,
+        expr = _expr_to_compare_op(
+            expr=ast.Field(chain=["v"]) if is_string_array_property else expr,
             value=value,
             operator=operator,
             team=team,
@@ -513,6 +540,13 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
+        if is_string_array_property:
+            return parse_expr(
+                "arrayExists(v -> {expr}, {key})",
+                {"expr": expr, "key": extracted_field},
+            )
+        else:
+            return expr
     elif property.type == "element":
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")

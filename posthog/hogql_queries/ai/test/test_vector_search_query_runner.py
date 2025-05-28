@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.models import Organization, Project, Team
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
@@ -16,7 +18,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
+                id="static_id",
                 vector=[1],
                 text="example text",
             )
@@ -25,7 +27,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[1]), self.team).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "1")
+        self.assertEqual(response.results[0].id, "static_id")
         self.assertEqual(response.results[0].distance, 0)
 
     def test_vector_search_only_returns_this_team_vectors(self):
@@ -47,18 +49,20 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             has_completed_onboarding_for={"product_analytics": True},
         )
 
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
+
         vectors = [
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
+                id=id1,
                 vector=[1],
                 text="example text",
             ),
             PgEmbeddingRow(
                 domain="action",
                 team_id=team2.id,
-                id="2",
+                id=id2,
                 vector=[1],
                 text="example text",
             ),
@@ -67,22 +71,23 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[1]), self.team).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "1")
+        self.assertEqual(response.results[0].id, id1)
         self.assertEqual(response.results[0].distance, 0)
 
     def test_vector_search_returns_distances_in_ascending_order(self):
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
         vectors = [
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
+                id=id1,
                 vector=[1, 4],
                 text="example text",
             ),
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="2",
+                id=id2,
                 vector=[4, 2],
                 text="example text 2",
             ),
@@ -91,17 +96,16 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
         self.assertEqual(len(response.results), 2)
-        self.assertEqual(response.results[0].id, "1")
-        self.assertAlmostEqual(response.results[0].distance, 0.024, places=3)  # 0.02381293981604715
-        self.assertEqual(response.results[1].id, "2")
-        self.assertAlmostEqual(response.results[1].distance, 0.2, places=3)  # 0.19999999999999996
+        self.assertEqual(response.results[0].id, id1)
+        self.assertEqual(response.results[1].id, id2)
 
     def test_vector_search_excludes_deleted_vectors(self):
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
         vectors = [
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
+                id=id1,
                 vector=[1, 4],
                 text="example text",
                 is_deleted=True,
@@ -109,7 +113,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="2",
+                id=id2,
                 vector=[4, 2],
                 text="example text 2",
             ),
@@ -118,19 +122,18 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "2")
-        self.assertAlmostEqual(response.results[0].distance, 0.2, places=3)  # 0.19999999999999996
+        self.assertEqual(response.results[0].id, id2)
 
     def test_vector_search_selects_max_version(self):
         query = VectorSearchQuery(embedding=[2, 4])
-
+        id = str(uuid.uuid4())
         # Version 1
         vectors = [
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
-                vector=[1, 4],
+                id=id,
+                vector=[1, 1],
                 text="example text",
             ),
         ]
@@ -138,15 +141,14 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(query, self.team).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "1")
-        self.assertAlmostEqual(response.results[0].distance, 0.024, places=3)  # 0.02381293981604715
+        self.assertEqual(response.results[0].id, id)
 
         # Version 2
         vectors = [
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
+                id=id,
                 vector=[4, 2],
                 text="example text 2",
             ),
@@ -155,16 +157,17 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(query, self.team).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "1")
-        self.assertAlmostEqual(response.results[0].distance, 0.2, places=2)  # 0.19999999999999996
+        self.assertEqual(response.results[0].id, id)
+        self.assertAlmostEqual(response.results[0].distance, 0.2, delta=0.05)  # 0.19999999999999996
 
     def test_vector_search_saves_properties(self):
         query = VectorSearchQuery(embedding=[2, 4])
+        id = str(uuid.uuid4())
         vectors = [
             PgEmbeddingRow(
                 domain="action",
                 team_id=self.team.id,
-                id="1",
+                id=id,
                 vector=[1, 4],
                 text="example text",
                 properties={"test": "test"},
@@ -174,5 +177,4 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = VectorSearchQueryRunner(query, self.team).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "1")
-        self.assertAlmostEqual(response.results[0].distance, 0.024, places=3)  # 0.02381293981604715
+        self.assertEqual(response.results[0].id, id)

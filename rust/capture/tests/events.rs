@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::time::Duration as StdDuration;
 use time::Duration;
 
 use crate::common::*;
@@ -1134,8 +1135,7 @@ async fn it_limits_non_batch_endpoints_to_2mb() -> Result<()> {
     });
 
     let res = server.capture_events(ok_event.to_string()).await;
-    // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
 
     let res = server.capture_events(nok_event.to_string()).await;
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
@@ -1175,10 +1175,81 @@ async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
     });
 
     let res = server.capture_to_batch(ok_event.to_string()).await;
-    // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
     let res = server.capture_to_batch(nok_event.to_string()).await;
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_returns_200() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(StdDuration::from_millis(3000))
+        .build()
+        .unwrap();
+    let timestamp = Utc::now().timestamp_millis();
+    let url = format!(
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js",
+        server.addr, timestamp
+    );
+    let res = client
+        .post(url)
+        .body(event.to_string())
+        .send()
+        .await
+        .expect("failed to send request");
+    assert_eq!(StatusCode::OK, res.status());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_returns_204_when_beacon_is_1() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(StdDuration::from_millis(3000))
+        .build()
+        .unwrap();
+    let timestamp = Utc::now().timestamp_millis();
+    let url = format!(
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        server.addr, timestamp
+    );
+    let res = client
+        .post(url)
+        .body(event.to_string())
+        .send()
+        .await
+        .expect("failed to send request");
+    assert_eq!(StatusCode::NO_CONTENT, res.status());
 
     Ok(())
 }

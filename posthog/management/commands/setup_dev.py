@@ -41,6 +41,7 @@ class Command(BaseCommand):
                     "api_token": "e2e_token_1239",
                     "completed_snippet_onboarding": True,
                     "ingested_event": True,
+                    "surveys_opt_in": True,
                 },
             )
             EventDefinition.objects.create(team=team, name="$pageview")

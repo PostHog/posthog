@@ -33,7 +33,8 @@
         "format:frontend": "pnpm --filter=@posthog/frontend run format",
         "format": "pnpm format:backend && pnpm format:frontend",
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
-        "storybook": "pnpm turbo --filter=@posthog/storybook start"
+        "storybook": "pnpm turbo --filter=@posthog/storybook start",
+        "start": "./bin/start"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
@@ -71,7 +72,8 @@
     "pnpm": {
         "overrides": {
             "playwright": "1.45.0",
-            "typescript": "~4.9.5"
+            "typescript": "~4.9.5",
+            "@posthog/icons": "0.14"
         },
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",

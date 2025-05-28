@@ -1,4 +1,5 @@
 import { IconInfo, IconTrash } from '@posthog/icons'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -9,16 +10,26 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
-export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<HTMLButtonElement> }): JSX.Element {
-    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueEventsSettingsLogic)
-    const { addEvent, deleteEvent, updateEventRevenueProperty, updateEventRevenueCurrencyProperty, save } =
-        useActions(revenueEventsSettingsLogic)
+export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
+    const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueAnalyticsSettingsLogic)
+    const {
+        addEvent,
+        deleteEvent,
+        updateEventRevenueProperty,
+        updateEventRevenueCurrencyProperty,
+        updateEventCurrencyAwareDecimalProperty,
+        save,
+    } = useActions(revenueAnalyticsSettingsLogic)
 
     return (
         <div>
             <h3 className="mb-2">Event Configuration</h3>
+            <p className="mb-4">
+                PostHog can display revenue data in our Revenue Analytics product from any event. You can configure as
+                many events as you want, and specify the revenue property and currency for each event individually.
+            </p>
             <LemonTable<RevenueAnalyticsEventItem>
                 columns={[
                     { key: 'eventName', title: 'Event name', dataIndex: 'eventName' },
@@ -88,6 +99,28 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                                         />
                                     </div>
                                 </div>
+                            )
+                        },
+                    },
+                    {
+                        key: 'currencyAwareDecimal',
+                        title: (
+                            <span>
+                                In currency's smallest unit?
+                                <Tooltip title="Whether you are sending revenue in the smallest unit of currency (e.g. cents for USD, yen for JPY). If you are, we will divide the revenue by the smallest unit of currency (e.g. 100 for USD, 1 for JPY) when parsing the revenue.">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
+                        dataIndex: 'currencyAwareDecimal',
+                        render: (_, item: RevenueAnalyticsEventItem) => {
+                            return (
+                                <LemonSwitch
+                                    checked={item.currencyAwareDecimal}
+                                    onChange={(checked) =>
+                                        updateEventCurrencyAwareDecimalProperty(item.eventName, checked)
+                                    }
+                                />
                             )
                         },
                     },

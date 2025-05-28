@@ -1,0 +1,16 @@
+@import '../../styles/mixins';
+
+.series-color-dot {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-right: 0.5rem;
+    border-radius: 9999px;
+}
+
+// Generate color classes for each data color
+@for $i from 0 through 14 {
+    .series-color-dot-#{$i} {
+        background-color: var(--data-color-#{($i % 15) + 1});
+    }
+}

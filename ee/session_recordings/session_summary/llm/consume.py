@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import os
 from typing import Any
 import openai
 import structlog
@@ -12,6 +13,7 @@ from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValid
 from prometheus_client import Histogram
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_fixed, wait_random
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
+from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog.models.user import User
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -65,13 +67,7 @@ def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session
         content = llm_response.choices[0].delta.content
     else:
         raise ValueError(f"Unexpected LLM response type for session_id {session_id}: {type(llm_response)}")
-    if content is None:
-        raise ValueError(f"No content provided for session_id {session_id}: {llm_response}")
-    return content
-
-
-def _serialize_to_sse_event(event_label: str, event_data: str) -> str:
-    return f"event: {event_label}\ndata: {event_data}\n\n"
+    return content if content else ""
 
 
 def _convert_llm_content_to_session_summary_json(
@@ -104,16 +100,14 @@ def _convert_llm_content_to_session_summary_json(
         session_metadata=session_metadata,
         session_id=session_id,
     )
-    # TODO: Uncomment for local testing
     # Track generation for history of experiments
-    # if final_validation:
-    #     _track_session_summary_generation(
-    #         summary_prompt=summary_prompt,
-    #         raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
-    #         session_summary=json.dumps(session_summary.data, indent=4),
-    #         # TODO: Store path in local env file? Production won't have it set, so no saving will happen
-    #         results_base_dir_path=""",
-    #     )
+    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR"):
+        _track_session_summary_generation(
+            summary_prompt=summary_prompt,
+            raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
+            session_summary=json.dumps(session_summary.data, indent=4),
+            results_base_dir_path=os.environ["LOCAL_SESSION_SUMMARY_RESULTS_DIR"],
+        )
     return json.dumps(session_summary.data)
 
 
@@ -164,7 +158,7 @@ def stream_llm_session_summary(
                 if not intermediate_summary:
                     continue
                 # If parsing succeeds, yield the new chunk
-                sse_event_to_send = _serialize_to_sse_event(
+                sse_event_to_send = serialize_to_sse_event(
                     event_label="session-summary-stream", event_data=intermediate_summary
                 )
                 yield sse_event_to_send
@@ -214,7 +208,7 @@ def stream_llm_session_summary(
             raise ValueError("Final content validation failed")
 
         # If parsing succeeds, yield the final validated summary
-        sse_event_to_send = _serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
+        sse_event_to_send = serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
         yield sse_event_to_send
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
     except (SummaryValidationError, ValueError) as err:

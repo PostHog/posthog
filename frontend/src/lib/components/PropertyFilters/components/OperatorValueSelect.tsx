@@ -85,7 +85,8 @@ export function OperatorValueSelect({
     size,
     editable,
 }: OperatorValueSelectProps): JSX.Element {
-    const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
+    const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
+    const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
     const isCohortProperty = propertyKey === 'id' && type === PropertyFilterType.Cohort
 
@@ -115,6 +116,14 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Cohort
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
+        } else if (
+            type === PropertyFilterType.Event &&
+            propertyKey &&
+            ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions'].includes(
+                propertyKey
+            )
+        ) {
+            propertyType = PropertyType.StringArray
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)

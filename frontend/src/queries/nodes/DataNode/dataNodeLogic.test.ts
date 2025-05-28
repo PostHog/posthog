@@ -311,6 +311,29 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it('can load next data for TracesQuery', async () => {
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: { kind: NodeKind.TracesQuery },
+        })
+        const results = [{}, {}, {}]
+        mockedQuery.mockResolvedValueOnce({ results, hasMore: true })
+        logic.mount()
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true, canLoadNextData: false, nextQuery: null, response: null })
+            .delay(0)
+        await expectLogic(logic).toMatchValues({
+            responseLoading: false,
+            canLoadNextData: true,
+            nextQuery: {
+                kind: NodeKind.TracesQuery,
+                limit: 100,
+                offset: 3,
+            },
+            response: partial({ results }),
+        })
+    })
+
     it('can autoload new data for EventsQuery', async () => {
         const results = [
             [

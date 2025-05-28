@@ -1,7 +1,6 @@
 from typing import Any, Optional
 
-from django.conf import settings
-from django.db import models, transaction
+from django.db import models, transaction, connections
 from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
@@ -11,7 +10,12 @@ from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
-READ_DB_FOR_PERSONS = "replica" if "replica" in settings.DATABASES else "default"
+if "persons_db_reader" in connections:
+    READ_DB_FOR_PERSONS = "persons_db_reader"
+elif "replica" in connections:
+    READ_DB_FOR_PERSONS = "replica"
+else:
+    READ_DB_FOR_PERSONS = "default"
 
 
 class PersonManager(models.Manager):
@@ -63,6 +67,10 @@ class Person(models.Model):
             .order_by("id")
             .values_list("distinct_id")
         ]
+
+    @property
+    def email(self) -> Optional[str]:
+        return self.properties.get("email")
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
@@ -145,7 +153,7 @@ class PersonlessDistinctId(models.Model):
 
 
 class PersonOverrideMapping(models.Model):
-    """A model of persons to be overriden in merge or merge-like events."""
+    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
 
     id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team_id = models.BigIntegerField()
@@ -158,17 +166,7 @@ class PersonOverrideMapping(models.Model):
 
 
 class PersonOverride(models.Model):
-    """A model of persons to be overriden in merge or merge-like events.
-
-    This model has a set of constraints to ensure correctness:
-    1. Unique constraint on (team_id, old_person_id) pairs.
-    2. Check that old_person_id is different to override_person_id for every row.
-    3. Same person id cannot be used as an old_person_id and an override_person_id (per team)
-       (e.g. if a row exists with old_person_id=123 then we would not allow a row with
-        override_person_id=123 to exist, as that would require a self join to figure
-        out the ultimate override_person_id required for old_person_id=123).
-        To accomplish this we use a series of constraints.
-    """
+    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -203,31 +201,7 @@ class PersonOverride(models.Model):
 
 
 class PendingPersonOverride(models.Model):
-    """
-    The pending person overrides model/table contains records of merges that
-    have occurred, but have not yet been integrated into the person overrides
-    table.
-
-    This table should generally be considered as a log table or queue. When a
-    merge occurs, it is recorded to the log (added to the queue) as part of the
-    merge transaction. Later, another process comes along, reading from the
-    other end of the log (popping from the queue) and applying the necessary
-    updates to the person overrides table as part of secondary transaction.
-
-    This approach allows us to decouple the set of operations that must occur as
-    part of an atomic transactional unit during person merging (moving distinct
-    IDs, merging properties, deleting the subsumed person, etc.) from those that
-    are more tolerant to eventual consistency (updating person overrides in
-    Postgres and subsequently relaying those updates to ClickHouse in various
-    forms to update the person associated with an event.) This decoupling helps
-    us to minimize the overhead of the primary merge transaction by reducing the
-    degree of contention within the ingestion pipeline caused by long-running
-    transactions. This decoupling also allows us to serialize the execution of
-    all updates to the person overrides table through a single writer, which
-    allows us to safely update the person overrides table while handling tricky
-    cases like applying transitive updates without the need for expensive table
-    constraints to ensure their validity.
-    """
+    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team_id = models.BigIntegerField()
@@ -237,42 +211,7 @@ class PendingPersonOverride(models.Model):
 
 
 class FlatPersonOverride(models.Model):
-    """
-    The (flat) person overrides model/table contains a consolidated record of
-    all merges that have occurred, but have not yet been integrated into the
-    ClickHouse events table through a squash operation. Once the effects of a
-    merge have been integrated into the events table, the associated override
-    record can be deleted from this table.
-
-    This table is in some sense a materialized view over the pending person
-    overrides table (i.e. the merge log.) It differs from that base table in
-    that it should be maintained during updates to account for the effects of
-    transitive merges. For example, if person A is merged into person B, and
-    then person B is merged into person C, we'd expect the first record (A->B)
-    to be updated to reflect that person A has been merged into person C (A->C,
-    eliding the intermediate step.)
-
-    There are several important expectations about the nature of the data within
-    this table:
-
-    * A person should only appear as an "old" person at most once for a given
-      team (as appearing more than once would imply they were merged into
-      multiple people.)
-    * A person cannot be merged into themselves (i.e. be both the "old" and
-      "override" person within a given row.)
-    * A person should only appear in a table as _either_ an "old" person or
-      "override" person for a given team -- but never both, as this would
-      indicate a failure to account for a transitive merge.
-
-    The first two of these expectations can be enforced as constraints, but
-    unfortunately we've found the third to be too costly to enforce in practice.
-    Instead, we try to ensure that this invariant holds by serializing all
-    writes to this table through the ``PendingPersonOverride`` model above.
-
-    The "flat" in the table name is used to distinguish this table from a prior
-    approach that required multiple tables to maintain the same state but
-    otherwise has little significance of its own.
-    """
+    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team_id = models.BigIntegerField()

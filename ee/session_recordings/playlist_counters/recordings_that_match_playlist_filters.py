@@ -4,11 +4,13 @@ from typing import Any, Optional
 import posthoganalytics
 from celery import shared_task
 from django.conf import settings
-from prometheus_client import Counter, Histogram
+from django.db.models import Count
+from prometheus_client import Counter, Histogram, Gauge
 from pydantic import ValidationError
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
 from posthog.schema import (
@@ -80,6 +82,16 @@ REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
     buckets=(1, 2, 4, 8, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
+REPLAY_TOTAL_PLAYLISTS_GAUGE = Gauge(
+    "replay_total_playlists_gauge",
+    "Total number of playlists in the database",
+)
+
+REPLAY_PLAYLISTS_IN_REDIS_GAUGE = Gauge(
+    "replay_playlists_in_redis_gauge",
+    "Number of playlists in Redis",
+)
+
 DEFAULT_RECORDING_FILTERS = {
     "date_from": "-3d",
     "date_to": None,
@@ -94,6 +106,18 @@ DEFAULT_RECORDING_FILTERS = {
     ],
     "order": "start_time",
 }
+
+
+def count_playlists_in_redis() -> int:
+    redis_client = get_client()
+    playlist_count = 0
+    cursor = 0
+    while True:
+        cursor, keys = redis_client.scan(cursor, match=f"{PLAYLIST_COUNT_REDIS_PREFIX}*", count=1000)
+        playlist_count += len(keys)
+        if cursor == 0:
+            break
+    return playlist_count
 
 
 def asRecordingPropertyFilter(filter: dict[str, Any]) -> RecordingPropertyFilter:
@@ -424,6 +448,17 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist.save(update_fields=["last_counted_at"])
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
+            posthoganalytics.capture(
+                distinct_id=f"playlist_counting_for_team_{playlist.team.pk}",
+                event="replay_playlist_saved_filters_counted",
+                properties={
+                    "team_id": playlist.team.pk,
+                    "saved_filters_short_id": playlist.short_id,
+                    "saved_filters_name": playlist.name or playlist.derived_name,
+                    "count": len(new_session_ids),
+                    "previous_count": len(existing_value.get("session_ids", [])),
+                },
+            )
     except SessionRecordingPlaylist.DoesNotExist:
         logger.info(
             "Playlist does not exist",
@@ -458,15 +493,29 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    all_playlists = (
+    base_query = (
         SessionRecordingPlaylist.objects.filter(
             deleted=False,
             filters__isnull=False,
         )
         .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
-        .order_by(F("last_counted_at").asc(nulls_first=True))[: settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT]
+        .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
+        .annotate(pinned_item_count=Count("playlist_items"))
+        .filter(pinned_item_count=0)
     )
 
-    for playlist in all_playlists:
-        count_recordings_that_match_playlist_filters.delay(playlist.id)
+    total_playlists_count = base_query.count()
+
+    all_playlists = base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list("id", flat=True)[
+        : settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT
+    ]
+
+    cached_counted_playlists_count = count_playlists_in_redis()
+
+    # these two gauges let us see how "full" the cache is
+    REPLAY_TOTAL_PLAYLISTS_GAUGE.set(total_playlists_count)
+    REPLAY_PLAYLISTS_IN_REDIS_GAUGE.set(cached_counted_playlists_count)
+
+    for playlist_id in all_playlists:
+        count_recordings_that_match_playlist_filters.delay(playlist_id)
         REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()

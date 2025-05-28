@@ -155,7 +155,7 @@ function InsightCardInternal(
             ref={mergedRefs}
         >
             {isVisible ? (
-                <ErrorBoundary tags={{ feature: 'insight' }}>
+                <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
                             insight={insight}

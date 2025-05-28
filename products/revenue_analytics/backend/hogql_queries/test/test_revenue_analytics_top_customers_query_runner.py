@@ -7,9 +7,11 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
-from products.revenue_analytics.backend.models import (
-    STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
-    STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER,
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    STRIPE_CHARGE_RESOURCE_NAME,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
+    STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from posthog.schema import (
     CurrencyCode,
@@ -100,10 +102,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
         # Besides the default creations above, also create the external data schemas
-        # because this is required by the `RevenueAnalyticsRevenueView` to find the right tables
+        # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.charges_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.charges_table,
             should_sync=True,
@@ -112,7 +114,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         self.customers_schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER,
+            name=STRIPE_CUSTOMER_RESOURCE_NAME,
             source=self.source,
             table=self.customers_table,
             should_sync=True,
@@ -209,6 +211,35 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_with_events_data(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2024-01-03"))
+        s3 = str(uuid7("2024-02-04"))
+        self._create_purchase_events(
+            [
+                ("p1", [("2023-12-02", s1, 42, "USD")]),
+                ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
+            ]
+        )
+
+        results = self._run_revenue_analytics_top_customers_query(
+            date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
+            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                ("", "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                ("", "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+            ],
+        )
+
+    def test_with_events_data_and_currency_aware_divider(self):
+        self.team.revenue_analytics_config.events = [
+            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
+        ]
+        self.team.revenue_analytics_config.save()
+
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2024-01-03"))
         s3 = str(uuid7("2024-02-04"))

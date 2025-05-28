@@ -110,13 +110,14 @@ mod tests {
         insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
         setup_pg_writer_client,
     };
+    use common_database::Client;
     use common_types::TeamId;
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
 
     /// Helper function to setup a new team for testing.
     async fn setup_test_team(
-        writer_client: Arc<dyn crate::client::database::Client + Send + Sync>,
+        writer_client: Arc<dyn Client + Send + Sync>,
     ) -> Result<Team, anyhow::Error> {
         let team = insert_new_team_in_pg(writer_client, None).await?;
         Ok(team)
@@ -124,7 +125,7 @@ mod tests {
 
     /// Helper function to insert a cohort for a team.
     async fn setup_test_cohort(
-        writer_client: Arc<dyn crate::client::database::Client + Send + Sync>,
+        writer_client: Arc<dyn Client + Send + Sync>,
         team_id: TeamId,
         name: Option<String>,
     ) -> Result<Cohort, anyhow::Error> {

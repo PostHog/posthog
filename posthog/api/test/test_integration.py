@@ -1,9 +1,10 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
-
+from rest_framework import exceptions
+from django.test import override_settings
 from posthog.models.integration import Integration
-from posthog.models.integration import SlackIntegration, PRIVATE_CHANNEL_WITHOUT_ACCESS
+from posthog.models.integration import EmailIntegration, SlackIntegration, PRIVATE_CHANNEL_WITHOUT_ACCESS
 from posthog.models.user import User
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -201,3 +202,123 @@ class TestSlackIntegration:
         assert channel["name"] == "general"
         assert not channel["is_private"]
         assert not channel["is_private_without_access"]
+
+
+class TestEmailIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.domain = "test.com"
+        self.user = User.objects.create(email="test@posthog.com")
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    @patch("posthog.models.integration.MailjetProvider")
+    def test_integration_from_domain(self, mock_mailjet_provider_class):
+        mock_client = MagicMock()
+        mock_mailjet_provider_class.return_value = mock_client
+
+        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        assert integration.kind == "email"
+        assert integration.integration_id == self.domain
+        assert integration.team_id == self.team.id
+        assert integration.config == {
+            "domain": self.domain,
+            "mailjet_verified": False,
+            "aws_ses_verified": False,
+        }
+        assert integration.sensitive_config == {}
+        assert integration.created_by == self.user
+
+        mock_client.create_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+
+    @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    def test_setup_email_valid_domain_parameter_required(self):
+        with pytest.raises(exceptions.ValidationError):
+            EmailIntegration.integration_from_domain("foobar", self.team.id, self.user)
+
+        with pytest.raises(exceptions.ValidationError):
+            EmailIntegration.integration_from_domain("foobar@test.com", self.team.id, self.user)
+
+    @patch("posthog.models.integration.MailjetProvider")
+    def test_email_verify_returns_mailjet_result(self, mock_mailjet_provider_class):
+        mock_client = MagicMock()
+        mock_mailjet_provider_class.return_value = mock_client
+
+        # Mock the verify_email_domain method to return a test result
+        expected_result = {
+            "status": "pending",
+            "dnsRecords": [
+                {
+                    "type": "dkim",
+                    "recordType": "TXT",
+                    "recordHostname": "mailjet._domainkey.example.com",
+                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
+                    "status": "pending",
+                },
+                {
+                    "type": "spf",
+                    "recordType": "TXT",
+                    "recordHostname": "@",
+                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
+                    "status": "pending",
+                },
+            ],
+        }
+        mock_client.verify_email_domain.return_value = expected_result
+
+        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        email_integration = EmailIntegration(integration)
+        verification_result = email_integration.verify()
+
+        assert verification_result == expected_result
+
+        mock_client.verify_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+
+        integration.refresh_from_db()
+        assert integration.config == {
+            "domain": self.domain,
+            "mailjet_verified": False,
+            "aws_ses_verified": False,
+        }
+
+    @patch("posthog.models.integration.MailjetProvider")
+    def test_email_verify_updates_integration(self, mock_mailjet_provider_class):
+        mock_client = MagicMock()
+        mock_mailjet_provider_class.return_value = mock_client
+
+        # Mock the verify_email_domain method to return a test result
+        expected_result = {
+            "status": "success",
+            "dnsRecords": [
+                {
+                    "type": "dkim",
+                    "recordType": "TXT",
+                    "recordHostname": "mailjet._domainkey.example.com",
+                    "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
+                    "status": "success",
+                },
+                {
+                    "type": "spf",
+                    "recordType": "TXT",
+                    "recordHostname": "@",
+                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
+                    "status": "success",
+                },
+            ],
+        }
+        mock_client.verify_email_domain.return_value = expected_result
+
+        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        email_integration = EmailIntegration(integration)
+        verification_result = email_integration.verify()
+
+        assert verification_result == expected_result
+
+        mock_client.verify_email_domain.assert_called_once_with(self.domain, team_id=self.team.id)
+
+        integration.refresh_from_db()
+        assert integration.config == {
+            "domain": self.domain,
+            "mailjet_verified": True,
+            "aws_ses_verified": False,
+        }

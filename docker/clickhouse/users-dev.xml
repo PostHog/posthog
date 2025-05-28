@@ -32,9 +32,12 @@
         </readonly>
 
         <api>
-            <profile>api</profile>
+            <profile>default</profile>
         </api>
 
+        <app>
+            <profile>default</profile>
+        </app>
     </profiles>
 
     <!-- Users and ACL. -->
@@ -133,6 +136,18 @@
 
             <quota>default</quota>
         </api>
+
+        <app>
+            <password>apppass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>app</profile>
+
+            <quota>default</quota>
+        </app>
     </users>
 
     <!-- Quotas. -->

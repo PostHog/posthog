@@ -1,4 +1,4 @@
-import { IconPieChart } from '@posthog/icons'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -11,11 +11,12 @@ export const manifest: ProductManifest = {
         webAnalyticsPageReports: (): string => `/web/page-reports`,
     },
     fileSystemTypes: {},
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'Web Analytics',
-            icon: <IconPieChart />,
-            href: () => urls.webAnalytics(),
+            path: 'Web analytics',
+            iconType: 'pieChart',
+            href: urls.webAnalytics(),
+            visualOrder: PRODUCT_VISUAL_ORDER.webAnalytics,
         },
     ],
 }

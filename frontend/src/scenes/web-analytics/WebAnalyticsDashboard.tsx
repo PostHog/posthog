@@ -398,8 +398,8 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
             label: (
                 <div className="flex items-center gap-1">
                     Page reports
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
                     </LemonTag>
                 </div>
             ),

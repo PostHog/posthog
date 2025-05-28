@@ -119,7 +119,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formula } = useValues(trendsLogic)
+    const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formulaNodes } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
@@ -187,24 +187,29 @@ export function EditAlertModal({
                                                 <LemonSelect
                                                     fullWidth
                                                     data-attr="alertForm-series-index"
-                                                    options={alertSeries?.map(
-                                                        ({ custom_name, name, event }, index) => ({
-                                                            label: isBreakdownValid
-                                                                ? 'any breakdown value'
-                                                                : formula
-                                                                ? `Formula (${formula})`
-                                                                : `${alphabet[index]} - ${
-                                                                      custom_name ?? name ?? event
-                                                                  }`,
-                                                            value: isBreakdownValid || formula ? 0 : index,
-                                                        })
-                                                    )}
+                                                    options={
+                                                        formulaNodes?.length > 0
+                                                            ? formulaNodes.map(({ formula, custom_name }, index) => ({
+                                                                  label: `${
+                                                                      custom_name ? custom_name : 'Formula'
+                                                                  } (${formula})`,
+                                                                  value: index,
+                                                              }))
+                                                            : alertSeries?.map(
+                                                                  ({ custom_name, name, event }, index) => ({
+                                                                      label: isBreakdownValid
+                                                                          ? 'any breakdown value'
+                                                                          : `${alphabet[index]} - ${
+                                                                                custom_name ?? name ?? event
+                                                                            }`,
+                                                                      value: isBreakdownValid ? 0 : index,
+                                                                  })
+                                                              )
+                                                    }
                                                     disabledReason={
-                                                        (isBreakdownValid &&
-                                                            `For trends with breakdown, the alert will fire if any of the breakdown
-                                            values breaches the threshold.`) ||
-                                                        (formula &&
-                                                            `When using formula mode, can only alert on formula value`)
+                                                        isBreakdownValid &&
+                                                        `For trends with breakdown, the alert will fire if any of the breakdown
+                                            values breaches the threshold.`
                                                     }
                                                 />
                                             </LemonField>

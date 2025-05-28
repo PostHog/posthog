@@ -80,6 +80,30 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
+class ErrorTrackingRelease(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
+    # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
+    # id of the model
+    hash_id = models.TextField(null=False, blank=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    version = models.TextField(null=False, blank=False)
+    project = models.TextField(null=False, blank=False)  # For now, we may spin this out to a dedicated model later
+
+    # Releases can have some metadata attached to them (like id, name, version,
+    # commit, whatever), which we put onto exceptions if they're
+    metadata = models.JSONField(null=True, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "hash_id"]),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "hash_id"], name="unique_release_hash_id_per_team"),
+        ]
+
+
 class ErrorTrackingSymbolSet(UUIDModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -95,6 +119,11 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
     content_hash = models.TextField(null=True, blank=False)
+
+    # Symbol sets can have an associated release, if they were uploaded
+    # with one
+    # TODO - should we really on_delete: CASCADE here?
+    release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
     class Meta:
         indexes = [
@@ -119,6 +148,47 @@ class ErrorTrackingAssignmentRule(UUIDModel):
     # If not null, the rule is disabled, for the reason listed
     # Structure is {"message": str, "issue": {}, properties: {}}. Everything except message is mostly for debugging purposes.
     disabled_data = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
+# A custom grouping rule works as follows:
+# - Events are run against the filter code
+# - If an event matches, the fingerprint of the event is set as "custom-rule:<rule_id>"
+# - The rest of the issue processing happens as per usual, except that if the rule had an
+#   associated assignment, that assignment is used, and the assignment rules are skipped.
+#
+# This means "custom issues" can still be merged and otherwise handled as you'd expect, just that
+# the set of events that end up in them will be different from the default grouping rules.
+class ErrorTrackingGroupingRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # If not null, the rule is disabled, for the reason listed
+    # Structure is {"message": str, properties: {}}. Everything except message is mostly for debugging purposes.
+    disabled_data = models.JSONField(null=True, blank=True)
+    # Grouping rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    # We allow grouping rules to also auto-assign, and if they do, assignment rules are ignored
+    # in favour of the assignment of the grouping rule. Notably this differs from assignment rules
+    # in so far as we permit all of these to be null
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
+    role = models.ForeignKey(Role, null=True, on_delete=models.CASCADE)
+
+    # Users will probably find it convenient to be able to add a short description to grouping rules
+    description = models.TextField(null=True)
 
     class Meta:
         indexes = [

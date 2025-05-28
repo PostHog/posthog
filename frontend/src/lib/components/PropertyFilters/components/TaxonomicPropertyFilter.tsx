@@ -21,6 +21,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -110,11 +111,24 @@ export function TaxonomicPropertyFilter({
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+    const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
     const cohortOrOtherValue =
         filter?.type === 'cohort' ? (!Array.isArray(filter?.value) && filter?.value) || undefined : filter?.key
+
+    // Get the base property type, defaulting to Event if not specified
+    const basePropertyType = filter?.type || PropertyDefinitionType.Event
+
+    // Get the group type index if this is a group property filter
+    const groupTypeIndex = isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
+
+    // For data warehouse person properties, use columnsJoinedToPersons, otherwise use property definitions
+    const propertyDefinitions =
+        filter?.type === PropertyFilterType.DataWarehousePersonProperty
+            ? columnsJoinedToPersons
+            : propertyDefinitionsByType(basePropertyType, groupTypeIndex)
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -134,10 +148,7 @@ export function TaxonomicPropertyFilter({
 
     const operatorValueSelect = (
         <OperatorValueSelect
-            propertyDefinitions={propertyDefinitionsByType(
-                filter?.type || PropertyDefinitionType.Event,
-                isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
-            )}
+            propertyDefinitions={propertyDefinitions}
             size={size}
             editable={editable}
             type={filter?.type}
