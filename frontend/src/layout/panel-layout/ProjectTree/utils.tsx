@@ -145,7 +145,7 @@ export function convertFileSystemEntryToTreeDataItem({
         )
         if (!folderNode) {
             const id = `${root}${fullPath}`
-            const protocol = id.includes('://') ? id.split('://', 2)[0] + '://' : 'project://'
+            const [protocol] = splitProtocolPath(id)
             folderNode = {
                 id,
                 name: folderName,
