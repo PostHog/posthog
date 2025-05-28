@@ -86,12 +86,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
-        JOB_QUEUE_S3_BUCKET_NAME: '',
-        JOB_QUEUE_S3_PREFIX: '',
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
