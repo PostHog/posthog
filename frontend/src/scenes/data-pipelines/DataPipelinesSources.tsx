@@ -15,8 +15,6 @@ import { ProductKey } from '~/types'
 export function DataPipelinesSources(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
-    const logicKey = `data-pipelines-hog-functions-source-webhook`
-
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew('source')} type="primary" icon={<IconPlusSmall />} size="small">
             New source
@@ -41,7 +39,11 @@ export function DataPipelinesSources(): JSX.Element {
 
                 <FlaggedFeature flag="cdp-hog-sources">
                     <h2>Event sources</h2>
-                    <HogFunctionList logicKey={logicKey} type="source_webhook" />
+                    <p>
+                        PostHog can expose a webhook that you can configure however you need to receive data from a 3rd
+                        party with no in-between service necessary
+                    </p>
+                    <HogFunctionList logicKey="data-pipelines-hog-functions-source-webhook" type="source_webhook" />
                 </FlaggedFeature>
 
                 <div>

@@ -137,7 +137,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
     return (
         <>
-            <h2 className="mt-4">Data warehouse sources managed by PostHog</h2>
+            <h2 className="mt-4">Managed data warehouse sources</h2>
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
