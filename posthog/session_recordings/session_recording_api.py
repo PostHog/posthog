@@ -75,6 +75,8 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from posthog.exceptions_capture import capture_exception
 
+import asyncio
+
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
@@ -980,17 +982,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
-    def _stream_blob_v2_to_client(
+    async def _stream_blob_v2_to_client_async(
         self,
         recording: SessionRecording,
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
     ) -> HttpResponse:
-        """Stream a v2 session recording blob to the client.
-
-        The min_blob_key and max_blob_key are the validated block indices.
-        """
+        """Async version of _stream_blob_v2_to_client"""
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with timer("list_blocks__stream_blob_v2_to_client"):
@@ -1001,31 +1000,60 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if max_blob_key >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
-            decompressed_blocks = []
-            with timer("fetch_block__stream_blob_v2_to_client"):
-                for block_index in range(min_blob_key, max_blob_key + 1):
+            async def fetch_single_block_async(block_index: int) -> tuple[int, str | None]:
+                try:
                     block = blocks[block_index]
-                    try:
-                        decompressed_blocks.append(session_recording_v2_object_storage.client().fetch_block(block.url))
-                    except BlockFetchError:
-                        logger.exception(
-                            "Failed to fetch block",
-                            recording_id=recording.session_id,
-                            team_id=self.team.id,
-                            block_index=block_index,
-                        )
-                        raise exceptions.APIException("Failed to load recording block")
+                    content = await asyncio.to_thread(
+                        session_recording_v2_object_storage.client().fetch_block, block.url
+                    )
+                    return block_index, content
+                except BlockFetchError:
+                    logger.exception(
+                        "Failed to fetch block",
+                        recording_id=recording.session_id,
+                        team_id=self.team.id,
+                        block_index=block_index,
+                    )
+                    return block_index, None
 
+            with timer("fetch_blocks_parallel__stream_blob_v2_to_client"):
+                # Create tasks for all block fetches
+                tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+
+                # Wait for all tasks to complete
+                results = await asyncio.gather(*tasks)
+
+                # Process results in order
+                decompressed_blocks: list[str | None] = [None] * len(results)
+                block_errors: list[int] = []
+
+                for block_index, content in results:
+                    if content is None:
+                        block_errors.append(block_index)
+                    else:
+                        decompressed_blocks[block_index - min_blob_key] = content
+
+            if block_errors:
+                raise exceptions.APIException("Failed to load recording block")
+
+            # After error check, all values are guaranteed to be strings
             response = HttpResponse(
-                content="\n".join(decompressed_blocks),
+                content="\n".join(cast(list[str], decompressed_blocks)),
                 content_type="application/jsonl",
             )
-
-            # Set caching headers - blocks are immutable, so we can cache for a while
             response["Cache-Control"] = "max-age=3600"
             response["Content-Disposition"] = "inline"
-
             return response
+
+    def _stream_blob_v2_to_client(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        """Sync wrapper for async method"""
+        return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
