@@ -768,7 +768,7 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 export const shouldUseNewQueryRunnerForNewObjects = (featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
     // For non-paying users, we use dedicated flag to control the rollout of the new query runner
     const isOnFreePlan = billing?.subscription_level === 'free'
-    if (isOnFreePlan && !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER_FOR_NON_PAYING_USERS]) {
+    if (isOnFreePlan && !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN]) {
         return true
     }
 
