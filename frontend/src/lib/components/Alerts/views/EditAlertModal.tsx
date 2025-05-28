@@ -15,11 +15,13 @@ import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsMod
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, formatDate } from 'lib/utils'
 import { useCallback } from 'react'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -120,6 +122,8 @@ export function EditAlertModal({
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
     const { alertSeries, isNonTimeSeriesDisplay, isBreakdownValid, formulaNodes } = useValues(trendsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const insightAlertsCDPFlag = featureFlags[FEATURE_FLAGS.INSIGHT_ALERTS_CDP]
 
     const creatingNewAlert = alertForm.id === undefined
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
@@ -361,7 +365,7 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                {!!alertId && (
+                                {!creatingNewAlert && insightAlertsCDPFlag && (
                                     <div className="deprecated-space-y-5">
                                         <div className="flex flex-col">
                                             <AlertDestinationSelector alertId={alertId} />

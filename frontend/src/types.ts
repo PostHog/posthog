@@ -5156,6 +5156,7 @@ export type HogFunctionSubTemplateIdType =
     | 'activity-log'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
+    | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

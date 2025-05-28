@@ -1,4 +1,4 @@
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -15,7 +15,8 @@ export function AlertDestinationSelector({ alertId }: AlertDestinationSelectorPr
         <LinkedHogFunctions
             logicKey={INSIGHT_ALERT_DESTINATION_LOGIC_KEY}
             type="internal_destination"
-            subTemplateId={INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID}
+            subTemplateIds={[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]}
+            hideFeedback={true}
             filters={{
                 events: [
                     {
