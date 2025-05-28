@@ -261,8 +261,6 @@ def WEB_STATS_INSERT_SQL(
     person_team_filter = filters["person_distinct_id_overrides"]
     events_team_filter = filters["events"]
 
-    # Intentionally skipping $geoip_subdivision_1_name AS region_name since it is not materialized yet
-
     return f"""
     INSERT INTO {table_name}
     SELECT
@@ -320,9 +318,9 @@ def WEB_STATS_INSERT_SQL(
             e.mat_$host AS host,
             e.mat_$device_type AS device_type,
             e.mat_$browser AS browser,
-            e.mat_$browser_version AS browser_version,
+            JSONExtractString(e.properties, '$browser_version') AS browser_version,
             e.mat_$os AS os,
-            e.mat_$os_version AS os_version,
+            JSONExtractString(e.properties, '$os_version') AS os_version,
             e.mat_$viewport_width AS viewport_width,
             e.mat_$viewport_height AS viewport_height,
             e.mat_$geoip_country_code AS country_code,
@@ -613,9 +611,9 @@ def WEB_BOUNCES_INSERT_SQL(
             e.mat_$host AS host,
             e.mat_$device_type AS device_type,
             e.mat_$browser AS browser,
-            e.mat_$browser_version AS browser_version,
+            JSONExtractString(e.properties, '$browser_version') AS browser_version,
             e.mat_$os AS os,
-            e.mat_$os_version AS os_version,
+            JSONExtractString(e.properties, '$os_version') AS os_version,
             e.mat_$viewport_width AS viewport_width,
             e.mat_$viewport_height AS viewport_height,
             events__session.session_id AS session_id,
