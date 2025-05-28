@@ -4231,7 +4231,7 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
-    | 'warehouse_saved_query'
+    | 'warehouse_view'
     | 'warehouse_table'
 
 export enum AccessControlLevel {
