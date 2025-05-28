@@ -836,15 +836,29 @@ class CancelJobsActivityInputs:
 class FailJobsActivityInputs:
     workflow_id: str
     workflow_run_id: str
+    team_id: int
     error: str
 
 
 @temporalio.activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
-    await database_sync_to_async(
-        DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED)
+    try:
+        job = await database_sync_to_async(DataModelingJob.objects.get)(
+            workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        job.status = DataModelingJob.Status.CANCELLED
+        await database_sync_to_async(job.save)()
+    except DataModelingJob.DoesNotExist:
+        await logger.ainfo(
+            "No job record found to cancel", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        await database_sync_to_async(DataModelingJob.objects.create)(
+            workflow_id=inputs.workflow_id,
+            workflow_run_id=inputs.workflow_run_id,
+            status=DataModelingJob.Status.CANCELLED,
+            team_id=inputs.team_id,
+        )
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )
@@ -853,11 +867,22 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 @temporalio.activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
-    job = await database_sync_to_async(DataModelingJob.objects.get)(
-        workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
-    )
-
-    await mark_job_as_failed(job, inputs.error)
+    try:
+        job = await database_sync_to_async(DataModelingJob.objects.get)(
+            workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        await mark_job_as_failed(job, inputs.error)
+    except DataModelingJob.DoesNotExist:
+        await logger.ainfo(
+            "No job record found to fail", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        await database_sync_to_async(DataModelingJob.objects.create)(
+            workflow_id=inputs.workflow_id,
+            workflow_run_id=inputs.workflow_run_id,
+            status=DataModelingJob.Status.FAILED,
+            error="Materialization could not start",
+            team_id=inputs.team_id,
+        )
 
 
 @dataclasses.dataclass
@@ -964,7 +989,9 @@ class RunWorkflow(PostHogWorkflow):
 
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
-                FailJobsActivityInputs(workflow_id=workflow_id, workflow_run_id=workflow_run_id, error=str(e)),
+                FailJobsActivityInputs(
+                    workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id, error=str(e)
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
