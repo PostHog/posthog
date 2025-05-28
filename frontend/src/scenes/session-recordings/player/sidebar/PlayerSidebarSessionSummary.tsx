@@ -486,7 +486,7 @@ function SessionSummary(): JSX.Element {
                 <>
                     <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
                         <IconAIText />
-                        AI Replay Research
+                        AI Session Summary
                         <LemonTag type="completion" size="medium">
                             ALPHA
                         </LemonTag>
