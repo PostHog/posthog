@@ -40,6 +40,7 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.link(ref),
             iconColor: ['var(--product-links-light)'],
             filterKey: 'link',
+            flag: FEATURE_FLAGS.LINKS,
         },
     },
     treeItemsNew: [

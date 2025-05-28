@@ -374,6 +374,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.link(ref),
         iconColor: ['var(--product-links-light)'],
         filterKey: 'link',
+        flag: FEATURE_FLAGS.LINKS,
     },
     notebook: {
         name: 'Notebook',
@@ -402,6 +403,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.userInterview(ref),
         iconColor: ['var(--product-user-interviews-light)'],
         filterKey: 'user_interview',
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
     },
 }
 
@@ -545,3 +547,6 @@ export const getTreeItemsDataManagement = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({})
