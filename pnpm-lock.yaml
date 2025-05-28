@@ -932,6 +932,9 @@ importers:
       react-modal:
         specifier: ^3.15.1
         version: 3.16.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      react-photo-editor:
+        specifier: ^3.0.0
+        version: 3.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react-resizable:
         specifier: ^3.0.5
         version: 3.0.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -14571,6 +14574,12 @@ packages:
     peerDependencies:
       react: ^0.14.0 || ^15.0.0 || ^16 || ^17 || ^18
       react-dom: ^0.14.0 || ^15.0.0 || ^16 || ^17 || ^18
+
+  react-photo-editor@3.0.0:
+    resolution: {integrity: sha512-wy69R8RRcfj99mdHDwlFIMMkF8oPFxhxySk4Ryf71BdbBmLrDWtKanwONt6sJjY80C4OKruJUTaE/q/CngoGuA==}
+    peerDependencies:
+      react: ^18.2.0 || ^19.0
+      react-dom: ^18.2.0 || ^19.0
 
   react-refresh@0.14.0:
     resolution: {integrity: sha512-wViHqhAd8OHeLS/IRMJjTSDHF3U9eWi62F/MledQGPdJGDhodXJ9PBLNGr6WWL7qlH12Mt3TyTpbS+hGXMjCzQ==}
@@ -33210,6 +33219,11 @@ snapshots:
       react-dom: 18.2.0(react@18.2.0)
       react-lifecycles-compat: 3.0.4
       warning: 4.0.3
+
+  react-photo-editor@3.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
 
   react-refresh@0.14.0: {}
 

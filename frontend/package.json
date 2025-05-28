@@ -183,6 +183,7 @@
         "react-intersection-observer": "^9.5.3",
         "react-markdown": "^5.0.3",
         "react-modal": "^3.15.1",
+        "react-photo-editor": "^3.0.0",
         "react-resizable": "^3.0.5",
         "react-shadow": "^20.3.0",
         "react-syntax-highlighter": "^15.5.0",
