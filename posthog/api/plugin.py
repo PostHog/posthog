@@ -8,7 +8,7 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -30,7 +30,6 @@ from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
     Detail,
-    Trigger,
     dict_changes_between,
     load_activity,
     load_all_activity,
@@ -42,10 +41,9 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import (
     PluginSourceFile,
     update_validated_data_from_url,
-    validate_plugin_job_payload,
     transpile,
 )
-from posthog.models.utils import UUIDT, generate_random_token
+from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
