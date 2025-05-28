@@ -1,6 +1,6 @@
 import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonSegmentedButton, LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
@@ -9,6 +9,7 @@ import { InsightLogicProps } from '~/types'
 
 import {
     buildDashboardItemId,
+    GrossRevenueGroupBy,
     REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
@@ -21,20 +22,37 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-export const GrossRevenueTile = (): JSX.Element => {
-    const { queries } = useValues(revenueAnalyticsLogic)
-    const query = queries[QUERY_ID]
+const OPTIONS: LemonSegmentedButtonOption<GrossRevenueGroupBy>[] = [
+    { label: 'All', value: 'all' },
+    { label: 'Product', value: 'product' },
+    { label: 'Cohort', value: 'cohort', disabledReason: 'Coming soon' },
+]
 
+export const GrossRevenueTile = (): JSX.Element => {
+    const { queries, grossRevenueGroupBy } = useValues(revenueAnalyticsLogic)
+    const { setGrossRevenueGroupBy } = useActions(revenueAnalyticsLogic)
+
+    const query = queries[QUERY_ID]
     const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
 
     return (
-        <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-semibold">
-                Gross Revenue&nbsp;
-                <Tooltip title="Gross revenue is the total amount of revenue generated from all sources, including all products and services.">
-                    <IconInfo />
-                </Tooltip>
-            </h3>
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-between">
+                <h3 className="text-lg font-semibold">
+                    Gross Revenue&nbsp;
+                    <Tooltip title="Gross revenue is the total amount of revenue generated from all sources, including all products and services.">
+                        <IconInfo />
+                    </Tooltip>
+                </h3>
+                <span className="flex items-center gap-1 text-muted-alt">
+                    Group by&nbsp;
+                    <LemonSegmentedButton<GrossRevenueGroupBy>
+                        options={OPTIONS}
+                        value={grossRevenueGroupBy}
+                        onChange={setGrossRevenueGroupBy}
+                    />
+                </span>
+            </div>
 
             <Query query={query} readOnly context={context} />
         </div>

@@ -64,6 +64,17 @@ const wrapWithDataTableNodeIfNeeded = (
     }
 }
 
+const setQueryParams = (params: Record<string, string>): string => {
+    const searchParams = { ...router.values.searchParams }
+    const urlParams = new URLSearchParams(searchParams)
+    Object.entries(params).forEach(([key, value]) => {
+        urlParams.set(key, value)
+    })
+
+    return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+}
+
+export type GrossRevenueGroupBy = 'all' | 'product' | 'cohort'
 export type LineOrTableChart = 'line' | 'table'
 export type RawRevenueSources = {
     events: RevenueAnalyticsEventItem[]
@@ -86,6 +97,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setRevenueSources: (revenueSources: RawRevenueSources) => ({ revenueSources }),
+        setGrossRevenueGroupBy: (groupBy: GrossRevenueGroupBy) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -100,6 +112,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
 
+        grossRevenueGroupBy: [
+            'all' as GrossRevenueGroupBy,
+            persistConfig,
+            {
+                setGrossRevenueGroupBy: (_, { groupBy }) => groupBy,
+            },
+        ],
         growthRateDisplayMode: [
             'line' as LineOrTableChart,
             persistConfig,
@@ -260,23 +279,21 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
     }),
     actionToUrl(() => ({
-        setDates: ({ dateFrom, dateTo }): string => {
-            const searchParams = { ...router.values.searchParams }
-            const urlParams = new URLSearchParams(searchParams)
-
-            urlParams.set('date_from', dateFrom ?? '')
-            urlParams.set('date_to', dateTo ?? '')
-
-            return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
-        },
+        setDates: ({ dateFrom, dateTo }): string =>
+            setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
+        setGrossRevenueGroupBy: ({ groupBy }): string => setQueryParams({ revenue_group_by: groupBy ?? '' }),
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.revenueAnalytics()]: (_, { date_from, date_to }) => {
+        [urls.revenueAnalytics()]: (_, { date_from, date_to, revenue_group_by }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
                 (date_to && date_to !== values.dateFilter.dateTo)
             ) {
                 actions.setDates(date_from, date_to)
+            }
+
+            if (revenue_group_by && revenue_group_by !== values.grossRevenueGroupBy) {
+                actions.setGrossRevenueGroupBy(revenue_group_by)
             }
         },
     })),
