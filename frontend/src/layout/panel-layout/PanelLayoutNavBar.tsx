@@ -7,7 +7,7 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconPlus,
+    IconPlusSmall,
     IconSearch,
     IconShortcut,
     IconToolbar,
@@ -255,7 +255,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         {!isLayoutNavCollapsed && (
                             <div
-                                className={`flex gap-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
                                 aria-label="Add a new item menu actions"
                             >
                                 <DropdownMenu>
@@ -270,7 +270,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 e.stopPropagation()
                                             }}
                                         >
-                                            <IconPlus className="text-secondary" />
+                                            <IconPlusSmall className="text-secondary" />
                                         </ButtonPrimitive>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent>
