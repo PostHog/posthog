@@ -25,7 +25,7 @@ if(empty(inputs.event)) {
 }
 
 if(empty(inputs.distinct_id)) {
-  throw Error('"event" cannot be empty')
+  throw Error('"distinct_id" cannot be empty')
 }
 
 postHogCapture({
