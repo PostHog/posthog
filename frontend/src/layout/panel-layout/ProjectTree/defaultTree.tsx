@@ -201,10 +201,11 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `AI chat`,
+            path: `Max AI`,
             type: 'aichat',
             href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
+            visualOrder: PRODUCT_VISUAL_ORDER.aiChat,
         } as FileSystemImport,
         {
             path: `Data pipelines`,
@@ -220,12 +221,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
         } as FileSystemImport,
         {
-            path: 'Data warehouse',
-            iconType: 'database',
-            href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataWarehouse,
-        } as FileSystemImport,
-        {
             path: 'Error tracking',
             iconType: 'bug',
             href: urls.errorTracking(),
@@ -237,6 +232,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
             visualOrder: PRODUCT_VISUAL_ORDER.heatmaps,
+            tags: ['alpha'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {
@@ -250,3 +246,18 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreePersons = (): FileSystemImport[] => [
+    {
+        path: 'Persons',
+        iconType: 'cohort',
+        href: urls.persons(),
+        visualOrder: 10,
+    },
+    {
+        path: 'Cohorts',
+        type: 'cohort',
+        href: urls.cohorts(),
+        visualOrder: 20,
+    },
+]

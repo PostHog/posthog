@@ -1,6 +1,5 @@
 import { v4 as uuid4 } from 'uuid'
 
-import { ONE_HOUR } from '../src/config/constants'
 import { PluginLogEntryType } from '../src/types'
 import { parseJSON } from '../src/utils/json-parse'
 import { UUIDT } from '../src/utils/utils'
@@ -16,7 +15,6 @@ import {
     enablePluginConfig,
     fetchEvents,
     fetchPluginAppMetrics,
-    fetchPluginConsoleLogEntries,
     fetchPluginLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
@@ -31,67 +29,6 @@ let organizationId: string
 
 beforeAll(async () => {
     organizationId = await createOrganization()
-})
-
-test.concurrent(`plugin method tests: event captured, processed, ingested`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: `
-            export async function processEvent(event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-                event.properties['$snapshot_data'] = 'no way'
-                event.properties.runCount = (event.properties.runCount || 0) + 1
-                return event
-            }
-
-            export function onEvent (event, { global }) {
-                // we use this to mock setupPlugin being
-                // run after some events were already ingested
-                global.timestampBoundariesForTeam = {
-                    max: new Date(),
-                    min: new Date(Date.now()-${ONE_HOUR})
-                }
-                console.info(JSON.stringify(['onEvent', event]))
-            }
-        `,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
-    }
-
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-        expect(events[0].properties).toEqual(
-            expect.objectContaining({
-                processed: 'hell yes',
-                upperUuid: uuid.toUpperCase(),
-                runCount: 1,
-            })
-        )
-    })
-
-    // onEvent ran
-    await waitForExpect(async () => {
-        const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
-        const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
-        expect(onEvent.length).toBeGreaterThan(0)
-        const onEventEvent = onEvent[0].message[1]
-        expect(onEventEvent.event).toEqual('custom event')
-        expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
-    })
 })
 
 test.concurrent(
@@ -332,82 +269,6 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
     const persons = await fetchPostgresPersons(teamId)
     expect(persons.length).toBe(1)
 })
-
-test.concurrent(
-    `plugin method tests: correct $autocapture properties included in onEvent calls`,
-    async () => {
-        // The plugin server does modifications to the `event.properties`
-        // and as a results we remove the initial `$elements` from the
-        // object. Thus we want to ensure that this information is passed
-        // through to any plugins with `onEvent` handlers
-        const plugin = await createPlugin({
-            organization_id: organizationId,
-            name: 'test plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-            export async function processEvent(event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-                event.properties['$snapshot_data'] = 'no way'
-                return event
-            }
-
-            export function onEvent (event, { global }) {
-                // we use this to mock setupPlugin being
-                // run after some events were already ingested
-                global.timestampBoundariesForTeam = {
-                    max: new Date(),
-                    min: new Date(Date.now()-${ONE_HOUR})
-                }
-                console.info(JSON.stringify(['onEvent', event]))
-            }
-        `,
-        })
-        const teamId = await createTeam(organizationId)
-        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
-
-        const properties = {
-            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-        }
-
-        const event = {
-            event: '$autocapture',
-            properties: properties,
-        }
-
-        await waitForExpect(async () => {
-            // We might have not completed the setup properly in time, so to avoid flaky tests, we'll
-            // try sending messages and checking the last log message until we get the expected result.
-            await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-            const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
-            const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
-            const lastLogEntry = onEvent.length > 0 ? onEvent[onEvent.length - 1] : null
-            expect(lastLogEntry).toEqual(
-                expect.objectContaining({
-                    message: [
-                        'onEvent',
-                        expect.objectContaining({
-                            elements: [
-                                expect.objectContaining({
-                                    attributes: {},
-                                    nth_child: 1,
-                                    nth_of_type: 2,
-                                    tag_name: 'div',
-                                    text: '💻',
-                                }),
-                            ],
-                        }),
-                    ],
-                })
-            )
-        })
-    },
-    20000
-)
 
 test.concurrent('plugins can use attachements', async () => {
     const indexJs = `

@@ -67,7 +67,7 @@ export const TopCustomersTile = (): JSX.Element => {
             <div className="flex flex-row justify-between">
                 <h3 className="text-lg font-semibold">
                     Top customers&nbsp;
-                    <Tooltip title="Top customers by all revenue accumulated in the selected period.">
+                    <Tooltip title="Top customers by revenue in the selected period.">
                         <IconInfo />
                     </Tooltip>
                 </h3>
