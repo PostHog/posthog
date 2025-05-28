@@ -8,6 +8,7 @@ import {
     dropdownValueToBranchingConfig,
     getDefaultBranchingType,
     isSpecificQuestionValue,
+    isValidBranchingType,
     parseSpecificQuestionValue,
     SPECIFIC_QUESTION_SEPARATOR,
 } from './utils'
@@ -90,6 +91,21 @@ describe('branching utils', () => {
         })
     })
 
+    describe('isValidBranchingType', () => {
+        it.each([
+            [SurveyQuestionBranchingType.NextQuestion, true],
+            [SurveyQuestionBranchingType.End, true],
+            [SurveyQuestionBranchingType.ResponseBased, true],
+            [SurveyQuestionBranchingType.SpecificQuestion, true],
+            ['invalid_type', false],
+            ['', false],
+            ['next_question_typo', false],
+            ['123', false],
+        ])('validates %s as %s', (value, expected) => {
+            expect(isValidBranchingType(value)).toBe(expected)
+        })
+    })
+
     describe('dropdownValueToBranchingConfig', () => {
         it('parses specific question values correctly', () => {
             const result = dropdownValueToBranchingConfig(
@@ -107,6 +123,34 @@ describe('branching utils', () => {
             [SurveyQuestionBranchingType.ResponseBased, { type: SurveyQuestionBranchingType.ResponseBased }],
         ])('parses %s correctly', (branchingType, expected) => {
             expect(dropdownValueToBranchingConfig(branchingType)).toEqual(expected)
+        })
+
+        it('handles invalid branching type gracefully', () => {
+            const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            const result = dropdownValueToBranchingConfig('invalid_type')
+
+            expect(result).toEqual({
+                type: SurveyQuestionBranchingType.NextQuestion,
+            })
+            expect(consoleSpy).toHaveBeenCalledWith(
+                'Invalid branching type: invalid_type. Falling back to NextQuestion.'
+            )
+
+            consoleSpy.mockRestore()
+        })
+
+        it('handles empty string gracefully', () => {
+            const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            const result = dropdownValueToBranchingConfig('')
+
+            expect(result).toEqual({
+                type: SurveyQuestionBranchingType.NextQuestion,
+            })
+            expect(consoleSpy).toHaveBeenCalledWith('Invalid branching type: . Falling back to NextQuestion.')
+
+            consoleSpy.mockRestore()
         })
     })
 

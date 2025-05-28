@@ -14,13 +14,12 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import {
+    canQuestionHaveResponseBasedBranching,
+    createSpecificQuestionValue,
+    dropdownValueToBranchingConfig,
+} from './components/question-branching/utils'
 import { surveyLogic } from './surveyLogic'
-
-function canQuestionHaveResponseBasedBranching(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice
-}
 
 export function QuestionBranchingInput({
     questionIndex,
@@ -39,8 +38,7 @@ export function QuestionBranchingInput({
         }))
         .filter((_, idx) => questionIndex !== idx)
     const branchingDropdownValue = getBranchingDropdownValue(questionIndex, question)
-    const hasResponseBasedBranching =
-        question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice
+    const hasResponseBasedBranching = canQuestionHaveResponseBasedBranching(question)
 
     return (
         <>
@@ -51,12 +49,8 @@ export function QuestionBranchingInput({
                     data-attr={`survey-question-${questionIndex}-branching-select`}
                     onSelect={(type) => {
                         const handleSelect = (): void => {
-                            let specificQuestionIndex
-                            if (type.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                                specificQuestionIndex = parseInt(type.split(':')[1])
-                                type = SurveyQuestionBranchingType.SpecificQuestion
-                            }
-                            setQuestionBranchingType(questionIndex, type, specificQuestionIndex)
+                            const { type: branchingType, specificQuestionIndex } = dropdownValueToBranchingConfig(type)
+                            setQuestionBranchingType(questionIndex, branchingType, specificQuestionIndex)
                         }
 
                         if (survey.appearance && survey.appearance.shuffleQuestions) {
@@ -107,7 +101,7 @@ export function QuestionBranchingInput({
                             : []),
                         ...availableNextQuestions.map((question) => ({
                             label: truncate(`${question.questionIndex + 1}. ${question.question}`, 40),
-                            value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
+                            value: createSpecificQuestionValue(question.questionIndex),
                         })),
                     ]}
                 />
@@ -186,15 +180,12 @@ function QuestionResponseBasedBranchingInput({
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}
                             data-attr={`survey-question-${questionIndex}-branching-response_based-select-${i}`}
                             onSelect={(nextStep) => {
-                                let specificQuestionIndex
-                                if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                                    specificQuestionIndex = parseInt(nextStep.split(':')[1])
-                                    nextStep = SurveyQuestionBranchingType.SpecificQuestion
-                                }
+                                const { type: branchingType, specificQuestionIndex } =
+                                    dropdownValueToBranchingConfig(nextStep)
                                 setResponseBasedBranchingForQuestion(
                                     questionIndex,
                                     value,
-                                    nextStep,
+                                    branchingType,
                                     specificQuestionIndex
                                 )
                             }}

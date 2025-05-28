@@ -61,6 +61,10 @@ export function branchingConfigToDropdownValue(
     return branchingType
 }
 
+export function isValidBranchingType(value: string): value is SurveyQuestionBranchingType {
+    return Object.values(SurveyQuestionBranchingType).includes(value as SurveyQuestionBranchingType)
+}
+
 /**
  * Converts a dropdown value back to branching configuration.
  * Returns the branching type and optional specific question index.
@@ -78,8 +82,16 @@ export function dropdownValueToBranchingConfig(value: string): {
         }
     }
 
+    // Validate the value before type casting
+    if (!isValidBranchingType(value)) {
+        console.error(`Invalid branching type: ${value}. Falling back to NextQuestion.`)
+        return {
+            type: SurveyQuestionBranchingType.NextQuestion,
+        }
+    }
+
     return {
-        type: value as SurveyQuestionBranchingType,
+        type: value,
     }
 }
 
