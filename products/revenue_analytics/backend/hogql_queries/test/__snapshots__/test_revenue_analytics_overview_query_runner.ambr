@@ -4,8 +4,7 @@
   SELECT 0 AS revenue,
          0 AS paying_customer_count,
          0 AS avg_revenue_per_customer
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -51,8 +50,7 @@
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
         WHERE equals(posthog_test_stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.charge_revenue_view`)
   WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-16 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-02-15 23:59:59', 'UTC'))), 0))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -100,8 +98,7 @@
      WHERE in(`revenue_analytics.purchase.charge_events_revenue_view`.event_name,
               ['purchase']))
   WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -150,8 +147,7 @@
      WHERE in(`revenue_analytics.purchase.charge_events_revenue_view`.event_name,
               ['purchase']))
   WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
-  LIMIT 100 SETTINGS allow_experimental_join_condition=1,
-                     readonly=2,
+  LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,

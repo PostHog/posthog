@@ -59,8 +59,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -112,8 +111,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -191,8 +189,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -250,8 +247,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -328,8 +324,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -411,8 +406,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -464,8 +458,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -517,8 +510,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -570,8 +562,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -629,8 +620,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -701,8 +691,7 @@
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
-  OFFSET 0 SETTINGS allow_experimental_join_condition=1,
-                    readonly=2,
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
