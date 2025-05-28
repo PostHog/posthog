@@ -1523,12 +1523,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-        isOnPaidPlan: [
-            (s) => [s.billing],
-            (billing: BillingType | null): boolean => {
-                return !!billing?.has_active_subscription
-            },
-        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
