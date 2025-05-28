@@ -92,16 +92,30 @@ function InspectDOM(): JSX.Element {
 }
 
 function Screenshot(): JSX.Element {
-    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+    const { takeScreenshot, saveScreenshotFile, setScreenshotFile } = useActions(sessionRecordingPlayerLogic)
+    const { screenshotFile } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <SettingsButton
-            title="Take a screenshot of the current frame"
-            label="Screenshot"
-            data-attr="screenshot"
-            onClick={takeScreenshot}
-            icon={<IconLlmPromptEvaluation />}
-        />
+        <>
+            {screenshotFile && (
+                <ReactPhotoEditor
+                    open={screenshotFile !== null}
+                    onClose={() => setScreenshotFile(null)}
+                    file={screenshotFile}
+                    onSaveImage={saveScreenshotFile}
+                    allowRotate={true}
+                    allowFlip={false}
+                    allowColorEditing={true}
+                />
+            )}
+            <SettingsButton
+                title="Take a screenshot of the current frame"
+                label="Screenshot"
+                data-attr="screenshot"
+                onClick={takeScreenshot}
+                icon={<IconLlmPromptEvaluation />}
+            />
+        </>
     )
 }
 
