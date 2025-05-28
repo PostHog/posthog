@@ -139,7 +139,7 @@ describe('CdpCyclotronWorkerSegment', () => {
             ])
         }, 10000)
 
-        it('should call the plugin perform method', async () => {
+        it('should handle fetch errors', async () => {
             jest.spyOn(amplitudeAction as any, 'perform')
 
             fn = await insertHogFunction({
@@ -149,7 +149,12 @@ describe('CdpCyclotronWorkerSegment', () => {
 
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
 
-            mockFetch.mockRejectedValue(new Error('Test error'))
+            mockFetch.mockResolvedValue({
+                status: 429,
+                json: () => Promise.resolve({ error: 'Too many requests' }),
+                text: () => Promise.resolve(JSON.stringify({ error: 'Too many requests' })),
+                headers: { 'retry-after': '60' },
+            })
 
             const { invocationResults } = await processor.processBatch([invocation])
 
