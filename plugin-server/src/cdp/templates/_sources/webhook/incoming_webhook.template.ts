@@ -10,6 +10,11 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     hog: `
+
+if(inputs.debug) {
+  print('Incoming request:', request.body)
+}
+
 if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.headers['authorization'])) {
   print('Incoming request denied due to bad authorization header')
   return {

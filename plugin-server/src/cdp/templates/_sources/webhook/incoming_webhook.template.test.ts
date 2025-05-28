@@ -116,4 +116,28 @@ describe('incoming webhook template', () => {
         expect(response.finished).toEqual(true)
         expect(response.execResult).toBeNull()
     })
+
+    it('should print the request body if debug is true', async () => {
+        const response = await tester.invoke(
+            {
+                event: '{request.body.eventName}',
+                distinct_id: 'hardcoded',
+                debug: true,
+            },
+            {
+                request: {
+                    body: {
+                        eventName: 'the event',
+                    },
+                    headers: {},
+                },
+            }
+        )
+
+        expect(response.logs.map((x) => x.message)).toEqual([
+            'Executing function',
+            `Incoming request:, {"eventName":"the event"}`,
+            expect.stringContaining('Function completed'),
+        ])
+    })
 })
