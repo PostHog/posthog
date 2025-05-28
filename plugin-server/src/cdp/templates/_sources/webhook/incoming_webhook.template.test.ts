@@ -14,24 +14,27 @@ describe('incoming webhook template', () => {
     it('should invoke the function', async () => {
         const response = await tester.invoke(
             {
-                event: '{body.eventName}',
+                event: '{request.body.eventName}',
                 distinct_id: 'hardcoded',
                 properties: {
-                    root_level: '{body.rootLevel}',
-                    nested_level: '{body.nested.nestedLevel}',
-                    missing: '{body.missing?.missingvalue}',
+                    root_level: '{request.body.rootLevel}',
+                    nested_level: '{request.body.nested.nestedLevel}',
+                    missing: '{request.body.missing?.missingvalue}',
                 },
             },
             {
                 // TODO: Fix typing
-                body: {
-                    eventName: 'the event',
-                    rootLevel: 'rootLevelValue',
-                    nested: {
-                        nestedLevel: 'nestedLevelValue',
+                request: {
+                    body: {
+                        eventName: 'the event',
+                        rootLevel: 'rootLevelValue',
+                        nested: {
+                            nestedLevel: 'nestedLevelValue',
+                        },
                     },
+                    headers: {},
+                    ip: '127.0.0.1',
                 },
-                headers: {},
             }
         )
 
@@ -59,16 +62,19 @@ describe('incoming webhook template', () => {
     it('should return 401 if the auth header is incorrect', async () => {
         const response = await tester.invoke(
             {
-                event: '{body.eventName}',
+                event: '{request.body.eventName}',
                 distinct_id: 'hardcoded',
                 auth_header: 'Bearer my-secret-token',
             },
             {
-                body: {
-                    eventName: 'the event',
-                },
-                headers: {
-                    authorization: 'Bearer wrong-token',
+                request: {
+                    body: {
+                        eventName: 'the event',
+                    },
+                    headers: {
+                        authorization: 'Bearer wrong-token',
+                    },
+                    ip: '127.0.0.1',
                 },
             }
         )
@@ -87,16 +93,19 @@ describe('incoming webhook template', () => {
     it('should pass if the auth header is correct', async () => {
         const response = await tester.invoke(
             {
-                event: '{body.eventName}',
+                event: '{request.body.eventName}',
                 distinct_id: 'hardcoded',
                 auth_header: 'Bearer my-secret-token',
             },
             {
-                body: {
-                    eventName: 'the event',
-                },
-                headers: {
-                    authorization: 'Bearer my-secret-token',
+                request: {
+                    body: {
+                        eventName: 'the event',
+                    },
+                    headers: {
+                        authorization: 'Bearer my-secret-token',
+                    },
+                    ip: '127.0.0.1',
                 },
             }
         )

@@ -52,6 +52,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         }
 
         const body: Record<string, any> = req.body
+        // TODO: Should this be filled via other headers?
+        const ip = req.ip
 
         const globals: HogFunctionInvocationGlobals = {
             project: {
@@ -68,8 +70,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 timestamp: DateTime.now().toISO(),
                 url: '',
             },
-            body: body,
-            headers: headers,
+            request: {
+                headers,
+                ip,
+                body,
+            },
         }
 
         let result: HogFunctionInvocationResult
