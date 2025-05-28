@@ -61,8 +61,6 @@ export function DataPipelinesOverview(): JSX.Element {
                 }
             />
             <div className="deprecated-space-y-4">
-                <h2>Event sources</h2>
-
                 <FlaggedFeature flag="cdp-hog-sources">
                     <Section title="Event sources" to={urls.pipeline(PipelineTab.Sources)}>
                         <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />

@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export type DataPipelinesNewSceneProps = {
     kind: 'transformation' | 'destination' | 'source' | 'site_app'
@@ -67,7 +68,10 @@ export function DataPipelinesNewScene(): JSX.Element {
     if (kind === 'source') {
         return (
             <>
-                <HogFunctionTemplateList defaultFilters={{}} type="source_webhook" />
+                <FlaggedFeature flag="cdp-hog-sources">
+                    <h2>Event sources</h2>
+                    <HogFunctionTemplateList defaultFilters={{}} type="source_webhook" />
+                </FlaggedFeature>
                 <NewSourceWizardScene />
             </>
         )
