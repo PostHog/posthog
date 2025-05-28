@@ -1052,7 +1052,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         min_blob_key: int,
         max_blob_key: int,
     ) -> HttpResponse:
-        """Sync wrapper for async method"""
         return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
