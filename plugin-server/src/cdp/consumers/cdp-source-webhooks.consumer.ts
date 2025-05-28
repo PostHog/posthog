@@ -1,7 +1,9 @@
 import express from 'express'
+import { DateTime } from 'luxon'
 
 import { Hub } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { UUIDT } from '../../utils/utils'
 import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType, HogFunctionTypeType } from '../types'
@@ -35,6 +37,16 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         }
 
         const globals: HogFunctionInvocationGlobalsWithInputs = {
+            event: {
+                event: '$incoming_webhook',
+                properties: {},
+                uuid: new UUIDT().toString(),
+                distinct_id: req.body.distinct_id,
+                elements_chain: '',
+                timestamp: DateTime.now().toISO(),
+                url: req.url,
+            },
+            // TODO: Fix this typing
             body: req.body,
         }
 
