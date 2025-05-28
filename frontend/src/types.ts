@@ -49,6 +49,7 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    MarketingAnalyticsConfig,
     Node,
     NodeKind,
     QuerySchema,
@@ -619,6 +620,7 @@ export interface TeamType extends TeamBasicType {
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
     revenue_analytics_config: RevenueAnalyticsConfig
+    marketing_analytics_config: MarketingAnalyticsConfig
     onboarding_tasks?: {
         [key: string]: ActivationTaskStatus
     }

@@ -12314,6 +12314,27 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarketingAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "base_currency": {
+                    "$ref": "#/definitions/CurrencyCode",
+                    "default": "USD"
+                },
+                "sources_map": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/SourceMap"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["base_currency"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSchema": {
+            "additionalProperties": false,
+            "type": "object"
+        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {
@@ -17847,6 +17868,50 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SourceMap": {
+            "additionalProperties": false,
+            "properties": {
+                "campaign_name": {
+                    "type": "string"
+                },
+                "clicks": {
+                    "type": "string"
+                },
+                "date": {
+                    "type": "string"
+                },
+                "impressions": {
+                    "type": "string"
+                },
+                "pageviews": {
+                    "type": "string"
+                },
+                "source_name": {
+                    "type": "string"
+                },
+                "total_cost": {
+                    "type": "string"
+                },
+                "transformations": {
+                    "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "type": {
+                                "enum": ["multiply", "divide"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": ["number", "string"]
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "StepOrderValue": {

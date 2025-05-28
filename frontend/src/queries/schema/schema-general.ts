@@ -3083,3 +3083,45 @@ export interface EventsHeatMapStructuredResult {
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
 }
+
+export const MARKETING_ANALYTICS_SCHEMA = {
+    campaign_name: ['string'],
+    total_cost: ['float', 'integer'],
+    pageviews: ['integer', 'number', 'float'],
+    clicks: ['integer', 'number', 'float'],
+    impressions: ['integer', 'number', 'float'],
+    date: ['datetime', 'date'],
+    source_name: ['string'],
+} as const
+
+export type MarketingAnalyticsSchema = {
+    [K in keyof typeof MARKETING_ANALYTICS_SCHEMA]: (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'string'
+        ? string
+        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'number'
+        ? number
+        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'float'
+        ? number
+        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'datetime'
+        ? Date
+        : (typeof MARKETING_ANALYTICS_SCHEMA)[K] extends 'date'
+        ? Date
+        : never
+}
+
+export interface SourceMap extends Record<keyof MarketingAnalyticsSchema, string | undefined> {
+    transformations?: {
+        [fieldName: string]: {
+            // this might be necessary for different currencies
+            type: 'multiply' | 'divide'
+            value?: number | string
+        }
+    }
+}
+
+export interface MarketingAnalyticsConfig {
+    /**
+     * @default 'USD'
+     */
+    base_currency: CurrencyCode
+    sources_map?: Record<string, SourceMap>
+}
