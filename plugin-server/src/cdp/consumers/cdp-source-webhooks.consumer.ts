@@ -98,7 +98,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             result = this.hogExecutor.execute(invocation)
 
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-            await this.cyclotronJobQueue.queueInvocationResults([result])
+            if (!result.finished) {
+                await this.cyclotronJobQueue.queueInvocationResults([result])
+            }
 
             void this.promiseScheduler.schedule(
                 Promise.all([
