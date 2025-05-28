@@ -43,8 +43,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -52,7 +51,6 @@
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   LIMIT 26 SETTINGS join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -111,8 +109,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -120,7 +117,6 @@
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   LIMIT 26 SETTINGS join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -177,8 +173,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -186,7 +181,6 @@
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   LIMIT 26 SETTINGS join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -258,7 +252,6 @@
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   LIMIT 26 SETTINGS join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -330,7 +323,6 @@
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   LIMIT 26 SETTINGS join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -393,8 +385,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                      groups.group_type_index AS index,
@@ -410,7 +401,6 @@
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   LIMIT 26 SETTINGS join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -461,8 +451,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                      groups.group_type_index AS index,
@@ -476,13 +465,11 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('finance')))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto',
-                                              allow_experimental_join_condition=1) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -533,8 +520,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                      groups.group_type_index AS index,
@@ -548,13 +534,11 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('finance')))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto',
-                                              allow_experimental_join_condition=1) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -605,8 +589,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                      groups.group_type_index AS index,
@@ -620,13 +603,11 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('technology')))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto',
-                                              allow_experimental_join_condition=1) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -677,8 +658,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1,
-                                                                                                                                          allow_experimental_join_condition=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                      groups.group_type_index AS index,
@@ -692,13 +672,11 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
                                                                    and isNull(arrayFlatten(array('technology')))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto',
-                                              allow_experimental_join_condition=1) AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
-                    allow_experimental_join_condition=1,
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
