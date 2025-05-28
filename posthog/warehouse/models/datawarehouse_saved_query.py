@@ -157,9 +157,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
 
     @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
+
+    @property
     def url_pattern(self):
-        normalized_name = NamingConvention().normalize_identifier(self.name)
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     @property
     def is_materialized(self):

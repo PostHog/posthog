@@ -114,6 +114,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     )
 
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
+    size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
     __repr__ = sane_repr("name")
 

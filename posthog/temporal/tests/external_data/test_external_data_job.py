@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -774,6 +775,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         update_external_data_job_model,
                         import_data_activity_sync,
                         create_source_templates,
+                        calculate_table_size_activity,
                         check_billing_limits_activity,
                         sync_new_schemas_activity,
                     ],

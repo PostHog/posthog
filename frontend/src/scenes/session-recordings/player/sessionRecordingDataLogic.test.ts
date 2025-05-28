@@ -85,7 +85,7 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
         logic = sessionRecordingDataLogic({
             sessionRecordingId: '2',
-            // we don't want to wait for the default real time polling interval in tests
+            // we don't want to wait for the default real-time polling interval in tests
             realTimePollingIntervalMilliseconds: 10,
         })
         logic.mount()
@@ -281,6 +281,7 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
+    // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1
     describe('deduplicateSnapshots', () => {
         const sources: SessionRecordingSnapshotSource[] = [
             {
@@ -445,6 +446,7 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
+    // TODO need chunking tests for blob_v2 sources before we deprecate blob_v1
     describe('mutation chunking', () => {
         const createMutationSnapshot = (addsCount: number): RecordingSnapshot =>
             ({
