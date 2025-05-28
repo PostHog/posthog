@@ -14,7 +14,7 @@ pub struct ReleaseRecord {
     pub created_at: DateTime<Utc>,
     pub version: String,
     pub project: String,
-    pub metadata: Value,
+    pub metadata: Option<Value>,
 }
 
 // The info, as written to clickhouse at the exception level. Doesn't include the
@@ -23,7 +23,8 @@ pub struct ReleaseRecord {
 pub struct ReleaseInfo {
     version: String,
     timestamp: DateTime<Utc>,
-    metadata: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<Value>,
 }
 
 impl ReleaseRecord {
