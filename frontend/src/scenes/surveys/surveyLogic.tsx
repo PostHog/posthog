@@ -1815,7 +1815,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         getBranchingDropdownValue: [
             (s) => [s.survey],
-            (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
+            (survey) => (questionIndex: number, question: SurveyQuestion) => {
                 if (question.branching?.type) {
                     const { type } = question.branching
 
