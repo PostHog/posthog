@@ -202,7 +202,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
-    access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
 
     class Meta:
@@ -231,7 +230,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "group_types",
             "live_events_token",
             "product_intents",
-            "access_control_version",
         )
 
         read_only_fields = (
@@ -253,7 +251,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "user_access_level",
             "product_intents",
-            "access_control_version",
         )
 
     def to_representation(self, instance):
@@ -269,12 +266,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
-
-    def get_access_control_version(self, team: Team) -> str:
-        # If they have a private project (team/environment) then assume they are using the old access control
-        if bool(team.access_control):
-            return "v1"
-        return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()

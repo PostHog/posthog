@@ -21,6 +21,7 @@ import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableV
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
 
+import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { Realm } from '~/types'
 
 import {
@@ -73,7 +74,6 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -612,7 +612,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-roles',
                 title: 'Roles',
-                component: <RoleBasedAccess />,
+                component: <RolesAccessControls />,
             },
         ],
     },

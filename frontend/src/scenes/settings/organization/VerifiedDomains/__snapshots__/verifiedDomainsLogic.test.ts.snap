@@ -38,7 +38,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "teams": [
       {
         "access_control": true,
-        "access_control_version": "v1",
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [

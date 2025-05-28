@@ -1178,10 +1178,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.featureFlag, s.currentTeam],
-            (featureFlag, currentTeam): SidePanelSceneContext | null => {
-                // Only render the new access control on side panel if they have been migrated
-                return featureFlag?.id && currentTeam?.access_control_version === 'v2'
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
                     ? {
                           activity_scope: ActivityScope.FEATURE_FLAG,
                           activity_item_id: `${featureFlag.id}`,

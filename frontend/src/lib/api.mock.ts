@@ -163,7 +163,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ],
     },
     flags_persistence_default: false,
-    access_control_version: 'v1',
     has_completed_onboarding_for: {
         product_analytics: true,
     },

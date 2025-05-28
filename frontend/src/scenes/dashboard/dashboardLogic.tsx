@@ -18,7 +18,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -1137,18 +1137,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canEditDashboard: [
-            (s) => [s.dashboard, s.featureFlags],
-            (dashboard, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return dashboard?.user_access_level
-                        ? accessLevelSatisfied(
-                              AccessControlResourceType.Dashboard,
-                              dashboard.user_access_level,
-                              'editor'
-                          )
-                        : true
-                }
-                return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+            (s) => [s.dashboard],
+            (dashboard) => {
+                return dashboard?.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
+                    : true
             },
         ],
         canRestrictDashboard: [

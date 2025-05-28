@@ -3,7 +3,7 @@ import { actions, connect, events, kea, key, listeners, LogicWrapper, path, prop
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -333,17 +333,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight, s.featureFlags],
-            (insight, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
-                    return insight.user_access_level
-                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
-                        : true
-                }
-                return (
-                    insight.effective_privilege_level == undefined ||
-                    insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
-                )
+            (s) => [s.insight],
+            (insight) => {
+                return insight.user_access_level
+                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    : true
             },
         ],
         insightChanged: [

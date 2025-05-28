@@ -532,7 +532,6 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
-    access_control_version: 'v1' | 'v2'
 }
 
 export interface CorrelationConfigType {
