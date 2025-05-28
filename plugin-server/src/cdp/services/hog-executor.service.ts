@@ -427,7 +427,7 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (result.capturedPostHogEvents!.length > 0) {
+                            if (result.capturedPostHogEvents.length > 0) {
                                 throw new Error(
                                     'postHogCapture was called more than once. Only one call is allowed per function'
                                 )
@@ -451,7 +451,7 @@ export class HogExecutorService {
                                 eventProperties.$hog_function_execution_count = executionCount + 1
                             }
 
-                            result.capturedPostHogEvents!.push({
+                            result.capturedPostHogEvents.push({
                                 team_id: invocation.teamId,
                                 timestamp: DateTime.utc().toISO(),
                                 distinct_id: distinctId,

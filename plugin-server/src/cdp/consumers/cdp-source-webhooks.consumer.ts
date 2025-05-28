@@ -97,6 +97,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Run the initial step - this allows functions not using fetches to respond immediately
             result = this.hogExecutor.execute(invocation)
 
+            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+            await this.cyclotronJobQueue.queueInvocationResults([result])
+
             void this.promiseScheduler.schedule(
                 Promise.all([
                     this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
@@ -105,9 +108,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     this.hogWatcher.observeResults([result]),
                 ])
             )
-
-            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-            await this.cyclotronJobQueue.queueInvocationResults([result])
         } catch (error) {
             // TODO: Make this more robust
             logger.error('Error executing hog function', { error })

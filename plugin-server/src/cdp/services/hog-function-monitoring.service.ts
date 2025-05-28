@@ -123,12 +123,8 @@ export class HogFunctionMonitoringService {
                             })
                         }
 
-                        // Clear the logs so we don't pass them on to the next invocation
-                        result.logs = []
-
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
-                        delete result.capturedPostHogEvents
 
                         for (const event of capturedEvents ?? []) {
                             const team = await this.hub.teamManager.getTeam(event.team_id)

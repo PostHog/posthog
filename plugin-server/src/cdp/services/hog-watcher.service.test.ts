@@ -16,6 +16,7 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
 import { createExampleInvocation } from '../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../_tests/redis'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
@@ -25,8 +26,8 @@ const createResult = (options: {
     finished?: boolean
     error?: string
 }): HogFunctionInvocationResult => {
-    return {
-        invocation: {
+    return createInvocationResult(
+        {
             ...createExampleInvocation({ id: options.id }),
             id: 'invocation-id',
             teamId: 2,
@@ -37,11 +38,16 @@ const createResult = (options: {
                 },
             ],
         },
-        finished: options.finished ?? true,
-        error: options.error,
-        logs: [],
-        metrics: [],
-    }
+        {
+            queue: 'hog',
+        },
+        {
+            finished: options.finished ?? true,
+            error: options.error,
+            logs: [],
+            metrics: [],
+        }
+    )
 }
 
 describe('HogWatcher', () => {

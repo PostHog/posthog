@@ -10,21 +10,22 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     hog: `
-if(empty(inputs.event)) {
-  throw Error('"event" cannot be empty')
-}
-
-if(empty(inputs.distinct_id)) {
-  throw Error('"event" cannot be empty')
-}
-
 if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.headers['authorization'])) {
+  print('Incoming request denied due to bad authorization header')
   return {
     'httpResponse': {
       'status': 401,
       'body': 'Unauthorized',
     }
   }
+}
+
+if(empty(inputs.event)) {
+  throw Error('"event" cannot be empty')
+}
+
+if(empty(inputs.distinct_id)) {
+  throw Error('"event" cannot be empty')
 }
 
 postHogCapture({

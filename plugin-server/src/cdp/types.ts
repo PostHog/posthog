@@ -242,7 +242,7 @@ export type HogFunctionInvocationResult = {
     error?: any
     logs: LogEntry[]
     metrics: HogFunctionAppMetric[]
-    capturedPostHogEvents?: HogFunctionCapturedEvent[]
+    capturedPostHogEvents: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
 
