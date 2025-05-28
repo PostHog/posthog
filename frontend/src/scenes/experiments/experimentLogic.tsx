@@ -1430,7 +1430,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 name: `${response.name} (duplicate)`,
                                 parameters: {
                                     ...response.parameters,
-                                    feature_flag_variants: [],
+                                    feature_flag_variants: NEW_EXPERIMENT.parameters.feature_flag_variants,
                                 },
                                 feature_flag: undefined,
                                 feature_flag_key: '',
