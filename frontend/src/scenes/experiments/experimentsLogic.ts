@@ -8,15 +8,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { BillingType, Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import { isLegacyExperiment } from './utils'
+import { isLegacyExperiment, shouldUseNewQueryRunnerForNewObjects } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -74,6 +75,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['featureFlags'],
             router,
             ['location'],
+            billingLogic,
+            ['billing'],
         ],
     })),
     actions({
@@ -194,8 +197,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         showLegacyBadge: [
-            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments],
-            (featureFlags: FeatureFlagsSet, experiments: ExperimentsResult): boolean => {
+            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments, s.billing],
+            (featureFlags: FeatureFlagsSet, experiments: ExperimentsResult, billing: BillingType): boolean => {
                 /**
                  * If the new query runner is enabled, we want to always show the legacy badge,
                  * even if all existing experiments are legacy experiments.
@@ -203,7 +206,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                  * Not ideal to use feature flags at this level, but this is how things are and
                  * it'll take a while to change.
                  */
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]) {
+                if (shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)) {
                     return true
                 }
 
