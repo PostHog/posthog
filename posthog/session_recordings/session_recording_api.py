@@ -89,6 +89,7 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     labelnames=["source"],
 )
 
+
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
     "session_snapshots_generate_pre_signed_url_histogram",
     "Time taken to generate a pre-signed URL for a session snapshot",
@@ -989,7 +990,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         min_blob_key: int,
         max_blob_key: int,
     ) -> HttpResponse:
-
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with timer("list_blocks__stream_blob_v2_to_client"):
                 blocks = list_blocks(recording)
