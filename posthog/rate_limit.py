@@ -318,7 +318,7 @@ class AISustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
-    rate = "40/day"
+    rate = "100/day"
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
