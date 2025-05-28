@@ -119,6 +119,25 @@ function seriesToFilter(
     return null
 }
 
+/**
+ * Gets the Filters to ExperimentMetrics
+ */
+export const getViewRecordingFiltersNew = (
+    experiment: Experiment,
+    metric: ExperimentMetric,
+    variantKey: string
+): UniversalFiltersGroupValue[] => {
+    /**
+     * We need to check the exposure criteria as the first on the filter chain
+     */
+
+    // for mean metrics, we only need to add one other filtter, could be an aciton or an event
+
+    // for funnel metrics, we need to add one item for each of the series
+
+    return []
+}
+
 export function getViewRecordingFilters(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
