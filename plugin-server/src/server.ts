@@ -229,6 +229,7 @@ export class PluginServer {
                     await initPlugins()
                     const api = new CdpApi(hub)
                     this.expressApp.use('/', api.router())
+                    await api.start()
                     return api.service
                 })
             }
