@@ -253,8 +253,6 @@ export const experimentLogic = kea<experimentLogicType>([
             ['addProductIntent'],
             featureFlagsLogic,
             ['updateFlag'],
-            billingLogic,
-            ['loadBillingSuccess'],
         ],
     })),
     actions({
