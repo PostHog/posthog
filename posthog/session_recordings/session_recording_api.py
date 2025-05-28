@@ -989,7 +989,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         min_blob_key: int,
         max_blob_key: int,
     ) -> HttpResponse:
-        """Async version of _stream_blob_v2_to_client"""
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with timer("list_blocks__stream_blob_v2_to_client"):
