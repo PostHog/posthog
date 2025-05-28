@@ -292,7 +292,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+            "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
         "AggregationAxisFormat": {
@@ -2370,8 +2370,7 @@
                 "next_allowed_client_refresh",
                 "offset",
                 "results",
-                "timezone",
-                "types"
+                "timezone"
             ],
             "type": "object"
         },
@@ -6143,7 +6142,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                            "required": ["columns", "hogql", "limit", "offset", "results"],
                             "type": "object"
                         },
                         {
@@ -13255,7 +13254,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": ["columns", "hogql", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
@@ -14573,7 +14572,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "required": ["columns", "hogql", "limit", "offset", "results"],
                     "type": "object"
                 },
                 {
