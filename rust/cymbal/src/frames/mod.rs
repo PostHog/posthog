@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -13,6 +14,7 @@ use crate::{
 };
 
 pub mod records;
+pub mod releases;
 pub mod resolver;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
@@ -65,7 +67,10 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(_) => None, // Node.js frames don't have symbol sets
-            RawFrame::Python(_) => None,         // Python frames don't have symbol sets
+            // TODO - python frames don't use symbol sets for frame resolution, but still use "marker" symbol set
+            // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
+            // which we'd then use to do a join on the releases table to get release information)
+            RawFrame::Python(_) => None,
         }
     }
 
@@ -107,6 +112,8 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
+    #[serde(skip)]
+    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
