@@ -78,6 +78,9 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
         icon: <IconWarning />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
     },
+    ingestionWarning: {
+        icon: <IconWarning />,
+    },
 }
 
 const getIconColor = (type?: string): FileSystemIconColor => {
@@ -187,7 +190,7 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
     },
     {
         path: 'Ingestion warnings',
-        iconType: 'warning',
+        iconType: 'ingestionWarning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
