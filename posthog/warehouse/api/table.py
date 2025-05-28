@@ -18,6 +18,8 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+import posthoganalytics
+from posthog.models import Team
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -277,6 +279,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parser_classes=[parsers.MultiPartParser, parsers.FormParser],
     )
     def file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = Team.objects.get(id=self.team_id)
+        is_warehouse_api_enabled = posthoganalytics.feature_enabled(
+            "warehouse-api",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
+
+        if not is_warehouse_api_enabled:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": "Warehouse API is not enabled for this endpoint"}
+            )
+
         if "file" not in request.FILES:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
 
