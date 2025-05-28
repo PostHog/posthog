@@ -7,7 +7,7 @@ import {
     IconPlusSmall,
     IconX,
 } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -74,6 +74,7 @@ export function ProjectTree({
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
         treeTableKeys,
@@ -92,7 +93,7 @@ export function ProjectTree({
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
-    } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
+    } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
         createFolder,
         rename,
@@ -114,7 +115,7 @@ export function ProjectTree({
         setTreeTableColumnSizes,
         setSelectMode,
         setSearchTerm,
-    } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
+    } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -679,12 +680,9 @@ export function ProjectTree({
                 showFilterDropdown ? <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} /> : null
             }
             searchField={
-                <TreeSearchField
-                    root={root}
-                    logicKey={PROJECT_TREE_KEY}
-                    uniqueKey={PROJECT_TREE_KEY}
-                    placeholder={searchPlaceholder}
-                />
+                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                </BindLogic>
             }
             panelActions={
                 root === 'project://' ? (
