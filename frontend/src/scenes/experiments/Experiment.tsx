@@ -3,7 +3,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ExperimentForm } from './ExperimentForm'
-import { experimentLogic, ExperimentLogicProps, formModes } from './experimentLogic'
+import { experimentLogic, ExperimentLogicProps, FORM_MODES } from './experimentLogic'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 
 export const scene: SceneExport = {
@@ -11,7 +11,7 @@ export const scene: SceneExport = {
     logic: experimentLogic,
     paramsToProps: ({ params: { id, formMode } }): ExperimentLogicProps => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
-        formMode: formMode || (id === 'new' ? formModes.create : formModes.update),
+        formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
     }),
 }
 

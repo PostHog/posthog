@@ -115,7 +115,7 @@ const NEW_EXPERIMENT: Experiment = {
 
 export const DEFAULT_MDE = 30
 
-export const formModes = {
+export const FORM_MODES = {
     create: 'create',
     duplicate: 'duplicate',
     update: 'update',
@@ -123,10 +123,10 @@ export const formModes = {
 
 /**
  * get the values of formModes as a union type
- * we don't really need formModes unless we need to do formModes[num]
+ * we don't really need formModes unless we need to do FORM_MODES[num]
  * this could be just an union type
  */
-export type FormModes = (typeof formModes)[keyof typeof formModes]
+export type FormModes = (typeof FORM_MODES)[keyof typeof FORM_MODES]
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
