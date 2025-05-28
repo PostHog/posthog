@@ -2057,6 +2057,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     visualOrder?: number
     /** Tag for the product 'beta' / 'alpha' */
     tags?: ('alpha' | 'beta')[]
+    /** Protocol of the item, defaults to "project://" */
+    protocol?: string
 }
 
 export interface PersistedFolder {

@@ -6,7 +6,7 @@ import { PluginsServerConfig } from '~/src/types'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
-import { createInvocation } from '../../utils'
+import { createInvocation } from '../../utils/invocation-utils'
 import { CyclotronJobQueue, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {

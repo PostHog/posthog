@@ -9,8 +9,8 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import {
+    createExampleInvocation,
     createHogExecutionGlobals,
-    createInvocation,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
@@ -110,7 +110,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should call the plugin onEvent method', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
-            const invocation = createInvocation(fn, globals)
+            const invocation = createExampleInvocation(fn, globals)
             invocation.state.globals.event.event = 'mycustomevent'
             invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
@@ -182,7 +182,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should handle and collect errors', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
-            const invocation = createInvocation(fn, globals)
+            const invocation = createExampleInvocation(fn, globals)
             invocation.state.globals.event.event = 'mycustomevent'
             invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',

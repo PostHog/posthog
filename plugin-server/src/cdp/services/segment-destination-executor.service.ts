@@ -10,6 +10,7 @@ import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -97,13 +98,9 @@ export class SegmentDestinationExecutorService {
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-            metrics: [],
-        }
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
+            queue: 'segment',
+        })
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({

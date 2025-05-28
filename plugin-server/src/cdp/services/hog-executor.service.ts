@@ -22,9 +22,10 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
-import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
+import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -277,12 +278,9 @@ export class HogExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> = {
-            invocation,
-            finished: false,
-            capturedPostHogEvents: [],
-            logs: [],
-        }
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
+            queue: 'hog',
+        })
 
         result.logs.push({
             level: 'debug',
@@ -303,9 +301,6 @@ export class HogExecutorService {
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
 
                 let body = invocation.queueParameters.body
-                // Reset the queue parameters to be sure
-                invocation.queue = 'hog'
-                invocation.queueParameters = undefined
 
                 // If we got a response from fetch, we know the response code was in the <300 range,
                 // but if we didn't (indicating a bug in the fetch worker), we use a default of 503
@@ -348,11 +343,11 @@ export class HogExecutorService {
                 }
 
                 // Finally we create the response object as the VM expects
-                invocation.state.vmState!.stack.push({
+                result.invocation.state.vmState!.stack.push({
                     status,
                     body: body,
                 })
-                invocation.state.timings = invocation.state.timings.concat(timings)
+                result.invocation.state.timings = result.invocation.state.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
@@ -479,7 +474,7 @@ export class HogExecutorService {
 
             result.finished = execRes.finished
             result.invocation.state.vmState = execRes.state
-            invocation.state.timings.push({
+            result.invocation.state.timings.push({
                 kind: 'hog',
                 duration_ms: duration,
             })
@@ -566,7 +561,10 @@ export class HogExecutorService {
                     })
                 }
             } else {
-                const totalDuration = invocation.state.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+                const totalDuration = result.invocation.state.timings.reduce(
+                    (acc, timing) => acc + timing.duration_ms,
+                    0
+                )
                 const messages = [`Function completed in ${totalDuration}ms.`]
                 if (execRes.state) {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)

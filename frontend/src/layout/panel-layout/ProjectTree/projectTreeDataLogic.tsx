@@ -570,13 +570,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 const convert = (
                     imports: FileSystemImport[],
-                    root: string,
+                    protocol: string,
                     searchTerm: string | undefined,
                     onlyFolders: boolean
                 ): TreeDataItem[] =>
                     convertFileSystemEntryToTreeDataItem({
-                        root,
-                        imports: imports.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]),
+                        root: protocol,
+                        imports: imports
+                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .map((i) => ({
+                                ...i,
+                                protocol,
+                            })),
                         checkedItems: {},
                         folderStates: {},
                         users: {},
@@ -597,13 +602,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         ['new://', getDefaultTreeNew()],
                         ['shortcuts://', shortcutData],
                     ]
-                    return data.map(([id, files]) => ({
-                        id: id,
-                        name: id,
-                        displayName: <>{formatUrlAsName(id)}</>,
-                        record: { type: 'folder', path: '' },
-                        children: convert(files, id, searchTerm, onlyFolders),
+                    const staticItems = data.map(([protocol, files]) => ({
+                        id: protocol,
+                        name: protocol,
+                        displayName: <>{formatUrlAsName(protocol)}</>,
+                        record: { type: 'folder', protocol, path: '' },
+                        children: convert(files, protocol, searchTerm, onlyFolders),
                     }))
+                    return staticItems
                 }
             },
         ],

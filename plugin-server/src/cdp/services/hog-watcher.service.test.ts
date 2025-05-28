@@ -13,7 +13,7 @@ import {
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
-import { createInvocation } from '../_tests/fixtures'
+import { createExampleInvocation } from '../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../_tests/redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 
@@ -25,7 +25,7 @@ const createResult = (options: {
     finished?: boolean
     error?: string
 }): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
-    const invocation = createInvocation({ id: options.id })
+    const invocation = createExampleInvocation({ id: options.id, team_id: 2 })
     invocation.state.timings = [
         {
             kind: 'hog',
@@ -36,13 +36,12 @@ const createResult = (options: {
     return {
         invocation: {
             ...invocation,
-            id: 'invocation-id',
-            teamId: 2,
         },
 
         finished: options.finished ?? true,
         error: options.error,
         logs: [],
+        metrics: [],
     }
 }
 

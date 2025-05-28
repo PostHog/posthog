@@ -164,7 +164,7 @@ export const createHogExecutionGlobals = (
     }
 }
 
-export const createInvocation = (
+export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
     _globals: Partial<HogFunctionInvocationGlobals> = {}
 ): CyclotronJobInvocationHogFunction => {
@@ -210,7 +210,7 @@ const SAMPLE_GLOBALS = {
     },
 }
 
-export const createSegmentInvocation = (
+export const createExampleSegmentInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
     inputs: Record<string, any> = {}
 ): CyclotronJobInvocationHogFunction => {

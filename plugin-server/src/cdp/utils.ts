@@ -11,12 +11,9 @@ import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/ut
 import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     LogEntry,
     LogEntrySerialized,
@@ -320,50 +317,6 @@ export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
     })
 
     return preparedLogs
-}
-
-export function createInvocation(
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType
-): CyclotronJobInvocationHogFunction {
-    return {
-        id: new UUIDT().toString(),
-        state: {
-            globals,
-            timings: [],
-        },
-        teamId: hogFunction.team_id,
-        functionId: hogFunction.id,
-        hogFunction,
-        queue: isLegacyPluginHogFunction(hogFunction)
-            ? 'plugin'
-            : isSegmentPluginHogFunction(hogFunction)
-            ? 'segment'
-            : 'hog',
-        queuePriority: 1,
-    }
-}
-
-/**
- * Clones an invocation, removing all queue related values
- */
-export function cloneInvocation<T extends CyclotronJobInvocation>(
-    invocation: T,
-    params: Pick<
-        Partial<CyclotronJobInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<CyclotronJobInvocation, 'queue'>
-): T {
-    return {
-        ...invocation,
-        queueMetadata: params.queueMetadata ?? undefined,
-        queueScheduledAt: params.queueScheduledAt ?? undefined,
-        queuePriority: params.queuePriority ?? 0,
-        queue: params.queue,
-        queueParameters: params.queueParameters ?? undefined,
-        queueSource: undefined, // This is always set by the consumer
-    }
 }
 
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {

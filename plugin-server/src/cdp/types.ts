@@ -262,7 +262,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     finished: boolean
     error?: any
     logs: MinimalLogEntry[]
-    metrics?: MinimalAppMetric[]
+    metrics: MinimalAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
