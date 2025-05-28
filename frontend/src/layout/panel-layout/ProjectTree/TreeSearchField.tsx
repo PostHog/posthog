@@ -21,12 +21,10 @@ const productTypesMapped = Object.entries(fileSystemTypes as unknown as Record<s
 
 interface TreeSearchFieldProps {
     root?: string
-    logicKey?: string
-    uniqueKey: string
     placeholder?: string
 }
 
-export function TreeSearchField({ root, logicKey, uniqueKey, placeholder }: TreeSearchFieldProps): JSX.Element {
+export function TreeSearchField({ root, placeholder }: TreeSearchFieldProps): JSX.Element {
     const { panelTreeRef } = useValues(panelLayoutLogic)
     const { searchTerm } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root: root }))
