@@ -16,6 +16,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -150,16 +151,14 @@ export function TopBar(): JSX.Element | null {
                                         tooltip="Move to another folder"
                                         disabledReason={renameState ? "Can't move while renaming" : ''}
                                     />
-                                    {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            onClick={() => addShortcutItem(projectTreeRefEntry)}
-                                            icon={<IconShortcut />}
-                                            data-attr="top-bar-add-to-shortcuts-button"
-                                            tooltip="Add to shortcuts panel"
-                                            disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
-                                        />
-                                    )}
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => addShortcutItem(projectTreeRefEntry)}
+                                        icon={<IconShortcut />}
+                                        data-attr="top-bar-add-to-shortcuts-button"
+                                        tooltip="Add to shortcuts panel"
+                                        disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
+                                    />
                                 </>
                             )}
                             <Breadcrumb
@@ -228,7 +227,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     } else {
         nameElement = (
             <span className="flex items-center gap-1.5">
-                {breadcrumbName || <i>Unnamed</i>}
+                {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
         )
@@ -284,7 +283,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         )
     }
 
-    return breadcrumbContent
+    return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
 }
 
 interface HereProps {

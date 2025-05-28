@@ -164,7 +164,7 @@ export const createHogExecutionGlobals = (
     }
 }
 
-export const createInvocation = (
+export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
     _globals: Partial<HogFunctionInvocationGlobals> = {}
 ): HogFunctionInvocation => {
@@ -184,6 +184,45 @@ export const createInvocation = (
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
+        timings: [],
+        queuePriority: 0,
+    }
+}
+
+const SAMPLE_GLOBALS = {
+    event: {
+        uuid: 'uuid',
+        event: 'test',
+        distinct_id: 'distinct_id',
+        properties: {
+            email: 'test@posthog.com',
+        },
+        elements_chain: '',
+        timestamp: '',
+        url: '',
+    },
+    project: {
+        id: 1,
+        name: 'test',
+        url: 'http://localhost:8000/projects/1',
+    },
+}
+
+export const createExampleSegmentInvocation = (
+    _hogFunction: Partial<HogFunctionType> = {},
+    inputs: Record<string, any> = {}
+): HogFunctionInvocation => {
+    const hogFunction = createHogFunction(_hogFunction)
+
+    return {
+        id: new UUIDT().toString(),
+        globals: {
+            inputs,
+            ...SAMPLE_GLOBALS,
+        },
+        teamId: hogFunction.team_id,
+        hogFunction,
+        queue: 'segment',
         timings: [],
         queuePriority: 0,
     }

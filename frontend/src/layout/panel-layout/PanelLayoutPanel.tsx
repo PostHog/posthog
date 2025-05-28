@@ -1,5 +1,4 @@
-import { IconCheck, IconFilter, IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
+import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -23,15 +22,15 @@ import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
+import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
+import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
     children: React.ReactNode
-    showFilterDropdown?: boolean
-    searchTerm: string
-    clearSearch: () => void
-    setSearchTerm: (searchTerm: string) => void
+    filterDropdown?: React.ReactNode
+    searchField?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
@@ -47,6 +46,10 @@ const panelLayoutPanelVariants = cva({
         },
         isMobileLayout: {
             true: 'absolute top-0 left-[var(--panel-layout-mobile-offset)] bottom-0 z-[var(--z-layout-panel)]',
+            false: '',
+        },
+        panelWillHide: {
+            true: 'opacity-50',
             false: '',
         },
     },
@@ -160,24 +163,21 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
 }
 
 export function PanelLayoutPanel({
-    searchPlaceholder,
-    searchTerm,
-    clearSearch,
-    setSearchTerm,
+    searchField,
     panelActions,
     children,
-    showFilterDropdown = false,
+    filterDropdown,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,
-        panelTreeRef,
-        projectTreeMode,
         isLayoutNavCollapsed,
         panelWidth: computedPanelWidth,
+        panelWillHide,
     } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     const panelContents = (
         <nav
@@ -186,6 +186,7 @@ export function PanelLayoutPanel({
                     projectTreeMode: projectTreeMode,
                     isLayoutNavCollapsed,
                     isMobileLayout,
+                    panelWillHide,
                 })
             )}
             ref={containerRef}
@@ -211,47 +212,16 @@ export function PanelLayoutPanel({
                 </div>
             </div>
             <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
-                <div className="flex gap-1 p-1 items-center justify-between">
-                    <LemonInput
-                        placeholder={searchPlaceholder}
-                        className="w-full"
-                        prefix={
-                            <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
-                                <IconSearch className="size-4" />
-                            </div>
-                        }
-                        autoFocus
-                        size="small"
-                        value={searchTerm}
-                        onChange={(value) => setSearchTerm(value)}
-                        suffix={
-                            searchTerm ? (
-                                <ButtonPrimitive
-                                    size="sm"
-                                    iconOnly
-                                    onClick={() => clearSearch()}
-                                    className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
-                                    tooltip="Clear search"
-                                >
-                                    <IconX className="size-4" />
-                                </ButtonPrimitive>
-                            ) : null
-                        }
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowDown') {
-                                e.preventDefault() // Prevent scrolling
-                                const visibleItems = panelTreeRef?.current?.getVisibleItems()
-                                if (visibleItems && visibleItems.length > 0) {
-                                    e.currentTarget.blur() // Remove focus from input
-                                    panelTreeRef?.current?.focusItem(visibleItems[0].id)
-                                }
-                            }
-                        }}
-                    />
-                    {showFilterDropdown && <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />}
-                </div>
-                <div className="border-b border-primary h-px" />
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
+                {searchField || filterDropdown ? (
+                    <>
+                        <div className="flex gap-1 p-1 items-center justify-between">
+                            {searchField ?? null}
+                            {filterDropdown ?? null}
+                        </div>
+                        <div className="border-b border-primary h-px" />
+                    </>
+                ) : null}
                 {children}
             </div>
         </nav>
@@ -271,6 +241,8 @@ export function PanelLayoutPanel({
             aria-label="Resize handle for panel layout panel"
             borderPosition="right"
             innerClassName="z-[var(--z-layout-panel)]"
+            onResizeStart={() => setPanelIsResizing(true)}
+            onResizeEnd={() => setPanelIsResizing(false)}
         >
             {panelContents}
         </ResizableElement>

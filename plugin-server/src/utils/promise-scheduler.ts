@@ -8,6 +8,10 @@ export class PromiseScheduler {
     }
 
     public async waitForAll() {
-        await Promise.all(this.promises)
+        return await Promise.all(this.promises)
+    }
+
+    public async waitForAllSettled() {
+        return await Promise.allSettled(this.promises)
     }
 }
