@@ -1,7 +1,9 @@
 import dataclasses
+import datetime
 import time
 from contextlib import contextmanager
 from functools import wraps
+from time import sleep
 from typing import Optional
 from collections.abc import Callable
 
@@ -67,6 +69,8 @@ class RateLimit:
     ttl: int = 60
     bypass_all: bool = False
     redis_client = redis.get_client()
+    retry: Optional[float] = False
+    retry_timeout: datetime.timedelta = datetime.timedelta(milliseconds=10000)
 
     @contextmanager
     def run(self, *args, **kwargs):
@@ -78,13 +82,14 @@ class RateLimit:
         try:
             yield
         finally:
-            if applicable:
+            if applicable and running_task_key and task_id:
                 self.release(running_task_key, task_id)
 
     def use(self, *args, **kwargs):
         """
         Acquire the resource before execution or throw exception.
         """
+        t0 = datetime.datetime.now()
         task_name = self.get_task_name(*args, **kwargs)
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
@@ -98,7 +103,7 @@ class RateLimit:
         elif "limit" in kwargs:
             max_concurrency = kwargs.get("limit") or max_concurrency
         # Atomically check, remove expired if limit hit, and add the new task
-        if (
+        while (
             self.redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrency, self.ttl)
             == 0
         ):
@@ -115,10 +120,17 @@ class RateLimit:
                 result=result,
             ).inc()
 
-            if (not self.bypass_all or in_beta) and not bypass:  # team in beta cannot skip limits
-                raise ConcurrencyLimitExceeded(
-                    f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
-                )
+            # team in beta cannot skip limits
+            if bypass or (not in_beta and self.bypass_all):
+                return None, None
+            still_have_time = (datetime.datetime.now() - t0) < self.retry_timeout
+            if self.retry and still_have_time:
+                sleep(self.retry)
+                continue
+
+            raise ConcurrencyLimitExceeded(
+                f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
+            )
 
         return running_tasks_key, task_id
 
@@ -154,6 +166,8 @@ def get_api_personal_rate_limiter():
             ),
             ttl=600,
             bypass_all=(not settings.API_QUERIES_ENABLED),
+            retry=0.113,
+            retry_timeout=datetime.timedelta(seconds=30),
         )
     return __API_CONCURRENT_QUERY_PER_TEAM
 
