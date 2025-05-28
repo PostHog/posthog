@@ -1,4 +1,5 @@
 from typing import Any
+import re
 
 from rest_framework import filters, request, response, serializers, status, viewsets, parsers
 from posthog.api.utils import action
@@ -298,6 +299,17 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file = request.FILES["file"]
         table_name = request.data.get("name", file.name)
         file_format = request.data.get("format", "CSVWithNames")
+
+        # Validate table name format
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name) or not re.match(
+            r"^[a-zA-Z_][a-zA-Z0-9_]*$", file.name
+        ):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
+                },
+            )
 
         # Validate table name
         team_id = self.team_id
