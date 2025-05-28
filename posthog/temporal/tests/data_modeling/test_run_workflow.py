@@ -90,7 +90,10 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
                 query={"query": f"SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"},
             )
 
-    run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+    )
+    run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag, job_id=job.id)
 
     magic_mock = unittest.mock.AsyncMock(return_value=("test_key", unittest.mock.MagicMock(), uuid.uuid4()))
 
@@ -198,7 +201,10 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
                 query={"query": f"SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"},
             )
 
-    run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+    )
+    run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag, job_id=job.id)
     assert all(model not in posthog_tables for model in make_fail), "PostHog tables cannot fail"
 
     def raise_if_should_make_fail(model_label, *args, **kwargs):
