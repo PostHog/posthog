@@ -471,16 +471,6 @@ export function pluginConfigIdFromStack(
     }
 }
 
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        logger.error('🔴', message)
-        throw error
-    } else {
-        logger.info('🟡', message)
-    }
-}
-
 export function groupBy<T extends Record<string, any>, K extends keyof T>(
     objects: T[],
     key: K,

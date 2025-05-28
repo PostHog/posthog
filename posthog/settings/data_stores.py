@@ -25,8 +25,6 @@ SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-JOB_QUEUE_GRAPHILE_URL: str = os.getenv("JOB_QUEUE_GRAPHILE_URL")
-
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -134,8 +132,6 @@ if os.getenv("PERSONS_DB_WRITER_URL"):
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
-if JOB_QUEUE_GRAPHILE_URL:
-    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
