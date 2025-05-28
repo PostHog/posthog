@@ -859,7 +859,7 @@ mod tests {
                 metadata: FlagDetailsMetadata {
                     id: 1,
                     version: 1,
-                    description: Some("Error Flag".to_string()),
+                    description: None,
                     payload: None,
                 },
             }
@@ -1344,7 +1344,7 @@ mod tests {
                 metadata: FlagDetailsMetadata {
                     id: 1,
                     version: 1,
-                    description: Some("Flag 1".to_string()),
+                    description: None,
                     payload: None,
                 },
             }
@@ -1363,7 +1363,7 @@ mod tests {
                 metadata: FlagDetailsMetadata {
                     id: 2,
                     version: 1,
-                    description: Some("Flag 2".to_string()),
+                    description: None,
                     payload: None,
                 },
             }

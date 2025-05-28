@@ -1,4 +1,4 @@
-import { IconDownload } from '@posthog/icons'
+import { IconDownload, IconWarning } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
@@ -32,13 +32,21 @@ const ExportsContent = (): JSX.Element => {
 
                 {exports.map((asset) => {
                     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
+                    const stillCalculating = !asset.has_content && !asset.exception
+                    let disabledReason: string | undefined = undefined
+                    if (asset.exception) {
+                        disabledReason = asset.exception
+                    } else if (!asset.has_content) {
+                        disabledReason = 'Export not ready yet'
+                    }
+
                     return (
                         <LemonButton
                             type={isNotDownloaded ? 'primary' : 'secondary'}
                             key={asset.id}
                             fullWidth
                             className="mt-2"
-                            disabledReason={!asset.has_content ? 'Export not ready yet' : undefined}
+                            disabledReason={disabledReason}
                             onClick={() => {
                                 removeFresh(asset)
                                 void downloadExportedAsset(asset)
@@ -61,7 +69,8 @@ const ExportsContent = (): JSX.Element => {
                                         <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
                                     )}
                                 </div>
-                                <div>{!asset.has_content && <Spinner />}</div>
+                                <div>{stillCalculating && <Spinner />}</div>
+                                <div>{asset.exception && <IconWarning className="text-link" />}</div>
                             </div>
                         </LemonButton>
                     )

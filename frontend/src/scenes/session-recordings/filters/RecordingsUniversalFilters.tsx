@@ -116,7 +116,7 @@ export const RecordingsUniversalFilters = ({
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
     const newPlaylistHandler = async (): Promise<void> => {
-        await createPlaylist({ name: savedFilterName, filters }, false)
+        await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setSavedFilterName('')
@@ -271,10 +271,7 @@ export const RecordingsUniversalFilters = ({
                 </div>
             ),
         },
-    ]
-
-    if (savedFilters.results?.length > 0) {
-        tabs.push({
+        {
             key: 'saved',
             label: (
                 <div className="px-2 flex">
@@ -287,8 +284,8 @@ export const RecordingsUniversalFilters = ({
                 </div>
             ),
             content: <SavedFilters setFilters={setFilters} />,
-        })
-    }
+        },
+    ]
 
     return (
         <>
@@ -321,10 +318,7 @@ export const RecordingsUniversalFilters = ({
                         }}
                         fullWidth
                     >
-                        Filters{' '}
-                        {totalFiltersCount && totalFiltersCount > 0 ? (
-                            <LemonBadge.Number count={totalFiltersCount} />
-                        ) : null}
+                        Filters
                     </LemonButton>
                     <LemonModal
                         isOpen={isFiltersExpanded}
@@ -343,6 +337,18 @@ export const RecordingsUniversalFilters = ({
                             />
                         </>
                     </LemonModal>
+                    <UniversalFilters
+                        rootKey="session-recordings"
+                        group={filters.filter_group}
+                        taxonomicGroupTypes={taxonomicGroupTypes}
+                        onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
+                    >
+                        <RecordingsUniversalFilterGroup
+                            size="small"
+                            totalFiltersCount={totalFiltersCount}
+                            showAddFilter={false}
+                        />
+                    </UniversalFilters>
                 </>
             </MaxTool>
             <div className="flex gap-2 mt-2 justify-between">
@@ -378,9 +384,11 @@ export const RecordingsUniversalFilters = ({
 const RecordingsUniversalFilterGroup = ({
     size = 'small',
     totalFiltersCount,
+    showAddFilter = true,
 }: {
     size?: LemonButtonProps['size']
     totalFiltersCount?: number
+    showAddFilter?: boolean
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -396,14 +404,28 @@ const RecordingsUniversalFilterGroup = ({
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <div className="w-full">
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <div className="flex items-center gap-2 border-t py-4">
-                                {(totalFiltersCount ?? 0) > 0 && (
+                            <div
+                                className={
+                                    showAddFilter
+                                        ? 'flex flex-wrap items-center gap-2 border-t py-4'
+                                        : 'flex flex-wrap gap-2 pt-2'
+                                }
+                            >
+                                {(totalFiltersCount ?? 0) > 0 && showAddFilter && (
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
-                                <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                                <RecordingsUniversalFilterGroup
+                                    size={size}
+                                    totalFiltersCount={totalFiltersCount}
+                                    showAddFilter={showAddFilter}
+                                />
                             </div>
-                            <div className="font-semibold mb-1">Add filter:</div>
-                            <UniversalFilters.PureTaxonomicFilter />
+                            {showAddFilter && (
+                                <>
+                                    <div className="font-semibold mb-1">Add filter:</div>
+                                    <UniversalFilters.PureTaxonomicFilter />
+                                </>
+                            )}
                         </UniversalFilters.Group>
                     </div>
                 ) : (

@@ -9,7 +9,6 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
@@ -136,7 +135,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -181,18 +180,18 @@ export async function createHub(
     // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
     await hub.geoipService.get()
 
-    return {
-        ...hub,
-        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
-    }
+    return hub
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
+    logger.info('💤', 'Closing hub...')
     if (!isTestEnv()) {
         await hub.appMetrics?.flush()
     }
+    logger.info('💤', 'Closing kafka, redis, postgres...')
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
@@ -201,6 +200,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         ;(hub as any).eventsProcessor = undefined
         ;(hub as any).appMetrics = undefined
     }
+    logger.info('💤', 'Hub closed!')
 }
 
 export function createKafkaClient({

@@ -75,6 +75,7 @@ Important HogQL differences versus other SQL dialects:
 - HogQL supports the comparison operator `IN COHORT` and `NOT IN COHORT` to check whether persons are within a cohort or not. A cohort can be defined by id or string name
 - `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 - Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
+- HogQL statements should not end with a semi-colon - this is invalid syntax
 
 HogQL examples:
 Invalid: SELECT * FROM events WHERE properties->foo = 'bar'
@@ -82,6 +83,9 @@ Valid: SELECT * FROM events WHERE properties.foo = 'bar'
 
 Invalid: SELECT user_id FROM persons
 Valid: SELECT id FROM persons
+
+Invalid: SELECT * FROM persons;
+Valid: SELECT * FROM persons
 
 Bad Query: SELECT * FROM events WHERE properties->foo = 'bar'
 Error: Unexpected '->'

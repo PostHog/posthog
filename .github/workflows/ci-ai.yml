@@ -8,12 +8,6 @@ on:
         paths:
             - 'ee/hogai/**'
             - '.github/workflows/ci-ai.yml'
-            # We use docker compose for tests, make sure we rerun on
-            # changes to docker-compose.dev.yml e.g. dependency
-            # version changes
-            - docker-compose.dev.yml
-            # These scripts are used in the CI
-            - bin/check_kafka_clickhouse_up
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -24,10 +18,14 @@ jobs:
         timeout-minutes: 30
         name: Run AI evals
         runs-on: ubuntu-latest
-        if: github.repository == 'PostHog/posthog' # Braintrust credentials not available on forks
+        if: github.repository == 'PostHog/posthog' && (github.event_name == 'push' || (github.event.pull_request.draft == false)) # Braintrust credentials not available on forks
 
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              with:
+                  # Check out the actual branch instead of merge commit with master,
+                  # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
+                  ref: ${{ github.event.pull_request.head.ref }}
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -64,8 +62,7 @@ jobs:
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
             - name: Post eval summary to PR
-              # Don't run on forks
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event_name == 'pull_request'
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -85,62 +82,48 @@ jobs:
                       }
 
                       // Generate concise experiment summaries
-                      const experimentSummaries = evalResults
-                          .map((result) => {
-                              const experimentName = result.experiment_name.split("-")[0]
-                              const experimentUrl = result.experiment_url
-                              let comparedTo = result.comparison_experiment_name
-                              if (comparedTo !== `${experimentName}-master`) {
-                                  // This experiment hasn't ran on master yet, so we aren't able to compare to baseline
-                                  comparedTo = null
-                              }
+                      const experimentSummaries = evalResults.map((result) => {
+                          // Format scores as bullet points with improvements/regressions and baseline comparison
+                          const scoresList = Object.entries(result.scores || {})
+                              .map(([key, value]) => {
+                                  const score = typeof value.score === "number" ? `${(value.score * 100).toFixed(2)}%` : value.score
+                                  let baselineComparison = null
+                                  const diffHighlight = Math.abs(value.diff) > 0.01 ? "**" : ""
+                                  let diffEmoji = "🆕"
+                                  if (result.comparison_experiment_name?.startsWith("master-")) {
+                                      baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
+                                          value.diff * 100
+                                      ).toFixed(2)}%${diffHighlight} versus [baseline (master)](${result.project_url}/experiments/${
+                                          result.comparison_experiment_name
+                                      }) (improvements: ${value.improvements}, regressions: ${value.regressions})`
+                                      diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
+                                  }
+                                  return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
+                              })
+                              .join("\n")
 
-                              // Format scores as bullet points with improvements/regressions and baseline comparison
-                              const scoresList = Object.entries(result.scores || {})
-                                  .map(([key, value]) => {
-                                      const score = typeof value.score === "number" ? `${(value.score * 100).toFixed(2)}%` : value.score
-                                      let baselineComparison = null
-                                      const diffHighlight = Math.abs(value.diff) > 0.01 ? "**" : ""
-                                      if (comparedTo) {
-                                          baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
-                                              value.diff * 100
-                                          ).toFixed(2)}%${diffHighlight} versus [baseline (master)](${
-                                              result.project_url
-                                          }/experiments/${comparedTo}) (improvements: ${value.improvements}, regressions: ${
-                                              value.regressions
-                                          })`
-                                      }
-                                      return `${
-                                          !comparedTo ? "🆕" : value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
-                                      } **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
-                                  })
-                                  .join("\n")
+                          // Format key metrics concisely
+                          const metrics = result.metrics || {}
+                          const duration = metrics.duration ? `⏱️ ${metrics.duration.metric.toFixed(2)} s` : null
+                          const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
+                          const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
+                          const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
 
-                              // Format key metrics concisely
-                              const metrics = result.metrics || {}
-                              const duration = metrics.duration ? `⏱️ ${metrics.duration.metric.toFixed(2)} s` : null
-                              const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
-                              const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
-                              const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
+                          // Create concise experiment summary with header only showing experiment name
+                          const experimentName = result.project_name.replace(/^max-ai-/, "")
 
-                              // Create concise experiment summary with header only showing experiment name
-                              return `### [${experimentName}](${experimentUrl})\n\n${scoresList}\n\nAvg. case performance: ${metricsText}`
-                          })
-                          .join("\n\n")
+                          return `### [${experimentName}](${result.experiment_url})\n\n${scoresList}\n\nAvg. case performance: ${metricsText}`
+                      })
 
                       const totalExperiments = evalResults.length
                       const totalMetrics = evalResults.reduce((acc, result) => acc + Object.keys(result.scores || {}).length, 0)
-                      const totalImprovements = evalResults.reduce((acc, result) => {
-                          return acc + Object.values(result.scores || {}).reduce((sum, value) => sum + (value.improvements || 0), 0)
-                      }, 0)
-                      const totalRegressions = evalResults.reduce((acc, result) => {
-                          return acc + Object.values(result.scores || {}).reduce((sum, value) => sum + (value.regressions || 0), 0)
-                      }, 0)
 
-                      let body = `## 🧠 AI eval results\n\n`
-                      body += `Evaluated **${totalMetrics}** metrics across **${totalExperiments}** experiments.\n\n`
-                      body += `${experimentSummaries}\n\n`
-                      body += `_Triggered by [this commit](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}/commits/${context.payload.pull_request.head.sha})._`
+                      const body = [
+                          `## 🧠 AI eval results`,
+                          `Evaluated **${totalExperiments}** experiments, comprising **${totalMetrics}** metrics.`,
+                          ...experimentSummaries,
+                          `_Triggered by [this commit](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}/commits/${context.payload.pull_request.head.sha})._`,
+                      ].join("\n\n")
 
                       // Post comment on PR
                       if (context.payload.pull_request) {

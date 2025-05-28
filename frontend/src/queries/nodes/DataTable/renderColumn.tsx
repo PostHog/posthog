@@ -267,7 +267,7 @@ export function renderColumn(
     } else if (key === 'person_display_name') {
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            person: { distinct_id: value.distinct_id },
+            person: { id: value.id },
             displayName: value.display_name,
             noPopover: true,
         }

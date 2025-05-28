@@ -6,10 +6,11 @@ use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEvent
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
 use serde_json::json;
-use sqlx::Acquire;
+use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
-use crate::assignment_rules::{assign_issue, Assignment};
+use crate::assignment_rules::{try_assignment_rules, Assignment};
+use crate::teams::TeamManager;
 use crate::types::FingerprintedErrProps;
 use crate::{
     app_context::AppContext,
@@ -255,17 +256,18 @@ pub async fn resolve_issue(
     event_timestamp: DateTime<Utc>,
     event_properties: FingerprintedErrProps,
 ) -> Result<Issue, UnhandledError> {
-    let fingerprint = &event_properties.fingerprint;
     let mut conn = context.pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
-    let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
+    let existing_issue =
+        Issue::load_by_fingerprint(&mut *conn, team_id, &event_properties.fingerprint.value)
+            .await?;
     if let Some(mut issue) = existing_issue {
         if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = assign_issue(
+            let assignment = process_assignment(
                 &mut conn,
                 &context.team_manager,
-                issue.clone(),
-                event_properties.to_output(issue.id),
+                &issue,
+                event_properties.clone(),
             )
             .await?;
             send_issue_reopened_alert(&context, &issue, assignment).await?;
@@ -292,7 +294,7 @@ pub async fn resolve_issue(
     let issue_override = IssueFingerprintOverride::create_or_load(
         &mut *txn,
         team_id,
-        fingerprint,
+        &event_properties.fingerprint.value,
         &issue,
         event_timestamp,
     )
@@ -312,30 +314,51 @@ pub async fn resolve_issue(
 
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = assign_issue(
+            let assignment = process_assignment(
                 &mut conn,
                 &context.team_manager,
-                issue.clone(),
-                event_properties.to_output(issue.id),
+                &issue,
+                event_properties.clone(),
             )
             .await?;
             send_issue_reopened_alert(&context, &issue, assignment).await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
-        let assignment = assign_issue(
+        let assignment = process_assignment(
             &mut txn,
             &context.team_manager,
-            issue.clone(),
-            event_properties.to_output(issue.id),
+            &issue,
+            event_properties.clone(),
         )
         .await?;
         send_issue_created_alert(&context, &issue, assignment).await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
-    }
+    };
 
     Ok(issue)
+}
+
+pub async fn process_assignment(
+    conn: &mut PgConnection,
+    team_manager: &TeamManager,
+    issue: &Issue,
+    props: FingerprintedErrProps,
+) -> Result<Option<Assignment>, UnhandledError> {
+    let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
+        Some(new)
+    } else {
+        try_assignment_rules(conn, team_manager, issue.clone(), props.to_output(issue.id)).await?
+    };
+
+    let assignment = if let Some(new_assignment) = new_assignment {
+        Some(new_assignment.apply(&mut *conn, issue.id).await?)
+    } else {
+        issue.get_assignments(&mut *conn).await?.first().cloned()
+    };
+
+    Ok(assignment)
 }
 
 async fn send_issue_created_alert(

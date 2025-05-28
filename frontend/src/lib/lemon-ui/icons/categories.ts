@@ -129,6 +129,7 @@ export const TECHNOLOGY = {
         'IconFolder',
         'IconFolderOpen',
         'IconFolderPlus',
+        'IconFolderMove',
     ],
     UI: [
         'IconPassword',
@@ -213,6 +214,7 @@ export const ELEMENTS = {
         'IconTriangleDownFilled',
         'IconTriangleUp',
         'IconTriangleUpFilled',
+        'IconShortcut',
         'IconStar',
         'IconStarFilled',
         'IconStarHalfFilled',

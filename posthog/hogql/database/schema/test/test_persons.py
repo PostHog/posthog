@@ -126,3 +126,17 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query_runner.to_query(), self.team, modifiers=self.modifiers)
         assert response.clickhouse
         self.assertNotIn("where_optimization", response.clickhouse)
+
+    @snapshot_clickhouse_queries
+    def test_order_by_limit_transferred(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select id, properties from persons where properties.$some_prop = 'something' ORDER BY created_at DESC LIMIT 2"
+            ),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert len(response.results) == 2
+        assert response.clickhouse
+        self.assertIn("where_optimization", response.clickhouse)
+        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)

@@ -1,8 +1,15 @@
 import DOMPurify from 'dompurify'
-import { SURVEY_RESPONSE_PROPERTY } from 'scenes/surveys/constants'
+import { dayjs } from 'lib/dayjs'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, Survey, SurveyAppearance, SurveyDisplayConditions } from '~/types'
+import {
+    EventPropertyFilter,
+    Survey,
+    SurveyAppearance,
+    SurveyDisplayConditions,
+    SurveyEventName,
+    SurveyEventProperties,
+} from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -33,11 +40,13 @@ export function validateColor(color: string | undefined, fieldName: string): str
 }
 
 export function getSurveyResponseKey(questionIndex: number): string {
-    return questionIndex === 0 ? SURVEY_RESPONSE_PROPERTY : `${SURVEY_RESPONSE_PROPERTY}_${questionIndex}`
+    return questionIndex === 0
+        ? SurveyEventProperties.SURVEY_RESPONSE
+        : `${SurveyEventProperties.SURVEY_RESPONSE}_${questionIndex}`
 }
 
 export function getSurveyIdBasedResponseKey(questionId: string): string {
-    return `${SURVEY_RESPONSE_PROPERTY}_${questionId}`
+    return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
 }
 
 // Helper function to generate the response field keys with proper typing
@@ -65,13 +74,17 @@ export function sanitizeSurveyDisplayConditions(
     }
 }
 
-export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
+export function sanitizeSurveyAppearance(
+    appearance: SurveyAppearance | null,
+    isPartialResponsesEnabled = false
+): SurveyAppearance | null {
     if (!appearance) {
         return null
     }
 
     return {
         ...appearance,
+        shuffleQuestions: isPartialResponsesEnabled ? false : appearance.shuffleQuestions,
         backgroundColor: sanitizeColor(appearance.backgroundColor),
         borderColor: sanitizeColor(appearance.borderColor),
         ratingButtonActiveColor: sanitizeColor(appearance.ratingButtonActiveColor),
@@ -162,7 +175,7 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
         }
 
         // split the string '$survey_response_' and take the last part, as that's the question id
-        const questionId = filter.key.split(`${SURVEY_RESPONSE_PROPERTY}_`).at(-1)
+        const questionId = filter.key.split(`${SurveyEventProperties.SURVEY_RESPONSE}_`).at(-1)
         if (!questionId || !survey.questions.find((question) => question.id === questionId)) {
             continue
         }
@@ -225,4 +238,45 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
 export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
+}
+
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+
+export function getSurveyStartDateForQuery(survey: Survey): string {
+    return survey.start_date
+        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
+        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
+}
+
+export function getSurveyEndDateForQuery(survey: Survey): string {
+    return survey.end_date
+        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
+        : dayjs().utc().endOf('day').format(DATE_FORMAT)
+}
+
+export function buildPartialResponsesFilter(survey: Survey): string {
+    if (!survey.enable_partial_responses) {
+        return `AND (
+        NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
+        OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
+    )`
+    }
+
+    return `AND uuid in (
+        SELECT
+            argMax(uuid, timestamp)
+        FROM events
+        WHERE and(
+            equals(event, '${SurveyEventName.SENT}'),
+            equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
+            greaterOrEquals(timestamp, '${getSurveyStartDateForQuery(survey)}'),
+            lessOrEquals(timestamp, '${getSurveyEndDateForQuery(survey)}')
+        )
+        GROUP BY
+            if(
+                JSONHas(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                JSONExtractString(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                toString(uuid)
+            )
+    ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }

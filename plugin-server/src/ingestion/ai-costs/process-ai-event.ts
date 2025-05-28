@@ -1,9 +1,12 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
 import { logger } from '../../utils/logger'
 import { costsByModel } from './providers'
 import { ModelRow } from './providers/types'
+
+// Work around for new gemini models that require special cost calculations
+const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
 
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
@@ -21,16 +24,32 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
     if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'openai') {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const difference = bigDecimal.subtract(inputTokens, cacheReadTokens)
-        const cachedCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, difference)
-        return bigDecimal.add(cachedCost, uncachedCost)
+        const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
+
+        // Use actual cache read cost if available, otherwise fall back to 0.5 multiplier
+        const cacheReadCost =
+            cost.cost.cache_read_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
+
+        const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
+        return bigDecimal.add(cacheReadCost, regularCost)
     } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'anthropic') {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const writeCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
-        const cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
+
+        // Use actual cache costs if available, otherwise fall back to multipliers
+        const writeCost =
+            cost.cost.cache_write_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_write_token, cacheWriteTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
+
+        const cacheReadCost =
+            cost.cost.cache_read_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
+
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
         return bigDecimal.add(totalCacheCost, uncachedCost)
@@ -63,10 +82,19 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    const cost = findCostFromModel(event.properties['$ai_model'])
+    let model = event.properties['$ai_model']
+
+    if (requireSpecialCost(model)) {
+        model = getNewModelName(event.properties)
+    }
+
+    const cost = findCostFromModel(model)
     if (!cost) {
         return event
     }
+
+    // This is used to track the model that was used for the cost calculation
+    event.properties['$ai_model_cost_used'] = cost.model
 
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
@@ -127,18 +155,56 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
 }
 
 const findCostFromModel = (aiModel: string): ModelRow | undefined => {
-    // Check if the model is an exact match
-    let cost: ModelRow | undefined = costsByModel[aiModel.toLowerCase()]
-    // Check if the model is a variant of a known model
-    if (!cost) {
-        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+    const lowerAiModel = aiModel.toLowerCase()
+
+    // 1. Attempt exact match first
+    let cost: ModelRow | undefined = costsByModel[lowerAiModel]
+    if (cost) {
+        return cost
     }
-    // Check if the model is a variant of a known model
-    if (!cost) {
-        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+
+    // 2. Partial match: A known model's name is a substring of aiModel.
+    //    e.g., aiModel="gpt-4.1-mini-2025-04-14", known model="gpt-4.1-mini".
+    let bestSubMatch: ModelRow | undefined = undefined
+    let longestMatchLength = 0
+
+    for (const modelRow of Object.values(costsByModel)) {
+        const lowerKnownModelName = modelRow.model.toLowerCase()
+        if (lowerAiModel.includes(lowerKnownModelName)) {
+            if (lowerKnownModelName.length > longestMatchLength) {
+                longestMatchLength = lowerKnownModelName.length
+                bestSubMatch = modelRow
+            }
+        }
     }
-    if (!cost) {
-        logger.warn(`No cost found for model: ${aiModel}`)
+
+    if (bestSubMatch) {
+        return bestSubMatch
     }
-    return cost
+
+    // 3. Partial match: aiModel is a substring of a known model's name.
+    cost = Object.values(costsByModel).find((modelRow) => modelRow.model.toLowerCase().includes(lowerAiModel))
+    if (cost) {
+        return cost
+    }
+
+    logger.warn(`No cost found for model: ${aiModel}`)
+    return undefined
+}
+
+const requireSpecialCost = (aiModel: string): boolean => {
+    return SPECIAL_COST_MODELS.some((model) => aiModel.toLowerCase().includes(model.toLowerCase()))
+}
+
+const getNewModelName = (properties: Properties): string => {
+    const model = properties['$ai_model']
+    if (!model) {
+        return model
+    }
+    // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
+    if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {
+        const tokenCountExceeded = properties['$ai_input_tokens'] ? properties['$ai_input_tokens'] > 200000 : false
+        return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
+    }
+    return model
 }

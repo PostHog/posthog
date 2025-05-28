@@ -21,7 +21,7 @@ interface BillingProductAddonActionsProps {
 
 export const BillingProductAddonActions = ({ addon, productRef }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
-    const { currentAndUpgradePlans, billingProductLoading, trialLoading } = useValues(
+    const { currentAndUpgradePlans, billingProductLoading, trialLoading, isSubscribedToAnotherAddon } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
 
@@ -121,7 +121,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                             (billingError && billingError.message) ||
                             (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
                         }
-                        loading={billingProductLoading === addon.type}
+                        loading={billingProductLoading === addon.type || trialLoading}
                         onClick={
                             isTrialEligible
                                 ? () => activateTrial()
@@ -152,7 +152,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
             return null
         }
 
-        if (isTrialEligible) {
+        if (isTrialEligible && !isSubscribedToAnotherAddon) {
             return (
                 <p className="mt-2 text-xs text-secondary text-right">
                     You'll have {addon.trial?.length} days to try it out. Then you'll be charged{' '}
@@ -161,7 +161,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
             )
         }
 
-        if (isProrated) {
+        if (isProrated && !isSubscribedToAnotherAddon) {
             return (
                 <p className="mt-2 text-xs text-secondary text-right">
                     Pay ~${prorationAmount} today (prorated) and
@@ -192,8 +192,9 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                 Contact support
             </LemonButton>
         )
-    } else if (!billing?.trial) {
+    } else if (!billing?.trial && !isSubscribedToAnotherAddon) {
         // Customer is not subscribed to any trial
+        // We don't allow multiple add-ons to be subscribed to at the same time so this checks if the customer is subscribed to another add-on
         // TODO: add support for when a customer has a Paid Plan trial
         content = renderPurchaseActions()
     }

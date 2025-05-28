@@ -86,7 +86,7 @@ export function RetentionModal(): JSX.Element | null {
                     <div className="flex gap-2">
                         {insightEventsQueryUrl && (
                             <LemonButton
-                                type="primary"
+                                type="secondary"
                                 to={insightEventsQueryUrl}
                                 data-attr="person-modal-view-events"
                                 onClick={() => {
@@ -106,7 +106,7 @@ export function RetentionModal(): JSX.Element | null {
                                     closeModal()
                                 }}
                             >
-                                Explore
+                                Open as new insight
                             </LemonButton>
                         )}
                     </div>
@@ -140,7 +140,7 @@ export function RetentionModal(): JSX.Element | null {
                                     {row.values?.map((data: any, index: number) => {
                                         return (
                                             <th key={index}>
-                                                <div>{results[index].label}</div>
+                                                <div>{data.label}</div>
                                                 <div>
                                                     {data.count}
                                                     &nbsp;

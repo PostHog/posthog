@@ -265,6 +265,27 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-data-modeling",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Check for changes that affect dagster code locations
               id: check_changes_dagster_code_location
               run: |

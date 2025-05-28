@@ -29,8 +29,9 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.early_access_features",
-    "products.editor",
+    "products.links",
     "products.revenue_analytics",
+    "products.user_interviews",
 ]
 
 INSTALLED_APPS = [
@@ -68,6 +69,7 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
+    "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -95,6 +97,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
+    "posthog.middleware.Fix204Middleware",
 ]
 
 if DEBUG:
@@ -449,7 +452,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED = get_from_env("HOG_TRANSFORMATIONS_CUSTOM_ENABLED", False, type_cast=bool)
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####

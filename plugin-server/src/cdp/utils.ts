@@ -330,14 +330,44 @@ export function createInvocation(
         globals,
         teamId: hogFunction.team_id,
         hogFunction,
-        queue: isLegacyPluginHogFunction(hogFunction) ? 'plugin' : 'hog',
+        queue: isLegacyPluginHogFunction(hogFunction)
+            ? 'plugin'
+            : isSegmentPluginHogFunction(hogFunction)
+            ? 'segment'
+            : 'hog',
         queuePriority: 1,
         timings: [],
     }
 }
 
+/**
+ * Clones an invocation, removing all queue related values
+ */
+export function cloneInvocation(
+    invocation: HogFunctionInvocation,
+    params: Pick<
+        Partial<HogFunctionInvocation>,
+        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
+    > &
+        Pick<HogFunctionInvocation, 'queue'>
+): HogFunctionInvocation {
+    return {
+        ...invocation,
+        queueMetadata: params.queueMetadata ?? undefined,
+        queueScheduledAt: params.queueScheduledAt ?? undefined,
+        queuePriority: params.queuePriority ?? 0,
+        queue: params.queue,
+        queueParameters: params.queueParameters ?? undefined,
+        queueSource: undefined, // This is always set by the consumer
+    }
+}
+
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {

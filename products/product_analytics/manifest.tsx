@@ -1,6 +1,7 @@
 import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -16,7 +17,11 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
-        }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string => {
+        }: {
+            type?: InsightType
+            dashboardId?: DashboardType['id'] | null
+            query?: Node
+        } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
                 return urls.sqlEditor(query.query)
@@ -69,38 +74,55 @@ export const manifest: ProductManifest = {
         insight: {
             icon: <IconGraph />,
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            iconColor: ['var(--product-product-analytics-light)'],
         },
     },
     treeItemsNew: [
         {
             path: `Insight/Trends`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.TRENDS }),
+            href: urls.insightNew({ type: InsightType.TRENDS }),
         },
         {
             path: `Insight/Funnel`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.FUNNELS }),
+            href: urls.insightNew({ type: InsightType.FUNNELS }),
         },
         {
             path: `Insight/Retention`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.RETENTION }),
+            href: urls.insightNew({ type: InsightType.RETENTION }),
         },
         {
             path: `Insight/User paths`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.PATHS }),
+            href: urls.insightNew({ type: InsightType.PATHS }),
         },
         {
             path: `Insight/Stickiness`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.STICKINESS }),
+            href: urls.insightNew({ type: InsightType.STICKINESS }),
         },
         {
             path: `Insight/Lifecycle`,
             type: 'insight',
-            href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
+            href: urls.insightNew({ type: InsightType.LIFECYCLE }),
+        },
+        {
+            path: `Insight/Calendar Heatmap`,
+            type: 'insight',
+            href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Product analytics',
+            type: 'insight',
+            href: urls.insights(),
+            visualOrder: PRODUCT_VISUAL_ORDER.productAnalytics,
+        },
+    ],
+    fileSystemFilterTypes: {
+        insight: { name: 'Insights' },
+    },
 }

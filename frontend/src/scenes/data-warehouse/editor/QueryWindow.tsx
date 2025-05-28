@@ -29,8 +29,18 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, suggestedQueryInput } =
-        useValues(multitabEditorLogic)
+    const {
+        allTabs,
+        activeModelUri,
+        queryInput,
+        editingView,
+        editingInsight,
+        sourceQuery,
+        inProgressViewEdits,
+        changesToSave,
+        originalQueryInput,
+        suggestedQueryInput,
+    } = useValues(multitabEditorLogic)
     const {
         renameTab,
         selectTab,
@@ -42,23 +52,24 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
+        updateView,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
-        !!editingView?.status &&
-        (editingView.status === 'Completed' ||
-            editingView.status === 'Failed' ||
-            editingView.status === 'Cancelled' ||
-            editingView.status === 'Running')
+        !!editingView?.last_run_at ||
+        (!!editingView?.status &&
+            (editingView.status === 'Completed' ||
+                editingView.status === 'Failed' ||
+                editingView.status === 'Cancelled' ||
+                editingView.status === 'Running'))
 
     const renderAddSQLVariablesButton = (): JSX.Element => (
         <LemonButton
@@ -83,6 +94,22 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             Materialize
         </LemonButton>
     )
+
+    const editingViewDisabledReason = useMemo(() => {
+        if (updatingDataWarehouseSavedQuery) {
+            return 'Saving...'
+        }
+
+        if (!response) {
+            return 'Run query to update'
+        }
+
+        if (!changesToSave) {
+            return 'No changes to save'
+        }
+
+        return undefined
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -124,7 +151,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     <>
                         <LemonButton
                             onClick={() =>
-                                updateDataWarehouseSavedQuery({
+                                updateView({
                                     id: editingView.id,
                                     query: {
                                         ...sourceQuery.source,
@@ -132,9 +159,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     },
                                     types: response?.types ?? [],
                                     shouldRematerialize: isMaterializedView,
+                                    edited_history_id: inProgressViewEdits[editingView.id],
                                 })
                             }
-                            disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
+                            disabledReason={editingViewDisabledReason}
                             icon={<IconDownload />}
                             type="tertiary"
                             size="xsmall"
@@ -175,8 +203,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 )}
             </div>
             <QueryPane
-                originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
-                queryInput={suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput}
+                originalValue={originalQueryInput}
+                queryInput={suggestedQueryInput}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}

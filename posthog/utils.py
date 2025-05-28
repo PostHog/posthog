@@ -284,6 +284,9 @@ def get_delta_mapping_for(
             delta_mapping["day"] = 1
         elif position == "End":
             delta_mapping["day"] = 31
+    elif kind == "M":
+        if number:
+            delta_mapping["minutes"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)
@@ -929,7 +932,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or `EU`.
     """
     return settings.CLOUD_DEPLOYMENT
 
@@ -1559,3 +1562,17 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_relative_url(url: str | None) -> bool:
+    """
+    Returns True if `url` is a relative URL (e.g. "/foo/bar" or "/")
+    """
+    if url is None:
+        return False
+
+    parsed = urlparse(url)
+
+    return (
+        parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
+    )

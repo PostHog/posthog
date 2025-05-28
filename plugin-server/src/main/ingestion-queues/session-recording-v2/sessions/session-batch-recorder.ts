@@ -62,7 +62,8 @@ export class SessionBatchRecorder {
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
-        private readonly consoleLogStore: SessionConsoleLogStore
+        private readonly consoleLogStore: SessionConsoleLogStore,
+        private readonly metadataSwitchoverDate: Date | null
     ) {
         this.batchId = uuidv7()
         logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
@@ -101,8 +102,14 @@ export class SessionBatchRecorder {
             }
         } else {
             sessions.set(teamSessionKey, [
-                new SnappySessionRecorder(sessionId, teamId, this.batchId),
-                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
+                new SnappySessionRecorder(sessionId, teamId, this.batchId, this.metadataSwitchoverDate),
+                new SessionConsoleLogRecorder(
+                    sessionId,
+                    teamId,
+                    this.batchId,
+                    this.consoleLogStore,
+                    this.metadataSwitchoverDate
+                ),
             ])
         }
 

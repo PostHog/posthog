@@ -1,16 +1,19 @@
-import { FingerprintRecordPart } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import equal from 'fast-deep-equal'
+import { LogicWrapper } from 'kea'
+import { routerType } from 'kea-router/lib/routerType'
+import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
-import { Properties } from 'posthog-js'
+import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
-import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+export const ERROR_TRACKING_LISTING_RESOLUTION = 20
+export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
+
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_types',
@@ -24,10 +27,8 @@ export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
     '$exception_proposed_fingerprint',
     ...SEARCHABLE_EXCEPTION_PROPERTIES,
 ]
-export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
-const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
-const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
+const volumePeriods: 'volumeRange'[] = ['volumeRange']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
 
@@ -54,7 +55,9 @@ export const mergeIssues = (
         volumePeriods.forEach((period) => {
             const volume = aggregations[period]
             if (volume) {
-                const mergingVolumes = mergingIssues.map((issue) => issue.aggregations?.[period]).filter((v) => !!v)
+                const mergingVolumes: number[][] = mergingIssues
+                    .map((issue) => (issue.aggregations ? issue.aggregations[period] : undefined))
+                    .filter((volume) => volume != undefined) as number[][]
                 aggregations[period] = sumVolumes(...mergingVolumes, volume)
             }
         })
@@ -70,101 +73,6 @@ export const mergeIssues = (
         first_seen: firstSeen.toISOString(),
         last_seen: lastSeen.toISOString(),
     }
-}
-
-export type ExceptionAttributes = {
-    ingestionErrors?: string[]
-    exceptionList: ErrorTrackingException[]
-    fingerprintRecords: FingerprintRecordPart[]
-    runtime: ErrorTrackingRuntime
-    type?: string
-    value?: string
-    synthetic?: boolean
-    lib?: string
-    libVersion?: string
-    browser?: string
-    browserVersion?: string
-    os?: string
-    osVersion?: string
-    sentryUrl?: string
-    level?: string
-    url?: string
-    handled: boolean
-}
-
-export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
-    const {
-        $lib: lib,
-        $lib_version: libVersion,
-        $browser: browser,
-        $browser_version: browserVersion,
-        $os: os,
-        $os_version: osVersion,
-        $sentry_url: sentryUrl,
-        $sentry_exception,
-        $level: level,
-        $cymbal_errors: ingestionErrors,
-    } = properties
-
-    let type = properties.$exception_type
-    let value = properties.$exception_message
-    let synthetic: boolean | undefined = properties.$exception_synthetic
-    const url: string | undefined = properties.$current_url
-    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
-    const fingerprintRecords: FingerprintRecordPart[] | undefined = properties.$exception_fingerprint_record
-
-    // exception autocapture sets $exception_list for all exceptions.
-    // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
-    if (!exceptionList?.length && $sentry_exception) {
-        if (Array.isArray($sentry_exception.values)) {
-            exceptionList = $sentry_exception.values
-        }
-    }
-
-    if (!type) {
-        type = exceptionList?.[0]?.type
-    }
-    if (!value) {
-        value = exceptionList?.[0]?.value
-    }
-    if (synthetic == undefined) {
-        synthetic = exceptionList?.[0]?.mechanism?.synthetic
-    }
-
-    const handled = exceptionList?.[0]?.mechanism?.handled ?? false
-    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
-
-    return {
-        type,
-        value,
-        synthetic,
-        runtime,
-        lib,
-        libVersion,
-        browser,
-        browserVersion,
-        os,
-        osVersion,
-        url,
-        sentryUrl,
-        exceptionList: exceptionList || [],
-        fingerprintRecords: fingerprintRecords || [],
-        handled,
-        level,
-        ingestionErrors,
-    }
-}
-
-export function getAdditionalProperties(properties: Properties, isCloudOrDev: boolean | undefined): Properties {
-    return Object.fromEntries(
-        Object.entries(properties).filter(([key]) => {
-            return !isPostHogProperty(key, isCloudOrDev)
-        })
-    )
-}
-
-export function getSessionId(properties: Record<string, any>): string | undefined {
-    return properties['$session_id']
 }
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
@@ -253,22 +161,24 @@ export function datetimeStringToDayJs(date: string | null): Dayjs | null {
     return componentsToDayJs(dateComponents)
 }
 
-export function defaultSearchParams({ searchQuery, filterGroup, filterTestAccounts, dateRange }: any): Params {
-    const searchParams: Params = {
-        filterTestAccounts,
+export function syncSearchParams(
+    router: LogicWrapper<routerType>,
+    updateParams: (searchParams: Params) => Params
+): [string, Params, Record<string, any>, { replace: boolean }] {
+    let searchParams = { ...router.values.searchParams }
+    searchParams = updateParams(searchParams)
+    if (!equal(searchParams, router.values.searchParams)) {
+        return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
     }
+    return [router.values.location.pathname, router.values.searchParams, router.values.hashParams, { replace: false }]
+}
 
-    if (searchQuery) {
-        searchParams.searchQuery = searchQuery
+export function updateSearchParams<T>(searchParams: Params, key: string, value: T, defaultValue: T): void {
+    if (!equal(value, defaultValue)) {
+        searchParams[key] = value
+    } else {
+        delete searchParams[key]
     }
-    if (!objectsEqual(filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
-        searchParams.filterGroup = filterGroup
-    }
-    if (!objectsEqual(dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
-        searchParams.dateRange = dateRange
-    }
-
-    return searchParams
 }
 
 export function cancelEvent(event: MouseEvent): void {
