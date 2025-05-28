@@ -8,6 +8,7 @@ import re
 
 class RevenueAnalyticsBaseView(SavedQuery):
     source_id: Optional[str] = None
+    prefix: str
 
     @staticmethod
     def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
@@ -36,15 +37,23 @@ class RevenueAnalyticsBaseView(SavedQuery):
     # Used in child classes to generate view names
     @staticmethod
     def get_view_name_for_source(source: ExternalDataSource, view_name: str) -> str:
-        if not source.prefix:
-            return f"{source.source_type.lower()}.{view_name}"
-        else:
-            prefix = source.prefix.strip("_")
-            return f"{source.source_type.lower()}.{prefix}.{view_name}"
+        return f"{RevenueAnalyticsBaseView.get_view_prefix_for_source(source)}.{view_name}"
 
     @staticmethod
     def get_view_name_for_event(event: str, view_name: str) -> str:
-        return f"revenue_analytics.{re.sub(r'[^a-zA-Z0-9]', '_', event)}.{view_name}"
+        return f"{RevenueAnalyticsBaseView.get_view_prefix_for_event(event)}.{view_name}"
+
+    @staticmethod
+    def get_view_prefix_for_source(source: ExternalDataSource) -> str:
+        if not source.prefix:
+            return source.source_type.lower()
+        else:
+            prefix = source.prefix.strip("_")
+            return f"{source.source_type.lower()}.{prefix}"
+
+    @staticmethod
+    def get_view_prefix_for_event(event: str) -> str:
+        return f"revenue_analytics.{re.sub(r'[^a-zA-Z0-9]', '_', event)}"
 
     @staticmethod
     def get_database_schema_table_kind() -> DatabaseSchemaManagedViewTableKind:

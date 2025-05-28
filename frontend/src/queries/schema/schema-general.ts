@@ -1890,9 +1890,12 @@ export interface RevenueSources {
     events: string[]
 }
 
+export type RevenueAnalyticsInsightsQueryGroupBy = 'all' | 'product' | 'cohort'
+
 export interface RevenueAnalyticsInsightsQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
     kind: NodeKind.RevenueAnalyticsInsightsQuery
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy
     interval: IntervalType
 }
 

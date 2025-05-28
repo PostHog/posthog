@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 from typing import Union
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
@@ -31,10 +32,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     def revenue_selects(
         self,
-    ) -> tuple[list[ast.SelectQuery], list[ast.SelectQuery], list[ast.SelectQuery]]:
-        charge_selects: list[tuple[str, ast.SelectQuery]] = []
-        customer_selects: list[tuple[str, ast.SelectQuery]] = []
-        item_selects: list[tuple[str, ast.SelectQuery]] = []
+    ) -> dict[str, dict[str, ast.SelectQuery | None]]:
+        selects = defaultdict(lambda: {"charge": None, "customer": None, "item": None})
 
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
@@ -47,11 +46,11 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     )
 
                     if isinstance(view, RevenueAnalyticsChargeView):
-                        charge_selects.append((view_name, select))
+                        selects[view.prefix]["charge"] = select
                     elif isinstance(view, RevenueAnalyticsCustomerView):
-                        customer_selects.append((view_name, select))
+                        selects[view.prefix]["customer"] = select
                     elif isinstance(view, RevenueAnalyticsItemView):
-                        item_selects.append((view_name, select))
+                        selects[view.prefix]["item"] = select
                 elif view.source_id is None and isinstance(view, RevenueAnalyticsChargeView):
                     if len(self.query.revenueSources.events) > 0:
                         select = ast.SelectQuery(
@@ -65,19 +64,23 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                                 ],
                             ),
                         )
-                        charge_selects.append((view_name, select))
+                        selects[view.prefix]["charge"] = select
 
-        return (charge_selects, customer_selects, item_selects)
+        return selects
 
     def revenue_subqueries(
         self,
     ) -> tuple[ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None]:
-        charge_selects, customer_selects, item_selects = self.revenue_selects()
+        revenue_selects = self.revenue_selects()
 
         # Remove the view name because it's not useful for the select query
-        parsed_charge_selects = [select for _, select in charge_selects]
-        parsed_customer_selects = [select for _, select in customer_selects]
-        parsed_item_selects = [select for _, select in item_selects]
+        parsed_charge_selects = [
+            selects["charge"] for _, selects in revenue_selects.items() if selects["charge"] is not None
+        ]
+        parsed_customer_selects = [
+            selects["customer"] for _, selects in revenue_selects.items() if selects["customer"] is not None
+        ]
+        parsed_item_selects = [selects["item"] for _, selects in revenue_selects.items() if selects["item"] is not None]
 
         return (
             ast.SelectSetQuery.create_from_queries(parsed_charge_selects, set_operator="UNION ALL")

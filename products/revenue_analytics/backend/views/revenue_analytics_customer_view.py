@@ -78,6 +78,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
             RevenueAnalyticsCustomerView(
                 id=str(table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
+                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

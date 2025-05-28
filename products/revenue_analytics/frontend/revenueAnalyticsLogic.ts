@@ -12,6 +12,7 @@ import {
     NodeKind,
     QuerySchema,
     RevenueAnalyticsEventItem,
+    RevenueAnalyticsInsightsQueryGroupBy,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
 import { Breadcrumb, ExternalDataSource, InsightLogicProps } from '~/types'
@@ -74,7 +75,6 @@ const setQueryParams = (params: Record<string, string>): string => {
     return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
 }
 
-export type GrossRevenueGroupBy = 'all' | 'product' | 'cohort'
 export type LineOrTableChart = 'line' | 'table'
 export type RawRevenueSources = {
     events: RevenueAnalyticsEventItem[]
@@ -97,7 +97,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
         setRevenueSources: (revenueSources: RawRevenueSources) => ({ revenueSources }),
-        setGrossRevenueGroupBy: (groupBy: GrossRevenueGroupBy) => ({ groupBy }),
+        setGrossRevenueGroupBy: (groupBy: RevenueAnalyticsInsightsQueryGroupBy) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -113,7 +113,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         grossRevenueGroupBy: [
-            'all' as GrossRevenueGroupBy,
+            'all' as RevenueAnalyticsInsightsQueryGroupBy,
             persistConfig,
             {
                 setGrossRevenueGroupBy: (_, { groupBy }) => groupBy,
@@ -227,12 +227,19 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         queries: [
-            (s) => [s.dateFilter, s.rawRevenueSources, s.topCustomersDisplayMode, s.growthRateDisplayMode],
+            (s) => [
+                s.dateFilter,
+                s.rawRevenueSources,
+                s.topCustomersDisplayMode,
+                s.growthRateDisplayMode,
+                s.grossRevenueGroupBy,
+            ],
             (
                 dateFilter,
                 rawRevenueSources,
                 topCustomersDisplayMode,
-                growthRateDisplayMode
+                growthRateDisplayMode,
+                grossRevenueGroupBy
             ): Record<RevenueAnalyticsQuery, QuerySchema> => {
                 const { dateFrom, dateTo, interval } = dateFilter
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -255,8 +262,9 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
                         kind: NodeKind.RevenueAnalyticsInsightsQuery,
-                        interval,
                         revenueSources,
+                        groupBy: grossRevenueGroupBy,
+                        interval,
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(

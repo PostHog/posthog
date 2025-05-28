@@ -39,6 +39,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "customer_id": StringDatabaseField(name="customer_id"),
+    "invoice_id": StringDatabaseField(name="invoice_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
     **BASE_CURRENCY_FIELDS,
@@ -73,6 +74,9 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
+                    ast.Alias(
+                        alias="invoice_id", expr=ast.Constant(value=None)
+                    ),  # Helpful for sources, not helpful for events
                     ast.Alias(
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
@@ -113,6 +117,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             RevenueAnalyticsChargeView(
                 id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
                 name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_event(event_name),
                 query=query.to_hogql(),
                 fields=FIELDS,
             )
@@ -150,6 +155,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 # Useful for cross joins
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice_id"])),
                 # Empty, but required for the `events` view to work
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
@@ -220,6 +226,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             RevenueAnalyticsChargeView(
                 id=str(table.id),
                 name=RevenueAnalyticsBaseView.get_view_name_for_source(source, SOURCE_VIEW_SUFFIX),
+                prefix=RevenueAnalyticsBaseView.get_view_prefix_for_source(source),
                 query=query.to_hogql(),
                 fields=FIELDS,
                 source_id=str(source.id),

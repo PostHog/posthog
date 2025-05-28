@@ -4,12 +4,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {
     buildDashboardItemId,
-    GrossRevenueGroupBy,
     REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
@@ -22,7 +21,7 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-const OPTIONS: LemonSegmentedButtonOption<GrossRevenueGroupBy>[] = [
+const OPTIONS: LemonSegmentedButtonOption<RevenueAnalyticsInsightsQueryGroupBy>[] = [
     { label: 'All', value: 'all' },
     { label: 'Product', value: 'product' },
     { label: 'Cohort', value: 'cohort', disabledReason: 'Coming soon' },
@@ -46,7 +45,7 @@ export const GrossRevenueTile = (): JSX.Element => {
                 </h3>
                 <span className="flex items-center gap-1 text-muted-alt">
                     Group by&nbsp;
-                    <LemonSegmentedButton<GrossRevenueGroupBy>
+                    <LemonSegmentedButton<RevenueAnalyticsInsightsQueryGroupBy>
                         options={OPTIONS}
                         value={grossRevenueGroupBy}
                         onChange={setGrossRevenueGroupBy}

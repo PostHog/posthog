@@ -17277,6 +17277,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "groupBy": {
+                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
                 },
@@ -17295,8 +17298,12 @@
                     "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["interval", "kind", "revenueSources"],
+            "required": ["groupBy", "interval", "kind", "revenueSources"],
             "type": "object"
+        },
+        "RevenueAnalyticsInsightsQueryGroupBy": {
+            "enum": ["all", "product", "cohort"],
+            "type": "string"
         },
         "RevenueAnalyticsInsightsQueryResponse": {
             "additionalProperties": false,

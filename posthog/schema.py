@@ -1787,6 +1787,12 @@ class RevenueAnalyticsGoal(BaseModel):
     name: str
 
 
+class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
+    ALL = "all"
+    PRODUCT = "product"
+    COHORT = "cohort"
+
+
 class RevenueAnalyticsOverviewItemKey(StrEnum):
     REVENUE = "revenue"
     PAYING_CUSTOMER_COUNT = "paying_customer_count"
@@ -7307,6 +7313,7 @@ class RevenueAnalyticsInsightsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    groupBy: RevenueAnalyticsInsightsQueryGroupBy
     interval: IntervalType
     kind: Literal["RevenueAnalyticsInsightsQuery"] = "RevenueAnalyticsInsightsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(

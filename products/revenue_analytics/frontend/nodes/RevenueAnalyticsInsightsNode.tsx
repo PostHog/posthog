@@ -25,7 +25,7 @@ export function RevenueAnalyticsInsightsNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
-    const { baseCurrency, revenueGoals } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, grossRevenueGroupBy } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
@@ -55,20 +55,25 @@ export function RevenueAnalyticsInsightsNode(props: {
     const labels = results[0]?.labels ?? []
     const datasets: GraphDataset[] = results.map((result, index) => ({
         ...result,
+
         seriesIndex: index,
     }))
 
     return (
         <InsightsWrapper>
-            <div className="TrendsInsight TrendsInsight--ActionsLineGraph max-h-[300px]">
+            <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                         <LineGraph
                             data-attr="revenue-analytics-insights-node-graph"
-                            type={GraphType.Line}
+                            type={grossRevenueGroupBy === 'all' ? GraphType.Line : GraphType.Bar}
                             datasets={datasets}
                             labels={labels}
                             isArea={datasets.length > 1}
+                            legend={{
+                                display: grossRevenueGroupBy === 'product' && datasets.length > 1,
+                                position: 'right',
+                            }}
                             trendsFilter={{
                                 aggregationAxisFormat: 'numeric',
                                 aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
