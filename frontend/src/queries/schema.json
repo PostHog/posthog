@@ -12294,7 +12294,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "filterGroup", "kind", "orderBy", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
