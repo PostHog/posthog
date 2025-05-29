@@ -624,7 +624,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (rootWithProtocol) {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
-                    const firstFolder = fullFileSystem.find((item) => item.id == protocol)
+                    const firstFolder = fullFileSystem.find((item) => item.id === protocol)
                     if (firstFolder) {
                         if (ref) {
                             const found = findInProjectTree(`${protocol}${ref}`, firstFolder.children ?? [])
@@ -656,7 +656,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 // no client side filtering under project://
-                if (!searchTerm || root.startsWith('project://')) {
+                if (!searchTerm || !root || root.startsWith('project://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()

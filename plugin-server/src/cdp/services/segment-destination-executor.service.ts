@@ -19,8 +19,8 @@ import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
-    HogFunctionInvocation,
-    HogFunctionInvocationResult,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
@@ -246,8 +246,8 @@ export class SegmentDestinationExecutorService {
         )
     }
 
-    public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
-        const result = createInvocationResult(invocation, {
+    public async execute(invocation: CyclotronJobInvocationHogFunction): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'segment',
         })
 
@@ -274,7 +274,7 @@ export class SegmentDestinationExecutorService {
             const start = performance.now()
 
             // All segment options are done as inputs
-            const config = invocation.globals.inputs
+            const config = invocation.state.globals.inputs
 
             if (config.debug_mode) {
                 addLog('debug', 'config', config)

@@ -63,14 +63,20 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         'hog_function/broadcast': {
+            name: 'Broadcast',
             icon: <IconCursor />,
             href: (ref: string) => urls.messagingBroadcast(ref),
             iconColor: ['var(--product-messaging-light)'],
+            filterKey: 'broadcast',
+            flag: FEATURE_FLAGS.MESSAGING,
         },
         'hog_function/campaign': {
+            name: 'Campaign',
             icon: <IconCursor />,
             href: (ref: string) => urls.messagingCampaign(ref),
             iconColor: ['var(--product-messaging-light)'],
+            filterKey: 'campaign',
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     },
     treeItemsNew: [
@@ -103,8 +109,4 @@ export const manifest: ProductManifest = {
             tags: ['alpha'],
         },
     ],
-    fileSystemFilterTypes: {
-        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
-        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
-    },
 }
