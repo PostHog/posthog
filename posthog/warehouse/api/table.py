@@ -290,7 +290,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not is_warehouse_api_enabled:
             return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "Warehouse API is not enabled for this endpoint"}
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Warehouse API is not enabled for this organization"},
             )
 
         if "file" not in request.FILES:
