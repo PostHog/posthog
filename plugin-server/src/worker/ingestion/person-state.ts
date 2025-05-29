@@ -128,7 +128,7 @@ export class PersonState {
         private kafkaProducer: KafkaProducerWrapper,
         private personStore: PersonsStoreForDistinctIdBatch,
         private measurePersonJsonbSize: number = 0,
-        private useOptimizedJSONBUpdates: boolean = false
+        private useOptimizedJSONBUpdates: number = 0.0
     ) {
         this.eventProperties = event.properties!
 
@@ -257,7 +257,7 @@ export class PersonState {
         if (propertiesHandled) {
             return [person, Promise.resolve()]
         }
-        if (this.useOptimizedJSONBUpdates) {
+        if (Math.random() < this.useOptimizedJSONBUpdates) {
             return await this.updatePersonPropertiesOptimized(person)
         } else {
             return await this.updatePersonProperties(person)
@@ -449,6 +449,10 @@ export class PersonState {
             }
         })
 
+        // note: due to the type of equality check here
+        // if there is an array or object nested as a $set property
+        // we'll always return true even if those objects/arrays contain the same values
+        // This results in a shallow merge of the properties from event into the person properties
         Object.entries(properties).forEach(([key, value]) => {
             if (personProperties[key] !== value) {
                 toSet[key] = value
@@ -504,6 +508,10 @@ export class PersonState {
             }
         })
         Object.entries(properties).map(([key, value]) => {
+            // note: due to the type of equality check here
+            // if there is an array or object nested as a $set property
+            // we'll always return true even if those objects/arrays contain the same values
+            // This results in a shallow merge of the properties from event into the person properties
             if (personProperties[key] !== value) {
                 if (typeof personProperties[key] === 'undefined' || this.shouldUpdatePersonIfOnlyChange(key)) {
                     updated = true

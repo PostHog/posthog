@@ -2308,7 +2308,7 @@ describe('JSONB optimization flag compatibility', () => {
             hub.db.kafkaProducer,
             new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, legacyDistinctId),
             0,
-            false
+            0.0
         )
 
         const [legacyPerson, legacyKafkaAcks] = await legacyPersonState.updateProperties()
@@ -2328,7 +2328,7 @@ describe('JSONB optimization flag compatibility', () => {
             hub.db.kafkaProducer,
             new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, optimizedDistinctId),
             0,
-            true
+            1.0
         )
 
         const [optimizedPerson, optimizedKafkaAcks] = await optimizedPersonState.updateProperties()

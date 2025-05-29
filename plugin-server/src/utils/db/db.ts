@@ -702,10 +702,35 @@ export class DB {
             query += `, properties = ${jsonbExpression}`
         }
 
+        /*
         const hasOtherUpdates = Object.keys(otherUpdates).length > 0
         if (hasOtherUpdates) {
-            const { propertyUpdates, ...regularUpdates } = otherUpdates as any
+            const { _propertyUpdates, ...regularUpdates } = otherUpdates as any
             Object.entries(regularUpdates).forEach(([field, value]) => {
+                query += `, ${sanitizeSqlIdentifier(field)} = $${paramIndex}`
+                values.push(value)
+                paramIndex++
+            })
+        }
+        */
+        const hasOtherUpdates = Object.keys(otherUpdates).length > 0
+        if (hasOtherUpdates) {
+            // otherUpdates.version can't currently get set
+            // but just in case a future programmer adds it to the otherUpdates object
+            // this will make sure we properly handle it
+            let versionOverride: string | undefined
+            if (otherUpdates.version) {
+                versionOverride = otherUpdates.version.toString()
+                delete otherUpdates['version']
+            }
+            if (versionOverride) {
+                query = query.replace('version = COALESCE(version, 0)::numeric + 1', `version = ${versionOverride}`)
+            }
+
+            // because we handled the potential version field above, we shouldn't iterate over it here
+            const { version, ...updatesWithoutVersion } = otherUpdates
+            const processedUpdates = unparsePersonPartial(updatesWithoutVersion)
+            Object.entries(processedUpdates).forEach(([field, value]) => {
                 query += `, ${sanitizeSqlIdentifier(field)} = $${paramIndex}`
                 values.push(value)
                 paramIndex++
@@ -724,12 +749,28 @@ export class DB {
 
         if (rows.length === 0) {
             throw new NoRowsUpdatedError(
-                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+                `Person with team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
             )
         }
 
         const updatedPerson = this.toPerson(rows[0])
+
+        const versionDisparity = updatedPerson.version - person.version - 1
+        if (versionDisparity > 0) {
+            logger.info('🧑‍🦰', 'Person update version mismatch', {
+                team_id: updatedPerson.team_id,
+                person_id: updatedPerson.id,
+                version_disparity: versionDisparity,
+            })
+            personUpdateVersionMismatchCounter.inc()
+        }
+
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        logger.debug(
+            '🧑‍🦰',
+            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
+        )
 
         return [updatedPerson, [kafkaMessage]]
     }
@@ -771,7 +812,7 @@ export class DB {
         )
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
-                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+                `Person with team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
             )
         }
         const updatedPerson = this.toPerson(rows[0])
