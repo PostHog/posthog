@@ -80,6 +80,8 @@ STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
+    AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+    AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
 }
 """Nodes that can stream messages to the client."""
 

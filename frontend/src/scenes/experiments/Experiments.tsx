@@ -142,6 +142,13 @@ export function Experiments(): JSX.Element {
                                 <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
+                                <LemonButton
+                                    to={urls.experiment(`${experiment.id}`, 'duplicate')}
+                                    size="small"
+                                    fullWidth
+                                >
+                                    Duplicate
+                                </LemonButton>
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (

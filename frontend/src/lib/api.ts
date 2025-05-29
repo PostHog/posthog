@@ -527,8 +527,16 @@ class ApiRequest {
     }
 
     // # Logs
+    public logs(projectId?: ProjectType['id']): ApiRequest {
+        return this.environmentsDetail(projectId).addPathComponent('logs')
+    }
+
     public logsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('logs').addPathComponent('query')
+        return this.logs(projectId).addPathComponent('query')
+    }
+
+    public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('sparkline')
     }
 
     // # Data management
@@ -1648,8 +1656,17 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<{ results: LogMessage[] }> {
-            return new ApiRequest().logsQuery().create({ data: { query } })
+        async query({
+            query,
+            signal,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            signal?: AbortSignal
+        }): Promise<{ results: LogMessage[] }> {
+            return new ApiRequest().logsQuery().create({ signal, data: { query } })
+        },
+        async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
+            return new ApiRequest().logsSparkline().create({ signal, data: { query } })
         },
     },
 
@@ -2328,6 +2345,9 @@ const api = {
         async getStatus(id: HogFunctionType['id']): Promise<HogFunctionStatus> {
             return await new ApiRequest().hogFunction(id).withAction('status').get()
         },
+        async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
+            return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
+        },
     },
 
     links: {
@@ -2392,7 +2412,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'status'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },

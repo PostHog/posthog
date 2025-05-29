@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import math
 from collections.abc import Iterator
 from typing import Any, LiteralString, Optional, cast
@@ -21,10 +22,66 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.warehouse.models import IncrementalFieldType
-from posthog.warehouse.types import PartitionSettings
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+
+@config.config
+class PostgreSQLSourceConfig(config.Config):
+    host: str
+    user: str
+    password: str
+    database: str
+    schema: str
+    port: int = config.value(converter=int)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+def get_schemas(config: PostgreSQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+    """Get all tables from PostgreSQL source schemas to sync."""
+
+    def inner(postgres_host: str, postgres_port: int):
+        connection = psycopg.connect(
+            host=postgres_host,
+            port=postgres_port,
+            dbname=config.database,
+            user=config.user,
+            password=config.password,
+            sslmode="prefer",
+            connect_timeout=5,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": config.schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = collections.defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+
+        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            if tunnel is None:
+                raise ConnectionError("Can't open tunnel to SSH server")
+
+            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return inner(config.host, config.port)
 
 
 class JsonAsStringLoader(Loader):
@@ -361,7 +418,7 @@ def postgres_source(
         sslkey="/tmp/no.txt",
     ) as connection:
         with connection.cursor() as cursor:
-            inner_query = _build_query(
+            inner_query_with_limit = _build_query(
                 schema,
                 table_name,
                 is_incremental,
@@ -371,10 +428,19 @@ def postgres_source(
                 add_limit=True,
             )
 
+            inner_query_without_limit = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query, logger)
+            chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, schema, table_name, logger)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Fallback on checking for an `id` field on the table
