@@ -7,7 +7,7 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { forwardRef, Fragment, useRef, useState } from 'react'
+import { forwardRef, Fragment, useEffect, useRef, useState } from 'react'
 
 type Category = { label: string; value: string; hint?: string; icon?: React.ReactNode }
 type Suggestion = { label: string; value: string; hint?: string; icon?: React.ReactNode }
@@ -22,15 +22,26 @@ export interface SearchAutocompleteProps {
     searchData?: [Category, Suggestion[] | undefined, Hint?][]
     autoFocus?: boolean
     includeNegation?: boolean
+    defaultValue?: string
 }
 
 // Handles structured autocomplete with support for category:value and negation (! or -) inputs
 export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteProps>(
     (
-        { inputPlaceholder, onChange, onSelect, searchData, autoFocus, onClear, onKeyDown, includeNegation = false },
+        {
+            inputPlaceholder,
+            onChange,
+            onSelect,
+            searchData,
+            autoFocus,
+            onClear,
+            onKeyDown,
+            includeNegation = false,
+            defaultValue,
+        },
         ref
     ): JSX.Element => {
-        const [value, setValue] = useState('')
+        const [value, setValue] = useState(defaultValue ?? '')
         const [open, setOpen] = useState(false)
         const [suggestions, setSuggestions] = useState<Suggestion[]>([])
         const [currentHint, setCurrentHint] = useState<string | undefined>(undefined)
@@ -214,6 +225,10 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 input.setSelectionRange(length, length)
             }
         }
+
+        useEffect(() => {
+            setValue(defaultValue ?? '')
+        }, [defaultValue])
 
         return (
             <ListBox className="w-full" virtualFocus>

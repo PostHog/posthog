@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
@@ -61,7 +62,13 @@ from posthog.test.base import (
 )
 from posthog.test.fixtures import create_app_metric2
 from posthog.utils import get_previous_day
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
+from posthog.warehouse.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSource,
+    ExternalDataSchema,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -858,6 +865,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "active_external_data_schemas_in_period": 0,
+                            "active_batch_exports_in_period": 0,
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
@@ -1495,6 +1504,86 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_active_external_data_schemas_in_period(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        # created at doesn't matter. just what's running or completed at run time
+        self._setup_teams()
+
+        source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+
+        for _ in range(5):
+            ExternalDataSchema.objects.create(
+                team_id=3,
+                status=ExternalDataSchema.Status.RUNNING,
+                source=source,
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["active_external_data_schemas_in_period"] == 5
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["active_external_data_schemas_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_active_batch_exports_in_period(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        # created at doesn't matter. just what's running or completed at run time
+        self._setup_teams()
+
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        BatchExport.objects.create(team_id=3, name="A batch export", destination=batch_export_destination, paused=False)
+
+        BatchExport.objects.create(
+            team=self.analytics_team, name="A batch export", destination=batch_export_destination, paused=False
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["active_batch_exports_in_period"] == 1
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["active_batch_exports_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_failed_jobs(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
@@ -1609,6 +1698,196 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_data_in_s3_response(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        source = ExternalDataSource.objects.create(team_id=3, source_type="Stripe")
+
+        for _ in range(5):
+            DataWarehouseTable.objects.create(
+                team_id=3,
+                size_in_s3_mib=1,
+                external_data_source_id=source.id,
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["dwh_tables_storage_in_s3_in_mib"] == 5.0
+
+        assert org_1_report["teams"]["3"]["dwh_tables_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_tables_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["dwh_tables_storage_in_s3_in_mib"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_data_in_s3_response_with_deleted_tables(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        source = ExternalDataSource.objects.create(team_id=3, source_type="Stripe")
+
+        for _ in range(5):
+            DataWarehouseTable.objects.create(
+                team_id=3,
+                size_in_s3_mib=1,
+                external_data_source_id=source.id,
+            )
+
+        DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=10, deleted=True)
+        DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["dwh_tables_storage_in_s3_in_mib"] == 5.0
+
+        assert org_1_report["teams"]["3"]["dwh_tables_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_tables_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["dwh_tables_storage_in_s3_in_mib"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_data_in_s3_response_with_no_source_tables(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        for _ in range(5):
+            DataWarehouseTable.objects.create(
+                team_id=3,
+                size_in_s3_mib=1,
+                external_data_source_id=None,
+            )
+
+        DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=10, deleted=True)
+        DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["dwh_tables_storage_in_s3_in_mib"] == 0
+
+        assert org_1_report["teams"]["3"]["dwh_tables_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_tables_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["dwh_tables_storage_in_s3_in_mib"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_data_in_s3_response_with_mat_views(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        for i in range(5):
+            table = DataWarehouseTable.objects.create(
+                team_id=3,
+                size_in_s3_mib=1,
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team_id=3, name=f"{i}_view", table=table, deleted=False, status=DataWarehouseSavedQuery.Status.COMPLETED
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["dwh_mat_views_storage_in_s3_in_mib"] == 5.0
+
+        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
+        assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["dwh_mat_views_storage_in_s3_in_mib"] == 0
 
 
 @freeze_time("2022-01-10T00:01:00Z")

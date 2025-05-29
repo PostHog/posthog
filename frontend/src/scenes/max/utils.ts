@@ -112,3 +112,34 @@ export function formatConversationDate(updatedAt: string | null): string {
     }
     return humanFriendlyDuration(diff, { maxUnits: 1 })
 }
+
+/**
+ * Checks if a suggestion requires user input.
+ * @param suggestion - The suggestion to check.
+ * @returns True if the suggestion requires input, false otherwise.
+ */
+export function checkSuggestionRequiresUserInput(suggestion: string): boolean {
+    const matches = suggestion.match(/<|>|…/g)
+    return !!matches && matches.length > 0
+}
+
+/**
+ * Strips the user input placeholder (`<`, `>`, `…`) from a suggestion.
+ * @param suggestion - The suggestion to strip.
+ * @returns The stripped suggestion.
+ */
+export function stripSuggestionPlaceholders(suggestion: string): string {
+    return `${suggestion
+        .replace(/<[^>]*>/g, '')
+        .replace(/…$/, '')
+        .trim()} `
+}
+
+/**
+ * Formats a suggestion by stripping the placeholder characters (`<`, `>`) from a suggestion.
+ * @param suggestion - The suggestion to format.
+ * @returns The formatted suggestion.
+ */
+export function formatSuggestion(suggestion: string): string {
+    return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
+}

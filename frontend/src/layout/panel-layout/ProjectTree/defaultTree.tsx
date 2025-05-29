@@ -201,7 +201,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `AI chat`,
+            path: `Max AI`,
             type: 'aichat',
             href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
@@ -219,12 +219,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'sql',
             href: urls.sqlEditor(),
             visualOrder: PRODUCT_VISUAL_ORDER.sqlEditor,
-        } as FileSystemImport,
-        {
-            path: 'Data warehouse',
-            iconType: 'database',
-            href: urls.sqlEditor(),
-            visualOrder: PRODUCT_VISUAL_ORDER.dataWarehouse,
         } as FileSystemImport,
         {
             path: 'Error tracking',

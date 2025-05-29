@@ -86,6 +86,8 @@ from posthog.models.insight import InsightViewed
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.models.insight_variable import InsightVariable
+from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -267,7 +269,17 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer):
+class QueryFieldSerializer(serializers.Serializer):
+    def to_representation(self, value):
+        return self.parent._query_variables_mapping(value)  # type: ignore
+
+    def to_internal_value(self, data):
+        if data is not None and not isinstance(data, dict):
+            raise serializers.ValidationError("Query must be a valid JSON object")
+        return data
+
+
+class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -313,7 +325,7 @@ class InsightSerializer(InsightBasicSerializer):
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
     """,
     )
-    query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
+    query = QueryFieldSerializer(required=False, allow_null=True)
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
@@ -584,6 +596,19 @@ class InsightSerializer(InsightBasicSerializer):
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
 
+    def _query_variables_mapping(self, query: dict):
+        if (
+            query
+            and isinstance(query, dict)
+            and query.get("kind") == "DataVisualizationNode"
+            and query.get("source", {}).get("variables")
+        ):
+            query["source"]["variables"] = self.map_stale_to_latest(
+                query["source"]["variables"], list(self.context["insight_variables"])
+            )
+
+        return query
+
     def get_hogql(self, insight: Insight):
         return self.insight_result(insight).hogql
 
@@ -761,6 +786,8 @@ class InsightViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+
         return context
 
     def dangerously_get_queryset(self):
