@@ -66,11 +66,10 @@ export function LogsScene(): JSX.Element {
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
             <>
-                <Sparkline
-                    labels={labels}
-                    data={timeseries}
-                    className={sparklineLoading ? 'w-full sparkline-loading' : 'w-full'}
-                />
+                <div className={sparklineLoading ? 'sparkline-loading' : ''}>
+                    <Sparkline labels={labels} data={timeseries} className="w-full" />
+                    {sparklineLoading && <div className="sparkline-loading-overlay" />}
+                </div>
                 <DisplayOptions />
                 <div className="flex-1">
                     <LemonTable
