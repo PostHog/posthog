@@ -31,6 +31,7 @@ export type HogFunctionTemplateListFilters = {
 
 export type HogFunctionTemplateListLogicProps = {
     type: HogFunctionTypeType
+    additionalTypes?: HogFunctionTypeType[]
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     defaultFilters?: HogFunctionTemplateListFilters
     forceFilters?: HogFunctionTemplateListFilters
@@ -96,7 +97,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
                     return (
                         await api.hogFunctions.listTemplates({
-                            types: [props.type],
+                            types: [props.type, ...(props.additionalTypes || [])],
                             db_templates: dbTemplates,
                         })
                     ).results

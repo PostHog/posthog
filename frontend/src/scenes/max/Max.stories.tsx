@@ -2,7 +2,6 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -17,7 +16,7 @@ import {
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { maxLogic } from './maxLogic'
+import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
@@ -70,53 +69,6 @@ export const Welcome: StoryFn = () => {
     })
 
     return <Template />
-}
-
-export const WelcomeSuggestionsAvailable: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': () => [
-                200,
-                {
-                    questions: [
-                        'What are our most popular pages in the blog?',
-                        'Where are our new users located?',
-                        'Who are the biggest customers using our paid product?',
-                        'Which feature drives most usage?',
-                    ],
-                },
-            ],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-
-export const WelcomeLoadingSuggestions: StoryFn = () => {
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
-        },
-    })
-
-    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
-
-    useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
-    }, [])
-
-    return <Template />
-}
-WelcomeLoadingSuggestions.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
 }
 
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
@@ -376,6 +328,41 @@ export const ChatHistoryLoading: StoryFn = () => {
     return <Template sidePanel />
 }
 ChatHistoryLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestionsMobile.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
+}
+
+export const ThreadWithOpenedSuggestions: StoryFn = () => {
+    const { setActiveGroup } = useActions(maxLogic)
+
+    useEffect(() => {
+        // The largest group is the set up group
+        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+    }, [])
+
+    return <Template sidePanel />
+}
+ThreadWithOpenedSuggestions.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
