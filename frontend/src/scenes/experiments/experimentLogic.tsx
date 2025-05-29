@@ -1251,8 +1251,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
                     ].reverse()
 
-                    // debugger
-
                     for (const query of metrics) {
                         const insightQuery = toInsightVizNode(query)
 
