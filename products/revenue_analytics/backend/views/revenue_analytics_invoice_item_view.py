@@ -27,7 +27,6 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
 )
 
 SOURCE_VIEW_SUFFIX = "invoice_item_revenue_view"
-STRIPE_INVOICE_SUCCEEDED_STATUS = "succeeded"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
