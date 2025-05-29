@@ -40,11 +40,7 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
     """
     cache_key = listing_cache_key(recording)
     cached_block_listing = cache.get(cache_key)
-    if (
-        cached_block_listing is not None
-        and isinstance(cached_block_listing, RecordingBlockListing)
-        and not cached_block_listing.is_empty()
-    ):
+    if cached_block_listing is not None:
         return cached_block_listing
 
     listed_blocks = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
