@@ -109,6 +109,29 @@ class PropertyGroupManager:
 
         yield f"{prefix} " + ", ".join(commands)
 
+    def get_alter_modify_statements(
+        self,
+        table: TableName,
+        source_column: PropertySourceColumnName,
+        group_name: PropertyGroupName,
+        cluster: str | None = None,
+    ) -> Iterable[str]:
+        """
+        Returns an iterable of ALTER TABLE statements that can be used to modify the property group
+        using MODIFY COLUMN statements.
+        """
+        prefix = f"ALTER TABLE {table}"
+        if cluster is not None:
+            prefix += f" ON CLUSTER {cluster}"
+
+        group_definition = self.__groups[table][source_column][group_name]
+
+        commands = [f"MODIFY COLUMN {group_definition.get_column_definition(source_column, group_name)}"]
+        for index_definition in group_definition.get_index_definitions(source_column, group_name):
+            commands.append(f"ADD INDEX IF NOT EXISTS {index_definition}")
+
+        yield f"{prefix} " + ", ".join(commands)
+
 
 ignore_custom_properties = [
     # `token` & `distinct_id` properties are sent with ~50% of events and by
@@ -152,10 +175,8 @@ event_property_group_definitions = {
             column_type_name="group",
         ),
         "ai": PropertyGroupDefinition(
-            "key LIKE '$ai_% AND key NOT LIKE '$ai_input' AND key NOT LIKE '$ai_output_choices'",
-            lambda key: key.startswith("$ai_")
-            and not key.startswith("$ai_input")
-            and not key.startswith("$ai_output_choices"),
+            "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
+            lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
             column_type_name="group",
             hidden=True,
         ),
