@@ -641,6 +641,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
+    [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
     [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
     [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],

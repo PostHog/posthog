@@ -526,6 +526,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueFilter"
+                },
+                {
+                    "$ref": "#/definitions/LogPropertyFilter"
                 }
             ]
         },
@@ -12221,8 +12224,31 @@
             ],
             "type": "object"
         },
+        "LogPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "log",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "LogSeverityLevel": {
-            "enum": ["debug", "info", "warn", "error"],
+            "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
             "type": "string"
         },
         "LogsQuery": {
@@ -12230,6 +12256,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "kind": {
                     "const": "LogsQuery",
@@ -12265,7 +12294,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "kind", "orderBy", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -13046,7 +13075,8 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue"
+                "error_tracking_issue",
+                "log"
             ],
             "type": "string"
         },
@@ -18247,6 +18277,7 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
+                "logs",
                 "replay",
                 "resources"
             ],

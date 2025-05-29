@@ -997,10 +997,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         consolidatedSurveyResults: {
             loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
-                if (!values.isNewQuestionVizEnabled) {
-                    return { responsesByQuestion: {} }
-                }
-
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
