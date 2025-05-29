@@ -52,6 +52,7 @@ export function FolderSelect({
         setEditingItemId,
         rename,
         toggleFolderOpen,
+        deleteItem,
     } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
 
@@ -96,6 +97,17 @@ export function FolderSelect({
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                            </MenuItem>
+                        ) : null}
+                        {item.record?.path && item.record?.type === 'folder' ? (
+                            <MenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteItem(item.record as unknown as FileSystemEntry, props.key)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
                             </MenuItem>
                         ) : null}
                     </MenuGroup>
