@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { BuilderHog2 } from 'lib/components/hedgehogs'
+import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
@@ -87,7 +87,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
     const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
     const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
@@ -195,6 +195,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         <LemonButton type="secondary" onClick={loadSnapshots}>
                                             Reload
                                         </LemonButton>
+                                    </div>
+                                ) : isLikelyPastTTL ? (
+                                    <div className="flex flex-1 flex-col items-center justify-center">
+                                        <SleepingHog height={200} />
+                                        <h1>This recording is no longer available</h1>
+                                        <p>
+                                            We store session recordings for a limited time, and this one has expired and
+                                            been deleted.
+                                        </p>
                                     </div>
                                 ) : (
                                     <div className="flex w-full h-full">

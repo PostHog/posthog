@@ -893,6 +893,17 @@ LIMIT 1000000
             },
         ],
 
+        isLikelyPastTTL: [
+            (s) => [s.start, s.snapshotSources],
+            (start, snapshotSources) => {
+                // If the recording is older than 24 hours and has only realtime sources being reported, it is likely past its TTL
+                const isOlderThan24Hours = dayjs().diff(start, 'hour') > 24
+                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
+                const hasNoSources = snapshotSources?.length === 0
+                return isOlderThan24Hours && (onlyHasRealTime || hasNoSources)
+            },
+        ],
+
         bufferedToTime: [
             (s) => [s.segments],
             (segments): number | null => {
