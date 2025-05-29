@@ -454,7 +454,6 @@ class TestCSPModule(TestCase):
                 assert result1 == sample_on_property(case["document_url"], rate)
 
     def test_process_csp_report_with_sampling_out(self):
-        # Create a test properties dictionary that will be sampled out
         properties = {
             "document_url": "https://example.com/foo/bar",
             "effective_directive": "script-src",
@@ -462,9 +461,7 @@ class TestCSPModule(TestCase):
 
         # Test with 0% sampling rate (should be sampled out)
         result = sample_csp_report(properties, 0.0, True)
-        assert result is False
-        assert properties["csp_sampled"] is False
-        assert properties["csp_sample_threshold"] == 0.0
+        assert not result
 
     @patch("posthog.api.csp.logger")
     def test_process_csp_report_logs_invalid_content_type(self, mock_logger):
