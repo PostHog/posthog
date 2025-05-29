@@ -146,6 +146,7 @@ def process_csp_report(request):
                 "CSP report skipped - invalid content type",
                 content_type=request.content_type,
                 expected_types=["application/csp-report", "application/reports+json"],
+                error=ValueError("CSP report skipped - invalid content type"),
             )
             return None, None
 
@@ -170,6 +171,7 @@ def process_csp_report(request):
                     "CSP report sampled out - report-uri format",
                     document_url=properties.get("document_url"),
                     sample_rate=sample_rate,
+                    error=ValueError("CSP report sampled out - report-uri format"),
                 )
                 return None, None
 
@@ -199,6 +201,7 @@ def process_csp_report(request):
                     "CSP report sampled out - report-to format",
                     total_violations=len(violations_props),
                     sample_rate=sample_rate,
+                    error=ValueError("CSP report sampled out - report-to format"),
                 )
                 return None, None
 
@@ -210,13 +213,13 @@ def process_csp_report(request):
             raise ValueError("Invalid CSP report")
 
     except json.JSONDecodeError as e:
-        logger.exception("Invalid CSP report JSON format", error=str(e))
+        logger.exception("Invalid CSP report JSON format", error=e)
         return None, cors_response(
             request,
             generate_exception_response("capture", "Invalid CSP report format", code="invalid_csp_payload"),
         )
     except ValueError as e:
-        logger.exception("Invalid CSP report properties", error=str(e))
+        logger.exception("Invalid CSP report properties", error=e)
         return None, cors_response(
             request,
             generate_exception_response(

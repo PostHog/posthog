@@ -441,6 +441,7 @@ def get_csp_event(request):
     if debug_enabled:
         logger.exception(
             "CSP debug request",
+            error=ValueError("CSP debug request"),
             method=request.method,
             url=request.build_absolute_uri(),
             content_type=request.content_type,
