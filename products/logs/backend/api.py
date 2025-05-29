@@ -57,7 +57,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        try:
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        except Exception as e:
+            capture_exception(e)
+            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
@@ -83,6 +88,8 @@ LIMIT 1;
         )
 
         r = []
+        if type(results) is not list:
+            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         if len(results) > 0 and len(results[0]) > 0:
             for result in results[0][0]:
                 entry = {
@@ -121,6 +128,8 @@ LIMIT 1;
         )
 
         r = []
+        if type(results) is not list:
+            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         if len(results) > 0 and len(results[0]) > 0:
             for result in results[0][0]:
                 entry = {
