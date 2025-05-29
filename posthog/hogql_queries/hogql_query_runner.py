@@ -35,7 +35,7 @@ class HogQLQueryRunner(QueryRunner):
         settings: Optional[HogQLGlobalSettings] = None,
         **kwargs,
     ):
-        self.settings=settings
+        self.settings = settings
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight

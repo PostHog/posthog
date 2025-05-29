@@ -94,7 +94,11 @@ class ReplaceFilters(CloningVisitor):
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
-            timestamp_field = ast.Field(chain=["timestamp"]) if (found_events or found_logs) else ast.Field(chain=["$start_timestamp"])
+            timestamp_field = (
+                ast.Field(chain=["timestamp"])
+                if (found_events or found_logs)
+                else ast.Field(chain=["$start_timestamp"])
+            )
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
