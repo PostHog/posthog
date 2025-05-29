@@ -173,7 +173,7 @@ class HogFunctionTemplate(UUIDModel):
             for mapping_template_dict in self.mapping_templates:
                 mapping_templates_list.append(HogFunctionMappingTemplate(**mapping_template_dict))
 
-        # hog is only set if language is hog, otherwise None
+        # hog is only set if language is hog or javascript, otherwise None
         hog_value = self.code if self.code_language in ("hog", "javascript") else ""
 
         # Create the dataclass
