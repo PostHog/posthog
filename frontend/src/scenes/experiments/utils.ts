@@ -156,12 +156,20 @@ export function getViewRecordingFilters(
      * exposure criteria can only be events, not actions
      */
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (exposureCriteria) {
+    if (exposureCriteria && exposureCriteria.event !== '$feature_flag_called') {
         filters.push({
             id: exposureCriteria.event,
             name: exposureCriteria.event,
             type: 'events',
-            properties: exposureCriteria.properties,
+            properties: [
+                ...(exposureCriteria.properties || []),
+                {
+                    key: `$feature/${experiment.feature_flag_key}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
         })
     } else {
         filters.push({
@@ -170,9 +178,15 @@ export function getViewRecordingFilters(
             type: 'events',
             properties: [
                 {
-                    key: `$feature/${experiment.feature_flag_key}`,
+                    key: '$feature_flag_response',
                     type: PropertyFilterType.Event,
                     value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: experiment.feature_flag_key,
                     operator: PropertyOperator.Exact,
                 },
             ],
