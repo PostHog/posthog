@@ -1,9 +1,11 @@
-import { actions, afterMount, kea, listeners, LogicWrapper, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { EditorRef as _EditorRef } from 'react-email-editor'
+
+import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 
@@ -60,6 +62,69 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
+    loaders(() => ({
+        templates: [
+            [] as MessageTemplate[],
+            {
+                loadTemplates: async () => {
+                    const response = await api.messaging.getTemplates()
+                    return response.results
+                },
+            },
+        ],
+        personPropertyDefinitions: [
+            [] as PropertyDefinition[],
+            {
+                loadPersonPropertyDefinitions: async () => {
+                    const response = await api.propertyDefinitions.list({
+                        type: PropertyDefinitionType.Person,
+                        limit: 1000, // Get a large number of person properties
+                    })
+                    return response.results
+                },
+            },
+        ],
+    })),
+
+    selectors({
+        mergeTags: [
+            (s) => [s.personPropertyDefinitions],
+            (personPropertyDefinitions: PropertyDefinition[]): Record<string, any> => {
+                const tags: Record<string, any> = {}
+
+                // Add person properties as merge tags
+                personPropertyDefinitions.forEach((property: PropertyDefinition) => {
+                    tags[property.name] = {
+                        name: property.name,
+                        value: `{{person.properties.${property.name}}}`,
+                        sample: property.example || `Sample ${property.name}`,
+                    }
+                })
+
+                // Add some common person fields
+                tags['person_id'] = {
+                    name: 'Person ID',
+                    value: '{{person.id}}',
+                    sample: 'person_123',
+                }
+
+                tags['person_name'] = {
+                    name: 'Person Name',
+                    value: '{{person.name}}',
+                    sample: 'John Doe',
+                }
+
+                tags['person_email'] = {
+                    name: 'Person Email',
+                    value: '{{person.properties.email}}',
+                    sample: 'john@example.com',
+                }
+
+                return tags
+            },
+        ],
+    }),
+
     listeners(({ props, values, actions }) => ({
         onSave: async () => {
             const editor = values.emailEditorRef?.editor
@@ -96,6 +161,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 values.emailEditorRef?.editor?.loadDesign(value)
             }
         },
+
         applyTemplate: ({ template }) => {
             const setFormValue = props.formLogic.findMounted(props.formLogicProps)?.actions?.[
                 `set${capitalizeFirstLetter(props.formKey)}Value`
@@ -126,19 +192,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             actions.setAppliedTemplate(template)
         },
     })),
-    loaders(() => ({
-        templates: [
-            [] as MessageTemplate[],
-            {
-                loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
-                    return response.results
-                },
-            },
-        ],
-    })),
     afterMount(({ actions }) => {
         actions.loadTemplates()
+        actions.loadPersonPropertyDefinitions()
     }),
 ])
 
