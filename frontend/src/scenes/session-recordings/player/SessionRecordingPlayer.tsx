@@ -95,23 +95,31 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
 
-    useEffect(() => {
-        if (isLikelyPastTTL) {
-            posthog.capture('session loaded past ttl', {
-                viewedSessionRecording: sessionRecordingId,
-                recordingStartTime: sessionRecordingData?.start,
-            })
-        }
-    }, [isLikelyPastTTL, sessionRecordingData?.start, sessionRecordingId])
+    useEffect(
+        () => {
+            if (isLikelyPastTTL) {
+                posthog.capture('session loaded past ttl', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionRecordingData?.start,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isLikelyPastTTL]
+    )
 
-    useEffect(() => {
-        if (isRecentAndInvalid) {
-            posthog.capture('session loaded recent and invalid', {
-                viewedSessionRecording: sessionRecordingId,
-                recordingStartTime: sessionRecordingData?.start,
-            })
-        }
-    }, [isRecentAndInvalid])
+    useEffect(
+        () => {
+            if (isRecentAndInvalid) {
+                posthog.capture('session loaded recent and invalid', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionRecordingData?.start,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isRecentAndInvalid]
+    )
 
     useKeyboardHotkeys(
         {
