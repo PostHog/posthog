@@ -5678,7 +5678,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(16):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -5731,7 +5731,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(19):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(21):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -5742,7 +5742,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -5805,7 +5805,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -5822,7 +5822,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -5915,7 +5915,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(30):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -6060,11 +6060,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
+        # Just to shake things up, we're using integers for the group property
         for i in range(10):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
-                properties={"group": f"{i}"},
+                properties={"group": i},
             )
 
         cohort1 = Cohort.objects.create(
@@ -6077,7 +6078,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                             ],
                         }
                     ],
@@ -6139,7 +6140,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                             ],
                         }
                     ],
@@ -6159,7 +6160,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "values": [
                                 {
                                     "key": "group",
-                                    "value": [1, 2, 4, 5, 6],
+                                    "value": ["1", "2", "4", "5", "6"],
                                     "type": "person",
                                 },
                             ],
@@ -6216,7 +6217,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "values": [
                                 {
                                     "key": "group",
-                                    "value": [1, 2, 4, 5, 6],
+                                    "value": ["1", "2", "4", "5", "6"],
                                     "type": "person",
                                 },
                             ],

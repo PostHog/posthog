@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from typing import Optional, TypedDict, Union, Literal
 
@@ -38,6 +39,14 @@ class DecompressedRecordingData(TypedDict):
     snapshot_data_by_window_id: dict[WindowId, list[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
+@dataclasses.dataclass(frozen=True)
+class RecordingBlockListing:
+    start_time: datetime
+    block_first_timestamps: list[datetime]
+    block_last_timestamps: list[datetime]
+    block_urls: list[str]
+
+
 class RecordingMetadata(TypedDict):
     distinct_id: str
     start_time: datetime
@@ -59,23 +68,3 @@ class RecordingMetadata(TypedDict):
 
 class RecordingMatchingEvents(TypedDict):
     events: list[MatchingSessionRecordingEvent]
-
-
-class RecordingMetadataV2Test(TypedDict):
-    """Metadata for session recordings from the v2 test table.
-
-    Maps to the columns in session_replay_events_v2_test table:
-        - distinct_id
-        - min_first_timestamp (as start_time)
-        - max_last_timestamp (as end_time)
-        - block_first_timestamps
-        - block_last_timestamps
-        - block_urls
-    """
-
-    distinct_id: str
-    start_time: datetime  # min_first_timestamp
-    end_time: datetime  # max_last_timestamp
-    block_first_timestamps: list[datetime]
-    block_last_timestamps: list[datetime]
-    block_urls: list[str]

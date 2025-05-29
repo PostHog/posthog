@@ -25,7 +25,6 @@ import {
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
-import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
@@ -117,7 +116,7 @@ export class EventPipelineRunner {
         return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
     }
 
-    async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PipelineEvent, team: Team): Promise<EventPipelineResult> {
         this.originalEvent = event
 
         try {
@@ -130,14 +129,14 @@ export class EventPipelineRunner {
                     .inc()
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
-            let result: EventPipelineResult
-            const { eventWithTeam, team } =
-                (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
-            if (eventWithTeam != null && team != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam, team)
-            } else {
-                result = this.registerLastStep('populateTeamDataStep', [event])
+
+            const pluginEvent: PluginEvent = {
+                ...event,
+                team_id: team.id,
             }
+
+            const result = await this.runEventPipelineSteps(pluginEvent, team)
+
             eventProcessedAndIngestedCounter.inc()
             return result
         } catch (error) {
@@ -248,16 +247,11 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
-        const { event: transformedEvent, scheduledPromises } = await this.runStep(
+        const { event: transformedEvent } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
-
-        // Add message promises to kafkaAcks
-        if (scheduledPromises) {
-            kafkaAcks.push(...scheduledPromises)
-        }
 
         if (transformedEvent === null) {
             return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)

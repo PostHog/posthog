@@ -20,6 +20,7 @@ from . import (
     user_identify,
     verify_persons_data_in_sync,
     warehouse,
+    early_access_feature,
 )
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "user_identify",
     "verify_persons_data_in_sync",
     "warehouse",
+    "early_access_feature",
 ]

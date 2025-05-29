@@ -4,7 +4,6 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::info;
@@ -41,16 +40,11 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 /// * `f64` - A number between 0 and 1
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
-    let mut hasher = Sha1::new();
-    hasher.update(hash_key.as_bytes());
-    let result = hasher.finalize();
-    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
-        let _ = write!(acc, "{:02x}", byte);
-        acc
-    })[..15]
-        .to_string();
-    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    let hash_value = Sha1::digest(hash_key.as_bytes());
+    // We use the first 8 bytes of the hash and shift right by 4 bits
+    // This is equivalent to using the first 15 hex characters (7.5 bytes) of the hash
+    // as was done in the previous implementation, ensuring consistent feature flag distribution
+    let hash_val: u64 = u64::from_be_bytes(hash_value[..8].try_into().unwrap()) >> 4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 

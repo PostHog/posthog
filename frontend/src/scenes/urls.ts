@@ -1,14 +1,13 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { ExportOptions } from '~/exporter/types'
+import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
 import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
 
-import { BillingSectionId } from './billing/types'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { SurveysTabs } from './surveys/surveysLogic'
+import type { BillingSectionId } from './billing/types'
+import type { OnboardingStepKey } from './onboarding/onboardingLogic'
+import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
  * To add a new URL to the front end:
@@ -66,18 +65,11 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    cohort: (id: string | number): string => `/cohorts/${id}`,
-    cohorts: (): string => '/cohorts',
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
-    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingIssue: (id: string, fingerprint?: string): string =>
         combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
-    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    survey: (id: string): string => `/surveys/${id}`,
-    surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
         if (query) {
@@ -162,17 +154,16 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    links: (params?: string): string =>
+        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
-    messagingBroadcasts: (): string => '/messaging/broadcasts',
-    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
-    messagingCampaigns: (): string => '/messaging/campaigns',
-    messagingCampaignNew: (): string => '/messaging/campaigns/new',
-    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
-    messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
-    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
-    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
+    dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
+    hogFunction: (id: string): string => `/functions/${id}`,
+    hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
+    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
 }

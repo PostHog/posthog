@@ -123,15 +123,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _get_date_subqueries(self) -> ast.Expr:
-        plus_interval = self.query_date_range.number_interval_periods()
-
-        # :TRICKY: advancing the days beyond a DST transition can lead to dates that are not at 00:00:00
-        # when using clickhouse date additions. This is a workaround to ensure we always get the start of the day,
-        # even if it would be invalid in the given timezone. This is necessary for (a) formatting of date labels
-        # and (b) to match the datetimes we get from events, as they land on the invalid datetimes.
-        if self.query_date_range.interval_name == "day":
-            plus_interval = parse_expr("number * 86400")
-
         return parse_expr(
             """
             arrayMap(
@@ -148,7 +139,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders={**self.query_date_range.to_placeholders(), "plus_interval": plus_interval},
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                "plus_interval": self.query_date_range.number_interval_periods(),
+            },
         )
 
     def _get_events_subquery(

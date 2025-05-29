@@ -141,7 +141,7 @@ class Backup:
             f"""
             SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds), max(event_time_microseconds)
             FROM system.backup_log
-            WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
+            WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%' AND status NOT IN ('RESTORING', 'RESTORED', 'RESTORE_FAILED')
             GROUP BY hostname()
             """
         )

@@ -10,7 +10,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2Combined: true,
-                processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
@@ -19,9 +18,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
+                cdpCyclotronWorkerSegment: true,
                 cdpCyclotronWorkerFetch: true,
+                cdpCyclotronWorkerHogFlow: true,
                 cdpApi: true,
             }
 
@@ -49,10 +51,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: true,
             }
 
-        case PluginServerMode.async_onevent:
-            return {
-                processAsyncOnEventHandlers: true,
-            }
         case PluginServerMode.async_webhooks:
             return {
                 processAsyncWebhooksHandlers: true,
@@ -69,13 +67,25 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorker: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_hogflow:
+            return {
+                cdpCyclotronWorkerHogFlow: true,
+            }
         case PluginServerMode.cdp_cyclotron_worker_plugins:
             return {
                 cdpCyclotronWorkerPlugins: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_segment:
+            return {
+                cdpCyclotronWorkerSegment: true,
+            }
         case PluginServerMode.cdp_cyclotron_worker_fetch:
             return {
                 cdpCyclotronWorkerFetch: true,
+            }
+        case PluginServerMode.cdp_legacy_on_event:
+            return {
+                cdpLegacyOnEvent: true,
             }
         case PluginServerMode.cdp_api:
             return {
@@ -90,7 +100,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2Combined: true,
-                processAsyncOnEventHandlers: true,
+                cdpLegacyOnEvent: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,

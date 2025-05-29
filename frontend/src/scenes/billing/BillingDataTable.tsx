@@ -113,13 +113,12 @@ export function BillingDataTable({
     )
 
     return (
-        <div className="overflow-x-auto border rounded">
+        <div className="overflow-x-auto border rounded bg-bg-light">
             <LemonTable
                 data-attr="billing-data-table"
                 dataSource={series}
                 columns={columns}
                 loading={isLoading}
-                className="bg-white"
                 embedded
                 size="small"
                 rowClassName={(record) => (hiddenSeries.includes(record.id) ? 'opacity-50' : '')}
