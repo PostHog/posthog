@@ -19,7 +19,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
-    MapDatabaseField,
     ExpressionField,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
@@ -447,16 +446,6 @@ class ArrayType(ConstantType):
 
 
 @dataclass(kw_only=True)
-class MapType(ConstantType):
-    data_type: ConstantDataType = field(default="map", init=False)
-    key_type: ConstantType = field(default_factory=UnknownType)
-    value_type: ConstantType = field(default_factory=UnknownType)
-
-    def print_type(self) -> str:
-        return "Map"
-
-
-@dataclass(kw_only=True)
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: list[ConstantType]
@@ -548,8 +537,6 @@ class FieldType(Type):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
-        if isinstance(database_field, MapDatabaseField):
-            return MapPropertyType(chain=[name], field_type=self)
 
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
@@ -575,29 +562,6 @@ class UnresolvedFieldType(Type):
 
 @dataclass(kw_only=True)
 class PropertyType(Type):
-    chain: list[str | int]
-    field_type: FieldType
-
-    # The property has been moved into a field we query from a joined subquery
-    joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
-    joined_subquery_field_name: Optional[str] = field(default=None, init=False)
-
-    def get_child(self, name: str | int, context: HogQLContext) -> "Type":
-        return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
-
-    def has_child(self, name: str | int, context: HogQLContext) -> bool:
-        return True
-
-    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
-            return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
-
-        # PropertyTypes are always nullable
-        return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
-
-
-@dataclass(kw_only=True)
-class MapPropertyType(Type):
     chain: list[str | int]
     field_type: FieldType
 

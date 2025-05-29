@@ -801,7 +801,6 @@ class DatabaseSerializedFieldType(StrEnum):
     DATE = "date"
     BOOLEAN = "boolean"
     ARRAY = "array"
-    MAP = "map"
     JSON = "json"
     LAZY_TABLE = "lazy_table"
     VIRTUAL_TABLE = "virtual_table"

@@ -4,7 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.parser import parse_select
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.schema import HogQLFilters
+from posthog.schema import HogQLFilters, PropertyGroupsMode
 
 from products.logs.backend.logs_query_runner import (
     LogsQueryRunner,
@@ -14,6 +14,8 @@ from products.logs.backend.logs_query_runner import (
 
 class SparklineQueryRunner(LogsQueryRunner):
     def calculate(self) -> LogsQueryResponse:
+        self.modifiers.convertToProjectTimezone = False
+        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),

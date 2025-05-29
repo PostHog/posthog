@@ -183,5 +183,14 @@ property_groups = PropertyGroupManager(
             }
             for column_name, column_group_definitions in event_property_group_definitions.items()
         },
+        "logs": {
+            "attributes": {
+                "custom": PropertyGroupDefinition(
+                    "true",
+                    lambda key: True,
+                    column_type_name="map",
+                )
+            }
+        },
     }
 )

@@ -10,7 +10,14 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import CachedLogsQueryResponse, HogQLFilters, LogsQuery, LogsQueryResponse, IntervalType
+from posthog.schema import (
+    CachedLogsQueryResponse,
+    HogQLFilters,
+    LogsQuery,
+    LogsQueryResponse,
+    IntervalType,
+    PropertyGroupsMode,
+)
 
 
 class LogsQueryRunner(QueryRunner):
@@ -30,6 +37,7 @@ class LogsQueryRunner(QueryRunner):
 
     def calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
+        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),

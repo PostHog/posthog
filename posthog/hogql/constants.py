@@ -12,7 +12,6 @@ ConstantDataType: TypeAlias = Literal[
     "str",
     "bool",
     "array",
-    "map",
     "tuple",
     "date",
     "datetime",
