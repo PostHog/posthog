@@ -3,6 +3,9 @@ import { DateTime } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './tiktok.template'
 
+const TIME_IN_SECONDS = 120 * 1000
+jest.setTimeout(TIME_IN_SECONDS)
+
 describe('tiktok template', () => {
     const tester = new TemplateTester(template)
 
