@@ -62,14 +62,6 @@ class TracesQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
-    def to_query(self) -> ast.SelectQuery:
-        query = self._get_event_query()
-        if self.query.properties:
-            query.having = ast.CompareOperation(
-                left=ast.Field(chain=["filter_match"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=1)
-            )
-        return query
-
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             # Calculate max number of events needed with current offset and limit
@@ -80,8 +72,8 @@ class TracesQueryRunner(QueryRunner):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 placeholders={
-                    "common_conditions": self._get_where_clause(),
-                    "filter_conditions": self._get_properties_filter(),
+                    "subquery_conditions": self._get_subquery_filter(),
+                    "filter_conditions": self._get_where_clause(),
                     "return_full_trace": ast.Constant(value=1 if self.query.traceId is not None else 0),
                     "pagination_limit": ast.Constant(value=pagination_limit),
                 },
@@ -103,6 +95,96 @@ class TracesQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def to_query(self):
+        query = parse_select(
+            """
+            WITH relevant_trace_ids AS (
+                SELECT properties.$ai_trace_id as trace_id
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND properties.$ai_trace_id IS NOT NULL
+                  AND {subquery_conditions}
+                ORDER BY timestamp DESC
+                LIMIT 1 BY properties.$ai_trace_id
+                LIMIT {pagination_limit}
+            )
+            SELECT
+                properties.$ai_trace_id AS id,
+                min(timestamp) AS first_timestamp,
+                tuple(
+                    argMin(person.id, timestamp),
+                    argMin(distinct_id, timestamp),
+                    argMin(person.created_at, timestamp),
+                    argMin(person.properties, timestamp)
+                ) AS first_person,
+                round(
+                    sumIf(toFloat(properties.$ai_latency),
+                        properties.$ai_parent_id IS NULL
+                        OR properties.$ai_parent_id = properties.$ai_trace_id
+                    ), 2
+                ) AS total_latency,
+                sumIf(toFloat(properties.$ai_input_tokens),
+                      event = '$ai_generation'
+                ) AS input_tokens,
+                sumIf(toFloat(properties.$ai_output_tokens),
+                      event = '$ai_generation'
+                ) AS output_tokens,
+                round(
+                    sumIf(toFloat(properties.$ai_input_cost_usd),
+                          event = '$ai_generation'
+                    ), 4
+                ) AS input_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_output_cost_usd),
+                          event = '$ai_generation'
+                    ), 4
+                ) AS output_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_total_cost_usd),
+                          event = '$ai_generation'
+                    ), 4
+                ) AS total_cost,
+                IF({return_full_trace},
+                    arraySort(
+                        x -> x.3,
+                        groupArrayIf(
+                            tuple(uuid, event, timestamp, properties),
+                            event != '$ai_trace'
+                        )
+                    ),
+                    arrayFilter(
+                        x -> x.2 IN ('$ai_metric','$ai_feedback'),
+                        arraySort(x -> x.3,
+                            groupArrayIf(
+                                tuple(uuid, event, timestamp, properties),
+                                event != '$ai_trace'
+                            )
+                        )
+                    )
+                ) AS events,
+                argMinIf(properties.$ai_input_state,
+                         timestamp, event = '$ai_trace'
+                ) AS input_state,
+                argMinIf(properties.$ai_output_state,
+                         timestamp, event = '$ai_trace'
+                ) AS output_state,
+                argMinIf(
+                    ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                    timestamp,
+                    event = '$ai_trace'
+                ) AS trace_name
+            FROM events
+            WHERE event IN (
+                '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
+            )
+              AND properties.$ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
+              AND {filter_conditions}
+            GROUP BY properties.$ai_trace_id
+            ORDER BY first_timestamp DESC
+            """,
+        )
+        return cast(ast.SelectQuery, query)
 
     def get_cache_payload(self):
         return {
@@ -194,106 +276,25 @@ class TracesQueryRunner(QueryRunner):
             properties=orjson.loads(properties) if properties else {},
         )
 
-    def _get_event_query(self) -> ast.SelectQuery:
-        query = parse_select(
-            """
-            WITH relevant_trace_ids AS (
-                SELECT properties.$ai_trace_id as trace_id
-                FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace')
-                  AND properties.$ai_trace_id IS NOT NULL
-                  AND {common_conditions}
-                ORDER BY timestamp DESC
-                LIMIT 1 BY properties.$ai_trace_id
-                LIMIT {pagination_limit}
-            )
-            SELECT
-                properties.$ai_trace_id AS id,
-                min(timestamp) AS first_timestamp,
-                tuple(
-                    argMin(person.id, timestamp),
-                    argMin(distinct_id, timestamp),
-                    argMin(person.created_at, timestamp),
-                    argMin(person.properties, timestamp)
-                ) AS first_person,
-                round(
-                    sumIf(toFloat(properties.$ai_latency),
-                        properties.$ai_parent_id IS NULL
-                        OR properties.$ai_parent_id = properties.$ai_trace_id
-                    ), 2
-                ) AS total_latency,
-                sumIf(toFloat(properties.$ai_input_tokens),
-                      event = '$ai_generation'
-                ) AS input_tokens,
-                sumIf(toFloat(properties.$ai_output_tokens),
-                      event = '$ai_generation'
-                ) AS output_tokens,
-                round(
-                    sumIf(toFloat(properties.$ai_input_cost_usd),
-                          event = '$ai_generation'
-                    ), 4
-                ) AS input_cost,
-                round(
-                    sumIf(toFloat(properties.$ai_output_cost_usd),
-                          event = '$ai_generation'
-                    ), 4
-                ) AS output_cost,
-                round(
-                    sumIf(toFloat(properties.$ai_total_cost_usd),
-                          event = '$ai_generation'
-                    ), 4
-                ) AS total_cost,
-                IF({return_full_trace},
-                    arraySort(
-                        x -> x.3,
-                        groupArrayIf(
-                            tuple(uuid, event, timestamp, properties),
-                            event != '$ai_trace'
-                        )
-                    ),
-                    arrayFilter(
-                        x -> x.2 IN ('$ai_metric','$ai_feedback'),
-                        arraySort(x -> x.3,
-                            groupArrayIf(
-                                tuple(uuid, event, timestamp, properties),
-                                event != '$ai_trace'
-                            )
-                        )
-                    )
-                ) AS events,
-                argMinIf(properties.$ai_input_state,
-                         timestamp, event = '$ai_trace'
-                ) AS input_state,
-                argMinIf(properties.$ai_output_state,
-                         timestamp, event = '$ai_trace'
-                ) AS output_state,
-                argMinIf(
-                    ifNull(properties.$ai_span_name, properties.$ai_trace_name),
-                    timestamp,
-                    event = '$ai_trace'
-                ) AS trace_name,
-                {filter_conditions}
-            FROM events
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-              AND properties.$ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
-              AND {common_conditions}
-            GROUP BY properties.$ai_trace_id
-            ORDER BY first_timestamp DESC
-            """,
-        )
-        return cast(ast.SelectQuery, query)
+    def _get_subquery_filter(self) -> ast.Expr:
+        properties_filter = self._get_properties_filter()
+        if properties_filter is None:
+            return self._get_where_clause()
+        return ast.And(exprs=[self._get_where_clause(), properties_filter])
 
-    def _get_properties_filter(self):
-        expr: ast.Expr = ast.Constant(value=1)
+    def _get_properties_filter(self) -> ast.Expr | None:
+        property_filters: list[ast.Expr] = []
         if self.query.properties:
             with self.timings.measure("property_filters"):
-                filter = ast.And(exprs=[property_to_expr(property, self.team) for property in self.query.properties])
-                expr = ast.Call(name="max", args=[filter])
-        return ast.Alias(alias="filter_match", expr=expr)
+                for prop in self.query.properties:
+                    property_filters.append(property_to_expr(prop, self.team))
 
-    def _get_where_clause(self):
+        if not property_filters:
+            return None
+
+        return ast.And(exprs=property_filters)
+
+    def _get_where_clause(self) -> ast.Expr:
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -320,10 +321,6 @@ class TracesQueryRunner(QueryRunner):
                     right=ast.Constant(value=self.query.traceId),
                 ),
             )
-
-        if self.query.properties:
-            for prop in self.query.properties:
-                where_exprs.append(property_to_expr(prop, self.team))
 
         return ast.And(exprs=where_exprs)
 

@@ -60,7 +60,7 @@ from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
@@ -383,13 +383,14 @@ class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
@@ -399,6 +400,7 @@ class UserViewSet(
         lookup_value = self.kwargs[self.lookup_field]
         request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
+            self.check_object_permissions(self.request, request_user)
             return request_user
 
         if not request_user.is_staff:
@@ -407,6 +409,12 @@ class UserViewSet(
             )
 
         return super().get_object()
+
+    def get_authenticators(self):
+        if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
+            return [SessionAuthentication()]
+
+        return super().get_authenticators()
 
     def get_queryset(self):
         queryset = super().get_queryset()

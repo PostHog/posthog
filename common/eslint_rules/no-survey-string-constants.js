@@ -16,10 +16,10 @@ module.exports = {
     },
     create: function (context) {
         // Lowercase for case-insensitive matching of event names
-        // eslint-disable-next-line posthog/no-survey-string-constants
+
         const forbiddenEventStrings = ['survey sent', 'survey shown', 'survey dismissed']
         // Case-sensitive pattern for properties starting with $survey_
-        const forbiddenPropertyPattern = /^\$survey_/
+        // const forbiddenPropertyPattern = /^\$survey_/ // No longer needed directly
 
         const eventStringToEnum = {
             'survey sent': 'SurveyEventName.SENT',
@@ -30,6 +30,7 @@ module.exports = {
         const propertyStringToEnum = {
             $survey_id: 'SurveyEventProperties.SURVEY_ID',
             $survey_response: 'SurveyEventProperties.SURVEY_RESPONSE',
+            $survey_iteration: 'SurveyEventProperties.SURVEY_ITERATION',
         }
 
         // Function to check a string value (from Literal or TemplateElement)
@@ -41,49 +42,72 @@ module.exports = {
             const lowerCaseValue = value.toLowerCase()
             let reportObject = null
 
-            // Check for exact forbidden event strings (case-insensitive)
-            if (forbiddenEventStrings.includes(lowerCaseValue)) {
-                const enumString = eventStringToEnum[lowerCaseValue]
-                reportObject = {
-                    node: node,
-                    message: `Avoid hardcoding survey event names like '${value}'. Import from 'SurveyEventName' in 'frontend/src/types.ts' instead.`,
-                }
-                if (fixer && enumString) {
-                    // Only add fix if called with a fixer (i.e., from Literal visitor) and we have a mapping
-                    reportObject.fix = function (fixerInstance) {
-                        // Replace the literal node (including quotes) with the enum member
-                        return fixerInstance.replaceText(node, enumString)
-                    }
-                }
-            }
+            if (fixer && node.type === 'Literal') {
+                // --- Checks for Literal nodes (potential autofix) ---
 
-            // Check for the forbidden property pattern (case-sensitive)
-            else if (forbiddenPropertyPattern.test(value)) {
-                const enumString = propertyStringToEnum[value]
-                // Find the specific match to report it more accurately
-                const match = value.match(forbiddenPropertyPattern)
-                if (match) {
+                // Event check (unchanged logic)
+                const eventMatch = forbiddenEventStrings.find((forbidden) => lowerCaseValue === forbidden)
+                if (eventMatch) {
+                    const enumString = eventStringToEnum[eventMatch]
                     reportObject = {
                         node: node,
-                        message: `Avoid hardcoding survey properties starting with '$survey_'. Found '${match[0]}'. Import from 'SurveyEventProperties' in 'frontend/src/types.ts' instead.`,
-                    }
-                    if (fixer && enumString) {
-                        // Only add fix if called with a fixer (i.e., from Literal visitor) and we have an exact mapping for the whole string
-                        reportObject.fix = function (fixerInstance) {
-                            // Replace the literal node (including quotes) with the enum member
-                            return fixerInstance.replaceText(node, enumString)
-                        }
+                        message: `Avoid hardcoding survey event names like '${value}'. Import from 'SurveyEventName' in 'frontend/src/types.ts' instead.`,
+                        fix: (fixerInstance) => fixerInstance.replaceText(node, enumString),
                     }
                 }
-            }
-            // Check for the pattern appearing within the string part (e.g., in template literals)
-            else {
-                const substringMatch = value.match(/properties\.\$survey_/)
-                if (substringMatch) {
+
+                // Property check:
+                // 1. Check if it's a known property for potential fixing
+                const knownPropertyEnum = propertyStringToEnum[value]
+                // 2. Check if it *starts* with $survey_ for general reporting
+                const startsWithSurvey = /^\$survey_/.test(value)
+
+                if (startsWithSurvey) {
+                    // It starts with $survey_, so report it.
                     reportObject = {
                         node: node,
-                        message: `Avoid hardcoding survey property access like '${substringMatch[0]}'. Import from 'SurveyEventProperties' in 'frontend/src/types.ts' instead.`,
-                        // No fix for substring matches within template literals - too complex
+                        // Suggest adding to enum if not known, otherwise suggest importing
+                        message: `Avoid hardcoding survey properties like '${value}'. ${
+                            knownPropertyEnum
+                                ? "Import from 'SurveyEventProperties' in 'frontend/src/types.ts' instead."
+                                : "Consider adding it to 'SurveyEventProperties' and importing it."
+                        }`,
+                    }
+                    // Add fix *only* if it's a known property
+                    if (knownPropertyEnum) {
+                        reportObject.fix = (fixerInstance) => fixerInstance.replaceText(node, knownPropertyEnum)
+                    }
+                }
+            } else {
+                // TemplateLiteral quasi checks
+                // --- Checks for TemplateLiteral quasis (no autofix, substring checks) ---
+
+                // Event check (substring check, unchanged)
+                const foundEventString = forbiddenEventStrings.find((forbidden) => lowerCaseValue.includes(forbidden))
+                if (foundEventString) {
+                    reportObject = {
+                        node: node, // Report against the quasi node
+                        message: `Avoid hardcoding survey event names. Found '${foundEventString}' within template literal. Import from 'SurveyEventName' in 'frontend/src/types.ts' instead.`,
+                    }
+                }
+
+                // Check for properties referenced like properties.$survey_
+                const propertyAccessMatch = value.match(/properties\.\$survey_/)
+                // Check for any other occurrence of $survey_
+                const anySurveyPropertyMatch = !propertyAccessMatch && value.match(/\$survey_/)
+
+                if (propertyAccessMatch) {
+                    // Report properties.$survey_ found
+                    reportObject = {
+                        node: node,
+                        message: `Avoid hardcoding survey property access like '${propertyAccessMatch[0]}'. Import from 'SurveyEventProperties' in 'frontend/src/types.ts' instead.`,
+                    }
+                } else if (anySurveyPropertyMatch) {
+                    // Report any other $survey_ found (quoted or direct)
+                    const matchedProperty = anySurveyPropertyMatch[0] // The matched '$survey_' string
+                    reportObject = {
+                        node: node,
+                        message: `Avoid hardcoding survey properties starting with '$survey_'. Found '${matchedProperty}' within template literal. Import from 'SurveyEventProperties' in 'frontend/src/types.ts' instead or add it to the enum.`,
                     }
                 }
             }
@@ -95,13 +119,12 @@ module.exports = {
 
         return {
             Literal: function (node) {
-                // Pass the fixer only for Literals
+                // Pass true for fixer when checking Literals
                 checkStringValue(node, node.value, true)
             },
             TemplateLiteral: function (node) {
-                // Check each quasi (static part) of the template literal
                 node.quasis.forEach((quasi) => {
-                    // Do not pass the fixer for template parts
+                    // Pass false for fixer when checking TemplateElement quasis
                     checkStringValue(quasi, quasi.value.cooked, false)
                 })
             },

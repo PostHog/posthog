@@ -79,6 +79,9 @@ INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
 
+MAILJET_PUBLIC_KEY = get_from_env("MAILJET_PUBLIC_KEY", "", type_cast=str)
+MAILJET_SECRET_KEY = get_from_env("MAILJET_SECRET_KEY", "", type_cast=str)
+
 SQS_QUEUES = {
     "usage_reports": {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),

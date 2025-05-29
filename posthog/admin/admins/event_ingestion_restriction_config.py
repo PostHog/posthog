@@ -1,5 +1,4 @@
 from django.contrib import admin
-from django.contrib import messages
 from posthog.models.event_ingestion_restriction_config import RestrictionType
 
 
@@ -8,7 +7,7 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
     list_filter = ("restriction_type",)
     search_fields = ("token", "distinct_ids")
     fieldsets = (
-        (None, {"fields": ("token", "restriction_type")}),
+        (None, {"fields": ("token", "restriction_type", "note")}),
         (
             "Distinct IDs",
             {
@@ -33,10 +32,3 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
             )
 
         return form
-
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        messages.warning(
-            request,
-            "Editing existing configs is not supported. Please delete this configuration and create a new one if you need to make changes.",
-        )
-        return super().change_view(request, object_id, form_url, extra_context)

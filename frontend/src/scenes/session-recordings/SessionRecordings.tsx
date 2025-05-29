@@ -19,7 +19,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -32,6 +31,7 @@ import { ProductKey } from '~/types'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
+import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
@@ -39,7 +39,7 @@ function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
@@ -47,9 +47,9 @@ function Header(): JSX.Element {
     const newPlaylistHandler = useAsyncHandler(async () => {
         const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Replay playlists' })
         if (typeof folder === 'string') {
-            await createPlaylist({ _create_in_folder: folder }, true)
+            await createPlaylist({ _create_in_folder: folder, type: 'collection' }, true)
         } else {
-            await createPlaylist({}, true)
+            await createPlaylist({ type: 'collection' }, true)
         }
         reportRecordingPlaylistCreated('new')
     })
@@ -87,7 +87,7 @@ function Header(): JSX.Element {
                             data-attr="save-recordings-playlist-button"
                             loading={newPlaylistHandler.loading}
                         >
-                            New playlist
+                            New collection
                         </LemonButton>
                     )}
                 </>
@@ -228,10 +228,10 @@ const ReplayPageTabs: ReplayTab[] = [
         key: ReplayTabs.Home,
     },
     {
-        label: 'Playlists',
+        label: 'Playlists → Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
-        tooltip: 'View & create playlists',
+        tooltip: 'View & create collections',
     },
     {
         label: 'Figure out what to watch',

@@ -5,6 +5,7 @@ from datetime import timedelta
 import structlog
 from corsheaders.defaults import default_headers
 
+from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -29,8 +30,9 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.early_access_features",
-    "products.editor",
+    "products.links",
     "products.revenue_analytics",
+    "products.user_interviews",
 ]
 
 INSTALLED_APPS = [
@@ -60,6 +62,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "oauth2_provider",
 ]
 
 MIDDLEWARE = [
@@ -68,6 +71,7 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
+    "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -96,6 +100,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
+    "posthog.middleware.Fix204Middleware",
 ]
 
 if DEBUG:
@@ -450,7 +455,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED = get_from_env("HOG_TRANSFORMATIONS_CUSTOM_ENABLED", False, type_cast=bool)
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
@@ -472,3 +477,37 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
+
+####
+# OAuth
+
+OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
+
+OAUTH2_PROVIDER = {
+    "OIDC_ENABLED": True,
+    "PKCE_REQUIRED": True,
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "SCOPES": {
+        "openid": "OpenID Connect scope",
+        "profile": "Access to user's profile",
+        "email": "Access to user's email address",
+        "*": "Full access to all scopes",
+        **get_scope_descriptions(),
+    },
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    "DEFAULT_SCOPES": ["openid"],
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
+}
+
+
+OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
+OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
+OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
+OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
+OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+if DEBUG:
+    OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

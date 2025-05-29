@@ -130,3 +130,57 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         config.delete()
 
         self.assertIsNone(self.redis_client.get(redis_key))
+
+    def test_update_config_distinct_ids(self):
+        """Test that updating a config's distinct_ids correctly updates Redis cache"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token", restriction_type=RestrictionType.SKIP_PERSON_PROCESSING, distinct_ids=["id1", "id2"]
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(sorted(data), sorted(["test_token:id1", "test_token:id2"]))
+
+        config.distinct_ids = ["id2", "id3"]  # Remove id1, keep id2, add id3
+        config.save()
+
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(sorted(data), sorted(["test_token:id2", "test_token:id3"]))
+        self.assertNotIn("test_token:id1", data)
+
+    def test_update_config_remove_all_distinct_ids(self):
+        """Test that removing all distinct_ids correctly updates Redis"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token", restriction_type=RestrictionType.SKIP_PERSON_PROCESSING, distinct_ids=["id1", "id2"]
+        )
+
+        config.distinct_ids = []
+        config.save()
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(data, ["test_token"])
+        self.assertNotIn("test_token:id1", data)
+        self.assertNotIn("test_token:id2", data)
+
+    def test_update_config_add_distinct_ids(self):
+        """Test that adding distinct_ids to a config without them correctly updates Redis"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token", restriction_type=RestrictionType.SKIP_PERSON_PROCESSING
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(data, ["test_token"])
+
+        config.distinct_ids = ["id1", "id2"]
+        config.save()
+
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(sorted(data), sorted(["test_token:id1", "test_token:id2"]))
+        self.assertNotIn("test_token", data)

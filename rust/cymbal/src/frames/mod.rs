@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     error::UnhandledError,
-    fingerprinting::{Fingerprint, FingerprintComponent, FingerprintRecordPart},
+    fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
@@ -38,7 +38,9 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
-            RawFrame::JavaScriptNode(frame) => (Ok(frame.into()), "javascript"),
+            RawFrame::JavaScriptNode(frame) => {
+                (frame.resolve(team_id, catalog).await, "javascript")
+            }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
         };
 
@@ -116,12 +118,12 @@ pub struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContextLine {
-    number: u32,
-    line: String,
+    pub number: u32,
+    pub line: String,
 }
 
 impl FingerprintComponent for Frame {
-    fn update(&self, fp: &mut Fingerprint) {
+    fn update(&self, fp: &mut FingerprintBuilder) {
         let get_part = |s: &str, p: Vec<&str>| FingerprintRecordPart::Frame {
             raw_id: s.to_string(),
             pieces: p.into_iter().map(String::from).collect(),

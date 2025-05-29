@@ -35,6 +35,7 @@ pub struct State {
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
+    pub is_mirror_deploy: bool,
 }
 
 #[derive(Clone)]
@@ -108,6 +109,7 @@ pub fn router<
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
     historical_tokens_keys: Option<String>,
+    is_mirror_deploy: bool,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -121,6 +123,7 @@ pub fn router<
             historical_rerouting_threshold_days,
             historical_tokens_keys,
         ),
+        is_mirror_deploy,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -161,19 +164,7 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
-    let event_router = Router::new()
-        .route(
-            "/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
+    let mut event_router = Router::new()
         .route(
             "/i/v0/e",
             post(v0_endpoint::event)
@@ -187,8 +178,75 @@ pub fn router<
                 .options(v0_endpoint::options),
         )
         .route("/i/v0", get(index))
-        .route("/i/v0/", get(index))
-        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+        .route("/i/v0/", get(index));
+
+    // conditionally route all legacy capture endpoints to event_legacy handler
+    if is_mirror_deploy {
+        event_router = event_router
+            .route(
+                "/e",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/e/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/track",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/track/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/engage",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/engage/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/capture",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/capture/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            );
+    } else {
+        event_router = event_router
+            .route(
+                "/e",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/e/",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            );
+    }
+    event_router = event_router.layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()
         .route("/", get(index))

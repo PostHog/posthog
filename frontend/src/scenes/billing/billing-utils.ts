@@ -1,5 +1,7 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
+import { OrganizationType } from '~/types'
 import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
@@ -273,4 +275,23 @@ export const formatPlanStatus = (billing: BillingType | null): string => {
     }
 
     return ''
+}
+
+/**
+ * Formats a number as a currency string
+ */
+export const currencyFormatter = (value: number): string => {
+    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
+
+/**
+ * Determines if the user has sufficient permissions to read billing information based on their organization membership level.
+ */
+export function canAccessBilling(
+    currentOrganization: Pick<OrganizationType, 'membership_level'> | null | undefined
+): boolean {
+    if (!currentOrganization || !currentOrganization.membership_level) {
+        return false
+    }
+    return currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
 }

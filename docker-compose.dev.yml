@@ -161,7 +161,7 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${SECRET_KEY}
+            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
         ports:
             - '8666:8080'
         volumes:

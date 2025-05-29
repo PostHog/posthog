@@ -11,6 +11,7 @@ from posthog.hogql.property import (
     get_property_key,
 )
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
     map_columns,
@@ -34,14 +35,28 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     response: WebStatsTableQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
+    preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
+    used_preaggregated_tables: bool
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
+        self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
+        should_use_preaggregated = (
+            self.modifiers
+            and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.preaggregated_query_builder.can_use_preaggregated_tables()
+        )
+
+        if should_use_preaggregated:
+            self.used_preaggregated_tables = True
+            return self.preaggregated_query_builder.get_query()
+
         if self.query.breakdownBy == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
                 return self.to_main_query(self._counts_breakdown_value())
@@ -589,6 +604,7 @@ GROUP BY session_id, breakdown_value
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            usedPreAggregatedTables=self.used_preaggregated_tables,
             **self.paginator.response_params(),
         )
 
@@ -662,7 +678,10 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["properties", "$browser_language"])
             case WebStatsBreakdown.TIMEZONE:
                 # Value is in minutes, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
-                return parse_expr("toFloat(properties.$timezone_offset) / 60")
+                # see the docs here for why this the negative is necessary
+                # https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/getTimezoneOffset#negative_values_and_positive_values
+                # the example given is that for UTC+10, -600 will be returned.
+                return parse_expr("-toFloat(properties.$timezone_offset) / 60")
             case WebStatsBreakdown.FRUSTRATION_METRICS:
                 return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case _:

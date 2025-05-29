@@ -492,7 +492,7 @@ export class DB {
             }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
             return await this.postgres
-                .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+                .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
                 .then(({ rows }) => rows.map(this.toPerson))
         } else {
             throw new Error(`Can't fetch persons for database: ${database}`)
@@ -560,7 +560,7 @@ export class DB {
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
+            options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             values,
             'fetchPerson'
@@ -593,7 +593,7 @@ export class DB {
         const personVersion = 0
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
@@ -672,7 +672,8 @@ export class DB {
     public async updatePersonDeprecated(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        tx?: TransactionClient
+        tx?: TransactionClient,
+        tag?: string
     ): Promise<[InternalPerson, TopicMessage[]]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
@@ -693,13 +694,14 @@ export class DB {
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
         )} WHERE id = $${Object.values(update).length + 1}
-        RETURNING *`
+        RETURNING *
+        /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             values,
-            'updatePerson'
+            `updatePerson${tag ? `-${tag}` : ''}`
         )
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
@@ -732,7 +734,7 @@ export class DB {
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
             [person.team_id, person.id],
             'deletePerson'
@@ -773,7 +775,7 @@ export class DB {
             ).data as ClickHousePersonDistinctId2[]
         } else if (database === Database.Postgres) {
             const result = await this.postgres.query(
-                PostgresUse.COMMON_WRITE, // used in tests only
+                PostgresUse.PERSONS_WRITE, // used in tests only
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
                 [person.id, person.team_id],
                 'fetchDistinctIds'
@@ -794,7 +796,7 @@ export class DB {
 
     public async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
         const result = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
@@ -811,7 +813,7 @@ export class DB {
 
         // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
         const existingResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
                 SELECT is_merged
                 FROM posthog_personlessdistinctid
@@ -830,7 +832,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<boolean> {
         const result = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, true, now())
@@ -852,7 +854,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
@@ -887,7 +889,7 @@ export class DB {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
-                tx ?? PostgresUse.COMMON_WRITE,
+                tx ?? PostgresUse.PERSONS_WRITE,
                 `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
@@ -1235,10 +1237,9 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const result = await this.postgres.query(
+    ): Promise<number> {
+        const result = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
@@ -1254,7 +1255,7 @@ export class DB {
                 createdAt.toISO(),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
+                1,
             ],
             'upsertGroup'
         )
@@ -1262,6 +1263,8 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
+
+        return Number(result.rows[0].version || 0)
     }
 
     public async updateGroup(
@@ -1272,10 +1275,9 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        await this.postgres.query(
+    ): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             `
             UPDATE posthog_group SET
@@ -1283,8 +1285,9 @@ export class DB {
             group_properties = $5,
             properties_last_updated_at = $6,
             properties_last_operation = $7,
-            version = $8
+            version = COALESCE(version, 0)::numeric + 1
             WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
+            RETURNING version
             `,
             [
                 teamId,
@@ -1294,10 +1297,15 @@ export class DB {
                 JSON.stringify(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
             ],
             'upsertGroup'
         )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     public async upsertGroupClickhouse(

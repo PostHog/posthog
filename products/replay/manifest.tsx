@@ -1,5 +1,6 @@
 import { IconRewindPlay } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
@@ -25,37 +26,26 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         session_recording_playlist: {
+            name: 'Replay playlist',
             icon: <IconRewindPlay />,
             href: (ref: string) => urls.replayPlaylist(ref),
+            iconColor: ['var(--product-session-replay-light)', 'var(--product-session-replay-dark)'],
+            filterKey: 'session_recording_playlist',
         },
     },
     treeItemsNew: [
         {
             path: `Replay playlist`,
             type: 'session_recording_playlist',
-            href: () => urls.replayPlaylist('new'),
+            href: urls.replayPlaylist('new'),
         },
     ],
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'Recordings/Recordings',
-            href: () => urls.replay(ReplayTabs.Home),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/What to watch',
-            href: () => urls.replay(ReplayTabs.Templates),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/Playlists',
-            href: () => urls.replay(ReplayTabs.Playlists),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/Settings',
-            href: () => urls.replay(ReplayTabs.Settings),
-            icon: <IconRewindPlay />,
+            path: 'Session replay',
+            href: urls.replay(ReplayTabs.Home),
+            type: 'session_recording_playlist',
+            visualOrder: PRODUCT_VISUAL_ORDER.sessionReplay,
         },
     ],
 }

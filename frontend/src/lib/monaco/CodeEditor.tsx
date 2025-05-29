@@ -273,8 +273,8 @@ export function CodeEditor({
         return (
             <MonacoDiffEditor
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
                 modified={value}
                 options={{
