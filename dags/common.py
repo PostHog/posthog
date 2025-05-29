@@ -71,7 +71,7 @@ def report_job_status_metric(context: dagster.RunStatusSensorContext) -> None:
     JOB_STATUS_COUNTER.labels(
         job_name=context.dagster_run.job_name,
         status=context.dagster_run.status.name,
-    )
+    ).inc()
 
 
 job_status_metrics_sensors = [
