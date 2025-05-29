@@ -16,6 +16,7 @@ import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, ReplayTabs, UniversalFiltersGroup } from '~/types'
@@ -83,6 +84,7 @@ export const RecordingsUniversalFilters = ({
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
+    useMountedLogic(groupsModel)
 
     const durationFilter = filters.duration[0]
 
@@ -90,6 +92,7 @@ export const RecordingsUniversalFilters = ({
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -99,6 +102,7 @@ export const RecordingsUniversalFilters = ({
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
+        ...groupsTaxonomicTypes,
     ]
 
     if (allowReplayHogQLFilters) {
