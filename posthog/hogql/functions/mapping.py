@@ -1834,7 +1834,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
     "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True),
     "md5": HogQLFunctionMeta("hex(MD5({}))", 1, 1, aggregate=True, using_placeholder_arguments=True),
-    "cast": HogQLFunctionMeta("cast", 1, 1, aggregate=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
