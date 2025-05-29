@@ -189,6 +189,7 @@ property_groups = PropertyGroupManager(
                     "true",
                     lambda key: True,
                     column_type_name="map",
+                    is_materialized=False,
                 )
             }
         },
