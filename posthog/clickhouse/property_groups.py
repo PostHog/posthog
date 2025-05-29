@@ -181,7 +181,6 @@ event_property_group_definitions = {
             "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
             lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
             column_type_name="group",
-            hidden=True,
         ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
