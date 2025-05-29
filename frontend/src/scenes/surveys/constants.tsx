@@ -3,6 +3,7 @@ import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
+    SurveyAppearance,
     SurveyMatchType,
     SurveyPosition,
     SurveyQuestionDescriptionContentType,
@@ -60,7 +61,7 @@ export const defaultSurveyAppearance = {
     borderRadius: '10px',
     shuffleQuestions: false,
     surveyPopupDelaySeconds: undefined,
-} as const
+} as const satisfies SurveyAppearance
 
 export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {

@@ -15,8 +15,8 @@ import { urls } from 'scenes/urls'
 import { SurveyAppearance } from '~/types'
 
 import { defaultSurveyAppearance, NEW_SURVEY } from './constants'
+import { Customization } from './survey-appearance/SurveyCustomization'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-import { Customization } from './SurveyCustomization'
 
 interface Props {
     isModal?: boolean
@@ -139,12 +139,12 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                 )}
             </div>
 
-            <div className="flex gap-2 mb-2 align-top">
+            <div className="flex gap-16">
                 <Customization
-                    appearance={editableSurveyConfig}
+                    survey={templatedSurvey}
                     hasBranchingLogic={false}
-                    customizeRatingButtons={true}
-                    customizePlaceholderText={true}
+                    customizeRatingButtons
+                    customizePlaceholderText
                     onAppearanceChange={(appearance) => {
                         setEditableSurveyConfig({
                             ...editableSurveyConfig,
@@ -157,7 +157,6 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                     }}
                     validationErrors={validationErrors}
                 />
-                <div className="flex-1" />
                 <div className="mt-10 mr-5 survey-view">
                     {globalSurveyAppearanceConfigAvailable && (
                         <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />

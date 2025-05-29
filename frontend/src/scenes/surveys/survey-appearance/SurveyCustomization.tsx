@@ -1,43 +1,28 @@
 import { LemonCheckbox, LemonDialog, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { SurveyColorsAppearance, SurveyContainerAppearance } from 'scenes/surveys/survey-form/SurveyAppearanceSections'
-
+import { defaultSurveyAppearance } from 'scenes/surveys/constants'
+import { SurveyAppearanceModal } from 'scenes/surveys/survey-appearance/SurveyAppearanceModal'
 import {
-    AvailableFeature,
-    SurveyAppearance,
-    SurveyAppearance as SurveyAppearanceType,
-    SurveyType,
-    SurveyWidgetType,
-} from '~/types'
+    SurveyColorsAppearance,
+    SurveyContainerAppearance,
+} from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
+import { CustomizationProps } from 'scenes/surveys/survey-appearance/types'
 
-import { surveysLogic } from './surveysLogic'
+import { AvailableFeature, SurveyAppearance, SurveyWidgetType } from '~/types'
 
-interface CustomizationProps {
-    appearance: SurveyAppearanceType
-    customizeRatingButtons: boolean
-    customizePlaceholderText: boolean
-    hasBranchingLogic: boolean
-    deleteBranchingLogic?: () => void
-    onAppearanceChange: (appearance: SurveyAppearanceType) => void
-    validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
-    type?: SurveyType
-}
-
-interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
+import { surveysLogic } from '../surveysLogic'
 
 export function Customization({
-    appearance,
-    customizeRatingButtons,
-    customizePlaceholderText,
+    survey,
+    hasRatingButtons,
+    hasPlaceholderText,
     hasBranchingLogic,
     onAppearanceChange,
     deleteBranchingLogic,
     validationErrors,
-    type,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -54,37 +39,43 @@ export function Customization({
                         <></>
                     </PayGateMini>
                 )}
+                <SurveyAppearanceModal
+                    survey={survey}
+                    onAppearanceChange={onAppearanceChange}
+                    hasPlaceholderText={hasPlaceholderText}
+                    hasRatingButtons={hasRatingButtons}
+                    validationErrors={validationErrors}
+                />
+
                 <SurveyContainerAppearance
-                    appearance={appearance}
+                    appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
                     onAppearanceChange={onAppearanceChange}
                     validationErrors={validationErrors}
-                    surveyType={type}
+                    surveyType={survey.type}
                 />
                 <LemonDivider />
                 <SurveyColorsAppearance
-                    appearance={appearance}
+                    appearance={survey.appearance || defaultSurveyAppearance}
                     onAppearanceChange={onAppearanceChange}
                     validationErrors={validationErrors}
-                    customizeRatingButtons={customizeRatingButtons}
-                    customizePlaceholderText={customizePlaceholderText}
+                    customizeRatingButtons={hasRatingButtons}
+                    customizePlaceholderText={hasPlaceholderText}
                 />
                 <LemonDivider />
-                <div>
-                    <div>
-                        <LemonCheckbox
-                            label={
-                                <div className="flex items-center">
-                                    <span>Hide PostHog branding</span>
-                                </div>
-                            }
-                            onChange={(checked) =>
-                                guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                    onAppearanceChange({ ...appearance, whiteLabel: checked })
-                                )
-                            }
-                            checked={appearance?.whiteLabel}
-                        />
-                    </div>
+                <div className="flex flex-col gap-1">
+                    <LemonCheckbox
+                        label={
+                            <div className="flex items-center">
+                                <span>Hide PostHog branding</span>
+                            </div>
+                        }
+                        onChange={(checked) =>
+                            guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                onAppearanceChange({ ...survey.appearance, whiteLabel: checked })
+                            )
+                        }
+                        checked={survey.appearance?.whiteLabel}
+                    />
                     <div className="flex flex-col gap-2">
                         <LemonCheckbox
                             disabledReason={surveyShufflingQuestionsDisabledReason}
@@ -95,7 +86,7 @@ export function Customization({
                             }
                             onChange={(checked) => {
                                 if (checked && hasBranchingLogic) {
-                                    onAppearanceChange({ ...appearance, shuffleQuestions: false })
+                                    onAppearanceChange({ ...survey.appearance, shuffleQuestions: false })
 
                                     LemonDialog.open({
                                         title: 'Your survey has active branching logic',
@@ -112,7 +103,7 @@ export function Customization({
                                                 if (deleteBranchingLogic) {
                                                     deleteBranchingLogic()
                                                 }
-                                                onAppearanceChange({ ...appearance, shuffleQuestions: true })
+                                                onAppearanceChange({ ...survey.appearance, shuffleQuestions: true })
                                             },
                                         },
                                         secondaryButton: {
@@ -120,50 +111,55 @@ export function Customization({
                                         },
                                     })
                                 } else {
-                                    onAppearanceChange({ ...appearance, shuffleQuestions: checked })
+                                    onAppearanceChange({ ...survey.appearance, shuffleQuestions: checked })
                                 }
                             }}
-                            checked={appearance?.shuffleQuestions}
+                            checked={survey.appearance?.shuffleQuestions}
                         />
                     </div>
-                    <div>
-                        <LemonField.Pure>
-                            <div className="flex flex-row gap-2 items-center font-medium">
-                                <LemonCheckbox
-                                    checked={!!appearance?.surveyPopupDelaySeconds}
-                                    onChange={(checked) => {
-                                        const surveyPopupDelaySeconds = checked ? 5 : undefined
-                                        onAppearanceChange({ ...appearance, surveyPopupDelaySeconds })
-                                    }}
-                                />
-                                Delay survey popup by at least{' '}
-                                <LemonInput
-                                    type="number"
-                                    data-attr="survey-popup-delay-input"
-                                    size="small"
-                                    min={1}
-                                    max={3600}
-                                    value={appearance?.surveyPopupDelaySeconds || NaN}
-                                    onChange={(newValue) => {
-                                        if (newValue && newValue > 0) {
-                                            onAppearanceChange({ ...appearance, surveyPopupDelaySeconds: newValue })
-                                        } else {
-                                            onAppearanceChange({
-                                                ...appearance,
-                                                surveyPopupDelaySeconds: undefined,
-                                            })
-                                        }
-                                    }}
-                                    className="w-12 ignore-error-border"
-                                />{' '}
-                                seconds once the display conditions are met.
-                            </div>
-                        </LemonField.Pure>
-                    </div>
+                    <LemonField.Pure>
+                        <div className="flex flex-row gap-2 items-center font-medium">
+                            <LemonCheckbox
+                                checked={!!survey.appearance?.surveyPopupDelaySeconds}
+                                onChange={(checked) => {
+                                    const surveyPopupDelaySeconds = checked ? 5 : undefined
+                                    onAppearanceChange({ ...survey.appearance, surveyPopupDelaySeconds })
+                                }}
+                            />
+                            Delay survey popup by at least{' '}
+                            <LemonInput
+                                type="number"
+                                data-attr="survey-popup-delay-input"
+                                size="small"
+                                min={1}
+                                max={3600}
+                                value={survey.appearance?.surveyPopupDelaySeconds || NaN}
+                                onChange={(newValue) => {
+                                    if (newValue && newValue > 0) {
+                                        onAppearanceChange({
+                                            ...survey.appearance,
+                                            surveyPopupDelaySeconds: newValue,
+                                        })
+                                    } else {
+                                        onAppearanceChange({
+                                            ...survey.appearance,
+                                            surveyPopupDelaySeconds: undefined,
+                                        })
+                                    }
+                                }}
+                                className="w-12 ignore-error-border"
+                            />{' '}
+                            seconds once the display conditions are met.
+                        </div>
+                    </LemonField.Pure>
                 </div>
             </div>
         </>
     )
+}
+
+type WidgetCustomizationProps = Pick<CustomizationProps, 'onAppearanceChange' | 'validationErrors'> & {
+    appearance: SurveyAppearance
 }
 
 export function WidgetCustomization({

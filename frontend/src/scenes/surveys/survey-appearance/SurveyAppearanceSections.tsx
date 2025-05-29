@@ -5,7 +5,6 @@ import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { defaultSurveyAppearance, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
-import { SurveyOptionsGroup } from 'scenes/surveys/survey-form/SurveyOptionsGroup'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
@@ -45,6 +44,21 @@ const positionDisplayNames: Record<SurveyPosition, string> = {
 }
 
 const IGNORE_ERROR_BORDER_CLASS = 'ignore-error-border'
+
+function SurveyOptionsGroup({
+    children,
+    sectionTitle,
+}: {
+    children: React.ReactNode
+    sectionTitle: string
+}): JSX.Element {
+    return (
+        <div className="grid grid-cols-2 gap-x-2 gap-y-1 items-start">
+            <h3 className="col-span-2 mb-0">{sectionTitle}</h3>
+            {children}
+        </div>
+    )
+}
 
 export function SurveyContainerAppearance({
     appearance,

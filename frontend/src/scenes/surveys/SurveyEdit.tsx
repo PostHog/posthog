@@ -32,8 +32,7 @@ import { formatDate } from 'lib/utils'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { SurveyAppearanceCustomization } from 'scenes/surveys/survey-form/SurveyAppearanceCustomization'
-import { SurveyAppearanceModal } from 'scenes/surveys/survey-form/SurveyAppearanceModal'
+import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
@@ -47,11 +46,12 @@ import {
     RatingSurveyQuestion,
     SurveyMatchType,
     SurveyQuestion,
+    SurveyQuestionType,
     SurveySchedule,
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
+import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -234,7 +234,7 @@ export default function SurveyEdit(): JSX.Element {
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
         deviceTypesMatchTypeValidationError,
-        isAppearanceModalOpen,
+        surveyErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -243,7 +243,6 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
         setFlagPropertyErrors,
         deleteBranchingLogic,
-        setIsAppearanceModalOpen,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
         useValues(surveysLogic)
@@ -642,7 +641,30 @@ export default function SurveyEdit(): JSX.Element {
                                   {
                                       key: SurveyEditSection.Customization,
                                       header: 'Customization',
-                                      content: <SurveyAppearanceCustomization />,
+                                      content: (
+                                          <LemonField name="appearance" label="">
+                                              {({ onChange }) => (
+                                                  <Customization
+                                                      survey={survey}
+                                                      hasBranchingLogic={hasBranchingLogic}
+                                                      deleteBranchingLogic={deleteBranchingLogic}
+                                                      customizeRatingButtons={survey.questions.some(
+                                                          (question) => question.type === SurveyQuestionType.Rating
+                                                      )}
+                                                      customizePlaceholderText={survey.questions.some(
+                                                          (question) => question.type === SurveyQuestionType.Open
+                                                      )}
+                                                      onAppearanceChange={(appearance) => {
+                                                          onChange({
+                                                              ...survey.appearance,
+                                                              ...appearance,
+                                                          })
+                                                      }}
+                                                      validationErrors={surveyErrors?.appearance}
+                                                  />
+                                              )}
+                                          </LemonField>
+                                      ),
                                   },
                               ]
                             : []),
@@ -1084,17 +1106,6 @@ export default function SurveyEdit(): JSX.Element {
                     isEditingSurvey={isEditingSurvey}
                 />
             </div>
-            {isAppearanceModalOpen && (
-                <SurveyAppearanceModal
-                    visible={isAppearanceModalOpen}
-                    onClose={() => setIsAppearanceModalOpen(false)}
-                    appearance={survey.appearance || defaultSurveyAppearance}
-                    surveyType={survey.type}
-                    onAppearanceChange={(appearance) =>
-                        setSurveyValue('appearance', { ...survey.appearance, ...appearance })
-                    }
-                />
-            )}
         </div>
     )
 }
