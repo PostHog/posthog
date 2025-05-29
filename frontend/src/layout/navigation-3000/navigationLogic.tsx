@@ -47,7 +47,6 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
-import { experimentsSidebarLogic } from './sidebars/experiments'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
@@ -354,7 +353,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 s.playlistsLoading,
             ],
             (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
-                const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
+                // const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
+                const isUsingSidebar = true
 
                 return [
                     [
@@ -526,7 +526,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.Experiments,
                             label: 'Experiments',
                             icon: <IconTestTube />,
-                            logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),
                             tooltipDocLink: 'https://posthog.com/docs/experiments/creating-an-experiment',
                         },
