@@ -1,6 +1,6 @@
 [package]
 name = "posthog-cli"
-version = "0.0.5"
+version = "0.0.7"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -62,3 +62,6 @@ unit_bindings = "deny"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[package.metadata.dist]
+npm-package = "cli"
