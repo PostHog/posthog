@@ -92,6 +92,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
         ]
+        extra_kwargs = {
+            "soft_update": {"write_only": True},
+        }
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
