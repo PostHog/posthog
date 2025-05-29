@@ -56,7 +56,7 @@ export function Sparkline({
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        return !isSparkLineTimeSeries(data) ? [{ name: 'Data', color: 'muted', values: data }] : data
+        return !isSparkLineTimeSeries(data) ? [{ name: 'Count', color: 'muted', values: data }] : data
     }, [data])
 
     useEffect(() => {

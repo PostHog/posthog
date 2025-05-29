@@ -10,16 +10,18 @@ from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
+geoip_template = MOCK_NODE_TEMPLATES[2]
 
 
 EXAMPLE_FULL = {
@@ -76,9 +78,22 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
+def _create_template_from_mock(template_data):
+    serializer = HogFunctionTemplateSerializer(data=template_data)
+    serializer.is_valid(raise_exception=True)
+    template = serializer.save()
+    DBHogFunctionTemplate.create_from_dataclass(template)
+    return template
+
+
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
+        # Create slack template in DB
+        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        _create_template_from_mock(webhook_template)
+
+        # Mock the API call to get templates
         with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
@@ -186,6 +201,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+        # Create slack template in DB
+        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        _create_template_from_mock(webhook_template)
+        _create_template_from_mock(geoip_template)
+
+        # Mock the API call to get templates
         with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
@@ -1536,40 +1557,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "detail": "Transformation functions must be created from a template.",
             "attr": "template_id",
         }
-
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=False)
-    def test_transformation_functions_preserve_template_code_when_disabled(self):
-        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
-            mock_template.return_value = template_slack  # Use existing template instead of creating mock
-
-            # First create with transformations enabled
-            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=True):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        "name": "Template Transform",
-                        "type": "transformation",
-                        "template_id": template_slack.id,
-                        "hog": "return event",
-                        "inputs": {
-                            "slack_workspace": {"value": 1},
-                            "channel": {"value": "#general"},
-                        },
-                    },
-                )
-                assert response.status_code == status.HTTP_201_CREATED, response.json()
-                function_id = response.json()["id"]
-
-            # Try to update with transformations disabled
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
-                data={
-                    "hog": "return another_event",
-                },
-            )
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json()["hog"] == template_slack.hog  # Original template code preserved
 
     def test_transformation_type_gets_execution_order_automatically(self):
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:

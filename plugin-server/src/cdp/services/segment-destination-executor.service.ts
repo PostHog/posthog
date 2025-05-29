@@ -8,8 +8,9 @@ import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
-import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -94,14 +95,12 @@ export class SegmentDestinationExecutorService {
         return fetch(...args)
     }
 
-    public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
-        const result: HogFunctionInvocationResult = {
-            invocation,
-            finished: true,
-            capturedPostHogEvents: [],
-            logs: [],
-            metrics: [],
-        }
+    public async execute(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
+            queue: 'segment',
+        })
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -126,7 +125,7 @@ export class SegmentDestinationExecutorService {
             const start = performance.now()
 
             // All segment options are done as inputs
-            const config = invocation.globals.inputs
+            const config = invocation.state.globals.inputs
             addLog('debug', 'config', config)
 
             try {

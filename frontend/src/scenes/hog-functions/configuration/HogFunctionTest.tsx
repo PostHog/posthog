@@ -468,6 +468,20 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                                 <LemonField name="globals">
                                     {({ value, onChange }) => (
                                         <>
+                                            {value.includes('"this_is_an_example_event": true') ? (
+                                                <LemonBanner
+                                                    className="mt-2"
+                                                    type="warning"
+                                                    action={{
+                                                        children: 'Fetch new event',
+                                                        loading: sampleGlobalsLoading,
+                                                        onClick: () => loadSampleGlobals(),
+                                                    }}
+                                                >
+                                                    You are using an example event at the moment. Click this button to
+                                                    fetch an actual event that would match your filters.
+                                                </LemonBanner>
+                                            ) : null}
                                             <div className="deprecated-space-y-2">
                                                 <div>
                                                     {type === 'broadcast'
