@@ -57,7 +57,7 @@ class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
         # avoid manual interpolation of constants, leaving that to the HogQL printer
         query = ast.SelectQuery(
             select=[ast.Field(chain=["id"]), ast.Field(chain=["name"])],
-            select_from=ast.JoinExpr(table=ast.JoinExpr(table=ast.Field(chain=[product_table.name]))),
+            select_from=ast.JoinExpr(table=ast.Field(chain=[product_table.name])),
         )
 
         return [

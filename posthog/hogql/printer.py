@@ -593,9 +593,6 @@ class _Printer(Visitor):
         if node.constraint is not None:
             join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
-        join_strings = [
-            string.printed_sql if isinstance(string, JoinExprResponse) else string for string in join_strings
-        ]
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
