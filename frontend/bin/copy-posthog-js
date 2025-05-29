@@ -19,4 +19,5 @@ cp node_modules/posthog-js/dist/exception-autocapture.js* dist/
 cp node_modules/posthog-js/dist/web-vitals.js* dist/
 cp node_modules/posthog-js/dist/dead-clicks-autocapture.js* dist/
 cp node_modules/posthog-js/dist/customizations.full.js* dist/
+cp node_modules/posthog-js/dist/chat.js* dist/
 

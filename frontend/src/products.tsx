@@ -465,6 +465,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: PRODUCT_VISUAL_ORDER.messaging,
         tags: ['alpha'],
     },
+    { path: 'Chat', type: 'chat_feature', href: urls.chatList() },
     { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
     {
         path: 'Early access features',
