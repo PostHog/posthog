@@ -13,6 +13,7 @@ import {
     formChunk,
     generationFailureChunk,
     humanMessage,
+    longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
@@ -374,7 +375,8 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
             '/api/environments/:team_id/conversations/': () => [200, conversationList],
         },
         post: {
-            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(ctx.delay(100), ctx.text(longResponseChunk)),
         },
     })
 
@@ -395,7 +397,11 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
         }
     }, [messagesSet, askMax])
 
-    return <Template className="h-[800px] overflow-y-auto" />
+    return (
+        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+            <Template />
+        </div>
+    )
 }
 ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
