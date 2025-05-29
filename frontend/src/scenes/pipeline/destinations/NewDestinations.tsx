@@ -1,11 +1,15 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -32,12 +36,22 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
     const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic({ types }))
     const { canEnableDestination } = useValues(pipelineAccessLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
+    const { filters } = useValues(destinationsFiltersLogic({ types }))
     const { user } = useValues(userLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // Filter out coming soon destinations unless search is active and feature flag is enabled
+    const visibleDestinations = filteredDestinations.filter(
+        (destination) =>
+            destination.status !== 'coming_soon' ||
+            ((filters.search?.length ?? 0) > 0 && !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS])
+    )
 
     return (
         <>
             <LemonTable
-                dataSource={filteredDestinations}
+                dataSource={visibleDestinations}
                 size="small"
                 loading={loading}
                 columns={[
@@ -54,6 +68,25 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                             return a.name.localeCompare(b.name)
                         },
                         render: function RenderName(_, target) {
+                            if (target.status === 'coming_soon') {
+                                return (
+                                    <LemonTableLink
+                                        onClick={() =>
+                                            openSidePanel(
+                                                SidePanelTab.Docs,
+                                                `https://posthog.com/docs/cdp/destinations/${target.name.toLowerCase()}`
+                                            )
+                                        }
+                                        title={
+                                            <>
+                                                {target.name}
+                                                {target.status && <DestinationTag status={target.status} />}
+                                            </>
+                                        }
+                                        description={target.description}
+                                    />
+                                )
+                            }
                             return (
                                 <LemonTableLink
                                     to={canEnableDestination(target) ? target.url : undefined}
@@ -72,6 +105,24 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
+                            if (target.status === 'coming_soon') {
+                                return (
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr={`request-${PipelineStage.Destination}`}
+                                        icon={<IconMegaphone />}
+                                        className="whitespace-nowrap"
+                                        onClick={() =>
+                                            openSidePanel(
+                                                SidePanelTab.Docs,
+                                                `https://posthog.com/docs/cdp/destinations/${target.name.toLowerCase()}`
+                                            )
+                                        }
+                                    >
+                                        Notify me
+                                    </LemonButton>
+                                )
+                            }
                             return canEnableDestination(target) ? (
                                 <LemonButton
                                     type="primary"

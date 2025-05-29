@@ -201,7 +201,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `AI chat`,
+            path: `Max AI`,
             type: 'aichat',
             href: urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
