@@ -110,8 +110,7 @@ export const retentionLogic = kea<retentionLogicType>([
                     return {}
                 }
 
-                const { totalIntervals = DEFAULT_RETENTION_TOTAL_INTERVALS, meanRetentionCalculation = 'weighted' } =
-                    retentionFilter
+                const { totalIntervals = DEFAULT_RETENTION_TOTAL_INTERVALS, meanRetentionCalculation } = retentionFilter
                 const groupedByBreakdown: Record<string, ProcessedRetentionPayload[]> = {}
 
                 if (hasValidBreakdown) {
