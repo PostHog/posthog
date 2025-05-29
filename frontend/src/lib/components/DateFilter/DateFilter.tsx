@@ -141,7 +141,7 @@ export function DateFilter({
                 onChange={(date) => {
                     setRangeDateFrom(date)
                     setRangeDateTo(null)
-                    setExplicitDate(!!(granularity === 'minute'))
+                    setExplicitDate(granularity === 'minute')
                     applyRange()
                 }}
                 onClose={open}
