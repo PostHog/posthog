@@ -61,11 +61,7 @@ import {
     isVisualizationMessage,
 } from './utils'
 
-export interface ThreadProps {
-    sidePanel?: boolean
-}
-
-export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
+export function Thread(): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
@@ -91,7 +87,6 @@ export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
                         isFinal={index === threadGrouped.length - 1}
                         streamingActive={streamingActive}
                         totalConversationLength={threadGrouped.length}
-                        sidePanel={sidePanel}
                     />
                 ))
             ) : (
@@ -141,7 +136,6 @@ interface MessageGroupProps {
     index: number
     streamingActive: boolean
     totalConversationLength: number
-    sidePanel?: boolean
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
