@@ -100,7 +100,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'prependOrReplaceConversation as updateGlobalConversationCache',
                 'setActiveStreamingThreads',
                 'setConversationId',
-                'scrollThreadToBottom',
                 'setAutoRun',
             ],
         ],
@@ -359,7 +358,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         completeThreadGeneration: () => {
             // Update the conversation history to include the new conversation
-            actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
+            actions.loadConversationHistory({ doNotUpdateCurrentThread: true, disableAutoScroll: true })
 
             if (!values.conversation) {
                 return
@@ -457,11 +456,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         threadMessageCount: [
             (s) => [s.threadRaw],
             (threadRaw) => threadRaw.filter((message) => !isReasoningMessage(message)).length,
-        ],
-
-        threadHumanMessageCount: [
-            (s) => [s.threadRaw],
-            (threadRaw) => threadRaw.filter((message) => isHumanMessage(message)).length,
         ],
 
         formPending: [

@@ -49,7 +49,7 @@ import { ProductKey } from '~/types'
 
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { getScrollableContainer, maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
@@ -67,28 +67,54 @@ export interface ThreadProps {
 
 export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadHumanMessageCount } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
-    // Remember the last count of human messages. Order matters here.
-    const prevThreadLength = useRef(threadHumanMessageCount)
-    const shouldFocusHumanMessage = threadHumanMessageCount !== prevThreadLength.current && streamingActive
-    if (prevThreadLength.current !== threadHumanMessageCount) {
-        prevThreadLength.current = threadHumanMessageCount
-    }
-    // Scroll synchronously with the render into the last human message
+    const threadRef = useRef<HTMLDivElement | null>(null)
+    const scrollStatus = useRef({ user: false, programmatic: false })
+
     useLayoutEffect(() => {
-        if (shouldFocusHumanMessage) {
-            Array.from(document.querySelectorAll('[data-message-type="human"]')).at(-1)?.scrollIntoView({
-                // Avoiding the delay for Storybook snapshots
-                behavior: 'smooth',
-                block: 'start',
-                inline: 'nearest',
+        if (scrollStatus.current.user || !threadRef.current || !streamingActive) {
+            return
+        }
+
+        const scrollableContainer = getScrollableContainer(threadRef.current)
+        if (
+            scrollableContainer &&
+            scrollableContainer.scrollTop + scrollableContainer.clientHeight < scrollableContainer.scrollHeight
+        ) {
+            scrollStatus.current.programmatic = true
+            scrollableContainer.scrollTo({ top: scrollableContainer.scrollHeight, behavior: 'instant' })
+            requestAnimationFrame(() => {
+                scrollStatus.current.programmatic = false
             })
         }
-    }, [shouldFocusHumanMessage])
+    }, [threadGrouped, streamingActive])
+
+    useLayoutEffect(() => {
+        function scrollListener(): void {
+            if (scrollStatus.current.programmatic) {
+                return
+            }
+            scrollStatus.current.user = true
+        }
+
+        const scrollableContainer = getScrollableContainer(threadRef.current)
+        if (!streamingActive || !scrollableContainer) {
+            return
+        }
+
+        scrollableContainer.addEventListener('scroll', scrollListener)
+        return () => {
+            scrollableContainer.removeEventListener('scroll', scrollListener)
+            scrollStatus.current = { user: false, programmatic: false }
+        }
+    }, [streamingActive])
 
     return (
-        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
+        <div
+            className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3"
+            ref={threadRef}
+        >
             {conversationLoading ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
@@ -162,34 +188,15 @@ interface MessageGroupProps {
     sidePanel?: boolean
 }
 
-function MessageGroup({
-    messages,
-    isFinal: isFinalGroup,
-    totalConversationLength,
-    streamingActive,
-    sidePanel,
-}: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { tools } = useValues(maxGlobalLogic)
 
-    const streamingWasActive = useRef(streamingActive)
-    if (streamingActive) {
-        streamingWasActive.current = true
-    }
-
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
     const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
-    const applyFixedSpacing =
-        groupType === 'ai' && streamingWasActive.current && isFinalGroup && totalConversationLength > 1
 
     return (
-        <MessageGroupContainer
-            groupType={groupType}
-            className={clsx({
-                'min-h-[calc(100dvh_-_11rem)]': sidePanel && applyFixedSpacing,
-                'min-h-[calc(100dvh_-_12.25rem)] lg:min-h-[calc(100dvh_-_11.5rem)]': !sidePanel && applyFixedSpacing,
-            })}
-        >
+        <MessageGroupContainer groupType={groupType}>
             <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
@@ -313,7 +320,6 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
                 className
             )}
             ref={ref}
-            data-message-type={type}
         >
             <div
                 className={twMerge(

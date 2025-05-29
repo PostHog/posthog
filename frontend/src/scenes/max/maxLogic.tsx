@@ -186,7 +186,9 @@ export const maxLogic = kea<maxLogicType>([
                     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used for conversation restoration
                     _?: {
                         /** If true, the current thread will not be updated with the retrieved conversation. */
-                        doNotUpdateCurrentThread: boolean
+                        doNotUpdateCurrentThread?: boolean
+                        /** If true, the current thread will not be scrolled to the bottom. */
+                        disableAutoScroll?: boolean
                     }
                 ) => {
                     const response = await api.conversations.list()
