@@ -16,7 +16,7 @@ import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { DestinationTag } from './DestinationTag'
-import { newDestinationsLogic } from './newDestinationsLogic'
+import { getDestinationDocPath, newDestinationsLogic } from './newDestinationsLogic'
 
 export interface NewDestinationsProps {
     types: HogFunctionTypeType[]
@@ -74,7 +74,9 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                         onClick={() =>
                                             openSidePanel(
                                                 SidePanelTab.Docs,
-                                                `https://posthog.com/docs/cdp/destinations/${target.name.toLowerCase()}`
+                                                `https://posthog.com/docs/cdp/destinations/${getDestinationDocPath(
+                                                    target.url
+                                                )}`
                                             )
                                         }
                                         title={
@@ -115,7 +117,9 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                         onClick={() =>
                                             openSidePanel(
                                                 SidePanelTab.Docs,
-                                                `https://posthog.com/docs/cdp/destinations/${target.name.toLowerCase()}`
+                                                `https://posthog.com/docs/cdp/destinations/${getDestinationDocPath(
+                                                    target.url
+                                                )}`
                                             )
                                         }
                                     >
