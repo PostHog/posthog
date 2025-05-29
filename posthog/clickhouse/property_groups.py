@@ -152,8 +152,10 @@ event_property_group_definitions = {
             column_type_name="group",
         ),
         "ai": PropertyGroupDefinition(
-            f"key LIKE '$ai_%'",
-            lambda key: key.startswith("$ai_"),
+            "key LIKE '$ai_% AND key NOT LIKE '$ai_input' AND key NOT LIKE '$ai_output_choices'",
+            lambda key: key.startswith("$ai_")
+            and not key.startswith("$ai_input")
+            and not key.startswith("$ai_output_choices"),
             column_type_name="group",
             hidden=True,
         ),
