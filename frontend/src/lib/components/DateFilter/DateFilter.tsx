@@ -126,7 +126,7 @@ export function DateFilter({
         if (forceGranularity) {
             setGranularity(forceGranularity)
         }
-    }, [granularity, forceGranularity])
+    }, [forceGranularity])
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
