@@ -17,10 +17,10 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
     response: RevenueAnalyticsInsightsQueryResponse
     cached_response: CachedRevenueAnalyticsInsightsQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | None:
         subqueries = self._get_subqueries()
         if subqueries is None:
-            return ast.SelectQuery.empty()
+            return None
 
         return ast.SelectQuery(
             select=[
@@ -56,7 +56,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         raise ValueError(f"Invalid group by: {self.query.groupBy}")
 
     def _get_subqueries_by_all(self) -> list[ast.SelectQuery] | None:
-        queries = []
+        queries: list[ast.SelectQuery] = []
         for view_name, selects in self.revenue_selects().items():
             if selects["charge"] is None:
                 continue
@@ -84,7 +84,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         return queries
 
     def _get_subqueries_by_product(self) -> list[ast.SelectQuery] | None:
-        queries = []
+        queries: list[ast.SelectQuery] = []
         for view_name, selects in self.revenue_selects().items():
             if selects["charge"] is None:
                 continue

@@ -33,8 +33,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     def revenue_selects(
         self,
-    ) -> dict[str, dict[str, ast.SelectQuery | None]]:
-        selects = defaultdict(lambda: {"charge": None, "customer": None, "invoice_item": None, "product": None})
+    ) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
+        selects: defaultdict[str, dict[str, ast.SelectQuery | None]] = defaultdict(
+            lambda: {"charge": None, "customer": None, "invoice_item": None, "product": None}
+        )
 
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
@@ -73,7 +75,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     def revenue_subqueries(
         self,
-    ) -> tuple[ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None]:
+    ) -> tuple[
+        ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None
+    ]:
         revenue_selects = self.revenue_selects()
 
         # Remove the view name because it's not useful for the select query
@@ -115,7 +119,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
-    def timestamp_where_clause(self, chain: Optional[list[str]] = None) -> ast.Expr:
+    def timestamp_where_clause(self, chain: Optional[list[str | int]] = None) -> ast.Expr:
         if chain is None:
             chain = ["timestamp"]
 
