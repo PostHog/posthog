@@ -76,7 +76,6 @@ impl LogRow {
         let resource_id = extract_resource_id(&resource);
         let resource_attributes = extract_resource_attributes(resource);
 
-        // // Attributes as JSON
         let mut attributes: Vec<(String, String)> = record
             .attributes
             .into_iter()
@@ -96,7 +95,6 @@ impl LogRow {
             None => "".to_string(),
         };
 
-        // Extract event name if present
         let event_name = extract(&attributes, "event.name");
         let service_name = extract(&attributes, "service.name");
 
