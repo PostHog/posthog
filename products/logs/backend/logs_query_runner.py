@@ -93,9 +93,7 @@ class LogsQueryRunner(QueryRunner):
             FROM logs
         """
         )
-
-        if not isinstance(query, ast.SelectQuery):
-            raise Exception("NO!")
+        assert isinstance(query, ast.SelectQuery)
 
         query.where = self.where()
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
