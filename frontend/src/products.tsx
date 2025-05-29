@@ -183,11 +183,15 @@ export const productUrls = {
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     experiment: (
         id: string | number,
+        formMode?: string | null,
         options?: {
             metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
             name?: string
         }
-    ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
+    ): string => {
+        const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
+        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+    },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
