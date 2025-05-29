@@ -141,6 +141,7 @@ export const TECHNOLOGY = {
         'IconFolderOpen',
         'IconFolderPlus',
         'IconFolderMove',
+        'IconRetentionHeatmap',
     ],
     UI: [
         'IconPassword',
