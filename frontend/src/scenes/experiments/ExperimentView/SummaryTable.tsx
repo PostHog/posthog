@@ -33,7 +33,7 @@ import {
     getHighestProbabilityVariant,
 } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
-import { getViewRecordingFilters, getViewRecordingFiltersNew, isLegacyExperimentQuery } from '../utils'
+import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
@@ -372,8 +372,8 @@ export function SummaryTable({
             const variantKey = item.key
 
             const filters = isLegacyExperimentQuery(metric)
-                ? getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
-                : getViewRecordingFiltersNew(experiment, metric, variantKey)
+                ? getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
+                : getViewRecordingFilters(experiment, metric, variantKey)
 
             return (
                 <LemonButton
@@ -397,7 +397,7 @@ export function SummaryTable({
                             date_to: experiment?.end_date,
                             filter_test_accounts:
                                 metric.kind === NodeKind.ExperimentMetric
-                                    ? false
+                                    ? experiment.exposure_criteria?.filterTestAccounts ?? false
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
                                     ? metric.count_query.filterTestAccounts
                                     : metric.funnels_query.filterTestAccounts,

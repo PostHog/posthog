@@ -120,25 +120,74 @@ function seriesToFilter(
 }
 
 /**
- * Gets the Filters to ExperimentMetrics
+ * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
+ * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
+ *
+ * TODO: refactor the *ToFilter functions so we can use bits of them.
  */
-export const getViewRecordingFiltersNew = (
+export function getViewRecordingFilters(
     experiment: Experiment,
     metric: ExperimentMetric,
     variantKey: string
-): UniversalFiltersGroupValue[] => {
+): UniversalFiltersGroupValue[] {
+    const filters: UniversalFiltersGroupValue[] = []
     /**
-     * We need to check the exposure criteria as the first on the filter chain
+     * We need to check the exposure criteria as the first on the filter chain.
+     * exposure criteria can only be events, not actions
      */
+    const exposureCriteria = experiment.exposure_criteria?.exposure_config
+    if (exposureCriteria) {
+        filters.push({
+            id: exposureCriteria.event,
+            name: exposureCriteria.event,
+            type: 'events',
+            properties: exposureCriteria.properties,
+        })
+    } else {
+        filters.push({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: `$feature/${experiment.feature_flag_key}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    }
 
-    // for mean metrics, we only need to add one other filtter, could be an aciton or an event
+    /**
+     * for mean metrics, we add the single action/event to the filters
+     */
+    if (
+        metric.metric_type === ExperimentMetricType.MEAN &&
+        (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
+    ) {
+        const meanFilter = seriesToFilter(metric.source, experiment.feature_flag_key, variantKey)
+        if (meanFilter) {
+            filters.push(meanFilter)
+        }
+    }
 
-    // for funnel metrics, we need to add one item for each of the series
+    /**
+     * for funnel metrics, we need to add each element in the series as a filter
+     */
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        metric.series.forEach((series) => {
+            const funnelMetric = seriesToFilter(series, experiment.feature_flag_key, variantKey)
+            if (funnelMetric) {
+                filters.push(funnelMetric)
+            }
+        })
+    }
 
-    return []
+    return filters
 }
 
-export function getViewRecordingFilters(
+export function getViewRecordingFiltersLegacy(
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
