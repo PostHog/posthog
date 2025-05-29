@@ -436,7 +436,6 @@ export const surveyLogic = kea<surveyLogicType>([
         values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data']],
     })),
     actions({
-        setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
@@ -1175,12 +1174,6 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
     reducers({
-        isAppearanceModalOpen: [
-            false,
-            {
-                setIsAppearanceModalOpen: (_, { isOpen }) => isOpen,
-            },
-        ],
         filterSurveyStatsByDistinctId: [
             true,
             { persist: true },
