@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_select, parse_expr, parse_order_expr
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -38,7 +38,7 @@ class LogsQueryRunner(QueryRunner):
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange, properties=self.properties),
+            filters=HogQLFilters(dateRange=self.query.dateRange),
             # needed for CH cloud
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
@@ -122,6 +122,9 @@ class LogsQueryRunner(QueryRunner):
                     placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
                 )
             )
+
+        if self.query.filterGroup:
+            exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
 
         return ast.And(exprs=exprs)
 
