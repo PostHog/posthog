@@ -15,7 +15,7 @@ import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/Lemo
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { DateMappingOption, PropertyOperator } from '~/types'
 
@@ -49,6 +49,12 @@ interface RawDateFilterProps extends DateFilterProps {
     max?: number | null
     allowedRollingDateOptions?: DateOption[]
     allowTimePrecision?: boolean
+    /**
+     * Granularity is picked based on the dateFrom value
+     * but can be overridden to force a specific granularity.
+     * For example, set to 'day' to never show the time picker.
+     */
+    forceGranularity?: LemonCalendarSelectProps['granularity']
 }
 
 export function DateFilter({
@@ -71,6 +77,7 @@ export function DateFilter({
     allowTimePrecision = false,
     placeholder,
     fullWidth = false,
+    forceGranularity,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -112,8 +119,14 @@ export function DateFilter({
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
-        dateFromHasTimePrecision ? 'minute' : 'day'
+        forceGranularity ?? dateFromHasTimePrecision ? 'minute' : 'day'
     )
+    // sometimes this renders before forceGranularity is set, so we need to ensure it is applied
+    useEffect(() => {
+        if (forceGranularity) {
+            setGranularity(forceGranularity)
+        }
+    }, [granularity, forceGranularity])
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -138,9 +151,11 @@ export function DateFilter({
                     applyRange()
                 }}
                 onClose={open}
-                granularity={granularity}
+                granularity={forceGranularity ?? granularity}
                 showTimeToggle={allowTimePrecision}
-                onToggleTime={() => setGranularity(granularity === 'minute' ? 'day' : 'minute')}
+                onToggleTime={
+                    forceGranularity ? undefined : () => setGranularity(granularity === 'minute' ? 'day' : 'minute')
+                }
             />
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker
