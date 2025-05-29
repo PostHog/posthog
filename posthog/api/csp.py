@@ -142,11 +142,10 @@ def process_csp_report(request):
         # If by any chance we got this far and this is not looking like a CSP report, keep the ingestion pipeline working as it was
         # we don't want to return an error here to avoid breaking the ingestion pipeline
         if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
-            logger.exception(
+            logger.warning(
                 "CSP report skipped - invalid content type",
                 content_type=request.content_type,
                 expected_types=["application/csp-report", "application/reports+json"],
-                error=ValueError("CSP report skipped - invalid content type"),
             )
             return None, None
 
@@ -167,11 +166,10 @@ def process_csp_report(request):
             properties = parse_report_uri(csp_data)
 
             if not sample_csp_report(properties, sample_rate, add_metadata=True):
-                logger.exception(
+                logger.warning(
                     "CSP report sampled out - report-uri format",
                     document_url=properties.get("document_url"),
                     sample_rate=sample_rate,
-                    error=ValueError("CSP report sampled out - report-uri format"),
                 )
                 return None, None
 
@@ -197,11 +195,10 @@ def process_csp_report(request):
                     sampled_violations.append(prop)
 
             if not sampled_violations:
-                logger.exception(
+                logger.warning(
                     "CSP report sampled out - report-to format",
                     total_violations=len(violations_props),
                     sample_rate=sample_rate,
-                    error=ValueError("CSP report sampled out - report-to format"),
                 )
                 return None, None
 

@@ -476,7 +476,7 @@ class TestCSPModule(TestCase):
 
         assert result is None
         assert error is None
-        mock_logger.exception.assert_called_once_with(
+        mock_logger.warning.assert_called_once_with(
             "CSP report skipped - invalid content type",
             content_type="application/json",
             expected_types=["application/csp-report", "application/reports+json"],
@@ -502,7 +502,7 @@ class TestCSPModule(TestCase):
 
         assert result is None
         assert error is None
-        mock_logger.exception.assert_called_with(
+        mock_logger.warning.assert_called_with(
             "CSP report sampled out - report-uri format",
             document_url="https://example.com/foo/bar",
             sample_rate=0.0,
@@ -531,7 +531,7 @@ class TestCSPModule(TestCase):
 
         assert result is None
         assert error is None
-        mock_logger.exception.assert_called_with(
+        mock_logger.warning.assert_called_with(
             "CSP report sampled out - report-to format",
             total_violations=1,
             sample_rate=0.0,
