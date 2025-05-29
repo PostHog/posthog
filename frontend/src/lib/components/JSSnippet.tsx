@@ -50,6 +50,10 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
             comment: "neccessary because you're using a proxy, this way links will point back to PostHog properly",
             enabled: !!proxyRecord,
         },
+        defaults: {
+            content: '2025-05-24',
+            enabled: true,
+        },
         person_profiles: {
             content: 'identified_only',
             comment: "or 'always' to create profiles for anonymous users as well",
