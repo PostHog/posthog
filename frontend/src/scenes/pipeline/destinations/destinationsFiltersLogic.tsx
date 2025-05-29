@@ -1,7 +1,6 @@
 import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
@@ -53,14 +52,11 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
         types: [props.types, {}],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values }) => ({
         setFilters: async ({ filters }, breakpoint) => {
             if (filters.search && filters.search.length > 2) {
                 await breakpoint(1000)
                 posthog.capture('cdp destination search', { search: filters.search })
-                actions.setFilters({
-                    showComingSoon: !!values.featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS],
-                })
             }
         },
 

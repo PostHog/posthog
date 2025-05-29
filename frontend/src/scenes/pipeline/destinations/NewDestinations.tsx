@@ -3,7 +3,9 @@ import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -37,10 +39,13 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
     const { filters } = useValues(destinationsFiltersLogic({ types }))
     const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    // Filter out coming soon destinations unless showComingSoon is true
+    // Filter out coming soon destinations unless search is active and feature flag is enabled
     const visibleDestinations = filteredDestinations.filter(
-        (destination) => destination.status !== 'coming_soon' || filters.showComingSoon
+        (destination) =>
+            destination.status !== 'coming_soon' ||
+            ((filters.search?.length ?? 0) > 0 && !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS])
     )
 
     return (
