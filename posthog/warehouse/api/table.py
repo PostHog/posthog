@@ -303,9 +303,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate table name format
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name) or not re.match(
-            r"^[a-zA-Z_][a-zA-Z0-9_]*$", file.name
-        ):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
@@ -389,5 +387,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Object storage must be available to upload files."},
                 )
-        except Exception:
+        except Exception as e:
+            capture_exception(e)
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})

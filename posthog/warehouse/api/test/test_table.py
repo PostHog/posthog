@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, ANY
 
 from clickhouse_driver.errors import ServerException
 
@@ -356,3 +356,140 @@ class TestTable(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json()["name"] == "test_table2"
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_creates_new_table(self, mock_boto3_client, mock_feature_enabled):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
+        test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
+
+        with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+                "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+                "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+
+            with self.settings(
+                AIRBYTE_BUCKET_KEY="test_key",
+                AIRBYTE_BUCKET_SECRET="test_secret",
+                AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "name": "test_csv_table", "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        assert response.status_code == 201
+        assert response.json()["name"] == "test_csv_table"
+        assert response.json()["format"] == "CSVWithNames"
+
+        # Verify the table was created
+        table = DataWarehouseTable.objects.get(name="test_csv_table")
+        assert table is not None
+
+        # Verify S3 client was called to upload the file
+        mock_s3.upload_fileobj.assert_called_once_with(
+            ANY, "test-warehouse-bucket", f"dlt/managed/team_{self.team.id}/test_file.csv"
+        )
+
+        # Verify URL pattern was set correctly
+        assert (
+            table.url_pattern == f"https://test-bucket.s3.amazonaws.com/dlt/managed/team_{self.team.id}/test_file.csv"
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_file_upload_api_disabled(self, mock_feature_enabled):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
+        test_file = SimpleUploadedFile("test_file", file_content, content_type="text/csv")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/file/",
+            {"file": test_file, "name": "test_csv_table", "format": "CSVWithNames"},
+            format="multipart",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == "Warehouse API is not enabled for this organization"
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.warehouse.api.table.get_s3_client")
+    def test_file_upload_invalid_table_name(self, mock_get_s3_client, mock_feature_enabled):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
+        test_file = SimpleUploadedFile("test-file.csv", file_content, content_type="text/csv")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/file/",
+            {"file": test_file, "name": "test-table", "format": "CSVWithNames"},
+            format="multipart",
+        )
+
+        assert response.status_code == 400
+        assert "Table names must start with a letter or underscore" in response.json()["message"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_updates_existing_table(self, mock_boto3_client, mock_feature_enabled):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
+        # Create an existing table
+        existing_table = DataWarehouseTable.objects.create(
+            name="existing_table", format="CSVWithNames", team=self.team, team_id=self.team.pk, columns={}
+        )
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        file_content = b"id,new_name,value\n1,Test,100\n2,Test2,200"
+        test_file = SimpleUploadedFile("updated_file.csv", file_content, content_type="text/csv")
+
+        with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+                "new_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+                "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            }
+
+            with self.settings(
+                AIRBYTE_BUCKET_KEY="test_key",
+                AIRBYTE_BUCKET_SECRET="test_secret",
+                AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
+            ):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        assert response.status_code == 201
+
+        # Verify the table was updated
+        existing_table.refresh_from_db()
+        assert (
+            existing_table.url_pattern
+            == f"https://test-bucket.s3.amazonaws.com/dlt/managed/team_{self.team.id}/updated_file.csv"
+        )
+
+        # columns will be false as validation doesn't work for mocked fields
+        assert existing_table.columns == {
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "new_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+        }
+
+        # Verify S3 client was called to upload the file
+        mock_s3.upload_fileobj.assert_called_once_with(
+            ANY, "test-warehouse-bucket", f"dlt/managed/team_{self.team.id}/updated_file.csv"
+        )
