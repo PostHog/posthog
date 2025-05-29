@@ -303,6 +303,36 @@ describe('getViewRecordingFilters', () => {
         })
     })
 
+    it('falls back to default exposure event if exposure_criteria exists but exposure_config is undefined', () => {
+        const experiment = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: undefined,
+            },
+        } satisfies Experiment
+
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'event1', name: 'event1' },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[0]).toEqual({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    })
+
     it('adds mean metric event filter', () => {
         const experiment = { ...experimentBase }
         const metric = {
