@@ -1,24 +1,7 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
+exports[`EventPipelineRunner runEventPipeline() runs steps starting from cookielessServerHashStep 1`] = `
 [
-  [
-    "populateTeamDataStep",
-    [
-      {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00.000Z",
-        "properties": {},
-        "site_url": "http://localhost",
-        "team_id": null,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-        "token": "token1",
-        "uuid": "uuid1",
-      },
-    ],
-  ],
   [
     "cookielessServerHashStep",
     [
@@ -80,11 +63,48 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "uuid": "uuid1",
       },
       {
+        "anonymize_ips": true,
+        "api_token": "token1",
+        "available_features": [],
+        "cookieless_server_hash_mode": null,
+        "heatmaps_opt_in": null,
         "id": 2,
+        "ingested_event": true,
+        "name": "2",
+        "organization_id": "2",
+        "person_display_name_properties": null,
         "person_processing_opt_out": false,
+        "project_id": 2,
+        "session_recording_opt_in": true,
+        "slack_incoming_webhook": "slack_incoming_webhook",
+        "test_account_filters": null,
+        "timezone": "UTC",
+        "uuid": "<REPLACED-UUID-0>",
       },
       "2020-02-23T02:15:00.000Z",
       true,
+      {
+        "cacheMetrics": {
+          "checkCacheHits": 0,
+          "checkCacheMisses": 0,
+          "updateCacheHits": 0,
+          "updateCacheMisses": 0,
+        },
+        "databaseOperationCounts": {},
+        "db": {
+          "kafkaProducer": {},
+        },
+        "distinctId": "my_id",
+        "methodCounts": {},
+        "options": {
+          "personCacheEnabledForChecks": true,
+          "personCacheEnabledForUpdates": true,
+        },
+        "personCache": {},
+        "personCheckCache": {},
+        "token": "token1",
+        "updateLatencyPerDistinctIdSeconds": {},
+      },
     ],
   ],
   [

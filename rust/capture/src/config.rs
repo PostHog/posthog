@@ -2,6 +2,7 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
 use health::HealthStrategy;
+use tracing::Level;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CaptureMode {
@@ -35,6 +36,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
+    #[envconfig(default = "false")]
+    pub overflow_preserve_partition_locality: bool,
+
     #[envconfig(default = "100")]
     pub overflow_per_second_limit: NonZeroU32,
 
@@ -42,7 +46,16 @@ pub struct Config {
     pub overflow_burst_limit: NonZeroU32,
 
     pub ingestion_force_overflow_by_token_distinct_id: Option<String>, // Comma-delimited keys
+
     pub drop_events_by_token_distinct_id: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+
+    #[envconfig(default = "false")]
+    pub enable_historical_rerouting: bool,
+
+    #[envconfig(default = "1")]
+    pub historical_rerouting_threshold_days: i64,
+
+    pub historical_tokens_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -73,6 +86,12 @@ pub struct Config {
 
     #[envconfig(default = "ALL")]
     pub healthcheck_strategy: HealthStrategy,
+
+    #[envconfig(default = "false")]
+    pub is_mirror_deploy: bool,
+
+    #[envconfig(default = "info")]
+    pub log_level: Level,
 }
 
 #[derive(Envconfig, Clone)]

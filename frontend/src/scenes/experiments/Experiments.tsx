@@ -1,4 +1,4 @@
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -16,6 +16,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -33,9 +35,18 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
-        useValues(experimentsLogic)
-    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
+    const {
+        currentProjectId,
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        searchStatus,
+        userFilter,
+        showLegacyBadge,
+    } = useValues(experimentsLogic)
+    const { loadExperiments, setExperimentsTab, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -64,7 +75,21 @@ export function Experiments(): JSX.Element {
                 return (
                     <LemonTableLink
                         to={experiment.id ? urls.experiment(experiment.id) : undefined}
-                        title={stringWithWBR(experiment.name, 17)}
+                        title={
+                            <>
+                                {stringWithWBR(experiment.name, 17)}
+                                {showLegacyBadge && isLegacyExperiment(experiment) && (
+                                    <Tooltip
+                                        title="This experiment uses the legacy engine, so some features and improvements may be missing."
+                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
+                                    >
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
+                        }
                         description={experiment.description}
                     />
                 )
@@ -157,14 +182,22 @@ export function Experiments(): JSX.Element {
                                             title: 'Delete this experiment?',
                                             content: (
                                                 <div className="text-sm text-secondary">
-                                                    This action cannot be undone. All experiment data will be
-                                                    permanently removed.
+                                                    Experiment with its settings will be deleted, but event data will be
+                                                    preserved.
                                                 </div>
                                             ),
                                             primaryButton: {
                                                 children: 'Delete',
                                                 type: 'primary',
-                                                onClick: () => deleteExperiment(experiment.id as number),
+                                                onClick: () => {
+                                                    void deleteWithUndo({
+                                                        endpoint: `projects/${currentProjectId}/experiments`,
+                                                        object: { name: experiment.name, id: experiment.id },
+                                                        callback: () => {
+                                                            loadExperiments()
+                                                        },
+                                                    })
+                                                },
                                                 size: 'small',
                                             },
                                             secondaryButton: {

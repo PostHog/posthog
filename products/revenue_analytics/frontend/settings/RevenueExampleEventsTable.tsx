@@ -4,21 +4,26 @@ import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,
     columns: {
-        original_currency: {
-            render: ({ value }) => {
-                return <Currency currency={value as CurrencyCode} />
+        original_amount: {
+            title: 'Ingested amount',
+        },
+        currency_aware_amount: {
+            title: 'Parsed amount',
+            render: ({ value, record }) => {
+                const adjustedCurrency = (record as any[])[4]
+                return <Revenue value={value as number} currency={adjustedCurrency ?? CurrencyCode.USD} />
             },
         },
-        original_revenue: {
-            render: ({ value, record }) => {
-                const originalCurrency = (record as any[])[3]
-                return <Revenue value={value as number} currency={originalCurrency ?? CurrencyCode.USD} />
+        original_currency: {
+            title: 'Ingested currency',
+            render: ({ value }) => {
+                return <Currency currency={value as CurrencyCode} />
             },
         },
         currency: {
@@ -26,9 +31,9 @@ const queryContext: QueryContext = {
                 return <Currency currency={value as CurrencyCode} />
             },
         },
-        revenue: {
+        amount: {
             render: ({ value, record }) => {
-                const convertedCurrency = (record as any[])[5]
+                const convertedCurrency = (record as any[])[6]
                 return <Revenue value={value as number} currency={convertedCurrency ?? CurrencyCode.USD} />
             },
         },
@@ -36,7 +41,7 @@ const queryContext: QueryContext = {
 }
 
 export function RevenueExampleEventsTable(): JSX.Element | null {
-    const { exampleEventsQuery } = useValues(revenueEventsSettingsLogic)
+    const { exampleEventsQuery } = useValues(revenueAnalyticsSettingsLogic)
 
     if (!exampleEventsQuery) {
         return null

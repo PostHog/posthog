@@ -13,7 +13,7 @@ import React, { useRef, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
-    function _LemonTextAreaMarkdown({ value, onChange, ...editAreaProps }, ref): JSX.Element {
+    function _LemonTextAreaMarkdown({ value, onChange, className, ...editAreaProps }, ref): JSX.Element {
         const { objectStorageAvailable } = useValues(preflightLogic)
 
         const [isPreviewShown, setIsPreviewShown] = useState(false)
@@ -34,6 +34,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
             <LemonTabs
                 activeKey={isPreviewShown ? 'preview' : 'write'}
                 onChange={(key) => setIsPreviewShown(key === 'preview')}
+                className={className}
                 tabs={[
                     {
                         key: 'write',

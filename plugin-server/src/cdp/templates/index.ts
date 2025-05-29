@@ -1,9 +1,12 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
+import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
+import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
+import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
@@ -25,18 +28,25 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlMaskingTemplate,
     piiHashingTemplate,
     botDetectionTemplate,
+    dropEventsTemplate,
+    filterPropertiesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
-    (plugin) => plugin.template
+    (x) => x.template
+)
+
+export const HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS: HogFunctionTemplate[] = SEGMENT_DESTINATIONS.map(
+    (x) => x.template
 )
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTemplate[] = TRANSFORMATION_PLUGINS.map(
-    (plugin) => plugin.template
+    (x) => x.template
 )
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
+    ...HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS,
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,

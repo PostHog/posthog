@@ -4,6 +4,7 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Slide, ToastContainer } from 'react-toastify'
 import { appScenes } from 'scenes/appScenes'
@@ -70,6 +71,7 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
+    useMountedLogic(eventIngestionRestrictionLogic)
     useThemedHtml()
 
     if (showApp) {
@@ -133,7 +135,7 @@ function AppScene(): JSX.Element | null {
     }
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={activeScene} tags={{ feature: activeScene }}>
+        <ErrorBoundary key={activeScene} exceptionProps={{ feature: activeScene }}>
             {activeLoadedScene?.logic ? (
                 <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
                     {sceneElement}

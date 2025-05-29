@@ -1,14 +1,14 @@
 use crate::{
-    client::database::{get_pool, Client, CustomDatabaseError},
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
-        FeatureFlag, FeatureFlagRow, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX,
+        FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use anyhow::Error;
 use axum::async_trait;
+use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
@@ -525,7 +525,7 @@ pub fn create_test_flag(
         name: name.or(Some("Test Flag".to_string())),
         key: key.unwrap_or_else(|| "test_flag".to_string()),
         filters: filters.unwrap_or_else(|| FlagFilters {
-            groups: vec![FlagGroupType {
+            groups: vec![FlagPropertyGroup {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,

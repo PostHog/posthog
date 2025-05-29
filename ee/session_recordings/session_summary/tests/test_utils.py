@@ -2,7 +2,12 @@ from datetime import datetime, UTC
 
 import pytest
 
-from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime, shorten_url
+from ee.session_recordings.session_summary.utils import (
+    get_column_index,
+    prepare_datetime,
+    serialize_to_sse_event,
+    shorten_url,
+)
 
 
 def test_get_column_index_success() -> None:
@@ -71,3 +76,25 @@ def test_shorten_url(url: str, expected: str) -> None:
     shortened_url = shorten_url(url, max_length)
     assert shortened_url == expected
     assert len(shortened_url) <= max_length
+
+
+@pytest.mark.parametrize(
+    "event_label,event_data,expected",
+    [
+        # Basic case with simple string data
+        ("test-event", "hello world", "event: test-event\ndata: hello world\n\n"),
+        # JSON object data
+        ("json-event", '{"key": "value"}', 'event: json-event\ndata: {"key": "value"}\n\n'),
+        # JSON array data
+        ("array-event", "[1,2,3]", "event: array-event\ndata: [1,2,3]\n\n"),
+        # Event label with newlines
+        ("test\nevent", "data", "event: test\\nevent\ndata: data\n\n"),
+        # Non-JSON data with newlines
+        ("test-event", "hello\nworld", "event: test-event\ndata: hello\\nworld\n\n"),
+        # Empty data
+        ("empty-event", "", "event: empty-event\ndata: \n\n"),
+    ],
+)
+def test_serialize_to_sse_event(event_label: str, event_data: str, expected: str) -> None:
+    result = serialize_to_sse_event(event_label, event_data)
+    assert result == expected

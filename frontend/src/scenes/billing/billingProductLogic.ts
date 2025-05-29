@@ -2,11 +2,19 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
+import {
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    BillingType,
+    SurveyEventName,
+} from '~/types'
 
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -103,12 +111,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
         }),
         activateTrial: true,
         cancelTrial: true,
-        setTrialModalOpen: (isOpen: boolean) => ({ isOpen }),
         setTrialLoading: (loading: boolean) => ({ loading }),
         setUnsubscribeModalStep: (step: number) => ({ step }),
         resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
+        removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
     }),
     reducers({
         billingLimitInput: [
@@ -186,12 +194,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
             },
         ],
-        trialModalOpen: [
-            false,
-            {
-                setTrialModalOpen: (_, { isOpen }) => isOpen,
-            },
-        ],
         trialLoading: [
             false,
             {
@@ -213,6 +215,32 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     }),
     selectors(({ values }) => ({
+        isSubscribedToAnotherAddon: [
+            (s, p) => [s.billing, p.product],
+            (billing: BillingType, addon: BillingProductV2AddonType) => {
+                const subscribed = addon.subscribed
+                if (subscribed) {
+                    // They are subscribed to this addon so can't be subscribed to another one
+                    return false
+                }
+
+                const parentProduct = billing?.products.find((product: any) =>
+                    product.addons.find((a: BillingProductV2AddonType) => a.type === addon.type)
+                )
+                if (!parentProduct) {
+                    return false
+                }
+
+                if (parentProduct?.type !== 'platform_and_support') {
+                    // Only platform and support can have multiple add-ons
+                    return false
+                }
+
+                // Check if they are subscribed to another add-on that is not a legacy add-on
+                // This is because if they are on a legacy add-on, we want them to be able to move to a new add-on.
+                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed && !a.legacy_product)
+            },
+        ],
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
@@ -221,6 +249,34 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return customLimit
                 }
                 return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
+            },
+        ],
+        visibleAddons: [
+            (s, p) => [s.featureFlags, p.product],
+            (featureFlags: Record<string, any>, product: BillingProductV2Type) => {
+                if (!product.addons?.length) {
+                    return []
+                }
+
+                return product.addons.filter((addon: BillingProductV2AddonType) => {
+                    // Filter out inclusion-only addons if personless events are not supported
+                    if (addon.inclusion_only && featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
+                        return false
+                    }
+
+                    // Filter out legacy addons for platform_and_support if not subscribed
+                    if (product.type === 'platform_and_support' && addon.legacy_product && !addon.subscribed) {
+                        return false
+                    }
+
+                    // Filter out addons that are hidden by feature flag
+                    const hideAddonFlag = `billing_hide_addon_${addon.type}`
+                    if (featureFlags[hideAddonFlag]) {
+                        return false
+                    }
+
+                    return true
+                })
             },
         ],
         hasCustomLimitSet: [
@@ -257,6 +313,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_, p) => [p.product],
             (product) => {
                 return product.usage_limit || 0
+            },
+        ],
+        billingLimitNextPeriod: [
+            (s, p) => [s.billing, p.product],
+            (billing, product) => {
+                const nextPeriodLimit = billing?.next_period_custom_limits_usd?.[product.type]
+                if (nextPeriodLimit === 0 || nextPeriodLimit) {
+                    return nextPeriodLimit
+                }
+                return product.usage_key ? billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null : null
             },
         ],
         billingGaugeItems: [
@@ -329,7 +395,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             )
         },
         reportSurveyShown: ({ surveyID }) => {
-            posthog.capture('survey shown', {
+            posthog.capture(SurveyEventName.SHOWN, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID(surveyID)
@@ -340,14 +406,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             // $survey_response_1: this is the product type
             // $survey_response_2: list of reasons
             // The order is due to the form being built before reasons we're supported. Please do not change the order.
-            posthog.capture('survey sent', {
+            posthog.capture(SurveyEventName.SENT, {
                 $survey_id: surveyID,
                 ...surveyResponse,
             })
             actions.setSurveyID('')
         },
         reportSurveyDismissed: ({ surveyID }) => {
-            posthog.capture('survey dismissed', {
+            posthog.capture(SurveyEventName.DISMISSED, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
@@ -390,13 +456,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     target: props.product.type,
                 })
                 lemonToast.success('Your trial has been activated!')
-            } catch (e) {
-                lemonToast.error('There was an error activating your trial. Please try again or contact support.')
-            } finally {
                 await breakpoint(400)
                 window.location.reload()
+            } catch (e) {
+                lemonToast.error('There was an error activating your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
-                actions.setTrialModalOpen(false)
+                actions.loadBilling()
             }
         },
         cancelTrial: async () => {
@@ -404,19 +469,30 @@ export const billingProductLogic = kea<billingProductLogicType>([
             try {
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
-            } catch (e) {
-                console.error(e)
-                lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
-            } finally {
-                actions.loadBilling()
                 window.location.reload()
+            } catch (e) {
+                lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
+                actions.loadBilling()
             }
         },
         triggerMoreHedgehogs: async (_, breakpoint) => {
             for (let i = 0; i < 5; i++) {
                 props.hogfettiTrigger?.()
                 await breakpoint(200)
+            }
+        },
+        removeBillingLimitNextPeriod: async ({ productType }) => {
+            try {
+                await api.update('api/billing', { reset_limit_next_period: productType })
+                lemonToast.success('Billing limit for next period has been removed.')
+            } catch (e) {
+                console.error(e)
+                lemonToast.error(
+                    'There was an error removing your billing limit for next period. Please try again or contact support.'
+                )
+            } finally {
+                actions.loadBilling()
             }
         },
     })),
@@ -448,19 +524,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
                     LemonDialog.open({
+                        maxWidth: '600px',
                         title: 'Billing limit warning',
                         description:
-                            'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
+                            "The billing limit you set is below your current usage. If you proceed, your current period's limit will be set to your current usage (to prevent additional charges), and the new lower limit will go into effect in your next billing period. Are you sure you want to proceed?",
                         primaryButton: {
                             status: 'danger',
-                            children: 'I understand',
+                            children: 'Yes, I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
                                     [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
-                            children: 'I changed my mind',
+                            children: 'No, I changed my mind',
                         },
                     })
                     return
@@ -468,18 +545,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.projected_usage && newAmountAsUsage < props.product.projected_usage) {
                     LemonDialog.open({
+                        maxWidth: '600px',
                         title: 'Billing limit warning',
                         description:
-                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled.',
+                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled and data being dropped. Are you sure you want to proceed?',
                         primaryButton: {
-                            children: 'I understand',
+                            status: 'danger',
+                            children: 'Yes, I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
                                     [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
-                            children: 'I changed my mind',
+                            children: 'No, I changed my mind',
                         },
                     })
                     return

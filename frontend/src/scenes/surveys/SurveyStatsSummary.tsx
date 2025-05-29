@@ -1,10 +1,11 @@
 import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 
-import { SurveyStats } from '~/types'
+import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
@@ -34,11 +35,10 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
     )
 }
 
-function UsersCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element {
-    const { stats, rates } = surveyStats
-    const uniqueUsersShown = stats['survey shown'].unique_persons
-    const uniqueUsersSent = stats['survey sent'].unique_persons
-
+function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
+    const uniqueUsersShown = stats[SurveyEventName.SHOWN].unique_persons
+    const uniqueUsersSent = stats[SurveyEventName.SENT].unique_persons
+    const { answerFilterHogQLExpression } = useValues(surveyLogic)
     return (
         <div className="flex flex-wrap gap-4 mb-4">
             <StatCard
@@ -49,7 +49,9 @@ function UsersCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element 
             <StatCard
                 title="Responses"
                 value={humanFriendlyNumber(uniqueUsersSent)}
-                description={`Sent by unique ${pluralize(uniqueUsersSent, 'user', 'users', false)}`}
+                description={`Sent by unique ${pluralize(uniqueUsersSent, 'user', 'users', false)}${
+                    answerFilterHogQLExpression ? ` with the applied answer filters` : ''
+                }`}
             />
             <StatCard
                 title="Conversion rate by unique users"
@@ -62,10 +64,10 @@ function UsersCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element 
     )
 }
 
-function ResponsesCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element {
-    const { stats, rates } = surveyStats
-    const impressions = stats['survey shown'].total_count
-    const sent = stats['survey sent'].total_count
+function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
+    const impressions = stats[SurveyEventName.SHOWN].total_count
+    const sent = stats[SurveyEventName.SENT].total_count
+    const { answerFilterHogQLExpression } = useValues(surveyLogic)
 
     return (
         <div className="flex flex-wrap gap-4 mb-4">
@@ -74,7 +76,13 @@ function ResponsesCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Elem
                 value={humanFriendlyNumber(impressions)}
                 description="How many times the survey was shown"
             />
-            <StatCard title="Responses" value={humanFriendlyNumber(sent)} description="Sent by all users" />
+            <StatCard
+                title="Responses"
+                value={humanFriendlyNumber(sent)}
+                description={`Sent by all users${
+                    answerFilterHogQLExpression ? ` with the applied answer filters` : ''
+                }`}
+            />
             <StatCard
                 title="Conversion rate by impressions"
                 value={`${humanFriendlyNumber(rates.response_rate)}%`}
@@ -106,22 +114,24 @@ function getTooltip(count: number, total: number, isFilteredByDistinctId: boolea
 }
 
 function SurveyStatsStackedBar({
-    surveyStats,
+    stats,
     filterByDistinctId,
 }: {
-    surveyStats: SurveyStats
+    stats: SurveyStats
     filterByDistinctId: boolean
 }): JSX.Element {
-    const { stats } = surveyStats
-
-    const total = !filterByDistinctId ? stats['survey shown'].total_count : stats['survey shown'].unique_persons
+    const total = !filterByDistinctId
+        ? stats[SurveyEventName.SHOWN].total_count
+        : stats[SurveyEventName.SHOWN].unique_persons
     const onlySeen = !filterByDistinctId
-        ? stats['survey shown'].total_count_only_seen
-        : stats['survey shown'].unique_persons_only_seen
+        ? stats[SurveyEventName.SHOWN].total_count_only_seen
+        : stats[SurveyEventName.SHOWN].unique_persons_only_seen
     const dismissed = !filterByDistinctId
-        ? stats['survey dismissed'].total_count
-        : stats['survey dismissed'].unique_persons
-    const sent = !filterByDistinctId ? stats['survey sent'].total_count : stats['survey sent'].unique_persons
+        ? stats[SurveyEventName.DISMISSED].total_count
+        : stats[SurveyEventName.DISMISSED].unique_persons
+    const sent = !filterByDistinctId
+        ? stats[SurveyEventName.SENT].total_count
+        : stats[SurveyEventName.SENT].unique_persons
 
     const segments: StackedBarSegment[] = [
         {
@@ -148,24 +158,47 @@ function SurveyStatsStackedBar({
 }
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
-    const { filterSurveyStatsByDistinctId } = useValues(surveyLogic)
+    const { filterSurveyStatsByDistinctId, processedSurveyStats, survey } = useValues(surveyLogic)
     const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
 
     return (
-        <div>
+        <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 justify-between">
-                <h3>Survey performance</h3>
-                <div className="flex items-center gap-2">
-                    <LemonLabel>
-                        Count each person once
-                        <LemonSwitch
-                            checked={filterSurveyStatsByDistinctId}
-                            onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
-                            tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
-                        />
-                    </LemonLabel>
-                </div>
+                <h3 className="mb-0">Survey performance</h3>
+                {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
+                    <div className="flex items-center gap-2">
+                        <LemonLabel>
+                            Count each person once
+                            <LemonSwitch
+                                checked={filterSurveyStatsByDistinctId}
+                                onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
+                                tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
+                            />
+                        </LemonLabel>
+                    </div>
+                )}
             </div>
+            {survey.start_date && (
+                <div className="flex items-center text-sm text-secondary">
+                    <div className="flex gap-2 items-center">
+                        <span className="inline-flex items-center gap-1">
+                            Started: <TZLabel time={survey.start_date} />
+                        </span>
+                        <span className="text-border-dark">•</span>
+                        {survey.end_date ? (
+                            <span className="inline-flex items-center gap-1">
+                                <span className="h-2 w-2 rounded-full bg-danger/50" />
+                                Ended: <TZLabel time={survey.end_date} />
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1 text-success">
+                                <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
+                                Active
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
             {children}
         </div>
     )
@@ -201,16 +234,22 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
 }
 
 function _SurveyStatsSummary(): JSX.Element {
-    const { surveyUserStats, surveyUserStatsLoading, filterSurveyStatsByDistinctId } = useValues(surveyLogic)
+    const {
+        filterSurveyStatsByDistinctId,
+        processedSurveyStats,
+        surveyRates,
+        surveyBaseStatsLoading,
+        surveyDismissedAndSentCountLoading,
+    } = useValues(surveyLogic)
 
-    if (surveyUserStatsLoading) {
+    if (surveyBaseStatsLoading || surveyDismissedAndSentCountLoading) {
         return <SurveyStatsSummarySkeleton />
     }
 
-    if (!surveyUserStats) {
+    if (!processedSurveyStats) {
         return (
             <SurveyStatsContainer>
-                <div className="text-center text-text-secondary">No data available for this survey yet.</div>
+                <div className="text-text-secondary text-left">No data available for this survey yet.</div>
             </SurveyStatsContainer>
         )
     }
@@ -218,11 +257,11 @@ function _SurveyStatsSummary(): JSX.Element {
     return (
         <SurveyStatsContainer>
             {filterSurveyStatsByDistinctId ? (
-                <UsersCount surveyStats={surveyUserStats} />
+                <UsersCount stats={processedSurveyStats} rates={surveyRates} />
             ) : (
-                <ResponsesCount surveyStats={surveyUserStats} />
+                <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
             )}
-            <SurveyStatsStackedBar surveyStats={surveyUserStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
+            <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
         </SurveyStatsContainer>
     )
 }

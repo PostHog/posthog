@@ -318,7 +318,7 @@ export const createGroup = async (
 
 export const fetchPostgresPersons = async (teamId: number) => {
     const { rows } = await postgres.query(
-        PostgresUse.COMMON_WRITE,
+        PostgresUse.PERSONS_WRITE,
         `SELECT *
          FROM posthog_person
          WHERE team_id = $1`,

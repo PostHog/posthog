@@ -2,6 +2,7 @@ import json
 from zoneinfo import ZoneInfo
 from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
@@ -240,6 +241,15 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         return prepared_exposure_query
 
     def calculate(self) -> ExperimentTrendsQueryResponse:
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            query_type="ExperimentTrendsQuery",
+            experiment_id=str(self.experiment.id),
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
+        )
+
         shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}
         errors = []
 

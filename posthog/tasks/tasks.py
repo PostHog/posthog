@@ -1,8 +1,8 @@
 import time
 from typing import Optional
 from uuid import UUID
-import posthoganalytics
 
+import posthoganalytics
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -567,15 +567,6 @@ def clean_stale_partials() -> None:
 
 
 @shared_task(ignore_result=True)
-def monitoring_check_clickhouse_schema_drift() -> None:
-    from posthog.tasks.check_clickhouse_schema_drift import (
-        check_clickhouse_schema_drift,
-    )
-
-    check_clickhouse_schema_drift()
-
-
-@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
 
@@ -902,7 +893,7 @@ def ee_persist_finished_recordings_v2() -> None:
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
 )
-def ee_count_items_in_playlists() -> None:
+def count_items_in_playlists() -> None:
     try:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             enqueue_recordings_that_match_playlist_filters,

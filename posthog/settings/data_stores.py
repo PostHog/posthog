@@ -1,11 +1,17 @@
 import json
 import os
+from contextlib import suppress
 from urllib.parse import urlparse
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
+from posthog.settings.base_variables import (
+    DEBUG,
+    IN_EVAL_TESTING,
+    IS_COLLECT_STATIC,
+    TEST,
+)
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -60,7 +66,11 @@ if TEST or DEBUG:
     PG_USER: str = os.getenv("PGUSER", "posthog")
     PG_PASSWORD: str = os.getenv("PGPASSWORD", "posthog")
     PG_PORT: str = os.getenv("PGPORT", "5432")
-    PG_DATABASE: str = os.getenv("PGDATABASE", "posthog")
+    PG_DATABASE: str = os.getenv(
+        "PGDATABASE",
+        # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
+        "posthog_ai_eval" if IN_EVAL_TESTING else "posthog",
+    )
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
@@ -101,17 +111,31 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+DATABASE_ROUTERS: list[str] = []
+
 # Configure the database which will be used as a read replica.
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
-    DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
+    DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
+
+# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
+if os.getenv("PERSONS_DB_WRITER_URL"):
+    DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
+
+    # Fall back to the writer URL if no reader URL is set
+    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
+    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
-
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
@@ -122,7 +146,6 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Database routers route models!
 replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
 READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
-
 
 # Xdist Settings
 # When running concurrent tests, PYTEST_XDIST_WORKER gets set to "gw0" ... "gwN"
@@ -138,7 +161,10 @@ try:
 except:
     pass
 
-if TEST:
+if IN_EVAL_TESTING:
+    # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
+    SUFFIX = "_ai_eval" + XDIST_SUFFIX
+elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
@@ -174,10 +200,33 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+
+CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
+CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
+CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+
+# Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
+# routing. Keys should be strings, not numbers.
 try:
     CLICKHOUSE_PER_TEAM_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
+
+# Per-team settings used for query execution. Keys should be strings, not numbers.
+try:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
+
+API_QUERIES_PER_TEAM: dict[int, int] = {}
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
+    API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -195,7 +244,6 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
-
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
@@ -299,7 +347,6 @@ if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
     )
 
-
 if not REDIS_URL:
     raise ImproperlyConfigured(
         "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
@@ -325,7 +372,6 @@ REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 # pubsub channel, pushed to when plugin configs change.
 # We should move away to a different communication channel and remove this.
 PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
-
 
 CDP_API_URL = get_from_env("CDP_API_URL", "")
 

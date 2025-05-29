@@ -12,6 +12,7 @@ from posthog.clickhouse.cluster import (
 
 class JobOwners(str, Enum):
     TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
 
 
@@ -44,6 +45,8 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                                 ErrorCodes.NETWORK_ERROR,
                                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                                 ErrorCodes.NOT_ENOUGH_SPACE,
+                                ErrorCodes.SOCKET_TIMEOUT,
+                                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
                             )
                         )
                         # queries that exceed memory limits can be retried if they were killed due to total server

@@ -1,94 +1,100 @@
-from datetime import datetime
+from collections.abc import Generator
+import json
 from pathlib import Path
 
 import structlog
-from ee.session_recordings.ai.llm import get_raw_llm_session_summary
-from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
-from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
-from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
-from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from ee.hogai.utils.asgi import SyncIterableToAsync
+from ee.session_recordings.session_summary.input_data import (
+    add_context_and_filter_events,
+    get_session_events,
+    get_session_metadata,
+)
+from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
+from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
+from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
-from posthog.session_recordings.models.session_recording import SessionRecording
-
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 logger = structlog.get_logger(__name__)
 
 
 class ReplaySummarizer:
-    def __init__(self, recording: SessionRecording, user: User, team: Team):
-        self.recording = recording
+    def __init__(self, session_id: str, user: User, team: Team, local_reads_prod: bool = False):
+        self.session_id = session_id
         self.user = user
         self.team = team
-
-    @staticmethod
-    def _get_session_metadata(session_id: str, team: Team) -> RecordingMetadata:
-        session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
-        if not session_metadata:
-            raise ValueError(f"no session metadata found for session_id {session_id}")
-        return session_metadata
-
-    @staticmethod
-    def _get_session_events(
-        session_id: str, session_metadata: RecordingMetadata, team: Team
-    ) -> tuple[list[str], list[list[str | datetime]]]:
-        session_events_columns, session_events = SessionReplayEvents().get_events(
-            session_id=str(session_id),
-            team=team,
-            metadata=session_metadata,
-            events_to_ignore=[
-                "$feature_flag_called",
-            ],
-        )
-        if not session_events_columns or not session_events:
-            raise ValueError(f"no events found for session_id {session_id}")
-        return session_events_columns, session_events
+        self.local_reads_prod = local_reads_prod
 
     def _generate_prompt(
         self,
         prompt_data: SessionSummaryPromptData,
         url_mapping_reversed: dict[str, str],
         window_mapping_reversed: dict[str, str],
-    ) -> str:
+    ) -> tuple[str, str]:
         # Keep shortened URLs for the prompt to reduce the number of tokens
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
-        # TODO Optimize prompt (reduce input count, simplify instructions, focus on quality of the summary)
-        # One of the solutions could be to chain prompts to focus on events/tags/importance one by one, to avoid overloading the main prompt
-        template_dir = Path(__file__).parent / "templates"
-        summary_example = load_custom_template(template_dir, f"single-replay_example.yml")
+        template_dir = Path(__file__).parent / "templates" / "identify-objectives"
+        system_prompt = load_custom_template(template_dir, f"system-prompt.djt")
+        summary_example = load_custom_template(template_dir, f"example.yml")
         summary_prompt = load_custom_template(
             template_dir,
-            f"single-replay_base-prompt.djt",
+            f"prompt.djt",
             {
-                "EVENTS_COLUMNS": prompt_data.columns,
-                "EVENTS_DATA": prompt_data.results,
-                "SESSION_METADATA": prompt_data.metadata.to_dict(),
-                "URL_MAPPING": short_url_mapping_reversed,
-                "WINDOW_ID_MAPPING": window_mapping_reversed,
+                "EVENTS_DATA": json.dumps(prompt_data.results),
+                "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),
+                "URL_MAPPING": json.dumps(short_url_mapping_reversed),
+                "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
                 "SUMMARY_EXAMPLE": summary_example,
             },
         )
-        return summary_prompt
+        return summary_prompt, system_prompt
 
-    def summarize_recording(self):
+    def summarize_recording(self) -> Generator[str, None, None]:
         timer = ServerTimingsGathered()
-
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
-            session_metadata = self._get_session_metadata(self.recording.session_id, self.team)
-
-        with timer("get_events"):
-            # TODO: Add filter to skip some types of events that are not relevant for the summary, but increase the number of tokens
-            # Analyze more events one by one for better context, consult with the team
-            session_events_columns, session_events = self._get_session_events(
-                self.recording.session_id, session_metadata, self.team
+            session_metadata = get_session_metadata(
+                session_id=self.session_id,
+                team=self.team,
+                local_reads_prod=self.local_reads_prod,
+            )
+        try:
+            with timer("get_events"):
+                session_events_columns, session_events = get_session_events(
+                    team=self.team,
+                    session_metadata=session_metadata,
+                    session_id=self.session_id,
+                    local_reads_prod=self.local_reads_prod,
+                )
+        # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
+        except ValueError as e:
+            raw_error_message = str(e)
+            if "No events found for session_id" in raw_error_message:
+                # Returning a generator (instead of yielding) to keep the consistent behavior for later iter-to-async conversion
+                return (
+                    msg
+                    for msg in [
+                        serialize_to_sse_event(
+                            event_label="session-summary-error",
+                            event_data="No events found for this replay yet. Please try again in a few minutes.",
+                        )
+                    ]
+                )
+            # Re-raise unexpected exceptions
+            raise
+        with timer("add_context_and_filter"):
+            session_events_columns, session_events = add_context_and_filter_events(
+                session_events_columns, session_events
             )
 
         # TODO Get web analytics data on URLs to better understand what the user was doing
         # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
         # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
+
+        # TODO Get product analytics data on custom events/funnels/conversions
+        # to understand what actions are seen as valuable or are the part of the conversion flow
 
         with timer("generate_prompt"):
             prompt_data = SessionSummaryPromptData()
@@ -97,40 +103,39 @@ class ReplaySummarizer:
                 # Convert to a dict, so that we can amend its values freely
                 raw_session_metadata=dict(session_metadata),
                 raw_session_columns=session_events_columns,
-                session_id=self.recording.session_id,
+                session_id=self.session_id,
             )
             if not prompt_data.metadata.start_time:
-                raise ValueError(
-                    f"No start time found for session_id {self.recording.session_id} when generating the prompt"
-                )
+                raise ValueError(f"No start time found for session_id {self.session_id} when generating the prompt")
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
-            rendered_summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
-
-        with timer("openai_completion"):
-            raw_session_summary = get_raw_llm_session_summary(
-                rendered_summary_template=rendered_summary_prompt,
-                user=self.user,
-                allowed_event_ids=list(simplified_events_mapping.keys()),
-                session_id=self.recording.session_id,
+            summary_prompt, system_prompt = self._generate_prompt(
+                prompt_data, url_mapping_reversed, window_mapping_reversed
             )
-        # Enrich the session summary with events metadata
-        # TODO Ensure only important events are picked (instead of 5 events for the first 1 minute and then 5 for the rest)
-        session_summary = enrich_raw_session_summary_with_events_meta(
-            raw_session_summary=raw_session_summary,
+
+        # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
+        # with timer("openai_completion"):
+        # return {"content": session_summary.data, "timings_header": timer.to_header_string()}
+
+        session_summary_generator = stream_llm_session_summary(
+            summary_prompt=summary_prompt,
+            user=self.user,
+            allowed_event_ids=list(simplified_events_mapping.keys()),
+            session_id=self.session_id,
             simplified_events_mapping=simplified_events_mapping,
             simplified_events_columns=prompt_data.columns,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
-            session_start_time=prompt_data.metadata.start_time,
-            session_id=self.recording.session_id,
+            session_metadata=prompt_data.metadata,
+            system_prompt=system_prompt,
         )
+        return session_summary_generator
 
-        # TODO: Calculate tag/error stats for the session manually
-        # to use it later for grouping/suggesting (and showing overall stats)
+    def stream_recording_summary(self):
+        if SERVER_GATEWAY_INTERFACE == "ASGI":
+            return self._astream()
+        return self.summarize_recording()
 
-        # TODO Make the output streamable (the main reason behind using YAML
-        # to keep it partially parsable to avoid waiting for the LLM to finish)
-
-        return {"content": session_summary.data, "timings": timer.get_all_timings()}
+    def _astream(self):
+        return SyncIterableToAsync(self.summarize_recording())

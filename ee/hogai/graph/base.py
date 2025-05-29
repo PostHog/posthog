@@ -31,8 +31,14 @@ class AssistantNode(ABC):
         return self.run(state, config)
 
     @abstractmethod
-    def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError
+
+    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
+        try:
+            return Conversation.objects.get(team=self._team, id=conversation_id)
+        except Conversation.DoesNotExist:
+            return None
 
     @property
     def core_memory(self) -> CoreMemory | None:
@@ -73,11 +79,14 @@ class AssistantNode(ABC):
         return self._team.timezone_info.tzname(self._utc_now_datetime)
 
     def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
-        try:
-            conversation = Conversation.objects.get(id=conversation_id)
-            return conversation.status == Conversation.Status.CANCELING
-        except Conversation.DoesNotExist:
-            return True
+        conversation = self._get_conversation(conversation_id)
+        if not conversation:
+            raise ValueError(
+                f"Conversation {conversation_id} not found",
+                Team.objects.all().count(),
+                Conversation.objects.all().count(),
+            )
+        return conversation.status == Conversation.Status.CANCELING
 
     def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:
         for message in reversed(messages):

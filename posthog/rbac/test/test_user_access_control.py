@@ -6,9 +6,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.test.base import BaseTest
-
+from rest_framework import serializers
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -26,7 +26,7 @@ class BaseUserAccessControlTest(BaseTest):
         ac, _ = AccessControl.objects.get_or_create(
             team=self.team,
             resource=resource,
-            resource_id=resource_id or self.team.id,
+            resource_id=resource_id,
             organization_member=organization_member,
             role=role,
         )
@@ -495,6 +495,48 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         filtered_for_user_after_removal = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
         # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
         self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
+
+
+@pytest.mark.ee
+class TestUserAccessControlSerializer(BaseUserAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        # We'll use Dashboard as a sample resource object
+        from posthog.models.dashboard import Dashboard
+
+        self.dashboard = Dashboard.objects.create(team=self.team)
+
+        # Minimal serializer using the mixin
+        class DummySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+            class Meta:
+                model = Dashboard
+                fields = ("id", "user_access_level")
+
+        self.Serializer = DummySerializer
+
+    def test_object_level_access_when_no_resource_level(self):
+        # No resource-level access controls, only object-level
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "viewer"
+
+    def test_resource_level_takes_priority(self):
+        # Both resource-level and object-level; resource-level should take priority
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "editor"
+
+    def test_falls_back_to_object_level(self):
+        # Only object-level present
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="editor")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "editor"
+
+    def test_none_if_no_access(self):
+        # No access controls at all
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "editor"  # falls to default_access_level
 
 
 # class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):

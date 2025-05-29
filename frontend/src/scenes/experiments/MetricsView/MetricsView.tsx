@@ -3,44 +3,11 @@ import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
+import { credibleIntervalForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
 import { DeltaChart } from './DeltaChart'
-
-// Helper function to find nice round numbers for ticks
-export function getNiceTickValues(maxAbsValue: number): number[] {
-    // Round up maxAbsValue to ensure we cover all values
-    maxAbsValue = Math.ceil(maxAbsValue * 10) / 10
-
-    const magnitude = Math.floor(Math.log10(maxAbsValue))
-    const power = Math.pow(10, magnitude)
-
-    let baseUnit
-    const normalizedMax = maxAbsValue / power
-    if (normalizedMax <= 1) {
-        baseUnit = 0.2 * power
-    } else if (normalizedMax <= 2) {
-        baseUnit = 0.5 * power
-    } else if (normalizedMax <= 5) {
-        baseUnit = 1 * power
-    } else {
-        baseUnit = 2 * power
-    }
-
-    // Calculate how many baseUnits we need to exceed maxAbsValue
-    const unitsNeeded = Math.ceil(maxAbsValue / baseUnit)
-
-    // Determine appropriate number of decimal places based on magnitude
-    const decimalPlaces = Math.max(0, -magnitude + 1)
-
-    const ticks: number[] = []
-    for (let i = -unitsNeeded; i <= unitsNeeded; i++) {
-        // Round each tick value to avoid floating point precision issues
-        const tickValue = Number((baseUnit * i).toFixed(decimalPlaces))
-        ticks.push(tickValue)
-    }
-    return ticks
-}
+import { getNiceTickValues } from './utils'
 
 function AddPrimaryMetric(): JSX.Element {
     const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
@@ -95,7 +62,6 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         secondaryMetricResults,
         primaryMetricsResultErrors,
         secondaryMetricsResultErrors,
-        credibleIntervalForVariant,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -261,7 +227,8 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
-                                Add up to {MAX_PRIMARY_METRICS} {isSecondary ? 'secondary' : 'primary'} metrics.
+                                Add up to {MAX_PRIMARY_METRICS} <span>{isSecondary ? 'secondary' : 'primary'}</span>{' '}
+                                metrics.
                             </p>
                             <p>
                                 {isSecondary

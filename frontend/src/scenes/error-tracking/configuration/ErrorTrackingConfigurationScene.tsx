@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { ErrorTrackingSetupPrompt } from '../ErrorTrackingSetupPrompt'
+import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { ERROR_TRACKING_LOGIC_KEY } from '../utils'
 import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingConfigurationSceneType'
 

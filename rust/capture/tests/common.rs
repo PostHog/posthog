@@ -23,7 +23,7 @@ use time::OffsetDateTime;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::timeout;
-use tracing::{info, warn};
+use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
@@ -35,10 +35,16 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
     overflow_enabled: false,
+    overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
     ingestion_force_overflow_by_token_distinct_id: None,
     drop_events_by_token_distinct_id: None,
+    enable_historical_rerouting: false,
+    historical_rerouting_threshold_days: 1_i64,
+    historical_tokens_keys: None,
+    is_mirror_deploy: false,
+    log_level: Level::INFO,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,

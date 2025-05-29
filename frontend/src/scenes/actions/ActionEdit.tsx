@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -27,7 +28,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionChanged } = useValues(logic)
-    const { submitAction, deleteAction } = useActions(logic)
+    const { submitAction, deleteAction, setActionValue } = useActions(logic)
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -149,7 +150,17 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     type="primary"
                                     htmlType="submit"
                                     loading={actionLoading}
-                                    onClick={submitAction}
+                                    onClick={() =>
+                                        id
+                                            ? submitAction()
+                                            : openSaveToModal({
+                                                  callback: (folder) => {
+                                                      setActionValue('_create_in_folder', folder)
+                                                      submitAction()
+                                                  },
+                                                  defaultFolder: 'Unfiled/Insights',
+                                              })
+                                    }
                                     disabledReason={!actionChanged && !id ? 'No changes to save' : undefined}
                                 >
                                     Save
@@ -163,7 +174,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     <h2 className="subtitle">Match groups</h2>
                     <p>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.
-                        <Link to="https://posthog.com/docs/product-analytics/retention" target="_blank">
+                        <Link to="https://posthog.com/docs/data/actions" target="_blank">
                             <IconInfo className="ml-1 text-secondary text-xl" />
                         </Link>
                     </p>

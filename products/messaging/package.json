@@ -6,6 +6,7 @@
         "clsx": "*",
         "fuse.js": "*",
         "kea": "*",
+        "kea-forms": "*",
         "kea-loaders": "*",
         "kea-router": "*",
         "react": "*"

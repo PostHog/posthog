@@ -48,6 +48,7 @@ export function renderColumn(
 ): JSX.Element | string {
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+    key = key.split('--')[0].trim()
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -262,6 +263,14 @@ export function renderColumn(
             displayProps.noPopover = false // If we are in a traces list, the popover experience is better
         }
 
+        return <PersonDisplay {...displayProps} />
+    } else if (key === 'person_display_name') {
+        const displayProps: PersonDisplayProps = {
+            withIcon: true,
+            person: { id: value.id },
+            displayName: value.display_name,
+            noPopover: true,
+        }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
         return <GroupActorDisplay actor={value} />

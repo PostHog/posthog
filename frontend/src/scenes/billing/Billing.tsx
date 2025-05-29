@@ -11,7 +11,6 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,6 +24,7 @@ import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
+import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
@@ -67,11 +67,6 @@ export function Billing(): JSX.Element {
         }
     }, [!!billing])
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        768: 'medium',
-    })
-
     if (!billing && billingLoading) {
         return (
             <>
@@ -81,17 +76,7 @@ export function Billing(): JSX.Element {
     }
 
     if (restrictionReason) {
-        return (
-            <div className="deprecated-space-y-4">
-                <h1>Billing</h1>
-                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
-                <div className="flex">
-                    <LemonButton type="primary" to={urls.default()}>
-                        Go back home
-                    </LemonButton>
-                </div>
-            </div>
-        )
+        return <BillingNoAccess reason={restrictionReason} />
     }
 
     if (!billing && !billingLoading) {
@@ -116,8 +101,9 @@ export function Billing(): JSX.Element {
 
     const products = billing?.products
     const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
+
     return (
-        <div ref={ref}>
+        <div className="@container">
             {showLicenseDirectInput && (
                 <>
                     <Form
@@ -150,7 +136,7 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" hideIcon className="mb-2">
+                <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
                         <JudgeHog className="w-20 h-20 flex-shrink-0" />
                         <div>
@@ -166,17 +152,12 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {(showBillingSummary || showCreditCTAHero || showBillingHero) && !!size && (
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
                 <div
                     className={clsx(
                         'flex gap-6 max-w-300',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        billing?.has_active_subscription
-                            ? {
-                                  'flex-col': size === 'small',
-                                  'flex-row': size !== 'small',
-                              }
-                            : 'flex-col-reverse'
+                        billing?.has_active_subscription ? 'flex-col @3xl:flex-row' : 'flex-col-reverse'
                     )}
                 >
                     {showBillingSummary && (

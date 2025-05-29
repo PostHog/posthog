@@ -23,6 +23,12 @@ export function getDefaultConfig(): PluginsServerConfig {
             : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
+        PERSONS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            : isDevEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
+            : '',
+        PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -39,31 +45,20 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
+        CONSUMER_MAX_BACKGROUND_TASKS: 1,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
-        KAFKA_PRODUCER_HOSTS: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
         KAFKA_TRUSTED_CERT_B64: undefined,
         KAFKA_SECURITY_PROTOCOL: undefined,
-        KAFKA_PRODUCER_SECURITY_PROTOCOL: undefined,
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
-        KAFKA_CLIENT_ID: undefined,
         KAFKA_CLIENT_RACK: undefined,
-        KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
-        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
-        KAFKA_CONSUMPTION_MAX_WAIT_MS: 50, // Maximum time the broker may wait to fill the Fetch response with fetch.min.bytes of messages.
-        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 100, // Timeout when a partition read fails (possibly because empty).
-        KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
-        KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
-        KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
-        KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
-        KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
-        KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
-        KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         REDIS_URL: 'redis://127.0.0.1',
@@ -83,16 +78,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
-        SENTRY_DSN: null,
-        SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
-        SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
-        MMDB_FILE_LOCATION:
-            isDevEnv() || isTestEnv() ? '../share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
+        MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         JOB_QUEUES: 'graphile',
@@ -128,7 +119,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
-        DROP_EVENTS_BY_TOKEN: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
@@ -149,13 +139,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
         STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
-        SESSION_RECORDING_KAFKA_HOSTS: undefined,
-        SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
-        SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
-        SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
-        // if not set we'll use the plugin server default value
-        SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: undefined,
-
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
@@ -171,14 +154,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
         SESSION_RECORDING_DEBUG_PARTITION: '',
-        SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
-        SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
-        SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
 
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
 
@@ -200,13 +180,25 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
-        FILTER_TRANSFORMATIONS_ENABLED_TEAMS: [1, 2],
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: '',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: false,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
+        CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: isProdEnv() ? false : true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
+        CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        CDP_FETCH_RETRIES: 3,
+        CDP_FETCH_BACKOFF_BASE_MS: 1000,
+        CDP_FETCH_BACKOFF_MAX_MS: 30000,
+
+        CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
+        CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+        CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -214,9 +206,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
-            : '',
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
 
@@ -225,12 +215,16 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+        INGESTION_CONSUMER_TESTING_TOPIC: '',
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
         PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_JSON,
         PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
         PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
+
+        // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
+        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
@@ -242,8 +236,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: '',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
+        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -260,8 +256,10 @@ export function getDefaultConfig(): PluginsServerConfig {
             60 *
             60,
 
-        LAZY_TEAM_MANAGER_COMPARISON: false,
-        USE_LAZY_TEAM_MANAGER: false,
+        PERSON_CACHE_ENABLED_FOR_UPDATES: true,
+        PERSON_CACHE_ENABLED_FOR_CHECKS: true,
+        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
+        DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
 

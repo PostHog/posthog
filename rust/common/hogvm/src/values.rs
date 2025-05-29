@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
 
 use crate::{
+    context::Symbol,
     error::VmError,
     memory::{HeapReference, VmHeap},
 };
@@ -28,6 +29,7 @@ pub struct LocalCallable {
     pub stack_arg_count: usize,
     pub capture_count: usize,
     pub ip: usize,
+    pub symbol: Option<Symbol>,
 }
 
 impl From<LocalCallable> for Callable {
