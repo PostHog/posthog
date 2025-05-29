@@ -34,14 +34,6 @@ const dateMapping: DateMappingOption[] = [
         key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
-        inactive: true,
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 72 hours',
-        values: ['-72h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
-        inactive: true,
         defaultInterval: 'hour',
     },
     {
