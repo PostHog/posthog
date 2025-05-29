@@ -1550,6 +1550,11 @@ class _Printer(Visitor):
             self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
         )
 
+    def visit_map_property_type(self, type: ast.MapPropertyType):
+        if len(type.chain) != 1:
+            raise ImpossibleASTError(f"Impossible map access attempted with {len(type.chain)} elements (must be 1)")
+        return f"{self.visit(type.field_type)}[{self.context.add_value(type.chain[0])}]"
+
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
         offset_clause = ""
