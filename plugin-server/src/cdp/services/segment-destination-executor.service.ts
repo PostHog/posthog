@@ -124,11 +124,11 @@ export class SegmentDestinationExecutorService {
     }
 
     private async handleFetchFailure(
-        invocation: HogFunctionInvocation,
+        invocation: CyclotronJobInvocationHogFunction,
         response: FetchResponse | null,
         error: any | null,
-        result: HogFunctionInvocationResult
-    ): Promise<HogFunctionInvocationResult> {
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let kind: CyclotronFetchFailureKind = 'requesterror'
 
         if (error?.message.toLowerCase().includes('timeout')) {
@@ -205,13 +205,32 @@ export class SegmentDestinationExecutorService {
             )
         }
 
+        // If we got a trace, then the last "result" is the final attempt, and we should try to grab a status from it
+        // or any preceding attempts, and produce a log message for each of them
+        if (updatedMetadata.trace.length > 0) {
+            result.logs.push({
+                level: 'error',
+                timestamp: DateTime.now(),
+                message: `Fetch failed after ${updatedMetadata.trace.length} attempts`,
+            })
+            for (const attempt of updatedMetadata.trace) {
+                result.logs.push({
+                    level: 'warn',
+                    timestamp: DateTime.now(),
+                    message: `Fetch failure of kind ${attempt.kind} with status ${
+                        attempt.status ?? '(none)'
+                    } and message ${attempt.message}`,
+                })
+            }
+        }
+
         // If we've exceeded retries, return all failures in trace
         const errorText = response ? await response.text() : undefined
         result.logs.push({
             level: 'error',
             timestamp: DateTime.now(),
             message: `Error executing function on event ${
-                invocation?.globals?.event?.uuid || 'Unknown event'
+                invocation?.state?.globals?.event?.uuid || 'Unknown event'
             }: Request failed with status ${response?.status} (${errorText})`,
         })
         return createInvocationResult(
@@ -246,7 +265,9 @@ export class SegmentDestinationExecutorService {
         )
     }
 
-    public async execute(invocation: CyclotronJobInvocationHogFunction): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+    public async execute(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'segment',
         })
