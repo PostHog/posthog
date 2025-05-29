@@ -312,6 +312,8 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
+const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
+
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingPlaylistLogicProps),
@@ -491,6 +493,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 filters,
                             })
                             return getDefaultFilters(props.personUUID)
+                        }
+                        if (filters.date_from && state.date_to && isRelativeDate(filters.date_from)) {
+                            state.date_to = null // Reset date_to if date_from is relative
                         }
                         return {
                             ...state,
