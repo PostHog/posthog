@@ -119,6 +119,9 @@ class PropertyGroupManager:
         """
         Returns an iterable of ALTER TABLE statements that can be used to modify the property group
         using MODIFY COLUMN statements.
+        **Note** this does not modify the materialized data on disk for the column. This means that
+        you should only be using this for removing items out of the map, or be prepared to immediately
+        re-materialize the data and have some inconsistent/missing results in the meantime.
         """
         prefix = f"ALTER TABLE {table}"
         if cluster is not None:
