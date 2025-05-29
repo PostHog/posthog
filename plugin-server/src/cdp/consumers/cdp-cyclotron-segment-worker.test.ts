@@ -187,7 +187,7 @@ describe('CdpCyclotronWorkerSegment', () => {
             expect(
                 jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation
             ).toEqual({
-                globals: expect.any(Object),
+                functionId: expect.any(String),
                 hogFunction: expect.any(Object),
                 id: expect.any(String),
                 queue: 'segment',
@@ -216,8 +216,8 @@ describe('CdpCyclotronWorkerSegment', () => {
                 queuePriority: 0,
                 queueScheduledAt: undefined,
                 queueSource: undefined,
+                state: expect.any(Object),
                 teamId: 2,
-                timings: [],
             })
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
@@ -276,8 +276,8 @@ describe('CdpCyclotronWorkerSegment', () => {
             expect(
                 jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0][0].invocation
             ).toEqual({
-                globals: expect.any(Object),
                 hogFunction: expect.any(Object),
+                functionId: expect.any(String),
                 id: expect.any(String),
                 queue: 'segment',
                 queueMetadata: {
@@ -298,8 +298,8 @@ describe('CdpCyclotronWorkerSegment', () => {
                 queuePriority: 1,
                 queueScheduledAt: expect.any(Object),
                 queueSource: undefined,
+                state: expect.any(Object),
                 teamId: 2,
-                timings: [],
             })
 
             let minBackoffMs = DateTime.utc().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
@@ -331,8 +331,8 @@ describe('CdpCyclotronWorkerSegment', () => {
             expect(
                 jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[1][0][0].invocation
             ).toEqual({
-                globals: expect.any(Object),
                 hogFunction: expect.any(Object),
+                functionId: expect.any(String),
                 id: expect.any(String),
                 queue: 'segment',
                 queueMetadata: {
@@ -362,8 +362,8 @@ describe('CdpCyclotronWorkerSegment', () => {
                 queuePriority: 2,
                 queueScheduledAt: expect.any(Object),
                 queueSource: undefined,
+                state: expect.any(Object),
                 teamId: 2,
-                timings: [],
             })
 
             minBackoffMs = DateTime.utc()
@@ -397,8 +397,8 @@ describe('CdpCyclotronWorkerSegment', () => {
             expect(
                 jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[2][0][0].invocation
             ).toEqual({
-                globals: expect.any(Object),
                 hogFunction: expect.any(Object),
+                functionId: expect.any(String),
                 id: expect.any(String),
                 queue: 'segment',
                 queueMetadata: {
@@ -466,8 +466,8 @@ describe('CdpCyclotronWorkerSegment', () => {
                 queuePriority: 0,
                 queueScheduledAt: undefined,
                 queueSource: undefined,
+                state: expect.any(Object),
                 teamId: 2,
-                timings: [],
             })
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[2][0]).toMatchObject([
