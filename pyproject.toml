@@ -135,7 +135,6 @@ dependencies = [
     "pyyaml==6.0.1",
     "tenacity>=8.4.2",
     "chdb>=3.1.2",
-    "google-cloud-sqlcommenter>=2.0.0",
     "elevenlabs>=1.58.1",
     "django-oauth-toolkit>=3.0.1",
     "langchain-perplexity>=0.1.1",
