@@ -616,8 +616,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
 
-                if (!values.hasAddon) {
-                    // Remove the source field if the user doesn't have the addon
+                if (!values.hasAddon && values.type !== 'transformation') {
+                    // Remove the source field if the user doesn't have the addon (except for transformations)
                     delete payload.hog
                     delete payload.inputs_schema
                 }
