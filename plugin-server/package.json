@@ -74,6 +74,7 @@
         "js-big-decimal": "^2.2.0",
         "kafkajs": "^2.2.0",
         "kafkajs-snappy": "^1.1.0",
+        "liquidjs": "^10.21.1",
         "lodash": "^4.17.21",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
