@@ -494,8 +494,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             })
                             return getDefaultFilters(props.personUUID)
                         }
-                        if (filters.date_from && state.date_to && isRelativeDate(filters.date_from)) {
-                            state.date_to = null // Reset date_to if date_from is relative
+                        return {
+                            ...state,
+                            ...filters,
+                            date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to
                         }
                         return {
                             ...state,
