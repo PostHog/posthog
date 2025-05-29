@@ -20,7 +20,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # If there are no revenue views, we return a query that returns 0 for all values
-        charge_subquery, _, _ = self.revenue_subqueries()
+        charge_subquery, _, _, _ = self.revenue_subqueries()
         if charge_subquery is None:
             return ast.SelectQuery.empty()
 

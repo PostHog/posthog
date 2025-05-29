@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import datetime
-from typing import Union
+from typing import Optional, Union
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -14,7 +14,8 @@ from posthog.schema import (
 from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 from ..views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from ..views.revenue_analytics_item_view import RevenueAnalyticsItemView
+from ..views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from ..views.revenue_analytics_product_view import RevenueAnalyticsProductView
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
@@ -33,7 +34,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     def revenue_selects(
         self,
     ) -> dict[str, dict[str, ast.SelectQuery | None]]:
-        selects = defaultdict(lambda: {"charge": None, "customer": None, "item": None})
+        selects = defaultdict(lambda: {"charge": None, "customer": None, "invoice_item": None, "product": None})
 
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
@@ -49,8 +50,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                         selects[view.prefix]["charge"] = select
                     elif isinstance(view, RevenueAnalyticsCustomerView):
                         selects[view.prefix]["customer"] = select
-                    elif isinstance(view, RevenueAnalyticsItemView):
-                        selects[view.prefix]["item"] = select
+                    elif isinstance(view, RevenueAnalyticsInvoiceItemView):
+                        selects[view.prefix]["invoice_item"] = select
+                    elif isinstance(view, RevenueAnalyticsProductView):
+                        selects[view.prefix]["product"] = select
                 elif view.source_id is None and isinstance(view, RevenueAnalyticsChargeView):
                     if len(self.query.revenueSources.events) > 0:
                         select = ast.SelectQuery(
@@ -80,7 +83,12 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         parsed_customer_selects = [
             selects["customer"] for _, selects in revenue_selects.items() if selects["customer"] is not None
         ]
-        parsed_item_selects = [selects["item"] for _, selects in revenue_selects.items() if selects["item"] is not None]
+        parsed_invoice_item_selects = [
+            selects["invoice_item"] for _, selects in revenue_selects.items() if selects["invoice_item"] is not None
+        ]
+        parsed_product_selects = [
+            selects["product"] for _, selects in revenue_selects.items() if selects["product"] is not None
+        ]
 
         return (
             ast.SelectSetQuery.create_from_queries(parsed_charge_selects, set_operator="UNION ALL")
@@ -89,8 +97,11 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             ast.SelectSetQuery.create_from_queries(parsed_customer_selects, set_operator="UNION ALL")
             if parsed_customer_selects
             else None,
-            ast.SelectSetQuery.create_from_queries(parsed_item_selects, set_operator="UNION ALL")
-            if parsed_item_selects
+            ast.SelectSetQuery.create_from_queries(parsed_invoice_item_selects, set_operator="UNION ALL")
+            if parsed_invoice_item_selects
+            else None,
+            ast.SelectSetQuery.create_from_queries(parsed_product_selects, set_operator="UNION ALL")
+            if parsed_product_selects
             else None,
         )
 
@@ -104,17 +115,20 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
-    def timestamp_where_clause(self) -> ast.Expr:
+    def timestamp_where_clause(self, chain: Optional[list[str]] = None) -> ast.Expr:
+        if chain is None:
+            chain = ["timestamp"]
+
         return ast.Call(
             name="and",
             args=[
                 ast.CompareOperation(
-                    left=ast.Field(chain=["timestamp"]),
+                    left=ast.Field(chain=chain),
                     right=self.query_date_range.date_from_as_hogql(),
                     op=ast.CompareOperationOp.GtEq,
                 ),
                 ast.CompareOperation(
-                    left=ast.Field(chain=["timestamp"]),
+                    left=ast.Field(chain=chain),
                     right=self.query_date_range.date_to_as_hogql(),
                     op=ast.CompareOperationOp.LtEq,
                 ),

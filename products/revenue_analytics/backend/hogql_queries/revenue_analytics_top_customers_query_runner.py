@@ -53,7 +53,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
         # If there's a way to join with the customer table, then do it
-        _, customer_subquery, _ = self.revenue_subqueries()
+        _, customer_subquery, _, _ = self.revenue_subqueries()
         if customer_subquery is not None:
             base_query.select[0] = ast.Alias(alias="name", expr=ast.Field(chain=["customers", "name"]))
             select_from = cast(ast.JoinExpr, base_query.select_from)
@@ -74,7 +74,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         return base_query
 
     def inner_query(self) -> ast.SelectQuery:
-        charge_subquery, _, _ = self.revenue_subqueries()
+        charge_subquery, _, _, _ = self.revenue_subqueries()
         if charge_subquery is None:
             # Empty query because there are no charges, but still include the right columns
             # to make sure the outer query works

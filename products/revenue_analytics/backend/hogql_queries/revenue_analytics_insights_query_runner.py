@@ -32,10 +32,17 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                 table=ast.SelectSetQuery.create_from_queries(subqueries, set_operator="UNION ALL"),
             ),
             group_by=[ast.Field(chain=["day_start"]), ast.Field(chain=["breakdown_by"])],
+            # Return sorted by day_start, and then for each individual day we put the maximum first
+            # This will allow us to return the list sorted according to the numbers in the last day
+            # Finally sort by breakdown_by for the rare cases where they tie (usually at 0 revenue)
             order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="DESC"),
+                ast.OrderExpr(expr=ast.Field(chain=["value"]), order="DESC"),
                 ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
             ],
+            limit=ast.Constant(
+                value=10000
+            ),  # Need a huge limit because we need (dates x products)-many rows to be returned
         )
 
     def _get_subqueries(self) -> list[ast.SelectQuery]:
@@ -82,26 +89,37 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             if selects["charge"] is None:
                 continue
 
+            charge_alias = f"charge_{view_name}"
+
             query = ast.SelectQuery(
                 select=[
                     ast.Alias(alias="breakdown_by", expr=ast.Constant(value=view_name)),
-                    ast.Alias(alias="amount", expr=ast.Field(chain=["charge", "amount"])),
+                    ast.Alias(alias="amount", expr=ast.Field(chain=[charge_alias, "amount"])),
                     ast.Alias(
                         alias="day_start",
                         expr=ast.Call(
                             name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                            args=[ast.Field(chain=["charge", "timestamp"])],
+                            args=[ast.Field(chain=[charge_alias, "timestamp"])],
                         ),
                     ),
                 ],
-                select_from=ast.JoinExpr(alias="charge", table=selects["charge"]),
-                where=self.timestamp_where_clause(),
+                select_from=ast.JoinExpr(alias=charge_alias, table=selects["charge"]),
+                where=self.timestamp_where_clause(chain=[charge_alias, "timestamp"]),
             )
 
-            # Join with item to get access to the product name
-            # and also change the `breakdown_by` to include the `product_name`
-            if selects["item"] is not None:
-                if query.select and query.select[0] and isinstance(query.select[0], ast.Alias):  # Make mypy happy
+            # Join with invoice and product to get access to the `product_name``
+            # and also change the `breakdown_by` to include that
+            if selects["invoice_item"] is not None and selects["product"] is not None:
+                invoice_item_alias = f"invoice_item_{view_name}"
+                product_alias = f"product_{view_name}"
+
+                # If checks to make mypy happy
+                if (
+                    query.select
+                    and query.select[0]
+                    and isinstance(query.select[0], ast.Alias)
+                    and query.select[0].alias == "breakdown_by"
+                ):  # Make mypy happy
                     query.select[0].expr = ast.Call(
                         name="concat",
                         args=[
@@ -110,24 +128,47 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                             ast.Call(
                                 name="coalesce",
                                 args=[
-                                    ast.Field(chain=["item", "product_name"]),
+                                    ast.Field(chain=[product_alias, "name"]),
                                     ast.Constant(value=NO_PRODUCT_PLACEHOLDER),
                                 ],
                             ),
                         ],
                     )
 
+                if (
+                    query.select
+                    and query.select[1]
+                    and isinstance(query.select[1], ast.Alias)
+                    and query.select[1].alias == "amount"
+                ):
+                    query.select[1].expr = ast.Alias(
+                        alias="amount", expr=ast.Field(chain=[invoice_item_alias, "amount"])
+                    )
+
                 if query.select_from is not None:
                     query.select_from.next_join = ast.JoinExpr(
-                        table=selects["item"],
-                        alias="item",
-                        join_type="LEFT JOIN",
+                        table=selects["invoice_item"],
+                        alias=invoice_item_alias,
+                        join_type="LEFT OUTER JOIN",
                         constraint=ast.JoinConstraint(
                             constraint_type="ON",
                             expr=ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["charge", "invoice_id"]),
-                                right=ast.Field(chain=["item", "id"]),
+                                left=ast.Field(chain=[charge_alias, "invoice_id"]),
+                                right=ast.Field(chain=[invoice_item_alias, "id"]),
+                            ),
+                        ),
+                        next_join=ast.JoinExpr(
+                            table=selects["product"],
+                            alias=product_alias,
+                            join_type="LEFT OUTER JOIN",
+                            constraint=ast.JoinConstraint(
+                                constraint_type="ON",
+                                expr=ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=[invoice_item_alias, "product_id"]),
+                                    right=ast.Field(chain=[product_alias, "id"]),
+                                ),
                             ),
                         ),
                     )
@@ -148,7 +189,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
 
         response = execute_hogql_query(
             query_type="revenue_analytics_insights_query",
-            query=self.to_query(),
+            query=query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
@@ -166,22 +207,23 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         # and then we can just add the data to the results
         # [0, 1, 2] -> [value, day_start, breakdown_by]
         grouped_results = {}
-        breakdowns = set()
+        breakdowns = []
         for value, day_start, breakdown_by in response.results:
-            breakdowns.add(breakdown_by)
+            # Use array to guarantee insertion order
+            if breakdown_by not in breakdowns:
+                breakdowns.append(breakdown_by)
             grouped_results[(breakdown_by, day_start.strftime("%Y-%m-%d"))] = value
 
-        results = []
-        for breakdown in breakdowns:
-            results.append(
-                {
-                    "action": {"days": all_dates, "id": breakdown, "name": breakdown},
-                    "data": [grouped_results.get((breakdown, day), 0) for day in days],
-                    "days": days,
-                    "label": breakdown,
-                    "labels": labels,
-                }
-            )
+        results = [
+            {
+                "action": {"days": all_dates, "id": breakdown, "name": breakdown},
+                "data": [grouped_results.get((breakdown, day), 0) for day in days],
+                "days": days,
+                "label": breakdown,
+                "labels": labels,
+            }
+            for breakdown in breakdowns
+        ]
 
         return RevenueAnalyticsInsightsQueryResponse(
             results=results,
