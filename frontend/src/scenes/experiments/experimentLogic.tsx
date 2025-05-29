@@ -910,7 +910,7 @@ export const experimentLogic = kea<experimentLogicType>([
                              * the recommended running time. If we are duplicating we want to
                              * preserve this values.
                              */
-                            props.formMode === 'create'
+                            props.formMode === FORM_MODES.create
                                 ? {
                                       ...values.experiment?.parameters,
                                       recommended_running_time: recommendedRunningTime,
@@ -1424,7 +1424,7 @@ export const experimentLogic = kea<experimentLogicType>([
                          * if we are duplicating, we need to clear a lot of props to ensure that
                          * the experiment will be in draft mode and available for launch
                          */
-                        if (props.formMode === 'duplicate') {
+                        if (props.formMode === FORM_MODES.duplicate) {
                             response = {
                                 ...response,
                                 name: `${response.name} (duplicate)`,
@@ -1980,7 +1980,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             }),
             submit: () => {
-                if (values.experimentId && (['create', 'duplicate'] as FormModes[]).includes(props.formMode!)) {
+                if (
+                    values.experimentId &&
+                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(props.formMode!)
+                ) {
                     actions.createExperiment(true)
                 } else {
                     openSaveToModal({

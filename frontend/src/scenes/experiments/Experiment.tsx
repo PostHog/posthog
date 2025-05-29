@@ -22,5 +22,9 @@ export function Experiment(): JSX.Element {
         return <NotFound object="experiment" />
     }
 
-    return ['create', 'duplicate'].includes(formMode) ? <ExperimentForm /> : <ExperimentView />
+    return ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
+        <ExperimentForm />
+    ) : (
+        <ExperimentView />
+    )
 }
