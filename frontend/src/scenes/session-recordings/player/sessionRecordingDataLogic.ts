@@ -897,10 +897,10 @@ LIMIT 1000000
             (s) => [s.start, s.snapshotSources],
             (start, snapshotSources) => {
                 // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
-                const isOlderThan24Hours = dayjs().diff(start, 'hour') > 30
+                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
                 const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
                 const hasNoSources = snapshotSources?.length === 0
-                return isOlderThan24Hours && (onlyHasRealTime || hasNoSources)
+                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
             },
         ],
 
