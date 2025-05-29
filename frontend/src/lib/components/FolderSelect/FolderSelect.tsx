@@ -1,4 +1,3 @@
-import { IconCheckCircle } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -11,6 +10,8 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+
 export interface FolderSelectProps {
     /** The folder to select */
     value?: string
@@ -22,14 +23,23 @@ export interface FolderSelectProps {
     root?: string
     /** Include "products://" in the final path */
     includeProtocol?: boolean
+    /** Include root item in the tree as a selectable item */
+    includeRoot?: boolean
 }
 
 /** Input component for selecting a folder */
 let counter = 0
 
-export function FolderSelect({ value, onChange, root, className, includeProtocol }: FolderSelectProps): JSX.Element {
+export function FolderSelect({
+    value,
+    onChange,
+    root,
+    className,
+    includeProtocol,
+    includeRoot,
+}: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root }
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
 
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
@@ -44,7 +54,6 @@ export function FolderSelect({ value, onChange, root, className, includeProtocol
         toggleFolderOpen,
     } = useActions(projectTreeLogic(props))
     const treeRef = useRef<LemonTreeRef>(null)
-    const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
 
     useEffect(() => {
         if (includeProtocol) {
@@ -105,7 +114,7 @@ export function FolderSelect({ value, onChange, root, className, includeProtocol
                 onChange={(search) => setSearchTerm(search)}
                 value={searchTerm}
             />
-            <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
+            <ScrollableShadows direction="vertical" className={clsx('bg-surface-primary border rounded', className)}>
                 <LemonTree
                     ref={treeRef}
                     selectMode="folder-only"
@@ -132,29 +141,13 @@ export function FolderSelect({ value, onChange, root, className, includeProtocol
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
                             if (includeProtocol) {
-                                setSelectedFolder(folder.id)
                                 toggleFolderOpen(folder.id, isExpanded)
                                 onChange?.(folder.id)
                             } else {
-                                setSelectedFolder(folder.record?.path)
                                 toggleFolderOpen(folder.id || '', isExpanded)
                                 onChange?.(folder.record?.path ?? '')
                             }
                         }
-                    }}
-                    renderItem={(item) => {
-                        return (
-                            <span>
-                                {item.record?.path === selectedFolder ? (
-                                    <span className="flex items-center gap-1">
-                                        {item.displayName}
-                                        <IconCheckCircle className="size-4 text-success" />
-                                    </span>
-                                ) : (
-                                    item.displayName
-                                )}
-                            </span>
-                        )
                     }}
                     expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                     onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
@@ -177,7 +170,7 @@ export function FolderSelect({ value, onChange, root, className, includeProtocol
                         )
                     }}
                 />
-            </div>
+            </ScrollableShadows>
         </div>
     )
 }

@@ -28,6 +28,7 @@ from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import (
     FunnelQueryContext,
 )
+from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownFilter,
@@ -167,6 +168,7 @@ async def _run(
 
         assert run is not None
         assert run.status == ExternalDataJob.Status.COMPLETED
+        assert run.finished_at is not None
 
         mock_trigger_compaction_job.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
@@ -187,6 +189,10 @@ async def _run(
 
         await sync_to_async(schema.refresh_from_db)()
         assert schema.sync_type_config.get("reset_pipeline", None) is None
+
+        table: DataWarehouseTable | None = await sync_to_async(lambda: schema.table)()
+        assert table is not None
+        assert table.size_in_s3_mib is not None
 
     return workflow_id, inputs
 

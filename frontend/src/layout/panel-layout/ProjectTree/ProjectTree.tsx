@@ -1,11 +1,19 @@
-import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import {
+    IconCheckbox,
+    IconChevronDown,
+    IconChevronRight,
+    IconFolder,
+    IconFolderPlus,
+    IconPlusSmall,
+    IconX,
+} from '@posthog/icons'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -29,13 +37,19 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { DashboardsMenu } from './menus/DashboardsMenu'
+import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
+import { SessionReplayMenu } from './menus/SessionReplayMenu'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
+import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -44,6 +58,7 @@ export interface ProjectTreeProps {
     root?: string
     onlyTree?: boolean
     searchPlaceholder?: string
+    treeSize?: LemonTreeSize
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -55,10 +70,12 @@ export function ProjectTree({
     root,
     onlyTree = false,
     searchPlaceholder,
+    treeSize = 'default',
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { treeItemsNew, viableItems } = useValues(projectTreeDataLogic)
-    const { setLastNewFolder, deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const { viableItems } = useValues(projectTreeDataLogic)
+    const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
         treeTableKeys,
@@ -77,7 +94,7 @@ export function ProjectTree({
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
-    } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
+    } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
         createFolder,
         rename,
@@ -99,8 +116,7 @@ export function ProjectTree({
         setTreeTableColumnSizes,
         setSelectMode,
         setSearchTerm,
-        clearSearch,
-    } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
+    } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -108,6 +124,8 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+
+    const showFilterDropdown = root === 'project://'
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -137,9 +155,23 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
+        const showSelectMenuItems =
+            item.record?.protocol === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+
+        // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
+        const productMenu =
+            item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
+                <ProductAnalyticsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : item.record?.protocol === 'products://' && item.name === 'Dashboards' ? (
+                <DashboardsMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : item.record?.protocol === 'products://' && item.name === 'Session replay' ? (
+                <SessionReplayMenu MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+            ) : null
+
         return (
             <>
-                {item.record?.path && !item.disableSelect ? (
+                {productMenu}
+                {showSelectMenuItems ? (
                     <>
                         <MenuItem
                             asChild
@@ -208,97 +240,18 @@ export function ProjectTree({
                     </>
                 ) : null}
 
-                {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
+                {(item.record?.protocol === 'project://' && item.record?.type === 'folder') ||
+                item.id?.startsWith('project-folder-empty/') ? (
                     <>
                         <MenuSub key="new">
                             <MenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
                                     New...
-                                    <IconChevronRight className="ml-auto h-4 w-4" />
+                                    <IconChevronRight className="ml-auto size-3" />
                                 </ButtonPrimitive>
                             </MenuSubTrigger>
                             <MenuSubContent>
-                                <MenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        createFolder(item.record?.path)
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>
-                                        <IconFolder />
-                                        Folder
-                                    </ButtonPrimitive>
-                                </MenuItem>
-                                <MenuSeparator />
-                                {treeItemsNew.map((treeItem): JSX.Element => {
-                                    if (treeItem.children) {
-                                        return (
-                                            <MenuSub key={treeItem.id}>
-                                                <MenuSubTrigger asChild inset>
-                                                    <ButtonPrimitive menuItem>
-                                                        {treeItem.name ||
-                                                            treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
-                                                        ...
-                                                        <IconChevronRight className="ml-auto h-4 w-4" />
-                                                    </ButtonPrimitive>
-                                                </MenuSubTrigger>
-                                                <MenuSubContent>
-                                                    {treeItem.children.map((child) => (
-                                                        <MenuItem
-                                                            key={child.id}
-                                                            asChild
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                const folder = item.record?.path
-                                                                if (folder) {
-                                                                    setLastNewFolder(folder)
-                                                                }
-                                                                if (child.record?.href) {
-                                                                    router.actions.push(
-                                                                        typeof child.record.href === 'function'
-                                                                            ? child.record.href(child.record.ref)
-                                                                            : child.record.href
-                                                                    )
-                                                                }
-                                                            }}
-                                                        >
-                                                            <ButtonPrimitive menuItem className="capitalize">
-                                                                {child.icon}
-                                                                {child.name}
-                                                            </ButtonPrimitive>
-                                                        </MenuItem>
-                                                    ))}
-                                                </MenuSubContent>
-                                            </MenuSub>
-                                        )
-                                    }
-                                    return (
-                                        <MenuItem
-                                            key={treeItem.id}
-                                            asChild
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                const folder = item.record?.path
-                                                if (folder) {
-                                                    setLastNewFolder(folder)
-                                                }
-                                                if (treeItem.record?.href) {
-                                                    router.actions.push(
-                                                        typeof treeItem.record.href === 'function'
-                                                            ? treeItem.record.href(treeItem.record.ref)
-                                                            : treeItem.record.href
-                                                    )
-                                                }
-                                            }}
-                                        >
-                                            <ButtonPrimitive menuItem>
-                                                {treeItem.icon}
-                                                {treeItem.name}
-                                            </ButtonPrimitive>
-                                        </MenuItem>
-                                    )
-                                })}
+                                <NewMenu type={type} item={item} createFolder={createFolder} />
                             </MenuSubContent>
                         </MenuSub>
 
@@ -330,22 +283,25 @@ export function ProjectTree({
                     )
                 ) : null}
 
-                <MenuItem
-                    asChild
-                    onClick={(e: any) => {
-                        e.stopPropagation()
-                        if (
-                            checkedItemsArray.length > 0 &&
-                            checkedItemsArray.find(({ id }) => id === item.record?.id)
-                        ) {
-                            openMoveToModal(checkedItemsArray)
-                        } else {
-                            openMoveToModal([item.record as unknown as FileSystemEntry])
-                        }
-                    }}
-                >
-                    <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
-                </MenuItem>
+                {item.id.startsWith('project/') || item.id.startsWith('project://') ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            if (
+                                checkedItemsArray.length > 0 &&
+                                checkedItemsArray.find(({ id }) => id === item.record?.id)
+                            ) {
+                                openMoveToModal(checkedItemsArray)
+                            } else {
+                                openMoveToModal([item.record as unknown as FileSystemEntry])
+                            }
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
                 {item.record?.path && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
@@ -411,6 +367,7 @@ export function ProjectTree({
                 }
                 return window.location.href.endsWith(item.record?.href)
             }}
+            size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
@@ -520,6 +477,15 @@ export function ProjectTree({
                 }
                 return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
             }}
+            itemSideActionIcon={(item) => {
+                if (item.record?.protocol === 'products://') {
+                    if (item.name === 'Product analytics') {
+                        return <IconPlusSmall className="text-tertiary" />
+                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
+                        return <IconChevronDown className="text-tertiary" />
+                    }
+                }
+            }}
             emptySpaceContextMenu={() => {
                 return (
                     <ContextMenuGroup>
@@ -578,7 +544,7 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
 
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
@@ -622,10 +588,19 @@ export function ProjectTree({
             }}
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
-
+                const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
+                if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
+                    return <>View {nameNode}</>
+                }
+                if (root === 'new://') {
+                    if (item.children) {
+                        return <>View all</>
+                    }
+                    return <>Create a new {nameNode}</>
+                }
                 return projectTreeMode === 'tree' ? (
                     <>
-                        Name: <span className="font-semibold">{item.displayName}</span> <br />
+                        Name: {nameNode} <br />
                         Created by:{' '}
                         <ProfilePicture
                             user={user || { first_name: 'PostHog' }}
@@ -669,10 +644,26 @@ export function ProjectTree({
                         >
                             {item.displayName}
                         </span>
+
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <span className="text-tertiary text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
+                        )}
+
+                        {item.record?.protocol === 'products://' && item.tags?.length && (
+                            <>
+                                {item.tags?.map((tag) => (
+                                    <LemonTag
+                                        key={tag}
+                                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                                        size="small"
+                                        className="ml-2 relative top-[-1px]"
+                                    >
+                                        {tag.toUpperCase()}
+                                    </LemonTag>
+                                ))}
+                            </>
                         )}
                     </span>
                 )
@@ -686,49 +677,63 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            clearSearch={clearSearch}
-            showFilterDropdown={true}
-            searchPlaceholder={
-                searchPlaceholder ?? (sortMethod === 'recent' ? 'Search recent items' : 'Search your project')
+            filterDropdown={
+                showFilterDropdown ? (
+                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
+                ) : null
+            }
+            searchField={
+                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        logicKey={logicKey}
+                        uniqueKey={uniqueKey}
+                    />
+                </BindLogic>
             }
             panelActions={
-                <>
-                    {sortMethod !== 'recent' ? (
-                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
-                            <IconFolderPlus className="text-tertiary" />
-                        </ButtonPrimitive>
-                    ) : null}
+                root === 'project://' ? (
+                    <>
+                        {sortMethod !== 'recent' ? (
+                            <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
+                                <IconFolderPlus className="text-tertiary" />
+                            </ButtonPrimitive>
+                        ) : null}
 
-                    {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
-                        <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
-                            <IconCheckbox className="text-tertiary size-4" />
-                        </ButtonPrimitive>
-                    ) : (
-                        <>
-                            {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        setCheckedItems({})
-                                        setSelectMode('default')
-                                    }}
-                                    tooltip="Clear selected and disable multi-select"
-                                >
-                                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                                </ButtonPrimitive>
-                            ) : (
-                                <ButtonPrimitive
-                                    onClick={() => setSelectMode('default')}
-                                    tooltip="Disable multi-select"
-                                    iconOnly
-                                >
-                                    <IconX className="text-tertiary size-4" />
-                                </ButtonPrimitive>
-                            )}
-                        </>
-                    )}
-                </>
+                        {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                            <ButtonPrimitive
+                                onClick={() => setSelectMode('multi')}
+                                tooltip="Enable multi-select"
+                                iconOnly
+                            >
+                                <IconCheckbox className="text-tertiary size-4" />
+                            </ButtonPrimitive>
+                        ) : (
+                            <>
+                                {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
+                                    <ButtonPrimitive
+                                        onClick={() => {
+                                            setCheckedItems({})
+                                            setSelectMode('default')
+                                        }}
+                                        tooltip="Clear selected and disable multi-select"
+                                    >
+                                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                                    </ButtonPrimitive>
+                                ) : (
+                                    <ButtonPrimitive
+                                        onClick={() => setSelectMode('default')}
+                                        tooltip="Disable multi-select"
+                                        iconOnly
+                                    >
+                                        <IconX className="text-tertiary size-4" />
+                                    </ButtonPrimitive>
+                                )}
+                            </>
+                        )}
+                    </>
+                ) : null
             }
         >
             <ButtonPrimitive

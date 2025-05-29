@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +19,7 @@ import {
 import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
-import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
@@ -75,12 +76,10 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
     connect(() => ({
         values: [
-            dataWarehouseSceneLogic,
-            ['dataWarehouseTablesBySourceType'],
             databaseTableListLogic,
-            ['database', 'managedViews'],
-            revenueEventsSettingsLogic,
-            ['baseCurrency', 'events as allEvents', 'dataWarehouseSources as allDataWarehouseSources'],
+            ['managedViews'],
+            revenueAnalyticsSettingsLogic,
+            ['baseCurrency', 'events', 'dataWarehouseSources', 'goals as revenueGoals'],
         ],
         actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
     })),
@@ -156,6 +155,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ],
         ],
 
+        revenueEnabledEvents: [(s) => [s.events], (events) => events],
+        revenueEnabledDataWarehouseSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources) =>
+                dataWarehouseSources === null
+                    ? null
+                    : dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
+        ],
+
         disabledGrowthModeSelection: [(s) => [s.dateFilter], (dateFilter): boolean => dateFilter.interval !== 'month'],
 
         disabledTopCustomersModeSelection: [
@@ -163,19 +171,17 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (dateFilter): boolean => dateFilter.interval !== 'month',
         ],
 
-        hasRevenueEvents: [(s) => [s.allEvents], (allEvents): boolean => allEvents.length > 0],
+        hasRevenueEvents: [(s) => [s.revenueEnabledEvents], (events): boolean => events.length > 0],
 
         hasRevenueTables: [
-            (s) => [s.database, s.dataWarehouseTablesBySourceType],
-            (database, dataWarehouseTablesBySourceType): boolean | null => {
-                // Indicate loading state with `null` if we don't have a database yet
-                if (database === null) {
+            (s) => [s.revenueEnabledDataWarehouseSources],
+            (dataWarehouseSources): boolean | null => {
+                // Indicate loading state with `null` if we haven't loaded this yet
+                if (dataWarehouseSources === null) {
                     return null
                 }
 
-                // Eventually we'll want to look at our revenue views,
-                // but for now checking whether we have Stripe tables is enough
-                return Boolean(dataWarehouseTablesBySourceType['Stripe']?.length)
+                return Boolean(dataWarehouseSources.length)
             },
         ],
 
@@ -187,7 +193,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }
 
                 const dataWarehouseSourceIds = rawRevenueSources.dataWarehouseSources.map((source) => source.id)
-                const eventNames = rawRevenueSources.events.map((e) => e.eventName)
+                const eventNames = rawRevenueSources.events.map((e) => e.eventName.replace(/[^a-zA-Z0-9]/g, '_')) // Sanitizing event names to ensure they're valid as database identifiers - matches transformation in backend/views.py
 
                 return managedViews
                     .filter((view) => view.kind === DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE)
@@ -198,7 +204,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         }
 
                         // Comes from events
-                        return eventNames.includes(view.name)
+                        return eventNames.some((eventName) => view.name.includes(eventName))
                     })
             },
         ],
@@ -208,6 +214,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 s.dateFilter,
                 s.rawRevenueSources,
                 s.chargeRevenueViews,
+                s.revenueGoals,
                 s.topCustomersDisplayMode,
                 s.growthRateDisplayMode,
                 s.baseCurrency,
@@ -216,6 +223,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 dateFilter,
                 rawRevenueSources,
                 chargeRevenueViews,
+                revenueGoals,
                 topCustomersDisplayMode,
                 growthRateDisplayMode,
                 baseCurrency
@@ -271,6 +279,21 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                                 aggregationAxisFormat: 'numeric',
                                 aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                                 aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+                                goalLines: revenueGoals.map((goal) => {
+                                    const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
+
+                                    return {
+                                        label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
+                                        value: goal.goal,
+                                        displayLabel: true,
+                                        borderColor: isFuture ? 'green' : 'red',
+
+                                        // Only display smaller goals that are in the future
+                                        // This implies that past goals that have been achieved already
+                                        // will not be displayed
+                                        displayIfCrossed: isFuture,
+                                    }
+                                }),
                             },
                         },
                     },
@@ -293,19 +316,40 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
+    actionToUrl(() => ({
+        setDates: ({ dateFrom, dateTo }): string => {
+            const searchParams = { ...router.values.searchParams }
+            const urlParams = new URLSearchParams(searchParams)
+
+            urlParams.set('date_from', dateFrom ?? '')
+            urlParams.set('date_to', dateTo ?? '')
+
+            return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.revenueAnalytics()]: (_, { date_from, date_to }) => {
+            if (
+                (date_from && date_from !== values.dateFilter.dateFrom) ||
+                (date_to && date_to !== values.dateFilter.dateTo)
+            ) {
+                actions.setDates(date_from, date_to)
+            }
+        },
+    })),
     listeners(({ actions, values }) => ({
         loadSourcesSuccess: ({ dataWarehouseSources }) => {
             actions.setRevenueSources({
-                events: values.allEvents,
+                events: values.events,
                 dataWarehouseSources: dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
             })
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.allEvents !== null && values.allDataWarehouseSources !== null) {
+        if (values.events !== null && values.dataWarehouseSources !== null) {
             actions.setRevenueSources({
-                events: values.allEvents,
-                dataWarehouseSources: values.allDataWarehouseSources.results.filter(
+                events: values.events,
+                dataWarehouseSources: values.dataWarehouseSources.results.filter(
                     (source) => source.revenue_analytics_enabled
                 ),
             })

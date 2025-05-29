@@ -8,11 +8,11 @@ from dags.common import JobOwners
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
-    WEB_OVERVIEW_METRICS_DAILY_SQL,
-    DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL,
+    DISTRIBUTED_WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_DAILY_SQL,
     DISTRIBUTED_WEB_STATS_DAILY_SQL,
-    WEB_OVERVIEW_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -26,7 +26,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
     ),
     "clickhouse_settings": Field(
         str,
-        default_value="max_execution_time=600",
+        default_value="max_execution_time=1200,max_bytes_before_external_group_by=21474836480,distributed_aggregation_memory_efficient=1",
         description="ClickHouse execution settings",
     ),
 }
@@ -65,15 +65,16 @@ def pre_aggregate_web_analytics_data(
 def web_analytics_preaggregated_tables(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
-    def create_tables(client: Client):
-        client.execute(WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_daily"))
-        client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
-        client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
-        client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
-
     def drop_tables(client: Client):
-        client.execute("DROP TABLE IF EXISTS web_overview_daily SYNC")
         client.execute("DROP TABLE IF EXISTS web_stats_daily SYNC")
+        client.execute("DROP TABLE IF EXISTS web_bounces_daily SYNC")
+
+    def create_tables(client: Client):
+        client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
+        client.execute(WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"))
+
+        client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
+        client.execute(DISTRIBUTED_WEB_BOUNCES_DAILY_SQL())
 
     cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
@@ -81,23 +82,21 @@ def web_analytics_preaggregated_tables(
 
 
 @dagster.asset(
-    name="web_analytics_overview_daily",
+    name="web_analytics_bounces_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
-    metadata={"table": "web_overview_daily"},
+    metadata={"table": "web_bounces_daily"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_overview_daily(
+def web_bounces_daily(
     context: dagster.AssetExecutionContext,
 ) -> None:
     """
-    Daily aggregated for the top overview tiles for web analytics which includes total pageviews, bounce rate, and average session duration.
+    Daily bounce rate data for web analytics. Intended for internal use on other queries
     """
     return pre_aggregate_web_analytics_data(
-        context=context,
-        table_name="web_overview_daily",
-        sql_generator=WEB_OVERVIEW_INSERT_SQL,
+        context=context, table_name="web_bounces_daily", sql_generator=WEB_BOUNCES_INSERT_SQL
     )
 
 
@@ -139,8 +138,13 @@ def recreate_web_analytics_preaggregated_internal_data_daily(context: dagster.Sc
     while we test the integration. The usage of pre-aggregated tables is controlled
     by a query modifier AND is behind a feature flag.
     """
+    team_ids = [2]
+
     return dagster.RunRequest(
         run_config={
-            "team_ids": [2]  # We only care about the scheduler in prod so we're good with magic team
+            "ops": {
+                "web_analytics_bounces_daily": {"config": {"team_ids": team_ids}},
+                "web_analytics_stats_table_daily": {"config": {"team_ids": team_ids}},
+            }
         },
     )

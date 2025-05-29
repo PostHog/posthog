@@ -1,25 +1,12 @@
-import { IconCdCase, IconCheck, IconDocument, IconFilter, IconPin, IconPinFilled, IconUser } from '@posthog/icons'
+import { IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
-import { IconBlank } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { getTreeFilterTypes } from '~/products'
-import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
@@ -30,17 +17,9 @@ interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
     children: React.ReactNode
-    showFilterDropdown?: boolean
-    searchTerm: string
-    clearSearch: () => void
-    setSearchTerm: (searchTerm: string) => void
+    filterDropdown?: React.ReactNode
+    searchField?: React.ReactNode
 }
-
-// Match with FileSystemViewSet
-const productTypesMapped: [string, string][] = Object.entries(getTreeFilterTypes()).map(([key, value]) => [
-    key,
-    value.name,
-])
 
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
@@ -55,6 +34,10 @@ const panelLayoutPanelVariants = cva({
         },
         isMobileLayout: {
             true: 'absolute top-0 left-[var(--panel-layout-mobile-offset)] bottom-0 z-[var(--z-layout-panel)]',
+            false: '',
+        },
+        panelWillHide: {
+            true: 'opacity-50',
             false: '',
         },
     },
@@ -85,103 +68,18 @@ const panelLayoutPanelVariants = cva({
     ],
 })
 
-interface FiltersDropdownProps {
-    setSearchTerm: (searchTerm: string) => void
-    searchTerm: string
-}
-
-export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const types: [string, FileSystemFilterType][] = [
-        ...Object.entries(getTreeFilterTypes()),
-        ['destination', { name: 'Destinations' }],
-        ['site_app', { name: 'Site apps' }],
-        ['source', { name: 'Sources' }],
-        ['transformation', { name: 'Transformations' }],
-    ]
-    const removeTagsStarting = (str: string, tag: string): string =>
-        str
-            .split(' ')
-            .filter((p) => !p.startsWith(tag))
-            .join(' ')
-            .trim()
-    const removeTagsEquals = (str: string, tag: string): string =>
-        str
-            .split(' ')
-            .filter((p) => p != tag)
-            .join(' ')
-            .trim()
-    const addTag = (str: string, tag: string): string => `${str.trim()} ${tag.trim()}`.trim()
-
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive
-                    iconOnly
-                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
-                >
-                    <IconFilter className="size-3 text-tertiary" />
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                <DropdownMenuGroup>
-                    <DropdownMenuItem
-                        onClick={(e) => {
-                            e.preventDefault()
-                            setSearchTerm(
-                                searchTerm.includes('user:me')
-                                    ? removeTagsEquals(searchTerm, 'user:me')
-                                    : addTag(searchTerm, 'user:me')
-                            )
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>
-                            {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
-                            Only my stuff
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {types
-                        .filter(([_, { flag }]) => !flag || featureFlags[flag as keyof typeof featureFlags])
-                        .map(([obj, { name }]) => (
-                            <DropdownMenuItem
-                                key={obj}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    setSearchTerm(
-                                        searchTerm.includes(`type:${obj}`)
-                                            ? removeTagsStarting(searchTerm, 'type:')
-                                            : addTag(removeTagsStarting(searchTerm, 'type:'), `type:${obj}`)
-                                    )
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>
-                                    {searchTerm.includes(`type:${obj}`) ? <IconCheck /> : <IconBlank />}
-                                    {name}
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        ))}
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
-    )
-}
-
 export function PanelLayoutPanel({
-    searchPlaceholder,
-    searchTerm,
-    clearSearch,
-    setSearchTerm,
+    searchField,
     panelActions,
     children,
-    showFilterDropdown = false,
+    filterDropdown,
 }: PanelLayoutPanelProps): JSX.Element {
-    const { toggleLayoutPanelPinned, setPanelWidth } = useActions(panelLayoutLogic)
+    const { toggleLayoutPanelPinned, setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelPinned,
-        panelTreeRef,
         isLayoutNavCollapsed,
         panelWidth: computedPanelWidth,
+        panelWillHide,
     } = useValues(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
@@ -194,6 +92,7 @@ export function PanelLayoutPanel({
                     projectTreeMode: projectTreeMode,
                     isLayoutNavCollapsed,
                     isMobileLayout,
+                    panelWillHide,
                 })
             )}
             ref={containerRef}
@@ -219,60 +118,16 @@ export function PanelLayoutPanel({
                 </div>
             </div>
             <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
-                <div className="flex gap-1 p-1 items-center justify-between">
-                    <SearchAutocomplete
-                        inputPlaceholder={searchPlaceholder}
-                        includeNegation
-                        searchData={[
-                            [
-                                {
-                                    value: 'user',
-                                    label: 'user',
-                                    hint: 'Search by user name',
-                                    icon: <IconUser />,
-                                },
-                                [{ value: 'me', label: 'Me', hint: 'My stuff', icon: <IconUser /> }],
-                                'enter a user, quotes are supported',
-                            ],
-                            [
-                                {
-                                    value: 'type',
-                                    label: 'type',
-                                    hint: 'Search by type',
-                                    icon: <IconCdCase />,
-                                },
-                                productTypesMapped.map(([value, label]) => ({ value, label })),
-                                'enter a type',
-                            ],
-                            [
-                                {
-                                    value: 'name',
-                                    label: 'name',
-                                    hint: 'Search by item name',
-                                    icon: <IconDocument />,
-                                },
-                                undefined,
-                                'enter a name, quotes are supported',
-                            ],
-                        ]}
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowDown') {
-                                e.preventDefault() // Prevent scrolling
-                                const visibleItems = panelTreeRef?.current?.getVisibleItems()
-                                if (visibleItems && visibleItems.length > 0) {
-                                    e.currentTarget.blur() // Remove focus from input
-                                    panelTreeRef?.current?.focusItem(visibleItems[0].id)
-                                }
-                            }
-                        }}
-                        onClear={() => clearSearch()}
-                        onChange={(value) => setSearchTerm(value)}
-                        autoFocus={true}
-                    />
-                    {showFilterDropdown && <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />}
-                </div>
-                <div className="border-b border-primary h-px" />
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
+                {searchField || filterDropdown ? (
+                    <>
+                        <div className="flex gap-1 p-1 items-center justify-between">
+                            {searchField ?? null}
+                            {filterDropdown ?? null}
+                        </div>
+                        <div className="border-b border-primary h-px" />
+                    </>
+                ) : null}
                 {children}
             </div>
         </nav>
@@ -292,6 +147,8 @@ export function PanelLayoutPanel({
             aria-label="Resize handle for panel layout panel"
             borderPosition="right"
             innerClassName="z-[var(--z-layout-panel)]"
+            onResizeStart={() => setPanelIsResizing(true)}
+            onResizeEnd={() => setPanelIsResizing(false)}
         >
             {panelContents}
         </ResizableElement>

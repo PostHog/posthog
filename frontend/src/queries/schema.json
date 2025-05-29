@@ -526,6 +526,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueFilter"
+                },
+                {
+                    "$ref": "#/definitions/LogPropertyFilter"
                 }
             ]
         },
@@ -7905,8 +7908,21 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "earliest": {
-                    "type": "string"
+                "first_event": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "properties": {
+                            "type": "string"
+                        },
+                        "timestamp": {
+                            "type": "string"
+                        },
+                        "uuid": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["uuid", "timestamp", "properties"],
+                    "type": "object"
                 },
                 "first_seen": {
                     "format": "date-time",
@@ -7930,17 +7946,7 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "aggregations",
-                "assignee",
-                "description",
-                "first_seen",
-                "id",
-                "last_seen",
-                "library",
-                "name",
-                "status"
-            ],
+            "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -7955,12 +7961,6 @@
                 "users": {
                     "type": "number"
                 },
-                "volumeDay": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
                 "volumeRange": {
                     "items": {
                         "type": "number"
@@ -7968,7 +7968,7 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeRange"],
+            "required": ["occurrences", "sessions", "users", "volumeRange"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -8074,6 +8074,12 @@
                 },
                 "volumeResolution": {
                     "$ref": "#/definitions/integer"
+                },
+                "withAggregations": {
+                    "type": "boolean"
+                },
+                "withFirstEvent": {
+                    "type": "boolean"
                 }
             },
             "required": ["dateRange", "kind", "volumeResolution"],
@@ -9528,6 +9534,14 @@
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
                 },
+                "tags": {
+                    "description": "Tag for the product 'beta' / 'alpha'",
+                    "items": {
+                        "enum": ["alpha", "beta"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
@@ -9568,6 +9582,10 @@
                     "description": "Object's name and folder",
                     "type": "string"
                 },
+                "protocol": {
+                    "description": "Protocol of the item, defaults to \"project://\"",
+                    "type": "string"
+                },
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
@@ -9576,9 +9594,21 @@
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
                 },
+                "tags": {
+                    "description": "Tag for the product 'beta' / 'alpha'",
+                    "items": {
+                        "enum": ["alpha", "beta"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "visualOrder": {
+                    "description": "Order of object in tree",
+                    "type": "number"
                 }
             },
             "required": ["path"],
@@ -10366,6 +10396,9 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "displayIfCrossed": {
+                    "type": "boolean"
+                },
                 "displayLabel": {
                     "type": "boolean"
                 },
@@ -10883,6 +10916,9 @@
                 "bounceRatePageViewMode": {
                     "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
+                },
+                "convertToProjectTimezone": {
+                    "type": "boolean"
                 },
                 "customChannelTypeRules": {
                     "items": {
@@ -12188,8 +12224,31 @@
             ],
             "type": "object"
         },
+        "LogPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "log",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "LogSeverityLevel": {
-            "enum": ["debug", "info", "warn", "error"],
+            "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
             "type": "string"
         },
         "LogsQuery": {
@@ -12197,6 +12256,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "kind": {
                     "const": "LogsQuery",
@@ -12232,7 +12294,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "kind", "orderBy", "severityLevels"],
+            "required": ["dateRange", "filterGroup", "kind", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
@@ -12819,6 +12881,31 @@
             "required": ["results"],
             "type": "object"
         },
+        "PersistedFolder": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
+            "type": "object"
+        },
         "PersonPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -12952,7 +13039,8 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue"
+                "error_tracking_issue",
+                "log"
             ],
             "type": "string"
         },
@@ -16857,9 +16945,16 @@
                         "$ref": "#/definitions/RevenueAnalyticsEventItem"
                     },
                     "type": "array"
+                },
+                "goals": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGoal"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["base_currency", "events"],
+            "required": ["base_currency", "events", "goals"],
             "type": "object"
         },
         "RevenueAnalyticsEventItem": {
@@ -16884,6 +16979,22 @@
                 }
             },
             "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
+            "type": "object"
+        },
+        "RevenueAnalyticsGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "due_date": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "due_date", "goal"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
@@ -18117,6 +18228,7 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
+                "logs",
                 "replay",
                 "resources"
             ],
@@ -19276,6 +19388,9 @@
                 },
                 "previous": {
                     "type": "number"
+                },
+                "usedPreAggregatedTables": {
+                    "type": "boolean"
                 },
                 "value": {
                     "type": "number"

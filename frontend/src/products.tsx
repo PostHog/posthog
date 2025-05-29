@@ -4,10 +4,10 @@
 
 import {
     IconChat,
+    IconCursor,
     IconDashboard,
     IconExternal,
     IconGraph,
-    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -18,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import type { Params } from 'scenes/sceneTypes'
 import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -35,15 +35,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
-import {
-    ActionType,
-    DashboardType,
-    FileSystemFilterType,
-    InsightShortId,
-    InsightType,
-    RecordingUniversalFilters,
-    ReplayTabs,
-} from './types'
+import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -109,13 +101,13 @@ export const productRedirects: Record<
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
     EarlyAccessFeatures: {
-        name: 'Early Access Features',
+        name: 'Early access features',
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
     EarlyAccessFeature: {
-        name: 'Early Access Features',
+        name: 'Early access feature',
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
@@ -191,11 +183,15 @@ export const productUrls = {
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     experiment: (
         id: string | number,
+        formMode?: string | null,
         options?: {
             metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
             name?: string
         }
-    ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
+    ): string => {
+        const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
+        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+    },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
@@ -319,24 +315,101 @@ export const productUrls = {
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
+    webAnalyticsMarketing: (): string => `/web/marketing`,
 }
 
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
-    action: { icon: <IconRocket />, href: (ref: string) => urls.action(ref) },
-    cohort: { icon: <IconPeople />, href: (ref: string) => urls.cohort(ref) },
-    dashboard: { icon: <IconDashboard />, href: (ref: string) => urls.dashboard(ref) },
-    early_access_feature: { icon: <IconRocket />, href: (ref: string) => urls.earlyAccessFeature(ref) },
-    experiment: { icon: <IconTestTube />, href: (ref: string) => urls.experiment(ref) },
-    feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
-    'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
-    'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
-    insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
-    link: { icon: <IconExternal />, href: (ref: string) => urls.link(ref) },
-    notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
-    session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
-    survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
-    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
+    action: { name: 'Action', icon: <IconRocket />, href: (ref: string) => urls.action(ref), filterKey: 'action' },
+    cohort: { name: 'Cohort', icon: <IconPeople />, href: (ref: string) => urls.cohort(ref), filterKey: 'cohort' },
+    dashboard: {
+        name: 'Dashboard',
+        icon: <IconDashboard />,
+        href: (ref: string) => urls.dashboard(ref),
+        iconColor: ['var(--product-dashboards-light)'],
+        filterKey: 'dashboard',
+    },
+    early_access_feature: {
+        name: 'Early access feature',
+        icon: <IconRocket />,
+        href: (ref: string) => urls.earlyAccessFeature(ref),
+        iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
+        filterKey: 'early_access_feature',
+    },
+    experiment: {
+        name: 'Experiment',
+        icon: <IconTestTube />,
+        href: (ref: string) => urls.experiment(ref),
+        iconColor: ['var(--product-experiments-light)'],
+        filterKey: 'experiment',
+    },
+    feature_flag: {
+        name: 'Feature flag',
+        icon: <IconToggle />,
+        href: (ref: string) => urls.featureFlag(ref),
+        iconColor: ['var(--product-feature-flags-light)'],
+        filterKey: 'feature_flag',
+    },
+    'hog_function/broadcast': {
+        name: 'Broadcast',
+        icon: <IconCursor />,
+        href: (ref: string) => urls.messagingBroadcast(ref),
+        iconColor: ['var(--product-messaging-light)'],
+        filterKey: 'broadcast',
+        flag: FEATURE_FLAGS.MESSAGING,
+    },
+    'hog_function/campaign': {
+        name: 'Campaign',
+        icon: <IconCursor />,
+        href: (ref: string) => urls.messagingCampaign(ref),
+        iconColor: ['var(--product-messaging-light)'],
+        filterKey: 'campaign',
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
+    },
+    insight: {
+        name: 'Insight',
+        icon: <IconGraph />,
+        href: (ref: string) => urls.insightView(ref as InsightShortId),
+        iconColor: ['var(--product-product-analytics-light)'],
+        filterKey: 'insight',
+    },
+    link: {
+        name: 'Link',
+        icon: <IconExternal />,
+        href: (ref: string) => urls.link(ref),
+        iconColor: ['var(--product-links-light)'],
+        filterKey: 'link',
+        flag: FEATURE_FLAGS.LINKS,
+    },
+    notebook: {
+        name: 'Notebook',
+        icon: <IconNotebook />,
+        href: (ref: string) => urls.notebook(ref),
+        iconColor: ['var(--product-notebooks-light)'],
+        filterKey: 'notebook',
+    },
+    session_recording_playlist: {
+        name: 'Replay playlist',
+        icon: <IconRewindPlay />,
+        href: (ref: string) => urls.replayPlaylist(ref),
+        iconColor: ['var(--product-session-replay-light)', 'var(--product-session-replay-dark)'],
+        filterKey: 'session_recording_playlist',
+    },
+    survey: {
+        name: 'Survey',
+        icon: <IconMessage />,
+        href: (ref: string) => urls.survey(ref),
+        iconColor: ['var(--product-surveys-light)'],
+        filterKey: 'survey',
+    },
+    user_interview: {
+        name: 'User interview',
+        icon: <IconChat />,
+        href: (ref: string) => urls.userInterview(ref),
+        iconColor: ['var(--product-user-interviews-light)'],
+        filterKey: 'user_interview',
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -378,28 +451,97 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
-    { path: 'Broadcasts', href: urls.messagingBroadcasts(), type: 'hog_function/broadcast' },
-    { path: 'Campaigns', href: urls.messagingCampaigns(), type: 'hog_function/campaign' },
-    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards() },
-    { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
-    { path: `Experiments`, type: 'experiment', href: urls.experiments() },
-    { path: `Feature flags`, type: 'feature_flag', href: urls.featureFlags() },
-    { path: 'Group analytics', iconType: 'cohort', href: urls.groups(0) },
+    {
+        path: 'Broadcasts',
+        href: urls.messagingBroadcasts(),
+        type: 'hog_function/broadcast',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
+    },
+    {
+        path: 'Campaigns',
+        href: urls.messagingCampaigns(),
+        type: 'hog_function/campaign',
+        visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+        tags: ['alpha'],
+    },
+    { path: 'Dashboards', type: 'dashboard', href: urls.dashboards(), visualOrder: PRODUCT_VISUAL_ORDER.dashboards },
+    {
+        path: 'Early access features',
+        type: 'early_access_feature',
+        href: urls.earlyAccessFeatures(),
+        visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
+    },
+    {
+        path: `Experiments`,
+        type: 'experiment',
+        href: urls.experiments(),
+        visualOrder: PRODUCT_VISUAL_ORDER.experiments,
+    },
+    {
+        path: `Feature flags`,
+        type: 'feature_flag',
+        href: urls.featureFlags(),
+        visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
+    },
     {
         path: 'LLM observability',
         iconType: 'ai',
         href: urls.llmObservabilityDashboard(),
         flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+        visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
+        tags: ['beta'],
     },
-    { path: 'Links', type: 'link', href: urls.links(), flag: FEATURE_FLAGS.LINKS },
-    { path: 'Logs', iconType: 'live', href: urls.logs(), flag: FEATURE_FLAGS.LOGS },
-    { path: 'Persons', iconType: 'cohort', href: urls.persons() },
-    { path: 'Product analytics', type: 'insight', href: urls.insights() },
-    { path: 'Revenue analytics', iconType: 'piggyBank', href: urls.revenueAnalytics() },
-    { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
-    { path: 'Surveys', type: 'survey', href: urls.surveys() },
-    { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
-    { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
+    {
+        path: 'Links',
+        type: 'link',
+        href: urls.links(),
+        flag: FEATURE_FLAGS.LINKS,
+        visualOrder: PRODUCT_VISUAL_ORDER.links,
+        tags: ['alpha'],
+    },
+    {
+        path: 'Logs',
+        iconType: 'live',
+        href: urls.logs(),
+        flag: FEATURE_FLAGS.LOGS,
+        visualOrder: PRODUCT_VISUAL_ORDER.logs,
+        tags: ['alpha'],
+    },
+    { path: 'Notebooks', type: 'notebook', href: urls.notebooks(), visualOrder: PRODUCT_VISUAL_ORDER.notebooks },
+    {
+        path: 'Product analytics',
+        type: 'insight',
+        href: urls.insights(),
+        visualOrder: PRODUCT_VISUAL_ORDER.productAnalytics,
+    },
+    {
+        path: 'Revenue analytics',
+        iconType: 'piggyBank',
+        href: urls.revenueAnalytics(),
+        visualOrder: PRODUCT_VISUAL_ORDER.revenueAnalytics,
+        tags: ['beta'],
+    },
+    {
+        path: 'Session replay',
+        href: urls.replay(ReplayTabs.Home),
+        type: 'session_recording_playlist',
+        visualOrder: PRODUCT_VISUAL_ORDER.sessionReplay,
+    },
+    { path: 'Surveys', type: 'survey', href: urls.surveys(), visualOrder: PRODUCT_VISUAL_ORDER.surveys },
+    {
+        path: 'User interviews',
+        href: urls.userInterviews(),
+        type: 'user_interview',
+        visualOrder: PRODUCT_VISUAL_ORDER.userInterviews,
+        tags: ['alpha'],
+    },
+    {
+        path: 'Web analytics',
+        iconType: 'pieChart',
+        href: urls.webAnalytics(),
+        visualOrder: PRODUCT_VISUAL_ORDER.webAnalytics,
+    },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -408,22 +550,5 @@ export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgeho
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsDataManagement = (): FileSystemImport[] => [
     { path: 'Actions', iconType: 'rocket', href: urls.actions() },
-    { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
 ]
-
-/** This const is auto-generated, as is the whole file */
-export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
-    action: { name: 'Actions' },
-    dashboard: { name: 'Dashboards' },
-    early_access_feature: { name: 'Early access features' },
-    experiment: { name: 'Experiments' },
-    feature_flag: { name: 'Feature flags' },
-    link: { name: 'Links', flag: FEATURE_FLAGS.LINKS },
-    broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
-    campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
-    notebook: { name: 'Notebooks' },
-    insight: { name: 'Insights' },
-    session_recording_playlist: { name: 'Replay playlists' },
-    user_interview: { name: 'User interviews' },
-})
