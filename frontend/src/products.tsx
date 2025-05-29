@@ -311,6 +311,7 @@ export const productUrls = {
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
+    webAnalyticsMarketing: (): string => `/web/marketing`,
 }
 
 /** This const is auto-generated, as is the whole file */

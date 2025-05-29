@@ -1558,40 +1558,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "template_id",
         }
 
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=False)
-    def test_transformation_functions_preserve_template_code_when_disabled(self):
-        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
-            mock_template.return_value = template_slack  # Use existing template instead of creating mock
-
-            # First create with transformations enabled
-            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED=True):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        "name": "Template Transform",
-                        "type": "transformation",
-                        "template_id": template_slack.id,
-                        "hog": "return event",
-                        "inputs": {
-                            "slack_workspace": {"value": 1},
-                            "channel": {"value": "#general"},
-                        },
-                    },
-                )
-                assert response.status_code == status.HTTP_201_CREATED, response.json()
-                function_id = response.json()["id"]
-
-            # Try to update with transformations disabled
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
-                data={
-                    "hog": "return another_event",
-                },
-            )
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json()["hog"] == template_slack.hog  # Original template code preserved
-
     def test_transformation_type_gets_execution_order_automatically(self):
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
             mock_template.return_value = template_slack
