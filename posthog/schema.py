@@ -1415,6 +1415,10 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarketingAnalyticsSchema(RootModel[str]):
+    root: str
+
+
 class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

@@ -91,7 +91,7 @@ from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
-from .team import Team, TeamRevenueAnalyticsConfig
+from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
@@ -200,6 +200,7 @@ __all__ = [
     "TaggedItem",
     "Team",
     "TeamRevenueAnalyticsConfig",
+    "TeamMarketingAnalyticsConfig",
     "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",

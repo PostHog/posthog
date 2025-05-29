@@ -17,7 +17,7 @@ import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/marketingAnalyticsSettings'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
@@ -128,6 +128,7 @@ const tabs: Record<
         url: urls.marketingAnalytics(),
         label: 'Marketing analytics',
         content: <MarketingAnalyticsSettings />,
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     },
 }
 

@@ -13,8 +13,8 @@ export function BaseCurrency(): JSX.Element {
         <div>
             <h3>Base currency</h3>
             <p>
-                PostHog will convert all revenue values to this currency before displaying them to you. If we can't
-                properly detect your revenue events' currency, we'll assume it's in this currency as well.
+                PostHog will convert all marketing analytics values to this currency before displaying them to you. If
+                we can't properly detect your marketing analytics' currency, we'll assume it's in this currency as well.
             </p>
             <CurrencyDropdown
                 value={baseCurrency}

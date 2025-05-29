@@ -3096,7 +3096,9 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<string, MarketingAnalyticsSchema
     impressions: { type: ['integer', 'number', 'float'], required: true },
     date: { type: ['datetime', 'date'], required: true },
     source_name: { type: ['string'], required: false },
-} as const
+}
+
+export type MarketingAnalyticsSchema = keyof typeof MARKETING_ANALYTICS_SCHEMA
 
 export type SourceMap = Record<keyof typeof MARKETING_ANALYTICS_SCHEMA, string | undefined>
 

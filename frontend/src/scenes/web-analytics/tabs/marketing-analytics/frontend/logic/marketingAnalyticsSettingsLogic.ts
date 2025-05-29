@@ -36,12 +36,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
     })),
     actions({
         updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
-        updateSourceMapping: (
-            sourceId: string,
-            fieldName: keyof MarketingAnalyticsSchema,
-            columnName: string | undefined
-        ) => ({
-            sourceId,
+        updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsSchema, columnName: string | null) => ({
+            tableId,
             fieldName,
             columnName,
         }),
@@ -59,19 +55,28 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
 
                     return { ...state, base_currency: baseCurrency }
                 },
-                updateSourceMapping: (state: MarketingAnalyticsConfig | null, { sourceId, fieldName, columnName }) => {
+                updateSourceMapping: (state: MarketingAnalyticsConfig | null, { tableId, fieldName, columnName }) => {
                     if (!state) {
                         return state
                     }
 
                     const updatedSourcesMap = { ...state.sources_map }
-                    if (!updatedSourcesMap[sourceId]) {
-                        updatedSourcesMap[sourceId] = {} as SourceMap
+                    if (!updatedSourcesMap[tableId]) {
+                        updatedSourcesMap[tableId] = {} as SourceMap
                     }
 
-                    updatedSourcesMap[sourceId] = {
-                        ...updatedSourcesMap[sourceId],
-                        [fieldName]: columnName,
+                    if (columnName === undefined) {
+                        // Remove the field if columnName is undefined
+                        delete updatedSourcesMap[tableId][fieldName]
+                        // If source becomes empty, remove it entirely
+                        if (Object.keys(updatedSourcesMap[tableId]).length === 0) {
+                            delete updatedSourcesMap[tableId]
+                        }
+                    } else {
+                        updatedSourcesMap[tableId] = {
+                            ...updatedSourcesMap[tableId],
+                            [fieldName]: columnName || undefined,
+                        }
                     }
                     return { ...state, sources_map: updatedSourcesMap }
                 },
@@ -98,7 +103,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 marketingAnalyticsConfig?.base_currency || CurrencyCode.USD,
         ],
 
-        sources: [
+        sources_map: [
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => marketingAnalyticsConfig?.sources_map || {},
         ],
@@ -125,7 +130,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
     listeners(({ actions, values }) => {
         const updateCurrentTeam = (): void => {
             if (values.marketingAnalyticsConfig) {
-                actions.updateCurrentTeam({ marketing_analytics_config: values.marketingAnalyticsConfig })
+                const payload = { marketing_analytics_config: values.marketingAnalyticsConfig }
+                actions.updateCurrentTeam(payload)
             }
         }
 

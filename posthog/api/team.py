@@ -18,7 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig
+from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -163,6 +163,7 @@ TEAM_CONFIG_FIELDS = (
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
+    "marketing_analytics_config",
     "onboarding_tasks",
 )
 
@@ -194,6 +195,35 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
         return internal_value
 
 
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+    sources_map = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamMarketingAnalyticsConfig
+        fields = ["base_currency", "sources_map"]
+
+    def update(self, instance, validated_data):
+        # Handle base_currency normally
+        if "base_currency" in validated_data:
+            instance.base_currency = validated_data["base_currency"]
+
+        # Handle sources_map with partial updates
+        if "sources_map" in validated_data:
+            new_sources_map = validated_data["sources_map"]
+
+            # For each source in the new data, update it individually
+            for source_id, field_mapping in new_sources_map.items():
+                if field_mapping is None:
+                    # If None is passed, remove the source entirely
+                    instance.remove_source_mapping(source_id)
+                else:
+                    # Update the source mapping (this preserves other sources)
+                    instance.update_source_mapping(source_id, field_mapping)
+
+        instance.save()
+        return instance
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -204,6 +234,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
+    marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
 
     class Meta:
         model = Team
@@ -311,6 +342,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
 
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_marketing_analytics_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamMarketingAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
     @staticmethod
@@ -473,6 +514,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("revenue_analytics_config", None):
             serializer = TeamRevenueAnalyticsConfigSerializer(
                 instance.revenue_analytics_config, data=config_data, partial=True
+            )
+            if not serializer.is_valid():
+                raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+            serializer.save()
+
+        if config_data := validated_data.pop("marketing_analytics_config", None):
+            serializer = TeamMarketingAnalyticsConfigSerializer(
+                instance.marketing_analytics_config, data=config_data, partial=True
             )
             if not serializer.is_valid():
                 raise serializers.ValidationError(_format_serializer_errors(serializer.errors))

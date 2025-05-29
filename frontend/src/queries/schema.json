@@ -12331,6 +12331,9 @@
             "required": ["base_currency"],
             "type": "object"
         },
+        "MarketingAnalyticsSchema": {
+            "type": ["string"]
+        },
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
             "properties": {
