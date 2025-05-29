@@ -1,10 +1,13 @@
-import { actions, kea, key, path, props } from 'kea'
+import { Workflow, WorkflowEdge, WorkflowNode } from '@posthog/workflows'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { campaignLogicType } from './campaignLogicType'
-import { Workflow, WorkflowEdge, WorkflowNode } from './Workflows/types'
 
 export interface CampaignLogicProps {
     id?: string
@@ -41,32 +44,96 @@ const initialEdges: WorkflowEdge[] = []
 
 const DEFAULT_WORKFLOW: Workflow = {
     id: 'default',
-    name: 'Default Workflow',
-    description: 'Default workflow',
-    json: { nodes: initialNodes, edges: initialEdges },
+    name: 'Untitled campaign',
+    description: '',
+    workflow: { nodes: initialNodes, edges: initialEdges },
     created_at: null,
     updated_at: null,
     created_by: null,
+    version: 1,
+}
+
+export enum CampaignTabs {
+    Overview = 'overview',
+    Workflow = 'workflow',
+}
+
+export const CAMPAIGN_TAB_TO_NAME: Record<CampaignTabs, string> = {
+    [CampaignTabs.Overview]: 'Overview',
+    [CampaignTabs.Workflow]: 'Workflow',
 }
 
 export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'campaignLogic']),
-    props({} as CampaignLogicProps),
-    key((props) => `campaign_${props.id || 'new'}`),
+    props({ id: 'new' } as CampaignLogicProps),
+    key((props) => props.id || 'new'),
     actions({
-        updateWorkflowJson: (json: Workflow['json']) => ({ json }),
+        setCurrentTab: (tab: CampaignTabs = CampaignTabs.Overview) => ({ tab }),
+        updateCampaignName: (name: string) => ({ name }),
+        updateWorkflow: (workflow: Workflow['workflow']) => ({ workflow }),
     }),
-    loaders({
-        workflow: [
+    reducers({
+        currentTab: [
+            CampaignTabs.Overview,
+            {
+                setCurrentTab: (_, { tab }) => tab,
+            },
+        ],
+    }),
+    loaders(({ props }) => ({
+        campaign: [
             { ...DEFAULT_WORKFLOW } as Workflow,
             {
-                loadWorkflowJson: async () => {
-                    return { ...DEFAULT_WORKFLOW }
+                loadCampaign: async () => {
+                    if (!props.id || props.id === 'new') {
+                        return { ...DEFAULT_WORKFLOW }
+                    }
+
+                    const campaign = await api.hogFunctions.get(props.id)
+                    return { ...DEFAULT_WORKFLOW, name: campaign.name, description: campaign.description }
                 },
-                updateWorkflowJson: ({ json }: { json: Workflow['json'] }) => {
-                    return { ...DEFAULT_WORKFLOW, json }
+                updateCampaignName: ({ name }: { name: string }) => {
+                    return { ...DEFAULT_WORKFLOW, name }
+                },
+                updateCampaign: ({ workflow }: { workflow: Workflow['workflow'] }) => {
+                    return { ...DEFAULT_WORKFLOW, workflow }
                 },
             },
         ],
+    })),
+    selectors(() => ({
+        breadcrumbs: [
+            // Optional if you'd like the breadcrumbs to show the current tab
+            (s) => [s.campaign],
+            (campaign): Breadcrumb[] => {
+                return [
+                    { name: 'Campaigns', key: 'campaigns', path: urls.messagingCampaigns() },
+                    {
+                        name: campaign.name || 'Untitled campaign',
+                        key: 'campaign',
+                        onRename: async (name) => {
+                            alert(name)
+                        },
+                    },
+                ]
+            },
+        ],
+    })),
+    actionToUrl(({ props, values }) => {
+        return {
+            setCurrentTab: () => [urls.messagingCampaign(props.id || 'new', values.currentTab)],
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        '/messaging/campaigns/:id/:tab': ({ tab }) => {
+            if (tab !== values.currentTab) {
+                actions.setCurrentTab(tab as CampaignTabs)
+            }
+        },
+    })),
+    afterMount(({ actions, props }) => {
+        if (props.id && props.id !== 'new') {
+            actions.loadCampaign()
+        }
     }),
 ])

@@ -62,6 +62,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
     '/messaging/campaigns/:id': ['MessagingCampaign', 'messagingCampaign'],
     '/messaging/campaigns/new': ['MessagingCampaign', 'messagingCampaignNew'],
+    '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
     '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
@@ -79,7 +80,7 @@ export const productRoutes: Record<string, [string, string]> = {
 export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
-> = { '/messaging': '/messaging/broadcasts' }
+> = { '/messaging': '/messaging/broadcasts', '/messaging/campaigns/new': '/messaging/campaigns/new/trigger' }
 
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
@@ -183,6 +184,7 @@ export const productUrls = {
     llmObservabilityUsers: (): string => '/llm-observability/users',
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
+    messagingCampaignTab: (id?: string, tab?: string): string => `/messaging/campaigns/${id}/${tab}`,
     messagingCampaignNew: (): string => '/messaging/campaigns/new',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,

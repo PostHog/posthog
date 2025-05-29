@@ -38,6 +38,7 @@ export const manifest: ProductManifest = {
         '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
         '/messaging/campaigns/:id': ['MessagingCampaign', 'messagingCampaign'],
         '/messaging/campaigns/new': ['MessagingCampaign', 'messagingCampaignNew'],
+        '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
         '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
@@ -51,10 +52,12 @@ export const manifest: ProductManifest = {
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/trigger',
     },
     urls: {
         messagingCampaigns: (): string => '/messaging/campaigns',
         messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
+        messagingCampaignTab: (id?: string, tab?: string): string => `/messaging/campaigns/${id}/${tab}`,
         messagingCampaignNew: (): string => '/messaging/campaigns/new',
         messagingBroadcasts: (): string => '/messaging/broadcasts',
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,

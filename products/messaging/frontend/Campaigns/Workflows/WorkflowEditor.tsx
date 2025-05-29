@@ -1,88 +1,85 @@
 import '@xyflow/react/dist/style.css'
 
-import { IconDecisionTree, IconHourglass, IconLeave, IconSend, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
-import { WorkflowEdgeData, WorkflowNodeData } from '@posthog/workflows'
+import { IconDecisionTree, IconHourglass, IconRevert, IconSend } from '@posthog/icons'
+import { WorkflowEdge, WorkflowEdgeData, WorkflowNode, WorkflowNodeData } from '@posthog/workflows'
 import {
-    addEdge,
     Background,
+    BackgroundVariant,
     Controls,
     Edge,
+    getConnectedEdges,
+    getIncomers,
+    getOutgoers,
+    MiniMap,
     Node,
     Panel,
     ReactFlow,
     ReactFlowProvider,
     useEdgesState,
     useNodesState,
+    useOnSelectionChange,
     useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { capitalizeFirstLetter, Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { nodeDetailsLogic } from './nodeDetailsLogic'
-import { REACT_FLOW_EDGE_TYPES, REACT_FLOW_NODE_TYPES } from './Nodes'
+import { getFormattedNodes } from './formatter'
+import { REACT_FLOW_NODE_TYPES } from './Nodes'
+import { StepDetailsPanel } from './StepDetails'
 
 // Initial node setup - just one starting node
-const initialNodes: Node<WorkflowNodeData>[] = [
+const DEFAULT_NODES: Node<WorkflowNodeData>[] = [
     {
-        id: 'trigger-node',
+        id: 'trigger_node',
         type: 'trigger',
         data: { label: 'Trigger', description: '', config: null },
-        position: { x: 250, y: 100 },
+        position: { x: 0, y: 0 },
         deletable: false,
+        draggable: false,
+        selectable: true,
     },
     {
-        id: 'exit-node',
+        id: 'exit_node',
         type: 'exit',
         data: { label: 'Exit', description: '', config: null },
-        position: { x: 250, y: 300 },
+        position: { x: 0, y: 100 },
         deletable: false,
+        draggable: false,
         selectable: false,
     },
 ]
 
 // Initial edges setup
-const initialEdges: Edge<WorkflowEdgeData>[] = [
-    { id: 'trigger-node-exit-node', source: 'trigger-node', target: 'exit-node' },
+const DEFAULT_EDGES: Edge<WorkflowEdgeData>[] = [
+    { id: 'trigger_node->exit_node', source: 'trigger_node', target: 'exit_node', type: 'smoothstep' },
 ]
 
 // Node types available for adding to the flow
-const TOOLBAR_NODE_TYPES = [
+const TOOLBAR_NODES = [
     { type: 'email', label: 'Email', icon: <IconSend /> },
     { type: 'condition', label: 'Condition', icon: <IconDecisionTree /> },
-    { type: 'delay', label: 'Delay', icon: <IconHourglass /> },
-    { type: 'exit', label: 'Exit', icon: <IconLeave /> },
+    { type: 'delay', label: 'Wait', icon: <IconHourglass /> },
+    { type: 'delay_until', label: 'Wait until', icon: <IconRevert /> },
 ]
-type ToolbarNodeType = (typeof TOOLBAR_NODE_TYPES)[number]['type']
-
-const DEFAULT_EDGE_OPTIONS = {
-    interactionWidth: 75,
-}
+type ToolbarNode = (typeof TOOLBAR_NODES)[number]
 
 type WorkflowEditorProps = {
-    setFlowData: ({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) => void
+    setWorkflow: ({ nodes, edges }: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => void
 }
 
 // Draggable node component
 function ToolbarNode({
-    type,
-    label,
-    icon,
-    setNewNodeType,
+    node,
+    setNewNode,
 }: {
-    type: ToolbarNodeType
-    label: string
-    icon: React.ReactNode
-    setNewNodeType: (nodeType: ToolbarNodeType) => void
+    node: ToolbarNode
+    setNewNode: (nodeType: ToolbarNode) => void
 }): JSX.Element {
     const onDragStart = (event: React.DragEvent): void => {
-        setNewNodeType(type)
-        event.dataTransfer.setData('application/reactflow', type)
+        setNewNode(node)
+        event.dataTransfer.setData('application/reactflow', node.type)
         event.dataTransfer.effectAllowed = 'move'
     }
 
@@ -92,26 +89,20 @@ function ToolbarNode({
             draggable
             onDragStart={onDragStart}
         >
-            {icon}
-            {label}
+            {node.icon}
+            {node.label}
         </div>
     )
 }
 
-function Toolbar({ setNewNodeType }: { setNewNodeType: (nodeType: ToolbarNodeType) => void }): JSX.Element {
+function Toolbar({ setNewNode }: { setNewNode: (nodeType: ToolbarNode) => void }): JSX.Element {
     return (
-        <Panel position="top-right">
+        <Panel position="top-left">
             <div className="bg-surface-primary rounded-md shadow-md flex flex-col gap-2 p-4 z-10 w-[200px]">
-                <h3 className="font-semibold">Drag to add nodes</h3>
+                <h3 className="font-semibold nodrag">Add a step</h3>
                 <div className="flex flex-col gap-2">
-                    {TOOLBAR_NODE_TYPES.map((type) => (
-                        <ToolbarNode
-                            key={type.type}
-                            type={type.type}
-                            label={type.label}
-                            icon={type.icon}
-                            setNewNodeType={setNewNodeType}
-                        />
+                    {TOOLBAR_NODES.map((node) => (
+                        <ToolbarNode key={node.type} node={node} setNewNode={setNewNode} />
                     ))}
                 </div>
             </div>
@@ -119,185 +110,225 @@ function Toolbar({ setNewNodeType }: { setNewNodeType: (nodeType: ToolbarNodeTyp
     )
 }
 
-function NodeDetailPanel({
-    workflowId,
-    node,
-    onNodeChange,
-    onClose,
-}: {
-    workflowId: string
-    node: Node<WorkflowNodeData>
-    onNodeChange: (node: Node<WorkflowNodeData>) => void
-    onClose: () => void
-}): JSX.Element {
-    const { nodeDetails } = useValues(
-        nodeDetailsLogic({
-            workflowId,
-            node,
-            onNodeChange,
-        })
-    )
-    const reactFlowInstance = useReactFlow()
-
-    const onDelete = useCallback(() => {
-        // Get edges connected to this node before deletion
-        const connectedEdges = reactFlowInstance.getEdges().filter((e) => e.source === node.id || e.target === node.id)
-
-        // Get the source and target nodes before deletion
-        const sourceNodes = connectedEdges
-            .filter((e) => e.source !== node.id)
-            .map((e) => reactFlowInstance.getNodes().find((n) => n.id === e.source))
-            .filter((n): n is Node<WorkflowNodeData> => n !== undefined)
-        const targetNodes = connectedEdges
-            .filter((e) => e.target !== node.id)
-            .map((e) => reactFlowInstance.getNodes().find((n) => n.id === e.target))
-            .filter((n): n is Node<WorkflowNodeData> => n !== undefined)
-
-        // Delete the node
-        void reactFlowInstance.deleteElements({ nodes: [node] })
-
-        // Create new edges connecting the remaining nodes
-        const newEdges = sourceNodes.flatMap((sourceNode) =>
-            targetNodes.map((targetNode) => ({
-                id: `${sourceNode.id}-${targetNode.id}`,
-                source: sourceNode.id,
-                target: targetNode.id,
-            }))
-        )
-
-        // Add the new edges
-        if (newEdges.length > 0) {
-            reactFlowInstance.addEdges(newEdges)
-        }
-        onClose()
-    }, [node, reactFlowInstance, onClose])
-
-    return (
-        <Panel position="top-right">
-            <div className="bg-surface-primary rounded-md shadow-md p-4 gap-2 flex flex-col z-10 w-[300px]">
-                <div className="flex items-center justify-between">
-                    <span className="font-semibold text-md">Edit {node.type} node</span>
-                    <div className="flex items-center gap-1">
-                        <LemonButton size="small" status="danger" onClick={() => onDelete()} icon={<IconTrash />} />
-                        <LemonButton size="small" icon={<IconX />} onClick={onClose} aria-label="close" />
-                    </div>
-                </div>
-                <Form logic={nodeDetailsLogic} formKey="node">
-                    <LemonField name="label" label="Name">
-                        <LemonInput />
-                    </LemonField>
-
-                    {node.type === 'trigger' && (
-                        <LemonField name="config.triggerType" label="Trigger Type">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Email', value: 'email' },
-                                    { label: 'SMS', value: 'sms' },
-                                    { label: 'Push', value: 'push' },
-                                ]}
-                            />
-                        </LemonField>
-                    )}
-                    {node.type === 'action' && (
-                        <LemonField name="config.actionType" label="Action Type">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Send Email', value: 'send_email' },
-                                    { label: 'Send SMS', value: 'send_sms' },
-                                    { label: 'Send Push', value: 'send_push' },
-                                ]}
-                            />
-                        </LemonField>
-                    )}
-                    {node.type === 'condition' && (
-                        <LemonField name="config.conditionType" label="Condition Type">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Has Opened', value: 'has_opened' },
-                                    { label: 'Has Clicked', value: 'has_clicked' },
-                                    { label: 'Has Responded', value: 'has_responded' },
-                                ]}
-                            />
-                        </LemonField>
-                    )}
-                </Form>
-            </div>
-        </Panel>
-    )
-}
-
 // Inner component that encapsulates React Flow
-function WorkflowEditorContent({ setFlowData }: WorkflowEditorProps): JSX.Element {
+function WorkflowEditorContent({ setWorkflow }: WorkflowEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<WorkflowNodeData>>(initialNodes)
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<WorkflowEdgeData>>(initialEdges)
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node<WorkflowNodeData>>(DEFAULT_NODES)
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<WorkflowEdgeData>>(DEFAULT_EDGES)
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
-    const reactFlowInstance = useReactFlow()
-    const [newNodeType, setNewNodeType] = useState<ToolbarNodeType>()
+    const [newNode, setNewNode] = useState<ToolbarNode>()
     const [selectedNode, setSelectedNode] = useState<Node<WorkflowNodeData>>()
 
+    const onChange = useCallback(({ nodes }) => {
+        setSelectedNode(nodes.length ? nodes[0] : undefined)
+    }, [])
+
+    useOnSelectionChange({
+        onChange,
+    })
+
+    const { screenToFlowPosition, deleteElements, setCenter, getIntersectingNodes } = useReactFlow()
+
     const nodeTypes = useMemo(() => REACT_FLOW_NODE_TYPES, [])
-    const edgeTypes = useMemo(() => REACT_FLOW_EDGE_TYPES, [])
+
+    const onLayout = useCallback(({ nodes, edges }) => {
+        void (async () => {
+            const layoutedNodes = await getFormattedNodes(nodes, edges)
+            setNodes(layoutedNodes)
+        })()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // Centers on the selected node
     useEffect(() => {
-        setFlowData({ nodes, edges })
-    }, [nodes, edges, setFlowData])
+        if (selectedNode) {
+            void setCenter(
+                selectedNode.position.x + (selectedNode.measured?.width || 0) / 2,
+                selectedNode.position.y + 100,
+                {
+                    duration: 500,
+                    zoom: 2,
+                }
+            )
+        }
+    }, [setCenter, selectedNode])
 
-    const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [])
+    const showDropzones = useCallback(() => {
+        const newNodes = [...nodes]
+        const newEdges = [...edges]
 
-    const onDragOver = useCallback((event) => {
+        edges.forEach((edge) => {
+            const sourceNode = nodes.find((n) => n.id === edge.source)
+            const targetNode = nodes.find((n) => n.id === edge.target)
+
+            if (sourceNode && targetNode) {
+                // Calculate midpoint
+                const midX = (sourceNode.position.x + targetNode.position.x) / 2
+                const midY = (sourceNode.position.y + targetNode.position.y) / 2
+
+                // Create dropzone node
+                const dropzoneId = `dropzone-${edge.id}`
+                newNodes.push({
+                    id: dropzoneId,
+                    type: 'dropzone',
+                    position: { x: midX, y: midY },
+                    data: { label: '', description: '', config: null },
+                    draggable: false,
+                    selectable: false,
+                })
+
+                // Remove original edge and create two new edges
+                newEdges.push(
+                    {
+                        id: `${edge.source}->${dropzoneId}`,
+                        source: edge.source,
+                        target: dropzoneId,
+                    },
+                    {
+                        id: `${dropzoneId}->${edge.target}`,
+                        source: dropzoneId,
+                        target: edge.target,
+                    }
+                )
+            }
+        })
+
+        // Remove original edges
+        const originalEdgeIds = edges.map((e) => e.id)
+        const filteredEdges = newEdges.filter((edge) => !originalEdgeIds.includes(edge.id))
+
+        setNodes(newNodes)
+        setEdges(filteredEdges)
+    }, [nodes, edges, setEdges, setNodes])
+
+    const hideDropzones = useCallback(() => {
+        const dropzoneNodesToDelete = nodes.filter((nd) => ['dropzone', 'dropzone_highlighted'].includes(nd.type || ''))
+
+        // Remove all edges that are connected to dropzone nodes, reconnecting the incomers and outgoers
+        setEdges(
+            dropzoneNodesToDelete.reduce((acc, node) => {
+                const incomers = getIncomers(node, nodes, edges)
+                const outgoers = getOutgoers(node, nodes, edges)
+                const connectedEdges = getConnectedEdges([node], edges)
+
+                const remainingEdges = acc.filter((edge) => !connectedEdges.includes(edge))
+
+                const createdEdges = incomers.flatMap(({ id: source }) =>
+                    outgoers.map(({ id: target }) => ({
+                        id: `${source}->${target}`,
+                        source,
+                        target,
+                    }))
+                )
+
+                return [...remainingEdges, ...createdEdges]
+            }, edges)
+        )
+
+        setNodes((nds) => nds.filter((nd) => nd.type !== 'dropzone'))
+    }, [edges, nodes, setEdges, setNodes])
+
+    const findIntersectingDropzone = useCallback((event: React.DragEvent): Node<WorkflowNodeData> | undefined => {
+        const position = screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+        })
+        const intersectingNodes = getIntersectingNodes(
+            {
+                x: position.x,
+                y: position.y,
+                width: 10,
+                height: 10,
+            },
+            true
+        )
+
+        const intersectingDropzoneNode = intersectingNodes.find((node) =>
+            ['dropzone', 'dropzone_highlighted'].includes(node.type || '')
+        )
+        return intersectingDropzoneNode as Node<WorkflowNodeData> | undefined
+    }, [])
+
+    const onDragOver = useCallback((event: React.DragEvent) => {
         event.preventDefault()
         event.dataTransfer.dropEffect = 'move'
 
-        const edgesWithAddLabels = edges.map((edge) => ({
-            ...edge,
-            data: { ...edge.data, label: '+' },
-        }))
+        const intersectingDropzone = findIntersectingDropzone(event)
 
-        setEdges(edgesWithAddLabels)
+        setNodes((nds) =>
+            nds.map((nd) => {
+                if (!['dropzone', 'dropzone_highlighted'].includes(nd.type || '')) {
+                    return nd
+                }
+                return { ...nd, type: nd.id === intersectingDropzone?.id ? 'dropzone_highlighted' : 'dropzone' }
+            })
+        )
     }, [])
 
     const onDrop = useCallback(
         (event) => {
             event.preventDefault()
 
-            if (!newNodeType) {
+            if (!newNode) {
+                hideDropzones()
                 return
             }
 
-            const position = reactFlowInstance.screenToFlowPosition({
-                x: event.clientX - 32,
-                y: event.clientY - 32,
-            })
-
-            const intersection = reactFlowInstance.getIntersectingNodes({ ...position, width: 100, height: 100 })
-
-            if (intersection.length > 0) {
+            const intersectingDropzone = findIntersectingDropzone(event)
+            if (!intersectingDropzone) {
+                hideDropzones()
                 return
             }
 
-            const newNode: Node<WorkflowNodeData> = {
-                id: `${newNodeType}_${Date.now()}`,
-                type: newNodeType,
-                position: position,
-                data: {
-                    label: capitalizeFirstLetter(newNodeType),
-                    description: '',
-                    config: null,
-                },
-            }
+            const updatedNodes = nodes.map((nd) =>
+                nd.id === intersectingDropzone?.id
+                    ? {
+                          ...nd,
+                          type: newNode.type,
+                          data: { ...nd.data, label: newNode.label, selected: true, selectable: true },
+                      }
+                    : nd
+            )
+            // Replace the intersecting dropzone with a real node of the current type.
+            setNodes(updatedNodes)
 
-            const newEdge: Edge<WorkflowEdgeData> = {
-                id: `${intersection[0].id}_${newNode.id}`,
-                source: intersection[0].id,
-                target: newNode.id,
-            }
-
-            setNodes((nds) => nds.concat(newNode))
-            setEdges((eds) => [...eds, newEdge])
-            setSelectedNode(newNode)
+            hideDropzones()
+            void onLayout({ nodes: updatedNodes, edges })
         },
-        [reactFlowInstance, setNodes, setEdges, newNodeType]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [findIntersectingDropzone, hideDropzones, newNode, setNodes]
+    )
+
+    const onNodesDelete = useCallback(
+        (deleted: Node<WorkflowNodeData>[]) => {
+            // Hide node details if any deleted node is the selected node
+            if (deleted.some((node) => node.id === selectedNode?.id)) {
+                setSelectedNode(undefined)
+            }
+
+            // Connect middle nodes to their incomers and outgoers to avoid orphaned nodes
+            const newEdges = deleted.reduce((acc, node) => {
+                const incomers = getIncomers(node, nodes, edges)
+                const outgoers = getOutgoers(node, nodes, edges)
+                const connectedEdges = getConnectedEdges([node], edges)
+
+                const remainingEdges = acc.filter((edge) => !connectedEdges.includes(edge))
+
+                const createdEdges = incomers.flatMap(({ id: source }) =>
+                    outgoers.map(({ id: target }) => ({
+                        id: `${source}->${target}`,
+                        source,
+                        target,
+                    }))
+                )
+
+                return [...remainingEdges, ...createdEdges]
+            }, edges)
+
+            setEdges(newEdges)
+        },
+        [nodes, edges, setEdges, selectedNode?.id, setSelectedNode]
     )
 
     return (
@@ -307,38 +338,48 @@ function WorkflowEditorContent({ setFlowData }: WorkflowEditorProps): JSX.Elemen
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
+                onNodesDelete={onNodesDelete}
+                onDragStart={showDropzones}
                 onDragOver={onDragOver}
-                onNodeClick={(_, node) => setSelectedNode(node)}
+                onDragEnd={hideDropzones}
+                onNodeClick={(_, node) => {
+                    if (node.selectable) {
+                        setSelectedNode(node)
+                    }
+                }}
                 onDrop={onDrop}
-                fitView
                 nodeTypes={nodeTypes}
-                edgeTypes={edgeTypes}
+                nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
-                defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+                fitView
             >
-                <Background />
-                <Controls />
+                <Controls showInteractive={false} />
+                <Background gap={48} variant={BackgroundVariant.Dots} />
 
-                {selectedNode ? (
-                    <NodeDetailPanel
+                <MiniMap />
+
+                <Toolbar setNewNode={setNewNode} />
+
+                {selectedNode && (
+                    <StepDetailsPanel
                         workflowId="new"
                         node={selectedNode}
-                        onNodeChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
+                        onChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
+                        onDelete={(node) => {
+                            void deleteElements({ nodes: [node] })
+                        }}
                         onClose={() => setSelectedNode(undefined)}
                     />
-                ) : (
-                    <Toolbar setNewNodeType={setNewNodeType} />
                 )}
             </ReactFlow>
         </div>
     )
 }
 
-export function WorkflowEditor({ setFlowData }: WorkflowEditorProps): JSX.Element {
+export function WorkflowEditor({ setWorkflow }: WorkflowEditorProps): JSX.Element {
     return (
         <ReactFlowProvider>
-            <WorkflowEditorContent setFlowData={setFlowData} />
+            <WorkflowEditorContent setWorkflow={setWorkflow} />
         </ReactFlowProvider>
     )
 }

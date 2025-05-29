@@ -7,25 +7,25 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { nodeDetailsLogicType } from './nodeDetailsLogicType'
+import type { stepDetailsLogicType } from './stepDetailsLogicType'
 
-export interface NodeDetailsLogicProps {
+export interface StepDetailsLogicProps {
     workflowId: string
     node: Node<WorkflowNodeData> | null
-    onNodeChange: (node: Node<WorkflowNodeData>) => void
+    onChange: (node: Node<WorkflowNodeData>) => void
 }
 
-export const nodeDetailsLogic = kea<nodeDetailsLogicType>([
-    path(['products', 'messaging', 'frontend', 'Campaigns', 'Workflows', 'nodeDetailsLogic']),
+export const stepDetailsLogic = kea<stepDetailsLogicType>([
+    path(['products', 'messaging', 'frontend', 'Campaigns', 'Workflows', 'stepDetailsLogic']),
     props({
         workflowId: 'new',
         node: null,
-    } as NodeDetailsLogicProps),
+    } as StepDetailsLogicProps),
     key(({ workflowId, node }) => `${workflowId}-${node?.id}`),
     selectors({
         breadcrumbs: [
             () => [(_, props) => props],
-            (props: NodeDetailsLogicProps): Breadcrumb[] => {
+            (props: StepDetailsLogicProps): Breadcrumb[] => {
                 const { workflowId } = props
 
                 if (!workflowId) {
@@ -68,7 +68,7 @@ export const nodeDetailsLogic = kea<nodeDetailsLogicType>([
                 ...props.node,
             },
             submit: async (node: Node<WorkflowNodeData>) => {
-                props.onNodeChange(node)
+                props.onChange(node)
             },
         },
     })),

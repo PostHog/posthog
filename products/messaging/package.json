@@ -8,6 +8,7 @@
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
+        "elkjs": "*",
         "fuse.js": "*",
         "kea": "*",
         "kea-forms": "*",

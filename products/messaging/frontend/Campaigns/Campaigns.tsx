@@ -11,43 +11,12 @@ import { urls } from 'scenes/urls'
 import { FunctionsTable } from '../FunctionsTable'
 import { MessagingTabs } from '../MessagingTabs'
 import { campaignsLogic } from './campaignsLogic'
-import { CampaignTab, campaignTabsLogic } from './campaignTabsLogic'
-
-const Campaign = ({ campaignId }: { campaignId: string }): JSX.Element => {
-    const { currentTab } = useValues(campaignTabsLogic)
-    const { setTab } = useActions(campaignTabsLogic)
-
-    const tabs = [
-        { key: 'configuration', label: 'Configuration' },
-        { key: 'logs', label: 'Logs' },
-    ]
-
-    return (
-        <div className="flex flex-col">
-            {campaignId !== 'new' && (
-                <LemonTabs activeKey={currentTab} onChange={(tab) => setTab(tab as CampaignTab)} tabs={tabs} />
-            )}
-
-            {currentTab === 'configuration' && (
-                <HogFunctionConfiguration
-                    id={campaignId === 'new' ? null : campaignId}
-                    templateId={campaignId === 'new' ? 'template-new-campaign' : ''}
-                    displayOptions={{
-                        showPersonsCount: false,
-                        showExpectedVolume: true,
-                        canEditSource: false,
-                    }}
-                />
-            )}
-            {currentTab === 'logs' && <HogFunctionLogs hogFunctionId={campaignId} />}
-        </div>
-    )
-}
+import { Campaign } from './Campaign'
 
 export function Campaigns(): JSX.Element {
     const { campaignId } = useValues(campaignsLogic)
     return campaignId ? (
-        <Campaign campaignId={campaignId} />
+        <Campaign id={campaignId} />
     ) : (
         <>
             <MessagingTabs key="campaigns-tabs" />
