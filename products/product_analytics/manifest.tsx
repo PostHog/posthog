@@ -72,9 +72,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         insight: {
+            name: 'Insight',
             icon: <IconGraph />,
             href: (ref: string) => urls.insightView(ref as InsightShortId),
             iconColor: ['var(--product-product-analytics-light)'],
+            filterKey: 'insight',
         },
     },
     treeItemsNew: [
@@ -122,7 +124,4 @@ export const manifest: ProductManifest = {
             visualOrder: PRODUCT_VISUAL_ORDER.productAnalytics,
         },
     ],
-    fileSystemFilterTypes: {
-        insight: { name: 'Insights' },
-    },
 }

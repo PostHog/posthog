@@ -81,9 +81,9 @@ const FoldableFilters = (): JSX.Element => {
             <TableSortingIndicator />
 
             <WebVitalsPercentileToggle />
-            {!preAggregatedEnabled && <PathCleaningToggle />}
+            <PathCleaningToggle />
 
-            {!preAggregatedEnabled && <WebPropertyFilters />}
+            <WebPropertyFilters />
         </div>
     )
 }
