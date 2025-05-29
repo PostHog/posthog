@@ -57,18 +57,12 @@ export class EventIngestionRestrictionManager {
             }
         })
 
-        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            void this.dynamicConfigRefresher.get().catch((error) => {
-                logger.error('Failed to initialize event ingestion restriction dynamic config', { error })
-            })
-        }
+        void this.dynamicConfigRefresher.get().catch((error) => {
+            logger.error('Failed to initialize event ingestion restriction dynamic config', { error })
+        })
     }
 
     async fetchDynamicEventIngestionRestrictionConfig(): Promise<Partial<Record<RestrictionType, Set<string>>>> {
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return {}
-        }
-
         try {
             const redisClient = await this.hub.redisPool.acquire()
             try {
@@ -118,7 +112,6 @@ export class EventIngestionRestrictionManager {
         if (!token) {
             return false
         }
-
         const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
         if (
             this.staticDropEventList.has(token) ||
@@ -126,17 +119,10 @@ export class EventIngestionRestrictionManager {
         ) {
             return true
         }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
         void this.dynamicConfigRefresher.get().catch((error) => {
             logger.warn('Error triggering background refresh for dynamic config', { error })
         })
-
         const dropSet = this.latestDynamicConfig[RestrictionType.DROP_EVENT_FROM_INGESTION]
-
         if (!dropSet) {
             return false
         }
@@ -147,7 +133,6 @@ export class EventIngestionRestrictionManager {
         if (!token) {
             return false
         }
-
         const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
         if (
             this.staticSkipPersonList.has(token) ||
@@ -155,17 +140,10 @@ export class EventIngestionRestrictionManager {
         ) {
             return true
         }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
         void this.dynamicConfigRefresher.get().catch((error) => {
             logger.warn('Error triggering background refresh for dynamic config', { error })
         })
-
         const dropSet = this.latestDynamicConfig[RestrictionType.SKIP_PERSON_PROCESSING]
-
         if (!dropSet) {
             return false
         }
@@ -176,7 +154,6 @@ export class EventIngestionRestrictionManager {
         if (!token) {
             return false
         }
-
         const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
         if (
             this.staticForceOverflowList.has(token) ||
@@ -184,17 +161,10 @@ export class EventIngestionRestrictionManager {
         ) {
             return true
         }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
         void this.dynamicConfigRefresher.get().catch((error) => {
             logger.warn('Error triggering background refresh for dynamic config', { error })
         })
-
         const dropSet = this.latestDynamicConfig[RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]
-
         if (!dropSet) {
             return false
         }
