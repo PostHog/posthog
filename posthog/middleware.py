@@ -43,6 +43,7 @@ from .utils_cors import cors_response
 from contextlib import ExitStack
 from django.db import connections
 from posthog.clickhouse.query_tagging import get_query_tags
+from urllib.parse import urlencode
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -713,7 +714,7 @@ KEY_VALUE_DELIMITER = ","
 def safe_sql_comment_value(val: str) -> str:
     # Replace only the problematic chars
     return (
-        str(val)
+        urlencode({"": str(val)})[1:]  # Remove the leading '=' from urlencode
         .replace("%", "_")
         .replace("{", "_")
         .replace("}", "_")
