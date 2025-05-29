@@ -12,6 +12,7 @@ SubTemplateId = Literal[
     "activity-log",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "insight-alert-firing",
 ]
 
 
