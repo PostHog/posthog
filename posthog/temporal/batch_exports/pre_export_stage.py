@@ -50,8 +50,8 @@ from posthog.temporal.batch_exports.sql import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
-    SELECT_FROM_PERSONS,
-    SELECT_FROM_PERSONS_BACKFILL,
+    EXPORT_TO_S3_FROM_PERSONS,
+    EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
@@ -330,9 +330,23 @@ async def _get_query(
 
     if model_name == "persons":
         if is_backfill and full_range[0] is None:
-            query = SELECT_FROM_PERSONS_BACKFILL
+            query_template = EXPORT_TO_S3_FROM_PERSONS_BACKFILL
         else:
-            query = SELECT_FROM_PERSONS
+            query_template = EXPORT_TO_S3_FROM_PERSONS
+
+        # TODO - configure this
+        num_partitions = 10
+
+        query = query_template.safe_substitute(
+            s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            s3_folder=_get_s3_staging_folder_url(
+                batch_export_id=batch_export_id,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+            ),
+            num_partitions=num_partitions,
+        )
     else:
         if parameters.get("exclude_events", None):
             parameters["exclude_events"] = list(parameters["exclude_events"])
