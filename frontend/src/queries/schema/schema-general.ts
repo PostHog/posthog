@@ -1990,7 +1990,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy: 'latest' | 'earliest'
+    orderBy?: 'latest' | 'earliest'
     searchTerm?: string
     resource?: string
     severityLevels: LogSeverityLevel[]
