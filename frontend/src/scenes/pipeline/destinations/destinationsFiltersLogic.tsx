@@ -16,7 +16,6 @@ export type DestinationsFilters = {
     search?: string
     kind?: PipelineBackend | null
     showPaused?: boolean
-    showComingSoon?: boolean
 }
 
 export interface DestinationsFiltersLogicProps {
@@ -45,7 +44,6 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
                 }),
                 resetFilters: () => ({
                     showPaused: true,
-                    showComingSoon: false,
                 }),
             },
         ],
