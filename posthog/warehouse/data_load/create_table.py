@@ -24,14 +24,14 @@ from posthog.warehouse.s3 import get_size_of_folder
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int) -> float:
     logger = await bind_temporal_worker_logger(team_id=team_id)
 
-    logger.debug("Calculating table size in S3")
+    await logger.adebug("Calculating table size in S3")
 
     folder_name = saved_query.folder_path
     s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}"
 
     total_mib = get_size_of_folder(s3_folder)
 
-    logger.debug(f"Total size in MiB = {total_mib:.2f}")
+    await logger.adebug(f"Total size in MiB = {total_mib:.2f}")
 
     return total_mib
 
@@ -85,16 +85,20 @@ async def create_table_from_saved_query(
 
         saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
-        if saved_query:
-            table_size = await calculate_table_size(saved_query, team_id)
+        try:
+            if saved_query:
+                table_size = await calculate_table_size(saved_query, team_id)
 
-            logger.debug(f"Total size in MiB = {table_size:.2f}")
+                await logger.adebug(f"Total size in MiB = {table_size:.2f}")
 
-            table_created.size_in_s3_mib = table_size
-            await asave_datawarehousetable(table_created)
+                table_created.size_in_s3_mib = table_size
+                await asave_datawarehousetable(table_created)
 
-            saved_query.table = table_created
-            await asave_saved_query(saved_query)
+                saved_query.table = table_created
+                await asave_saved_query(saved_query)
+        except Exception as e:
+            await logger.adebug("Error raised from calcuting table size")
+            await logger.adebug(str(e))
 
     except ServerException as err:
         logger.exception(
