@@ -28,6 +28,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DataTableNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
@@ -117,6 +118,8 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
+    MARKETING = 'MARKETING',
+    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
 }
 
 export enum ProductTab {
@@ -124,6 +127,7 @@ export enum ProductTab {
     WEB_VITALS = 'web-vitals',
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
+    MARKETING = 'marketing',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -170,6 +174,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
+    [TileId.MARKETING]: 16,
+
+    // Marketing Tiles
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -774,6 +782,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     })
                 }
 
+                if (productTab === ProductTab.MARKETING) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsMarketing,
+                        name: `Marketing`,
+                        path: urls.webAnalyticsMarketing(),
+                    })
+                }
+
                 return breadcrumbs
             },
         ],
@@ -1216,6 +1232,99 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 ),
                                 loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
                                 dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                            },
+                        },
+                    ]
+                }
+
+                if (productTab === ProductTab.MARKETING) {
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.MARKETING,
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                                orderWhenLargeClassName: 'xxl:order-1',
+                            },
+                            title: 'Marketing Costs',
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                embedded: true,
+                                hidePersonsModal: true,
+                                hideTooltipOnScroll: true,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    series: [
+                                        {
+                                            kind: NodeKind.DataWarehouseNode,
+                                            id: 'bigquery.google_ads_test1.google_ads_2',
+                                            name: 'bigquery.google_ads_test1.google_ads_2',
+                                            custom_name: 'Google Ads Cost',
+                                            id_field: 'id',
+                                            distinct_id_field: 'id',
+                                            timestamp_field: 'date',
+                                            table_name: 'bigquery.google_ads_test1.google_ads_2',
+                                            math: PropertyMathType.Sum,
+                                            math_property: 'cost',
+                                        },
+                                        {
+                                            kind: NodeKind.DataWarehouseNode,
+                                            id: 'bigquery.google_ads_test1.linkedin_ads',
+                                            name: 'bigquery.google_ads_test1.linkedin_ads',
+                                            custom_name: 'LinkedIn Ads Cost',
+                                            id_field: 'id',
+                                            distinct_id_field: 'id',
+                                            timestamp_field: 'daily',
+                                            table_name: 'bigquery.google_ads_test1.linkedin_ads',
+                                            math: PropertyMathType.Sum,
+                                            math_property: 'costinusd',
+                                        },
+                                        {
+                                            kind: NodeKind.DataWarehouseNode,
+                                            id: 'bigquery.google_ads_test1.bing_ads',
+                                            name: 'bigquery.google_ads_test1.bing_ads',
+                                            custom_name: 'Bing Ads Cost',
+                                            id_field: 'id',
+                                            distinct_id_field: 'id',
+                                            timestamp_field: 'daily',
+                                            table_name: 'bigquery.google_ads_test1.bing_ads',
+                                            math: PropertyMathType.Sum,
+                                            math_property: 'spend',
+                                        },
+                                    ],
+                                    interval: 'week',
+                                    dateRange: dateRange,
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsLineGraph,
+                                        aggregationAxisFormat: 'numeric',
+                                        aggregationAxisPrefix: '$',
+                                    },
+                                },
+                            },
+                            insightProps: createInsightProps(TileId.MARKETING),
+                            canOpenInsight: true,
+                            canOpenModal: false,
+                            docs: {
+                                title: 'Marketing Costs',
+                                description: 'Track cost from your Google Ads, LinkedIn Ads, and Bing Ads campaigns.',
+                            },
+                        },
+                        {
+                            kind: 'query',
+                            tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                                orderWhenLargeClassName: 'xxl:order-2',
+                            },
+                            title: 'Campaign Costs Breakdown',
+                            query: values.campaignCostsBreakdown,
+                            insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                            canOpenModal: true,
+                            canOpenInsight: false,
+                            docs: {
+                                title: 'Campaign Costs Breakdown',
+                                description:
+                                    'Breakdown of marketing costs by individual campaign names across all ad platforms.',
                             },
                         },
                     ]
@@ -2290,6 +2399,79 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 })
             },
         ],
+        campaignCostsBreakdown: [
+            // this is a temporary query to get the campaign costs breakdown
+            (s) => [s.dateFilter],
+            (dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+                interval: IntervalType
+            }): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        WITH campaign_costs AS (
+                            SELECT 
+                                campaignname,
+                                sum(cost) as total_cost,
+                                sum(clicks) as total_clicks,
+                                sum(impressions) as total_impressions
+                            FROM (
+                                SELECT campaignname, cost, clicks, impressions
+                                FROM bigquery.google_ads_test1.google_ads_2 
+                                WHERE date >= '2025-01-01'
+                                UNION ALL
+                                SELECT campaign_name as campaignname, costinusd as cost, clicks, impressions
+                                FROM bigquery.google_ads_test1.linkedin_ads
+                                WHERE daily >= '2025-01-01'
+                                UNION ALL
+                                SELECT campaignname, spend as cost, clicks, impressions
+                                FROM bigquery.google_ads_test1.bing_ads 
+                                WHERE daily >= '2025-01-01'
+                            )
+                            GROUP BY campaignname
+                        ),
+                        campaign_pageviews AS (
+                            SELECT 
+                                properties.utm_campaign as campaign_name,
+                                count(*) as pageviews,
+                                uniq(distinct_id) as unique_visitors
+                            FROM events 
+                            WHERE event = '$pageview' 
+                                AND properties.utm_campaign IS NOT NULL
+                                AND properties.utm_campaign != ''
+                            GROUP BY properties.utm_campaign
+                        )
+                        SELECT 
+                            cc.campaignname as "Campaign",
+                            round(cc.total_cost, 2) as "Total Cost",
+                            cc.total_clicks as "Total Clicks", 
+                            cc.total_impressions as "Total Impressions",
+                            round(cc.total_cost / cc.total_clicks, 2) as "Cost per Click",
+                            round(cc.total_clicks / cc.total_impressions * 100, 2) as "CTR",
+                            coalesce(cp.pageviews, 0) as "Pageviews",
+                            coalesce(cp.unique_visitors, 0) as "Unique Visitors",
+                            round(cc.total_cost / coalesce(cp.pageviews, 1), 2) as "Cost per Pageview"
+                        FROM campaign_costs cc
+                        LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
+                        ORDER BY cc.total_cost DESC
+                        LIMIT 20
+                    `,
+                    // temporary filters, they actually don't do anything
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo || 'now()',
+                        },
+                    },
+                },
+                full: true,
+                showDateRange: false,
+                showReload: false,
+                showExport: true,
+            }),
+        ],
     })),
     loaders(({ values }) => ({
         // load the status check query here and pass the response into the component, so the response
@@ -2498,6 +2680,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
+            } else if (productTab === ProductTab.MARKETING) {
+                basePath = '/web/marketing'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
@@ -2557,7 +2741,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTab = ProductTab.ANALYTICS
             }
 
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
+            if (
+                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
+                    productTab
+                )
+            ) {
                 return
             }
 

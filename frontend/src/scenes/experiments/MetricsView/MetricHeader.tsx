@@ -1,7 +1,7 @@
 import { IconCopy, IconPencil } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
@@ -72,9 +72,39 @@ export const MetricHeader = ({
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
                             onClick={() => {
+                                /**
+                                 * For shared metrics we open the duplicate form
+                                 * after a confirmation.
+                                 */
                                 if (metric.isSharedMetric) {
+                                    LemonDialog.open({
+                                        title: 'Duplicate this shared metric?',
+                                        content: (
+                                            <div className="text-sm text-secondary max-w-lg">
+                                                <p>
+                                                    We'll take you to the form to customize and save this metric. Your
+                                                    new version will appear in your shared metrics, ready to add to your
+                                                    experiment.
+                                                </p>
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Duplicate metric',
+                                            to: urls.experimentsSharedMetric(metric.sharedMetricId, 'duplicate'),
+                                            type: 'primary',
+                                            size: 'small',
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                            type: 'tertiary',
+                                            size: 'small',
+                                        },
+                                    })
+
                                     return
                                 }
+
+                                // regular metrics just get duplicated
                                 onDuplicateMetricClick(metric)
                             }}
                         />

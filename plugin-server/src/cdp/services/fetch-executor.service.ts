@@ -7,11 +7,11 @@ import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestE
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
-    HogFunctionInvocation,
-    HogFunctionInvocationResult,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
-import { cloneInvocation } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -32,10 +32,10 @@ export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
 
     private async handleFetchFailure(
-        invocation: HogFunctionInvocation,
+        invocation: CyclotronJobInvocation,
         response: FetchResponse | null,
         error: any | null
-    ): Promise<HogFunctionInvocationResult> {
+    ): Promise<CyclotronJobInvocationResult> {
         let kind: CyclotronFetchFailureKind = 'requesterror'
 
         if (error?.message.toLowerCase().includes('timeout')) {
@@ -90,30 +90,33 @@ export class FetchExecutorService {
             const nextScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
             logger.info(`[FetchExecutorService] Scheduling retry`, {
-                hogFunctionId: invocation.hogFunction.id,
+                functionId: invocation.functionId,
                 status: failure.status,
                 backoffMs,
                 nextScheduledAt: nextScheduledAt.toISO(),
                 retryCount: updatedMetadata.tries,
             })
 
-            return {
-                invocation: cloneInvocation(invocation, {
+            return createInvocationResult(
+                invocation,
+                {
                     queue: 'fetch', // Keep in fetch queue for retry
                     queueMetadata: updatedMetadata,
                     queueParameters: invocation.queueParameters, // Keep the same parameters
                     queuePriority: invocation.queuePriority + 1, // Decrease priority for retries
                     queueScheduledAt: nextScheduledAt,
-                }),
-                finished: false,
-                logs: [],
-            }
+                },
+                {
+                    finished: false,
+                }
+            )
         }
 
         // If we've exceeded retries, return all failures in trace
-        return {
-            invocation: cloneInvocation(invocation, {
-                queue: 'hog',
+        return createInvocationResult(
+            invocation,
+            {
+                queue: params.return_queue,
                 queueParameters: {
                     response: response
                         ? {
@@ -125,13 +128,23 @@ export class FetchExecutorService {
                     trace: updatedMetadata.trace,
                     timings: [],
                 },
-            }),
-            finished: false,
-            logs: [],
-        }
+            },
+            {
+                finished: false,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.functionId,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
+            }
+        )
     }
 
-    async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    async execute(invocation: CyclotronJobInvocation): Promise<CyclotronJobInvocationResult> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
             throw new Error('Bad invocation')
         }
@@ -165,9 +178,10 @@ export class FetchExecutorService {
             return await this.handleFetchFailure(invocation, fetchResponse, fetchError)
         }
 
-        return {
-            invocation: cloneInvocation(invocation, {
-                queue: 'hog',
+        return createInvocationResult(
+            invocation,
+            {
+                queue: params.return_queue,
                 queueParameters: {
                     response: {
                         status: fetchResponse?.status,
@@ -181,9 +195,19 @@ export class FetchExecutorService {
                         },
                     ],
                 },
-            }),
-            finished: false,
-            logs: [],
-        }
+            },
+            {
+                finished: false,
+                metrics: [
+                    {
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.functionId,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                ],
+            }
+        )
     }
 }

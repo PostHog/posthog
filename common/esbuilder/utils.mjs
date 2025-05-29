@@ -566,7 +566,6 @@ export function gatherProductManifests(__dirname) {
     const treeItemsGames = {}
     const treeItemsDataManagement = {}
     const treeItemsProducts = {}
-    const fileSystemFilterTypes = []
 
     const sourceFiles = []
     for (const product of products) {
@@ -654,10 +653,6 @@ export function gatherProductManifests(__dirname) {
                 } else if (node.name.text === 'fileSystemTypes') {
                     for (const property of node.initializer.properties) {
                         fileSystemTypes.push(cloneNode(property))
-                    }
-                } else if (node.name.text === 'fileSystemFilterTypes') {
-                    for (const property of node.initializer.properties) {
-                        fileSystemFilterTypes.push(cloneNode(property))
                     }
                 } else {
                     ts.forEachChild(node, visit)
@@ -779,11 +774,6 @@ export function gatherProductManifests(__dirname) {
         ),
         sourceFile
     )
-    const manifestTreeFilterTypes = printer.printNode(
-        ts.EmitHint.Unspecified,
-        ts.factory.createObjectLiteralExpression(fileSystemFilterTypes),
-        sourceFile
-    )
 
     const autogenComment = '/** This const is auto-generated, as is the whole file */'
     let preservedImports = ''
@@ -826,8 +816,6 @@ export function gatherProductManifests(__dirname) {
         export const getTreeItemsGames = (): FileSystemImport[] => ${manifestTreeItemsGames}\n
         ${autogenComment}
         export const getTreeItemsDataManagement = (): FileSystemImport[] => ${manifestTreeItemsDataManagement}\n
-        ${autogenComment}
-        export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
     `
 
     // safe temporary path in /tmp

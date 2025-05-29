@@ -15,7 +15,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar, Optional
 from collections.abc import Iterable
 
 import dagster
@@ -417,9 +417,12 @@ class Query:
 @dataclass
 class ExponentialBackoff:
     delay: float
+    max_delay: Optional[float] = None
+    exp: float = 2.0
 
     def __call__(self, attempt: int) -> float:
-        return self.delay * (attempt**2)
+        delay = self.delay * (attempt**self.exp)
+        return min(delay, self.max_delay) if self.max_delay is not None else delay
 
 
 @dataclass

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
-import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
+import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 
 import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
 
@@ -22,7 +22,7 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
             <div className="text-xs font-semibold uppercase text-text-secondary">{title}</div>
             {isLoading ? (
                 <>
-                    <LemonSkeleton className="h-8 w-16" />
+                    <LemonSkeleton className="h-9 w-16" />
                     <LemonSkeleton className="h-4 w-32" />
                 </>
             ) : (
@@ -40,7 +40,7 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
     const uniqueUsersSent = stats[SurveyEventName.SENT].unique_persons
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
     return (
-        <div className="flex flex-wrap gap-4 mb-4">
+        <div className="flex flex-wrap gap-4">
             <StatCard
                 title="Total Impressions by Unique Users"
                 value={humanFriendlyNumber(uniqueUsersShown)}
@@ -70,7 +70,7 @@ function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRat
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
 
     return (
-        <div className="flex flex-wrap gap-4 mb-4">
+        <div className="flex flex-wrap gap-4">
             <StatCard
                 title="Total Impressions"
                 value={humanFriendlyNumber(impressions)}
@@ -199,7 +199,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                     </div>
                 </div>
             )}
-            {children}
+            <div className="flex flex-col gap-4">{children}</div>
         </div>
     )
 }
@@ -207,7 +207,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
 function SurveyStatsSummarySkeleton(): JSX.Element {
     return (
         <SurveyStatsContainer>
-            <div className="flex flex-wrap gap-4 mb-4">
+            <div className="flex flex-wrap gap-4">
                 <StatCard
                     title="Total Impressions by Unique Users"
                     value={0}
@@ -227,8 +227,7 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
                     isLoading={true}
                 />
             </div>
-
-            <LemonSkeleton className="h-10 w-full" />
+            <StackedBarSkeleton />
         </SurveyStatsContainer>
     )
 }

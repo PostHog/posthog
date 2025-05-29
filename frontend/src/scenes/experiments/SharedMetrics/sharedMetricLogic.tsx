@@ -3,13 +3,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
-import { UserBasicType } from '~/types'
+import { BillingType, UserBasicType } from '~/types'
 
-import { getDefaultFunnelMetric, getDefaultTrendsMetric } from '../utils'
+import { getDefaultFunnelMetric, getDefaultTrendsMetric, shouldUseNewQueryRunnerForNewObjects } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -43,7 +43,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
 
     connect(() => ({
         actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricCreated']],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], billingLogic, ['billing']],
     })),
 
     actions({
@@ -78,7 +78,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (props.action === 'duplicate' && values.sharedMetric) {
                 actions.setSharedMetric({
                     ...values.sharedMetric,
-                    name: `${values.sharedMetric.name} (Duplicate)`,
+                    name: `${values.sharedMetric.name} (duplicate)`,
                     id: undefined,
                 })
             }
@@ -132,10 +132,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         ],
         action: [() => [(_, props) => props.action], (action: 'create' | 'update' | 'duplicate') => action],
         newSharedMetric: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => ({
+            (s) => [s.featureFlags, s.billing],
+            (featureFlags: FeatureFlagsSet, billing: BillingType) => ({
                 ...NEW_SHARED_METRIC,
-                query: featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+                query: shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)
                     ? getDefaultFunnelMetric()
                     : getDefaultTrendsMetric(),
             }),

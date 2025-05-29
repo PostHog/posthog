@@ -26,9 +26,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         session_recording_playlist: {
+            name: 'Replay playlist',
             icon: <IconRewindPlay />,
             href: (ref: string) => urls.replayPlaylist(ref),
             iconColor: ['var(--product-session-replay-light)', 'var(--product-session-replay-dark)'],
+            filterKey: 'session_recording_playlist',
         },
     },
     treeItemsNew: [
@@ -46,7 +48,4 @@ export const manifest: ProductManifest = {
             visualOrder: PRODUCT_VISUAL_ORDER.sessionReplay,
         },
     ],
-    fileSystemFilterTypes: {
-        session_recording_playlist: { name: 'Replay playlists' },
-    },
 }

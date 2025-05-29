@@ -29,6 +29,7 @@ type MethodName =
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
+    | 'updatePersonWithPropertiesDiffForUpdate'
 
 const ALL_METHODS: MethodName[] = [
     'fetchForChecking',
@@ -42,6 +43,7 @@ const ALL_METHODS: MethodName[] = [
     'updateCohortsAndFeatureFlagsForMerge',
     'addPersonlessDistinctId',
     'addPersonlessDistinctIdForMerge',
+    'updatePersonWithPropertiesDiffForUpdate',
 ]
 
 type UpdateType = 'forUpdate' | 'forMerge'
@@ -243,6 +245,24 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         )
     }
 
+    async updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        return this.updatePersonWithPropertiesDiff(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            tx,
+            'updatePersonWithPropertiesDiffForUpdate',
+            'forUpdate'
+        )
+    }
+
     async updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
@@ -257,6 +277,32 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge')
+    }
+
+    private async updatePersonWithPropertiesDiff(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        tx: TransactionClient | undefined,
+        methodName: MethodName,
+        updateType: UpdateType
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        this.incrementCount(methodName)
+        this.clearCache()
+        this.incrementDatabaseOperation(methodName)
+        const start = performance.now()
+        const response = await this.db.updatePersonWithMergeOperator(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            tx,
+            updateType
+        )
+        this.recordUpdateLatency(updateType, (performance.now() - start) / 1000)
+        observeLatencyByVersion(person, start, methodName)
+        return response
     }
 
     private async updatePerson(

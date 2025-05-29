@@ -95,8 +95,6 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDailyTable,
-    WebOverviewDailyTable,
-    WebPathsDailyTable,
     WebStatsDailyTable,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
@@ -160,10 +158,8 @@ class Database(BaseModel):
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
 
     # Web analytics pre-aggregated tables (internal use only)
-    web_overview_daily: WebOverviewDailyTable = WebOverviewDailyTable()
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
     web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
-    web_paths_daily: WebPathsDailyTable = WebPathsDailyTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()

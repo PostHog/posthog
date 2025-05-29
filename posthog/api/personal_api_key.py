@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated, BasePermission
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
-from posthog.models.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission

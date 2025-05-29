@@ -65,23 +65,50 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
-    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[str, str]:
-        current_date_from = self.runner.query_date_range.date_from_str
-        current_date_to = self.runner.query_date_range.date_to_str
+    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[ast.Expr, ast.Expr]:
+        current_date_from = self.runner.query_date_range.date_from()
+        current_date_to = self.runner.query_date_range.date_to()
 
         if self.runner.query_compare_to_date_range:
-            previous_date_from = self.runner.query_compare_to_date_range.date_from_str
-            previous_date_to = self.runner.query_compare_to_date_range.date_to_str
+            previous_date_from = self.runner.query_compare_to_date_range.date_from()
+            previous_date_to = self.runner.query_compare_to_date_range.date_to()
         else:
             # If we don't have a previous period, we can just use the same data as the values won't be used
             # and our query stays simpler.
-            # TODO: Make sure the frontend handles this correctly for every case
             previous_date_from = current_date_from
             previous_date_to = current_date_to
 
-        field_name = f"{table_name}.day_bucket" if table_name else "day_bucket"
+        # Create the field reference for day_bucket
+        day_bucket_field = ast.Field(chain=[table_name, "day_bucket"] if table_name else ["day_bucket"])
 
-        current_period_filter = f"{field_name} >= '{current_date_from}' AND {field_name} <= '{current_date_to}'"
-        previous_period_filter = f"{field_name} >= '{previous_date_from}' AND {field_name} <= '{previous_date_to}'"
+        current_period_filter = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=day_bucket_field,
+                    right=ast.Constant(value=current_date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=day_bucket_field,
+                    right=ast.Constant(value=current_date_to),
+                ),
+            ]
+        )
+
+        previous_period_filter = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=day_bucket_field,
+                    right=ast.Constant(value=previous_date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=day_bucket_field,
+                    right=ast.Constant(value=previous_date_to),
+                ),
+            ]
+        )
 
         return (previous_period_filter, current_period_filter)

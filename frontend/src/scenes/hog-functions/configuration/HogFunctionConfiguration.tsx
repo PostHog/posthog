@@ -476,7 +476,8 @@ export function HogFunctionConfiguration({
                                                     }, 100)
                                                 }}
                                                 disabledReason={
-                                                    !hasAddon
+                                                    // We allow editing the source code for transformations without the Data Pipelines addon
+                                                    !hasAddon && type !== 'transformation'
                                                         ? 'Editing the source code requires the Data Pipelines addon'
                                                         : undefined
                                                 }

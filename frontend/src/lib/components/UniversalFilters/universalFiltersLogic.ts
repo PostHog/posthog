@@ -110,6 +110,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
                         TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.Logs,
                     ].includes(t)
                 ),
         ],

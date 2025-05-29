@@ -51,6 +51,17 @@ export interface PersonsStoreForDistinctIdBatch {
     ): Promise<[InternalPerson, TopicMessage[]]>
 
     /**
+     * Updates an existing person with a properties diff rather than the entire property object
+     */
+    updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
+
+    /**
      * Updates an existing person for merge operations
      */
     updatePersonForMerge(

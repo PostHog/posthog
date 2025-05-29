@@ -184,6 +184,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     q = Q(ref=value)
                 else:  # unknown prefix → search for the full token in path
                     q = Q(path__icontains=token)
+            elif "/" in token:
+                # ────────────────────────────────────────────────────────────
+                # Plain free-text token
+                #
+                # If the token itself contains “/”, it may refer either to
+                # a *real* path separator **or** to an escaped slash (\/)
+                # that lives inside a single segment.  To support both cases
+                # we build a case-insensitive REGEX where every “/” becomes
+                # the alternation   ( "/" | "\/" ).
+                #
+                # token:   "go/revenue"
+                # regex:   r"go(?:/|\\/ )revenue"
+                # ────────────────────────────────────────────────────────────
+                sep_pattern = r"(?:/|\\/)"
+                regex = sep_pattern.join(re.escape(part) for part in token.split("/"))
+                q = Q(path__iregex=regex)
             else:
                 # plain free-text token: search in path
                 q = Q(path__icontains=token)

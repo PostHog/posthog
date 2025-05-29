@@ -7,7 +7,6 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconPineapple,
     IconPlus,
     IconSearch,
     IconShortcut,
@@ -20,10 +19,8 @@ import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -80,7 +77,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         isLayoutNavCollapsed,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
@@ -216,22 +212,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     ? 'Close data management'
                     : 'Open data management',
         },
-        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
-            ? [
-                  {
-                      identifier: 'Games',
-                      id: 'Games',
-                      icon: <IconPineapple />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Games')
-                          }
-                      },
-                      showChevron: true,
-                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
-                  },
-              ]
-            : []),
         {
             identifier: 'Persons',
             id: 'Persons',

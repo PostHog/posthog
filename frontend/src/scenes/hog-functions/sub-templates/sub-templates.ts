@@ -53,6 +53,11 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
+    'insight-alert-firing': {
+        sub_template_id: 'insight-alert-firing',
+        type: 'internal_destination',
+        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -374,6 +379,55 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: 'Issue reopened: {event.properties.name}',
+                },
+            },
+        },
+    ],
+    'insight-alert-firing': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['insight-alert-firing'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on insight alert firing',
+            description: 'Post to a Slack channel when this insight alert fires',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'plain_text',
+                                text: '{event.properties.breaches}',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [
+                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+                                { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/insights/{event.properties.insight_id}',
+                                    text: { text: 'View Insight', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Alert triggered: {event.properties.insight_name}',
                 },
             },
         },

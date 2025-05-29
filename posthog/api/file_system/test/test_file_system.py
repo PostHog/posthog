@@ -905,6 +905,28 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
         self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
 
+    def test_search_with_slash_inside_segment(self):
+        r"""
+        A path segment that originally contained “/” is stored as “\/”.
+        Plain-text searches such as 'go/revenue', 'banana/go', or the full
+        'banana/go/revenue' must still find the item.
+        """
+        # This is the path PostHog generates for   Banana   /   go/revenue
+        FileSystem.objects.create(
+            team=self.team,
+            path="Banana/go\\/revenue",  # ← stored form, depth = 2
+            depth=2,
+            type="doc",
+            created_by=self.user,
+        )
+
+        base = f"/api/projects/{self.team.id}/file_system/?search="
+        for query in ["go/revenue", "banana/go", "banana/go/revenue"]:
+            resp = self.client.get(base + query)
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+            self.assertEqual(resp.json()["count"], 1, f"Failed for query: {query}")
+            self.assertEqual(resp.json()["results"][0]["path"], "Banana/go\\/revenue")
+
 
 @pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)
 class TestFileSystemAPIAdvancedPermissions(APIBaseTest):

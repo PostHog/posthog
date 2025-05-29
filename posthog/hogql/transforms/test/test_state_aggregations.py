@@ -280,7 +280,7 @@ class TestStateTransforms(BaseTest):
         current_data_state_query_ast = transform_query_to_state_aggregations(current_data_query_ast)
 
         # Create a SelectSetQuery with the two queries. This is a possible way we can combine the pre-aggregated data with the current data.
-        # Example: web_overview_daily with the current day results of web_overview query.
+        # Example: web_bounces_daily with the current day results of web_overview query.
         select_set_query_ast = ast.SelectSetQuery(
             initial_select_query=old_data_state_query_ast,
             subsequent_select_queries=[

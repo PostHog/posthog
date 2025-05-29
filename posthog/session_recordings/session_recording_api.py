@@ -75,6 +75,8 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from posthog.exceptions_capture import capture_exception
 
+import asyncio
+
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
@@ -273,6 +275,69 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):
             raise serializers.ValidationError("At least one of 'viewed' or 'analyzed' must be provided.")
+
+        return data
+
+
+class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
+    # shared
+    # need to ignore type here because mypy is being weird
+    source = serializers.CharField(required=False, allow_null=True)  # type: ignore
+    blob_v2 = serializers.BooleanField(default=False, help_text="Whether to enable v2 blob functionality")
+    blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
+
+    # v2
+    start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
+    end_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="End of blob key range")
+
+    # v1
+    if_none_match = serializers.SerializerMethodField()
+
+    def get_if_none_match(self) -> str | None:
+        return self.context.get("if_none_match")
+
+    def validate(self, data):
+        source = data.get("source")
+        blob_key = data.get("blob_key")
+        start_blob_key = data.get("start_blob_key")
+        end_blob_key = data.get("end_blob_key")
+        is_personal_api_key = self.context.get("is_personal_api_key")
+
+        if source not in ["realtime", "blob", "blob_v2", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+
+        # Validate blob_v2 parameters
+        if source == "blob_v2":
+            if blob_key and (start_blob_key or end_blob_key):
+                raise serializers.ValidationError("Must provide a single blob key or start and end blob keys, not both")
+
+            if start_blob_key and not end_blob_key:
+                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+            if end_blob_key and not start_blob_key:
+                raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
+
+            if not blob_key and not start_blob_key:
+                raise serializers.ValidationError("Must provide one of blob key or start and end blob keys")
+
+            try:
+                min_blob_key = int(start_blob_key or blob_key)
+                max_blob_key = int(end_blob_key or blob_key)
+                data["min_blob_key"] = min_blob_key
+                data["max_blob_key"] = max_blob_key
+            except (ValueError, TypeError):
+                raise serializers.ValidationError("Blob key must be an integer")
+
+            max_blobs_allowed = 20 if is_personal_api_key else 100
+            if max_blob_key - min_blob_key > max_blobs_allowed:
+                raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
+
+        # Validate blob parameters (v1)
+        elif source == "blob" and blob_key:
+            if not blob_key:
+                raise serializers.ValidationError("Must provide a snapshot file blob key")
+            # blob key should be a string of the form 1619712000-1619712060
+            if not all(x.isdigit() for x in blob_key.split("-")):
+                raise serializers.ValidationError("Invalid blob key: " + blob_key)
 
         return data
 
@@ -627,17 +692,23 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        source = request.GET.get("source")
-        source_log_label = source or "listing"
-        is_v2_enabled = request.GET.get("blob_v2", "false") == "true"
+        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        serializer = SessionRecordingSnapshotsRequestSerializer(
+            data=request.GET.dict(),
+            context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},
+        )
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
 
-        if source not in ["realtime", "blob", "blob_v2", None]:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2, None]")
+        source = validated_data.get("source")
+        source_log_label = source or "listing"
+        is_v2_enabled = validated_data.get("blob_v2", False)
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
-        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            used_key = request.successful_authenticator.personal_api_key
+        if is_personal_api_key:
+            personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
+            used_key = personal_api_authenticator.personal_api_key
             SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
@@ -659,18 +730,22 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
         elif source == "realtime":
             with timer("send_realtime_snapshots_to_client"):
-                response = self._send_realtime_snapshots_to_client(recording, request)
+                response = self._send_realtime_snapshots_to_client(recording)
         elif source == "blob":
             with timer("stream_blob_to_client"):
-                response = self._stream_blob_to_client(recording, request)
+                response = self._stream_blob_to_client(
+                    recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
+                )
         elif source == "blob_v2":
-            blob_key = request.GET.get("blob_key")
-            if blob_key:
-                response = self._stream_blob_v2_to_client(recording, request, timer)
+            if "min_blob_key" in validated_data:
+                response = self._stream_blob_v2_to_client(
+                    recording,
+                    timer,
+                    min_blob_key=validated_data["min_blob_key"],
+                    max_blob_key=validated_data["max_blob_key"],
+                )
             else:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
-        else:
-            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
 
         response.headers["Server-Timing"] = timer.to_header_string()
         return response
@@ -851,10 +926,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         #     r.headers["Server-Timing"] = timings_header
         # return r
 
-    def _stream_blob_to_client(self, recording: SessionRecording, request: request.Request) -> HttpResponse:
-        blob_key = request.GET.get("blob_key", "")
-        self._validate_blob_key(blob_key)
-
+    def _stream_blob_to_client(
+        self, recording: SessionRecording, blob_key: str, if_none_match: str | None
+    ) -> HttpResponse:
         # very short-lived pre-signed URL
         with GENERATE_PRE_SIGNED_URL_HISTOGRAM.time():
             if recording.object_storage_path:
@@ -883,7 +957,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             # object store will respect this and send back 304 if the file hasn't changed,
             # and we don't need to send the large file over the wire
 
-            if_none_match = request.headers.get("If-None-Match")
             headers = {}
             if if_none_match:
                 headers["If-None-Match"] = ensure_not_weak(if_none_match)
@@ -909,38 +982,29 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 return response
 
-    def _stream_blob_v2_to_client(
+    async def _stream_blob_v2_to_client_async(
         self,
         recording: SessionRecording,
-        request: request.Request,
         timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
     ) -> HttpResponse:
-        """Stream a v2 session recording blob to the client.
-
-        The blob_key is the block index in the metadata arrays.
-        """
-        blob_key = request.GET.get("blob_key", "")
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a blob key")
-
-        try:
-            block_index = int(blob_key)
-        except ValueError:
-            raise exceptions.ValidationError("Blob key must be an integer")
-
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
             with timer("list_blocks__stream_blob_v2_to_client"):
                 blocks = list_blocks(recording)
                 if not blocks:
                     raise exceptions.NotFound("Session recording not found")
 
-            if block_index >= len(blocks):
+            if max_blob_key >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
-            with timer("fetch_block__stream_blob_v2_to_client"):
-                block = blocks[block_index]
+            async def fetch_single_block_async(block_index: int) -> tuple[int, str | None]:
                 try:
-                    decompressed_block = session_recording_v2_object_storage.client().fetch_block(block.url)
+                    block = blocks[block_index]
+                    content = await asyncio.to_thread(
+                        session_recording_v2_object_storage.client().fetch_block, block.url
+                    )
+                    return block_index, content
                 except BlockFetchError:
                     logger.exception(
                         "Failed to fetch block",
@@ -948,24 +1012,44 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         team_id=self.team.id,
                         block_index=block_index,
                     )
-                    raise exceptions.APIException("Failed to load recording block")
+                    return block_index, None
 
+            with timer("fetch_blocks_parallel__stream_blob_v2_to_client"):
+                tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+
+                results = await asyncio.gather(*tasks)
+
+                decompressed_blocks: list[str | None] = [None] * len(results)
+                block_errors: list[int] = []
+
+                for block_index, content in results:
+                    if content is None:
+                        block_errors.append(block_index)
+                    else:
+                        decompressed_blocks[block_index - min_blob_key] = content
+
+            if block_errors:
+                raise exceptions.APIException("Failed to load recording block")
+
+            # After error check, all values are guaranteed to be strings
             response = HttpResponse(
-                content=decompressed_block,
+                content="\n".join(cast(list[str], decompressed_blocks)),
                 content_type="application/jsonl",
             )
-
-            # Set caching headers - blocks are immutable, so we can cache for a while
             response["Cache-Control"] = "max-age=3600"
             response["Content-Disposition"] = "inline"
-
             return response
 
-    def _send_realtime_snapshots_to_client(
-        self, recording: SessionRecording, request: request.Request
-    ) -> HttpResponse | Response:
-        version = request.GET.get("version", "og")
+    def _stream_blob_v2_to_client(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
 
+    def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
@@ -975,25 +1059,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 or []
             )
 
-        if version == "og":
-            # originally we returned a list of dictionaries
-            # under a snapshot key
-            # we keep doing this here for a little while
-            # so that existing browser sessions, that don't know about the new format
-            # can carry on working until the next refresh
-            serializer = SessionRecordingSourcesSerializer({"snapshots": [json.loads(s) for s in snapshot_lines]})
-            return Response(serializer.data)
-        elif version == "2024-04-30":
-            response = HttpResponse(
-                # convert list to a jsonl response
-                content=("\n".join(snapshot_lines)),
-                content_type="application/json",
-            )
-            # the browser is not allowed to cache this at all
-            response["Cache-Control"] = "no-store"
-            return response
-        else:
-            raise exceptions.ValidationError(f"Invalid version: {version}")
+        response = HttpResponse(
+            # convert list to a jsonl response
+            content=("\n".join(snapshot_lines)),
+            content_type="application/json",
+        )
+        # the browser is not allowed to cache this at all
+        response["Cache-Control"] = "no-store"
+        return response
 
     @extend_schema(
         exclude=True,

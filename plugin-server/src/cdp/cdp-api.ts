@@ -14,13 +14,16 @@ import { HogFunctionMonitoringService } from './services/hog-function-monitoring
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
-    LogEntry,
+    MinimalLogEntry,
 } from './types'
-import { cloneInvocation, convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionInvocationGlobals } from './utils'
+import { createInvocationResult } from './utils/invocation-utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -162,8 +165,8 @@ export class CdpApi {
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let lastResponse: HogFunctionInvocationResult | null = null
-            let logs: LogEntry[] = []
+            let lastResponse: CyclotronJobInvocationResult | null = null
+            let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
 
@@ -201,7 +204,7 @@ export class CdpApi {
 
                 for (const _invocation of invocations) {
                     let count = 0
-                    let invocation = _invocation
+                    let invocation: CyclotronJobInvocation = _invocation
                     invocation.id = invocationID
 
                     while (!lastResponse || !lastResponse.finished) {
@@ -210,7 +213,7 @@ export class CdpApi {
                         }
                         count += 1
 
-                        let response: HogFunctionInvocationResult
+                        let response: CyclotronJobInvocationResult
 
                         if (invocation.queue === 'fetch') {
                             if (mock_async_functions) {
@@ -221,30 +224,33 @@ export class CdpApi {
                                         invocation.queueParameters as HogFunctionQueueParametersFetchRequest
                                     )
 
-                                response = {
-                                    invocation: cloneInvocation(invocation, {
+                                response = createInvocationResult(
+                                    invocation,
+                                    {
                                         queue: 'hog',
                                         queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
-                                    }),
-                                    finished: false,
-                                    logs: [
-                                        {
-                                            level: 'info',
-                                            timestamp: DateTime.now(),
-                                            message: `Async function 'fetch' was mocked with arguments:`,
-                                        },
-                                        {
-                                            level: 'info',
-                                            timestamp: DateTime.now(),
-                                            message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
-                                        },
-                                    ],
-                                }
+                                    },
+                                    {
+                                        finished: false,
+                                        logs: [
+                                            {
+                                                level: 'info',
+                                                timestamp: DateTime.now(),
+                                                message: `Async function 'fetch' was mocked with arguments:`,
+                                            },
+                                            {
+                                                level: 'info',
+                                                timestamp: DateTime.now(),
+                                                message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
+                                            },
+                                        ],
+                                    }
+                                )
                             } else {
                                 response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
-                            response = this.hogExecutor.execute(invocation)
+                            response = this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
                         }
 
                         logs = logs.concat(response.logs)
@@ -292,7 +298,7 @@ export class CdpApi {
                 }
 
                 const wasSkipped = response.invocationResults.some((r) =>
-                    r.metrics?.some((m) => m.metric_name === 'filtered')
+                    r.metrics.some((m) => m.metric_name === 'filtered')
                 )
 
                 res.json({

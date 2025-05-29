@@ -1,30 +1,43 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
-import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
+import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import type { logsLogicType } from './logsLogicType'
 
-const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
+const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
 
     actions({
+        runQuery: (debounce?: integer) => ({ debounce }),
+        cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
+        cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
+        setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
+        setSparklineAbortController: (sparklineAbortController: AbortController | null) => ({
+            sparklineAbortController,
+        }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setResource: (resource: LogsQuery['resource']) => ({ resource }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
     }),
 
     reducers({
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
             {
-                setDateRange: (_, { dateRange }) => dateRange,
+                setDateRange: (_, { dateRange }) => {
+                    return dateRange
+                },
             },
         ],
         orderBy: [
@@ -51,20 +64,65 @@ export const logsLogic = kea<logsLogicType>([
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
             },
         ],
-
+        filterGroup: [
+            DEFAULT_UNIVERSAL_GROUP_FILTER,
+            { persist: false },
+            {
+                setFilterGroup: (_, { filterGroup }) => filterGroup,
+            },
+        ],
         wrapBody: [
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
         ],
+        logsAbortController: [
+            null as AbortController | null,
+            {
+                setLogsAbortController: (_, { logsAbortController }) => logsAbortController,
+            },
+        ],
+        sparklineAbortController: [
+            null as AbortController | null,
+            {
+                setSparklineAbortController: (_, { sparklineAbortController }) => sparklineAbortController,
+            },
+        ],
+        hasRunQuery: [
+            false as boolean,
+            {
+                fetchLogsSuccess: () => true,
+                fetchLogsFailure: () => true,
+            },
+        ],
+        logsLoading: [
+            false as boolean,
+            {
+                fetchLogs: () => true,
+                fetchLogsSuccess: () => false,
+                fetchLogsFailure: () => true,
+            },
+        ],
+        sparklineLoading: [
+            false as boolean,
+            {
+                fetchSparkline: () => true,
+                fetchSparklineSuccess: () => false,
+                fetchSparklineFailure: () => true,
+            },
+        ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         logs: [
-            [] as LogMessage[],
+            [],
             {
                 fetchLogs: async () => {
+                    const logsController = new AbortController()
+                    const signal = logsController.signal
+                    actions.cancelInProgressLogs(logsController)
+
                     const response = await api.logs.query({
                         query: {
                             limit: 100,
@@ -73,12 +131,75 @@ export const logsLogic = kea<logsLogicType>([
                             dateRange: values.dateRange,
                             searchTerm: values.searchTerm,
                             resource: values.resource,
+                            filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                         },
+                        signal,
                     })
+                    actions.setLogsAbortController(null)
                     return response.results
                 },
             },
         ],
+        sparkline: [
+            [] as any[],
+            {
+                fetchSparkline: async () => {
+                    const sparklineController = new AbortController()
+                    const signal = sparklineController.signal
+                    actions.cancelInProgressSparkline(sparklineController)
+
+                    const response = await api.logs.sparkline({
+                        query: {
+                            orderBy: values.orderBy,
+                            dateRange: values.dateRange,
+                            searchTerm: values.searchTerm,
+                            resource: values.resource,
+                            filterGroup: values.filterGroup as PropertyGroupFilter,
+                            severityLevels: values.severityLevels,
+                        },
+                        signal,
+                    })
+                    actions.setSparklineAbortController(null)
+                    return response
+                },
+            },
+        ],
     })),
+
+    listeners(({ values, actions }) => {
+        const maybeRefreshLogs = (): void => {
+            if (values.hasRunQuery) {
+                actions.runQuery(300)
+            }
+        }
+
+        return {
+            runQuery: async ({ debounce }, breakpoint) => {
+                if (debounce) {
+                    await breakpoint(debounce)
+                }
+                actions.fetchLogs()
+                actions.fetchSparkline()
+            },
+            cancelInProgressLogs: ({ logsAbortController }) => {
+                if (values.logsAbortController !== null) {
+                    values.logsAbortController.abort('new query started')
+                }
+                actions.setLogsAbortController(logsAbortController)
+            },
+            cancelInProgressSparkline: ({ sparklineAbortController }) => {
+                if (values.sparklineAbortController !== null) {
+                    values.sparklineAbortController.abort('new query started')
+                }
+                actions.setSparklineAbortController(sparklineAbortController)
+            },
+            setDateRange: maybeRefreshLogs,
+            setOrderBy: maybeRefreshLogs,
+            setSearchTerm: maybeRefreshLogs,
+            setResource: maybeRefreshLogs,
+            setSeverityLevels: maybeRefreshLogs,
+            setFilterGroup: maybeRefreshLogs,
+        }
+    }),
 ])

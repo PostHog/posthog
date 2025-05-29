@@ -5,14 +5,15 @@ import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
+    CyclotronJobInvocationHogFunction,
     HogFunctionInputType,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../types'
-import { cloneInvocation, createInvocation } from '../../utils'
+import { cloneInvocation } from '../../utils/invocation-utils'
+import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
@@ -162,7 +163,10 @@ export class TemplateTester {
         return this.executor.execute(invocation, { functions: extraFunctions })
     }
 
-    invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {
+    invokeFetchResponse(
+        invocation: CyclotronJobInvocationHogFunction,
+        response: HogFunctionQueueParametersFetchResponse
+    ) {
         const modifiedInvocation = cloneInvocation(invocation, {
             queue: 'hog' as const,
             queueParameters: response,

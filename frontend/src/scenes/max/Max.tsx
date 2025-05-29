@@ -34,7 +34,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { QuestionInput } from './QuestionInput'
-import { QuestionSuggestions } from './QuestionSuggestions'
+import { QuestionInputWithSuggestions } from './QuestionInputWithSuggestions'
 import { Thread } from './Thread'
 
 export const scene: SceneExport = {
@@ -207,8 +207,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         )}
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
-                            <QuestionInput />
-                            <QuestionSuggestions />
+                            <QuestionInputWithSuggestions />
                         </div>
                         <HistoryPreview sidePanel={sidePanel} />
                     </div>

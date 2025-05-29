@@ -225,6 +225,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
+        PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION: 0.0, // defaults to off, value in [0,1] for percentage rollout
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB

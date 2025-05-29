@@ -9,16 +9,19 @@ import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 import { AvailableFeature, PipelineStage } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
+import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { hogFunctionTemplateListLogic, HogFunctionTemplateListLogicProps } from './hogFunctionTemplateListLogic'
 
 export function HogFunctionTemplateList({
     extraControls,
+    hideFeedback = false,
     ...props
-}: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
+}: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
     const { loading, filteredTemplates, filters, templates, canEnableHogFunction, urlForTemplate } = useValues(
         hogFunctionTemplateListLogic(props)
     )
     const { loadHogFunctionTemplates, setFilters, resetFilters } = useActions(hogFunctionTemplateListLogic(props))
+    const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     useEffect(() => loadHogFunctionTemplates(), [props.type])
 
@@ -33,6 +36,11 @@ export function HogFunctionTemplateList({
                         onChange={(e) => setFilters({ search: e })}
                     />
                 )}
+                {!hideFeedback ? (
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
+                        Can't find what you're looking for?
+                    </Link>
+                ) : null}
                 <div className="flex-1" />
                 {extraControls}
             </div>

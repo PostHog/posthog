@@ -1,7 +1,7 @@
 import { Hub } from '~/src/types'
 
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
-import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 /**
@@ -17,10 +17,12 @@ export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
         this.segmentPluginExecutor = new SegmentDestinationExecutorService()
     }
 
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         // Segment plugins fire fetch requests and so need to be run in true parallel
+        const loadedInvocations = await this.loadHogFunctions(invocations)
+
         return await Promise.all(
-            invocations.map((item) =>
+            loadedInvocations.map((item) =>
                 this.runInstrumented(
                     'handleEachBatch.executePluginInvocation',
                     async () => await this.segmentPluginExecutor.execute(item)
