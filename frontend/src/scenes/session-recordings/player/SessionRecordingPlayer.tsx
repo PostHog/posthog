@@ -8,7 +8,8 @@ import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useMemo, useRef } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -93,6 +94,24 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+
+    useEffect(() => {
+        if (isLikelyPastTTL) {
+            posthog.capture('session loaded past ttl', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionRecordingData?.start,
+            })
+        }
+    }, [isLikelyPastTTL, sessionRecordingData?.start, sessionRecordingId])
+
+    useEffect(() => {
+        if (isRecentAndInvalid) {
+            posthog.capture('session loaded recent and invalid', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionRecordingData?.start,
+            })
+        }
+    }, [isRecentAndInvalid])
 
     useKeyboardHotkeys(
         {
