@@ -129,6 +129,18 @@ class TestWebAnalyticsPreAggregatedSchema:
             len(SHARED_SCHEMA_FIELDS) == expected_field_count
         ), f"SHARED_SCHEMA_FIELDS has {len(SHARED_SCHEMA_FIELDS)} fields, expected {expected_field_count}"
 
+        # Verify all fields from each group are present
+        for field in DEVICE_BROWSER_FIELDS:
+            assert field in SHARED_SCHEMA_FIELDS, f"Device/browser field '{field}' missing from SHARED_SCHEMA_FIELDS"
+        for field in GEOIP_FIELDS:
+            assert field in SHARED_SCHEMA_FIELDS, f"GeoIP field '{field}' missing from SHARED_SCHEMA_FIELDS"
+        for field in UTM_FIELDS:
+            assert field in SHARED_SCHEMA_FIELDS, f"UTM field '{field}' missing from SHARED_SCHEMA_FIELDS"
+        for field in ATTRIBUTION_TRACKING_FIELDS:
+            assert field in SHARED_SCHEMA_FIELDS, f"Attribution field '{field}' missing from SHARED_SCHEMA_FIELDS"
+        for field in PATH_FIELDS:
+            assert field in SHARED_SCHEMA_FIELDS, f"Path field '{field}' missing from SHARED_SCHEMA_FIELDS"
+
     def test_table_methods(self):
         stats_table = WebStatsDailyTable()
         bounces_table = WebBouncesDailyTable()
