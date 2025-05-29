@@ -635,6 +635,7 @@ export function ProjectTree({
                 )
             }}
             renderItem={(item) => {
+                const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
                 return (
                     <span className="truncate">
                         <span
@@ -642,7 +643,12 @@ export function ProjectTree({
                                 'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
                             })}
                         >
-                            {item.displayName}
+                            {item.displayName}{' '}
+                            {isNew ? (
+                                <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                    New
+                                </LemonTag>
+                            ) : null}
                         </span>
 
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
