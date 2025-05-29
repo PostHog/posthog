@@ -17,10 +17,10 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
     response: RevenueAnalyticsInsightsQueryResponse
     cached_response: CachedRevenueAnalyticsInsightsQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | None:
+    def to_query(self) -> ast.SelectQuery:
         subqueries = self._get_subqueries()
         if subqueries is None:
-            return None
+            return ast.SelectQuery.empty()
 
         return ast.SelectQuery(
             select=[
@@ -45,7 +45,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             ),  # Need a huge limit because we need (dates x products)-many rows to be returned
         )
 
-    def _get_subqueries(self) -> list[ast.SelectQuery]:
+    def _get_subqueries(self) -> list[ast.SelectQuery] | None:
         if self.query.groupBy == "all":
             return self._get_subqueries_by_all()
         elif self.query.groupBy == "product":
@@ -181,12 +181,6 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
 
     def calculate(self):
         query = self.to_query()
-        if query is None:
-            return RevenueAnalyticsInsightsQueryResponse(
-                results=[],
-                modifiers=self.modifiers,
-            )
-
         response = execute_hogql_query(
             query_type="revenue_analytics_insights_query",
             query=query,
