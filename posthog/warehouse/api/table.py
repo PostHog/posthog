@@ -21,6 +21,7 @@ from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceS
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 import posthoganalytics
 from posthog.models import Team
+from posthog.exceptions_capture import capture_exception
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -334,6 +335,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     team_id=team_id,
                     access_key=settings.AIRBYTE_BUCKET_KEY,
                     access_secret=settings.AIRBYTE_BUCKET_SECRET,
+                )
+            else:
+                capture_exception(
+                    Exception("Object storage keys not found: AIRBYTE_BUCKET_KEY or AIRBYTE_BUCKET_SECRET")
+                )
+                return response.Response(
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    data={"message": "An unexpected error occurred. Please try again later."},
                 )
 
             # Create the table if it doesn't exist, otherwise use existing one
