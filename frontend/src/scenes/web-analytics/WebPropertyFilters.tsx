@@ -8,17 +8,13 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 
-import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export const WebPropertyFilters = (): JSX.Element => {
-    const { rawWebAnalyticsFilters, preAggregatedEnabled, productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
 
     const [displayFilters, setDisplayFilters] = useState(false)
-
-    if (productTab === ProductTab.MARKETING) {
-        return <></>
-    }
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,

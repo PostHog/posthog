@@ -2401,8 +2401,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         campaignCostsBreakdown: [
             // this is a temporary query to get the campaign costs breakdown
-            () => [],
-            (): DataTableNode => ({
+            (s) => [s.dateFilter],
+            (dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+                interval: IntervalType
+            }): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.HogQLQuery,
@@ -2430,14 +2434,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ),
                         campaign_pageviews AS (
                             SELECT 
-                                properties.$utm_campaign as campaign_name,
+                                properties.utm_campaign as campaign_name,
                                 count(*) as pageviews,
                                 uniq(distinct_id) as unique_visitors
                             FROM events 
                             WHERE event = '$pageview' 
-                                AND properties.$utm_campaign IS NOT NULL
-                                AND properties.$utm_campaign != ''
-                            GROUP BY properties.$utm_campaign
+                                AND properties.utm_campaign IS NOT NULL
+                                AND properties.utm_campaign != ''
+                            GROUP BY properties.utm_campaign
                         )
                         SELECT 
                             cc.campaignname as "Campaign",
@@ -2454,6 +2458,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ORDER BY cc.total_cost DESC
                         LIMIT 20
                     `,
+                    // temporary filters, they actually don't do anything
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo || 'now()',
+                        },
+                    },
                 },
                 full: true,
                 showDateRange: false,
