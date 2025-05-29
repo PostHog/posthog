@@ -62,40 +62,68 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
+        search = request.GET.get("search", "")
+
         results = sync_execute(
             """
 SELECT
-    arraySort(groupArrayDistinctArrayMerge(attribute_keys)) as flat_unique_paths
+    arrayFilter(
+        x -> x like %(search)s,
+        arraySort(groupArrayDistinctArrayMerge(attribute_keys)) as flat_unique_paths
+    )
 FROM log_attributes
 WHERE time >= toStartOfHour(now()) AND time <= toStartOfHour(now())
-GROUP BY team_id, service_name, time
+GROUP BY team_id
 LIMIT 1000;
 """,
+            args={"search": f"%{search}%"},
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
-        return Response(results[0][0], status=status.HTTP_200_OK)
+
+        r = []
+        if len(results) > 0 and len(results[0]) > 0:
+            for result in results[0][0]:
+                entry = {
+                    "name": result,
+                    "propertyFilterType": "log",
+                }
+                r.append(entry)
+        return Response(r, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        return Response(
-            [{"id": "one", "name": "one"}, {"id": "two", "name": "two"}, {"id": "three", "name": "three"}],
-            status=status.HTTP_200_OK,
-        )
+        search = request.GET.get("search", "")
+        key = request.GET.get("key", "")
 
-        request.GET.get("value")
         results = sync_execute(
             """
 SELECT
-    arraySort(arrayFilter(x -> isNotNull(x), arrayDistinct(groupArray(attributes."{value}")))) as flat_unique_values
-FROM logs
-WHERE (timestamp >= now() - interval 10 minute AND timestamp <= now())
+        arraySort(
+            arrayMap(
+                (k, v) -> v,
+                arrayFilter(
+                    (k, v) -> k == %(key)s and v like %(search)s,
+                    groupArrayDistinctArrayMerge(attribute_values)
+                )
+            )
+        ) as flat_unique_paths
+FROM log_attributes2
+WHERE time_bucket >= toStartOfHour(now()) AND time_bucket <= toStartOfHour(now())
 GROUP BY team_id
-ORDER BY team_id DESC
 LIMIT 1000;
 """,
+            args={"key": key, "search": f"%{search}%"},
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
 
-        return Response(results[0][0], status=status.HTTP_200_OK)
+        r = []
+        if len(results) > 0 and len(results[0]) > 0:
+            for result in results[0][0]:
+                entry = {
+                    "id": result,
+                    "name": result,
+                }
+                r.append(entry)
+        return Response(r, status=status.HTTP_200_OK)
