@@ -55,7 +55,6 @@ export function RevenueAnalyticsInsightsNode(props: {
     const labels = results[0]?.labels ?? []
     const datasets: GraphDataset[] = results.map((result, index) => ({
         ...result,
-
         seriesIndex: index,
     }))
 

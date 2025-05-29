@@ -107,7 +107,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
                 where=self.timestamp_where_clause(chain=[charge_alias, "timestamp"]),
             )
 
-            # Join with invoice and product to get access to the `product_name``
+            # Join with invoice and product to get access to the `product_name`
             # and also change the `breakdown_by` to include that
             if selects["invoice_item"] is not None and selects["product"] is not None:
                 invoice_item_alias = f"invoice_item_{view_name}"
