@@ -104,6 +104,7 @@ class RateLimit:
         elif "limit" in kwargs:
             max_concurrency = kwargs.get("limit") or max_concurrency
 
+        # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
         # Atomically check, remove expired if limit hit, and add the new task
