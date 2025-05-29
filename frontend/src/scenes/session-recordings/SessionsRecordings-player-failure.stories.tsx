@@ -164,14 +164,14 @@ const meta: Meta = {
 }
 export default meta
 
-export function Home404(): JSX.Element {
+export function NotFound(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replay())
     }, [])
     return <App />
 }
 
-export function HomePastTTL(): JSX.Element {
+export function PastTTL(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.replaySingle('past-ttl'))
     }, [])
