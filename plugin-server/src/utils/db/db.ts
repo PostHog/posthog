@@ -702,26 +702,15 @@ export class DB {
             query += `, properties = ${jsonbExpression}`
         }
 
-        /*
         const hasOtherUpdates = Object.keys(otherUpdates).length > 0
         if (hasOtherUpdates) {
-            const { _propertyUpdates, ...regularUpdates } = otherUpdates as any
-            Object.entries(regularUpdates).forEach(([field, value]) => {
-                query += `, ${sanitizeSqlIdentifier(field)} = $${paramIndex}`
-                values.push(value)
-                paramIndex++
-            })
-        }
-        */
-        const hasOtherUpdates = Object.keys(otherUpdates).length > 0
-        if (hasOtherUpdates) {
-            // otherUpdates.version can't currently get set
+            // NOTE: Defensive measure
+            // otherUpdates.version should never be defined
             // but just in case a future programmer adds it to the otherUpdates object
             // this will make sure we properly handle it
             let versionOverride: string | undefined
             if (otherUpdates.version) {
                 versionOverride = otherUpdates.version.toString()
-                delete otherUpdates['version']
             }
             if (versionOverride) {
                 query = query.replace('version = COALESCE(version, 0)::numeric + 1', `version = ${versionOverride}`)
