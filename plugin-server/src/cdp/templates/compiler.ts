@@ -31,7 +31,6 @@ class Semaphore {
     }
 
     release(): void {
-        console.log('compilation completed releasing semaphore')
         if (this.waiting.length > 0) {
             const next = this.waiting.shift()
             if (next) {
