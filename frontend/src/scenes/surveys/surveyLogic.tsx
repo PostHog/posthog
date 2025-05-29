@@ -1549,6 +1549,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.surveyMultipleChoiceResultsReady,
                 s.surveyOpenTextResultsReady,
                 s.surveyRecurringNPSResultsReady,
+                s.consolidatedSurveyResultsLoading,
+                s.isNewQuestionVizEnabled,
             ],
             (
                 surveyBaseStatsLoading: boolean,
@@ -1557,8 +1559,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 surveySingleChoiceResultsReady: boolean,
                 surveyMultipleChoiceResultsReady: boolean,
                 surveyOpenTextResultsReady: boolean,
-                surveyRecurringNPSResultsReady: boolean
+                surveyRecurringNPSResultsReady: boolean,
+                consolidatedSurveyResultsLoading: boolean,
+                isNewQuestionVizEnabled: boolean
             ) => {
+                if (isNewQuestionVizEnabled) {
+                    return (
+                        consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                    )
+                }
+
                 return (
                     surveyBaseStatsLoading ||
                     surveyDismissedAndSentCountLoading ||
