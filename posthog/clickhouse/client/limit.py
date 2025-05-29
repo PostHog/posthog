@@ -11,6 +11,7 @@ from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis, settings
+from posthog.clickhouse.cluster import ExponentialBackoff
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
@@ -70,7 +71,7 @@ class RateLimit:
     bypass_all: bool = False
     redis_client = redis.get_client()
     retry: Optional[float] = None
-    retry_timeout: datetime.timedelta = datetime.timedelta(milliseconds=10000)
+    retry_timeout: datetime.timedelta = datetime.timedelta(seconds=10)
 
     @contextmanager
     def run(self, *args, **kwargs):
@@ -102,6 +103,9 @@ class RateLimit:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
             max_concurrency = kwargs.get("limit") or max_concurrency
+
+        backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
+        count = 1
         # Atomically check, remove expired if limit hit, and add the new task
         while (
             self.redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrency, self.ttl)
@@ -125,7 +129,8 @@ class RateLimit:
                 return None, None
             still_have_time = (datetime.datetime.now() - t0) < self.retry_timeout
             if self.retry and still_have_time:
-                sleep(self.retry)
+                sleep(backoff(count))
+                count += 1
                 continue
 
             raise ConcurrencyLimitExceeded(
@@ -166,7 +171,7 @@ def get_api_personal_rate_limiter():
             ),
             ttl=600,
             bypass_all=(not settings.API_QUERIES_ENABLED),
-            retry=0.113,
+            retry=0.1314,
             retry_timeout=datetime.timedelta(seconds=30),
         )
     return __API_CONCURRENT_QUERY_PER_TEAM
