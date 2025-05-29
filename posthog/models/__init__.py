@@ -101,6 +101,7 @@ from .web_experiment import WebExperiment
 
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
+from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
     "AlertConfiguration",
@@ -167,6 +168,11 @@ __all__ = [
     "OrganizationDomain",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OAuthAccessToken",
+    "OAuthApplication",
+    "OAuthGrant",
+    "OAuthIDToken",
+    "OAuthRefreshToken",
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",
