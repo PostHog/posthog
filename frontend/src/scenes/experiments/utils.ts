@@ -90,7 +90,7 @@ export function transformFiltersForWinningVariant(
     }
 }
 
-function seriesToFilter(
+function seriesToFilterLegacy(
     series: AnyEntityNode,
     featureFlagKey: string,
     variantKey: string
@@ -119,6 +119,26 @@ function seriesToFilter(
     return null
 }
 
+function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | null {
+    if (series.kind === NodeKind.EventsNode) {
+        return {
+            id: series.event ?? null,
+            name: series.event as string,
+            type: 'events',
+            properties: series.properties ?? [],
+        }
+    }
+
+    if (series.kind === NodeKind.ActionsNode) {
+        return {
+            id: series.id,
+            name: series.name,
+            type: 'actions',
+        }
+    }
+
+    return null
+}
 /**
  * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
  * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
@@ -166,7 +186,7 @@ export function getViewRecordingFilters(
         metric.metric_type === ExperimentMetricType.MEAN &&
         (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
     ) {
-        const meanFilter = seriesToFilter(metric.source, experiment.feature_flag_key, variantKey)
+        const meanFilter = seriesToFilter(metric.source)
         if (meanFilter) {
             filters.push(meanFilter)
         }
@@ -177,7 +197,7 @@ export function getViewRecordingFilters(
      */
     if (metric.metric_type === ExperimentMetricType.FUNNEL) {
         metric.series.forEach((series) => {
-            const funnelMetric = seriesToFilter(series, experiment.feature_flag_key, variantKey)
+            const funnelMetric = seriesToFilter(series)
             if (funnelMetric) {
                 filters.push(funnelMetric)
             }
@@ -216,7 +236,7 @@ export function getViewRecordingFiltersLegacy(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
+            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
                 filters.push(exposure_filter)
             }
@@ -241,14 +261,14 @@ export function getViewRecordingFiltersLegacy(
                 ],
             })
         }
-        const count_filter = seriesToFilter(metric.count_query.series[0], featureFlagKey, variantKey)
+        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
         if (count_filter) {
             filters.push(count_filter)
         }
         return filters
     }
     metric.funnels_query.series.forEach((series) => {
-        const filter = seriesToFilter(series, featureFlagKey, variantKey)
+        const filter = seriesToFilterLegacy(series, featureFlagKey, variantKey)
         if (filter) {
             filters.push(filter)
         }

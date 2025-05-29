@@ -272,8 +272,8 @@ describe('getViewRecordingFilters', () => {
                 {
                     key: 'foo',
                     value: 'bar',
-                    operator: 'is_not',
-                    type: 'event',
+                    operator: PropertyOperator.IsNot,
+                    type: PropertyFilterType.Event,
                 },
             ],
         })
@@ -333,7 +333,7 @@ describe('getViewRecordingFilters', () => {
         })
     })
 
-    it('adds mean metric event filter', () => {
+    it('adds mean metric event filter (no extra properties)', () => {
         const experiment = { ...experimentBase }
         const metric = {
             kind: NodeKind.ExperimentMetric,
@@ -346,13 +346,32 @@ describe('getViewRecordingFilters', () => {
             id: 'event1',
             name: 'event1',
             type: 'events',
+            properties: [],
+        })
+    })
+
+    it('adds mean metric event filter (with properties)', () => {
+        const experiment = { ...experimentBase }
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'event1',
+                name: 'event1',
+                properties: [
+                    { key: 'foo', value: 'bar', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+                ],
+            },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[1]).toEqual({
+            id: 'event1',
+            name: 'event1',
+            type: 'events',
             properties: [
-                {
-                    key: '$feature/my-flag',
-                    type: PropertyFilterType.Event,
-                    value: ['variantA'],
-                    operator: PropertyOperator.Exact,
-                },
+                { key: 'foo', value: 'bar', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
             ],
         })
     })
@@ -379,7 +398,14 @@ describe('getViewRecordingFilters', () => {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.FUNNEL,
             series: [
-                { kind: NodeKind.EventsNode, event: 'event1', name: 'event1' },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'event1',
+                    name: 'event1',
+                    properties: [
+                        { key: 'bar', value: 'baz', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+                    ],
+                },
                 { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
             ],
         } satisfies ExperimentMetric
@@ -390,12 +416,7 @@ describe('getViewRecordingFilters', () => {
             name: 'event1',
             type: 'events',
             properties: [
-                {
-                    key: '$feature/my-flag',
-                    type: PropertyFilterType.Event,
-                    value: ['variantA'],
-                    operator: PropertyOperator.Exact,
-                },
+                { key: 'bar', value: 'baz', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
             ],
         })
         expect(filters[2]).toEqual({
