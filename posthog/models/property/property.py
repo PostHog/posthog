@@ -43,6 +43,7 @@ PropertyType = Literal[
     "data_warehouse",
     "data_warehouse_person_property",
     "error_tracking_issue",
+    "log",
 ]
 
 PropertyName = str
