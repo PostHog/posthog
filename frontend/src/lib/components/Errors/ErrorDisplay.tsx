@@ -1,17 +1,17 @@
-import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
-import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
+import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
 
 import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
+import { hasInAppFrames, hasStacktrace } from './utils'
 
 export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const { type, value, library, browser, os, sentryUrl, exceptionList, level, ingestionErrors, unhandled } =
@@ -19,7 +19,6 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
 
     const exceptionWithStack = hasStacktrace(exceptionList)
     const fingerprintRecords: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
-    const hasFingerprintRecord = fingerprintRecords.length > 0
 
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
@@ -44,7 +43,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     }
                 />
                 <TitledSnack title="unhandled" value={String(unhandled)} />
-                <TitledSnack title="library" value={library} />
+                <TitledSnack title="library" value={library ?? 'unknown'} />
                 <TitledSnack title="browser" value={browser ?? 'unknown'} />
                 <TitledSnack title="os" value={os ?? 'unknown'} />
             </div>
@@ -62,62 +61,8 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 </>
             )}
             {exceptionWithStack && <StackTrace exceptionList={exceptionList} fingerprintRecords={fingerprintRecords} />}
-            {hasFingerprintRecord && <FingerprintComponents components={fingerprintRecords} />}
         </div>
     )
-}
-
-const FingerprintComponents = ({ components }: { components: FingerprintRecordPart[] }): JSX.Element => {
-    const { highlightRecordPart } = useActions(stackFrameLogic)
-
-    return (
-        <div className="flex mb-4 items-center gap-2">
-            <span className="font-semibold">Fingerprinted by:</span>
-            <div className="flex flex-wrap gap-1">
-                {components.map((component, index) => {
-                    return (
-                        <Tooltip key={index} title={getPartPieces(component)}>
-                            <LemonTag
-                                type="muted"
-                                className="hover:text-danger hover:border-danger cursor-pointer"
-                                onMouseEnter={() => highlightRecordPart(component)}
-                                onMouseLeave={() => highlightRecordPart(null)}
-                            >
-                                {getPartLabel(component)}
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                })}
-            </div>
-        </div>
-    )
-}
-
-function getPartPieces(component: FingerprintRecordPart): React.ReactNode {
-    if (component.type === 'manual') {
-        return null
-    }
-    const pieces = component.pieces || []
-    return (
-        <ul>
-            {pieces.map((piece, index) => (
-                <li key={index} className={cn('text-xs', pieces.length > 1 && 'list-disc ml-4')}>
-                    {piece}
-                </li>
-            ))}
-        </ul>
-    )
-}
-
-function getPartLabel(part: FingerprintRecordPart): string {
-    switch (part.type) {
-        case 'frame':
-            return 'Frame'
-        case 'exception':
-            return 'Exception'
-        case 'manual':
-            return 'Manual'
-    }
 }
 
 const StackTrace = ({
@@ -129,13 +74,13 @@ const StackTrace = ({
 }): JSX.Element => {
     const { showAllFrames } = useValues(stackFrameLogic)
     const { setShowAllFrames } = useActions(stackFrameLogic)
-    const hasAnyInApp = hasAnyInAppFrames(exceptionList)
+    const hasInApp = hasInAppFrames(exceptionList)
 
     return (
         <>
             <div className="flex gap-1 mt-6 justify-between items-center">
                 <h3 className="mb-0">Stack Trace</h3>
-                {hasAnyInApp ? (
+                {hasInApp ? (
                     <LemonSwitch
                         checked={showAllFrames}
                         label="Show entire stack trace"
@@ -145,7 +90,7 @@ const StackTrace = ({
             </div>
             <ChainedStackTraces
                 exceptionList={exceptionList}
-                showAllFrames={hasAnyInApp ? showAllFrames : true}
+                showAllFrames={hasInApp && showAllFrames}
                 fingerprintRecords={fingerprintRecords}
             />
         </>

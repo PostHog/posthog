@@ -10,6 +10,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     Survey,
+    SurveyPosition,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveySchedule,
@@ -34,7 +35,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -83,7 +84,7 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -133,7 +134,7 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -183,7 +184,7 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -434,7 +435,7 @@ describe('set response-based survey branching', () => {
         questions: [],
         conditions: null,
         appearance: {
-            position: 'right',
+            position: SurveyPosition.Right,
             whiteLabel: false,
             borderColor: '#c9c6c6',
             placeholder: '',

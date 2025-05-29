@@ -5,10 +5,12 @@ import {
     Survey,
     SurveyAppearance,
     SurveyMatchType,
+    SurveyPosition,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveySchedule,
     SurveyType,
+    SurveyWidgetType,
 } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
@@ -45,8 +47,8 @@ export const defaultSurveyAppearance = {
     whiteLabel: false,
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
-    position: 'right',
-    widgetType: 'tab' as const,
+    position: SurveyPosition.Right,
+    widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
 }

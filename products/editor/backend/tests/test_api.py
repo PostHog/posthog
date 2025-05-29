@@ -1,11 +1,16 @@
 from unittest.mock import patch
+
 from rest_framework import status
+
 from posthog.test.base import APIBaseTest
-from products.editor.backend.api import SUPPORTED_MODELS_WITH_THINKING, PersonalAPIKeyAuthentication, LLMProxyViewSet
+from products.editor.backend.api import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet, PersonalAPIKeyAuthentication
 
 
+@patch("django.conf.settings.MISTRAL_API_KEY", "test_key")
+@patch("django.conf.settings.INKEEP_API_KEY", "test_key")
+@patch("django.conf.settings.ANTHROPIC_API_KEY", "test_key")
 class TestLLMProxyViewSet(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
 
         # Mock the authenticate method
@@ -108,7 +113,7 @@ class TestLLMProxyViewSet(APIBaseTest):
         mock_stream.return_value = iter(["test response"])
         response = self.client.post(
             "/api/llm_proxy/completion/",
-            {"system": "test system", "messages": [{"role": "user", "content": "test"}], "model": "inkeep-qa"},
+            {"system": "test system", "messages": [{"role": "user", "content": "test"}], "model": "inkeep-qa-expert"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "text/event-stream")

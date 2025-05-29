@@ -120,7 +120,6 @@ export function SessionRecordingsPlaylist({
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
-                                className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}
                             />

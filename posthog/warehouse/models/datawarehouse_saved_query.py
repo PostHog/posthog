@@ -85,6 +85,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()

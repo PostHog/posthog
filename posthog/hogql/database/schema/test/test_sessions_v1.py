@@ -299,7 +299,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v1(None)
-        assert len(results) == 32
+        assert len(results) == 35
         self.assertEqual(
             results[0],
             {

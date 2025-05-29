@@ -113,6 +113,7 @@ pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     partition: Option<OverflowLimiter>,
     main_topic: String,
+    overflow_topic: String,
     historical_topic: String,
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
@@ -197,6 +198,7 @@ impl KafkaSink {
             producer,
             partition,
             main_topic: config.kafka_topic,
+            overflow_topic: config.kafka_overflow_topic,
             historical_topic: config.kafka_historical_topic,
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
@@ -235,9 +237,13 @@ impl KafkaSink {
                     None => false,
                     Some(partition) => partition.is_limited(&event_key),
                 };
+
                 if is_limited {
-                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
+                    // Analytics overflow goes to the overflow topic without locality
+                    (&self.overflow_topic, None)
                 } else {
+                    // event_key is "<token>:<distinct_id>" for std events or
+                    // "<token>:<ip_addr>" for cookieless events
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
@@ -415,6 +421,7 @@ mod tests {
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
+            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),

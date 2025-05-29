@@ -16,7 +16,7 @@ import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
 interface MaxToolProps extends ToolDefinition {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
-    initialMaxPrompt: string
+    initialMaxPrompt?: string
     onMaxOpen?: () => void
 }
 

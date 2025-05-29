@@ -8,7 +8,13 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
+from posthog.hogql.database.models import (
+    FieldTraverser,
+    LazyJoin,
+    StringDatabaseField,
+    ExpressionField,
+    Table,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -201,7 +207,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
-            name="table_1",
+            name="stripe_table_1",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -224,7 +230,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
-        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("stripe.table_1"))
         assert table is not None
         assert len(table.fields.keys()) == 1
 
@@ -737,6 +743,52 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert person_id_field.chain == ["events_data", "person_id"]
 
         print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
+
+    def test_data_warehouse_events_modifiers_with_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        DataWarehouseTable.objects.create(
+            name="stripe_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "customer_id": "String", "created": "DateTime64(3, 'UTC')"},
+        )
+
+        # Table should be accessible via dot notation (stripe.table)
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="stripe.table",
+                    id_field="id",
+                    timestamp_field="created",
+                    distinct_id_field="customer_id",
+                )
+            ]
+        )
+
+        db = create_hogql_database(team=self.team, modifiers=modifiers)
+
+        stripe_table = db.get_table("stripe.table")
+        assert isinstance(stripe_table, Table)
+
+        # Ensure the correct table was retrieved by checking the original table name in dot notation mapping
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        # Doesn't throw
+        print_ast(parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse")
 
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(

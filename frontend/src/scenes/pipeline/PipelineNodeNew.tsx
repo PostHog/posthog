@@ -27,9 +27,11 @@ import { PipelineBackend } from './types'
 import { RenderApp } from './utils'
 
 const paramsToProps = ({
-    params: { stage, id },
+    params: { stage, id } = {},
+    searchParams: { kind } = {},
 }: {
     params: { stage?: string; id?: string }
+    searchParams?: { kind?: string }
 }): PipelineNodeNewLogicProps => {
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
     const pluginId = numericId && !isNaN(numericId) ? numericId : null
@@ -41,6 +43,7 @@ const paramsToProps = ({
         pluginId,
         batchExportDestination,
         hogFunctionId,
+        kind: kind ?? null,
     }
 }
 
@@ -161,7 +164,7 @@ function NodeOptionsTable({
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={urls.pipelineNodeNew(stage, target.id)}
+                                    to={urls.pipelineNodeNew(stage, { id: target.id })}
                                     title={target.name}
                                     description={target.description}
                                 />
@@ -179,7 +182,7 @@ function NodeOptionsTable({
                                     data-attr={`new-${stage}-${target.id}`}
                                     icon={<IconPlusSmall />}
                                     // Preserve hash params to pass config in
-                                    to={combineUrl(urls.pipelineNodeNew(stage, target.id), {}, hashParams).url}
+                                    to={combineUrl(urls.pipelineNodeNew(stage, { id: target.id }), {}, hashParams).url}
                                 >
                                     Create
                                 </LemonButton>

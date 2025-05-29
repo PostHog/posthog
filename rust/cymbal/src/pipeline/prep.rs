@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::{
     error::{EventError, PipelineFailure, PipelineResult},
-    recursively_sanitize_properties,
+    recursively_sanitize_properties, sanitize_string,
 };
 
 use super::{
@@ -27,7 +27,7 @@ pub fn prepare_events(
             }
             IncomingEvent::Captured(outer) => {
                 let maybe_team = teams_lut
-                    .get(&outer.token)
+                    .get(&sanitize_string(outer.token.to_string()))
                     .expect("Team lookup table is fully populated");
 
                 let Some(team) = maybe_team else {
@@ -50,7 +50,7 @@ pub fn prepare_events(
                 };
 
                 // If we fail to sanitize the event, we should discard it as unprocessable
-                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 30) {
+                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 0) {
                     buffer.push(Err(e));
                     continue;
                 }
@@ -94,8 +94,8 @@ pub fn prepare_events(
 }
 
 fn transform_event(
-    outer: &CapturedEvent,
-    mut raw_event: RawEvent,
+    outer: &CapturedEvent,   // Has NOT been sanitized at this point
+    mut raw_event: RawEvent, // Has been sanitized at this point
     timestamp: DateTime<Utc>,
     person_mode: PersonMode,
     team: &Team,
@@ -148,7 +148,7 @@ fn transform_event(
         team_id: team.id,
         project_id: team.project_id,
         event: raw_event.event,
-        distinct_id: outer.distinct_id.clone(),
+        distinct_id: sanitize_string(outer.distinct_id.to_string()),
         properties: Some(
             serde_json::to_string(&raw_event.properties)
                 .expect("Json data just deserialized can be serialized"),
@@ -177,6 +177,7 @@ fn transform_event(
             .expect("We can parse the raw event we just serialised")
     }
 
+    // At this point, all event contents have been sanitized
     event
 }
 

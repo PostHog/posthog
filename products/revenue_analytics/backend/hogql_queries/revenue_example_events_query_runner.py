@@ -4,7 +4,6 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql.database.schema.exchange_rate import (
     DEFAULT_CURRENCY,
     revenue_expression_for_events,
@@ -17,8 +16,10 @@ from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
 )
 
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
-class RevenueExampleEventsQueryRunner(QueryRunner):
+
+class RevenueExampleEventsQueryRunner(RevenueAnalyticsQueryRunner):
     query: RevenueExampleEventsQuery
     response: RevenueExampleEventsQueryResponse
     cached_response: CachedRevenueExampleEventsQueryResponse

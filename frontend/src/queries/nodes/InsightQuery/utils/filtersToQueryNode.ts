@@ -1,5 +1,5 @@
-import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
+import posthog from 'posthog-js'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -261,10 +261,7 @@ const strToBool = (value: any): boolean | undefined => {
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     const captureException = (message: string): void => {
-        Sentry.captureException(new Error(message), {
-            tags: { DataExploration: true },
-            extra: { filters },
-        })
+        posthog.captureException(new Error(message), { filters, DataExploration: true })
     }
 
     if (!filters.insight) {

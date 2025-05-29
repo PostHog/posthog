@@ -2,5 +2,6 @@
 set -e
 
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:19000
 
 uvicorn --reload posthog.asgi:application --host 0.0.0.0 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"

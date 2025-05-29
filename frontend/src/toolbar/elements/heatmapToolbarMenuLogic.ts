@@ -73,13 +73,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }),
         enableHeatmap: true,
         disableHeatmap: true,
-        toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
-
+        toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
+        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
+        updateElementMetrics: (element: HTMLElement, visible: boolean, rect: DOMRect) => ({ element, visible, rect }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -104,9 +105,30 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
         clickmapsEnabled: [
             false,
+            {
+                toggleClickmapsEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        samplingFactor: [
+            1,
             { persist: true },
             {
-                toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
+                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
+            },
+        ],
+        elementMetrics: [
+            new Map<HTMLElement, { visible: boolean; rect: DOMRect }>(),
+            {
+                updateElementMetrics: (state, { element, visible, rect }) => {
+                    // we only change if visible or rect has changed
+                    const current = state.get(element)
+                    if (current?.visible === visible && current?.rect === rect) {
+                        return state
+                    }
+                    const newMap = new Map(state)
+                    newMap.set(element, { visible, rect })
+                    return newMap
+                },
             },
         ],
     }),
@@ -141,7 +163,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             date_to: values.commonFilters.date_to,
                         }
 
-                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
+                        defaultUrl = `/api/element/stats/${encodeParams(
+                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
+                            '?'
+                        )}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -260,8 +285,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         countedElements: [
-            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled],
-            (elements, dataAttributes, clickmapsEnabled) => {
+            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled, s.elementMetrics],
+            (elements, dataAttributes, clickmapsEnabled, elementMetrics) => {
                 if (!clickmapsEnabled) {
                     return []
                 }
@@ -272,26 +297,43 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         return
                     }
 
+                    const metrics = elementMetrics.get(trimmedElement) || {
+                        visible: isElementVisible(trimmedElement),
+                        rect: trimmedElement.getBoundingClientRect(),
+                    }
+
                     if (normalisedElements.has(trimmedElement)) {
                         const existing = normalisedElements.get(trimmedElement)
                         if (existing) {
                             existing.count += countedElement.count
-                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+                            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
                             ...countedElement,
-                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                            clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
                             rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                            deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                            visible: metrics.visible,
+                            rect: metrics.rect,
                         })
                     }
                 })
 
                 const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
+
+                cache.intersectionObserver.disconnect()
+                cache.intersectionObserver.observe(document.body)
+
+                // Observe all counted elements
+                countedElements.forEach(({ element }) => {
+                    cache.intersectionObserver.observe(element)
+                })
 
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
@@ -369,15 +411,22 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setDataHref(href)
+            }
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setDataHref(href)
+            }
             actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
+        },
+        setSamplingFactor: () => {
+            actions.maybeLoadClickmap()
         },
 
         // Only trigger element stats loading if clickmaps are enabled
@@ -408,8 +457,28 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setHeatmapScrollY(scrollY)
             }
         }, 100)
+
+        // we bundle the whole app with the toolbar, which means we don't need ES5 support
+        // so we can use IntersectionObserver
+        // eslint-disable-next-line compat/compat
+        const intersectionObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                const element = entry.target as HTMLElement
+                const rect = element.getBoundingClientRect()
+                actions.updateElementMetrics(element, entry.isIntersecting, rect)
+            })
+        })
+
+        // Store for cleanup
+        cache.intersectionObserver = intersectionObserver
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
+        cache.intersectionObserver?.disconnect()
     }),
 ])
+
+function isElementVisible(element: HTMLElement): boolean {
+    const style = window.getComputedStyle(element)
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+}

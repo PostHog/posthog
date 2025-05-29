@@ -5,7 +5,7 @@ from posthog.models.feature_flag import FeatureFlag
 from ee.models.rbac.role import Role
 from django.db import transaction
 import structlog
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 

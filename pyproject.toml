@@ -13,7 +13,7 @@ dependencies = [
     "brotli==1.1.0",
     "celery==5.3.4",
     "celery-redbeat==2.1.1",
-    "clickhouse-connect==0.8.11",
+    "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
     "cohere==5.14.0",
@@ -78,7 +78,7 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics==3.21.0",
+    "posthoganalytics>=3.24.1",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
     "psycopg[binary]==3.2.4",
@@ -131,6 +131,8 @@ dependencies = [
     "xmlsec==1.3.14",
     "zstd==1.5.5.1",
     "zxcvbn==4.4.28",
+    "pyyaml==6.0.1",
+    "tenacity>=8.4.2",
 ]
 
 [dependency-groups]

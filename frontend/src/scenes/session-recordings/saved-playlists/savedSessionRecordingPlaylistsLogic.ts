@@ -58,6 +58,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             filters,
         }),
         loadPlaylists: true,
+        loadSavedFilters: true,
         updatePlaylist: (
             shortId: SessionRecordingPlaylistType['short_id'],
             properties: Partial<SessionRecordingPlaylistType>
@@ -88,6 +89,29 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         ],
     })),
     loaders(({ values, actions }) => ({
+        savedFilters: {
+            __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
+            loadSavedFilters: async (_, breakpoint) => {
+                const filters = { ...values.filters }
+
+                const params = {
+                    limit: PLAYLISTS_PER_PAGE,
+                    offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
+                    order: filters.order ?? '-last_modified_at', // Sync with `sorting` selector
+                    created_by: undefined,
+                    search: filters.search || undefined,
+                    date_from: undefined,
+                    date_to: undefined,
+                    pinned: undefined,
+                    type: 'saved_filters',
+                }
+
+                const response = await api.recordings.listPlaylists(toParams(params))
+                breakpoint()
+
+                return response
+            },
+        },
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
@@ -129,6 +153,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             deletePlaylist: async ({ playlist }) => {
                 await deletePlaylist(playlist, () => actions.loadPlaylists())
                 values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
+                actions.loadSavedFilters()
                 return values.playlists
             },
 
@@ -264,5 +289,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     })),
     afterMount(({ actions }) => {
         actions.loadPlaylists()
+        actions.loadSavedFilters()
     }),
 ])

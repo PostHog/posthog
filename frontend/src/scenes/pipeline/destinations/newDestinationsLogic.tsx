@@ -90,10 +90,9 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                             description: hogFunction.description,
                             backend: PipelineBackend.HogFunction as const,
                             url: combineUrl(
-                                urls.pipelineNodeNew(
-                                    hogFunctionTypeToPipelineStage(hogFunction.type),
-                                    `hog-${hogFunction.id}`
-                                ),
+                                urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(hogFunction.type), {
+                                    id: `hog-${hogFunction.id}`,
+                                }),
                                 {},
                                 hashParams
                             ).url,
@@ -105,7 +104,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
                         backend: PipelineBackend.BatchExport as const,
-                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
+                        url: urls.pipelineNodeNew(PipelineStage.Destination, { id: service }),
                         free: false,
                     })),
                 ]

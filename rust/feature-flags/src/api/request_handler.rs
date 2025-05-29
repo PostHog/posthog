@@ -29,6 +29,7 @@ use std::{
     net::IpAddr,
     sync::Arc,
 };
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -84,6 +85,9 @@ pub struct RequestContext {
 
     /// Raw request body
     pub body: Bytes,
+
+    /// Request ID
+    pub request_id: Uuid,
 }
 
 /// Represents the various property overrides that can be passed around
@@ -120,6 +124,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             flags: HashMap::new(),
             errors_while_computing_flags: false,
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
+            request_id: context.request_id,
         });
     }
 
@@ -128,6 +133,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
+
     let team_id = team.id;
     let project_id = team.project_id;
 
@@ -150,6 +156,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         group_prop_overrides,
         groups,
         hash_key_override,
+        context.request_id,
     )
     .await;
 
@@ -251,6 +258,7 @@ async fn evaluate_flags_for_request(
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     groups: Option<HashMap<String, Value>>,
     hash_key_override: Option<String>,
+    request_id: Uuid,
 ) -> FlagsResponse {
     let ctx = FeatureFlagEvaluationContext {
         team_id,
@@ -266,7 +274,7 @@ async fn evaluate_flags_for_request(
         hash_key_override,
     };
 
-    evaluate_feature_flags(ctx).await
+    evaluate_feature_flags(ctx, request_id).await
 }
 
 /// Translates the request body and query params into a [`FlagRequest`] by examining Content-Type and compression settings.
@@ -299,9 +307,11 @@ pub fn decode_request(
 }
 
 /// Evaluates all requested feature flags in the provided context, returning a [`FlagsResponse`].
-pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
-    let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.project_id, context.reader.clone());
+pub async fn evaluate_feature_flags(
+    context: FeatureFlagEvaluationContext,
+    request_id: Uuid,
+) -> FlagsResponse {
+    let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
@@ -320,6 +330,7 @@ pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> Fl
             context.person_property_overrides,
             context.group_property_overrides,
             context.hash_key_override,
+            request_id,
         )
         .await
 }
@@ -616,13 +627,16 @@ mod tests {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
             key: "test_flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     properties: Some(vec![PropertyFilter {
@@ -652,8 +666,8 @@ mod tests {
         person_properties.insert("country".to_string(), json!("US"));
 
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
+            team_id: team.id,
+            project_id: team.project_id,
             distinct_id: "user123".to_string(),
             feature_flags: feature_flag_list,
             reader,
@@ -665,7 +679,11 @@ mod tests {
             hash_key_override: None,
         };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
+
+        println!("result: {:?}", result);
 
         assert!(!result.errors_while_computing_flags);
         assert!(result.flags.contains_key("test_flag"));
@@ -686,6 +704,14 @@ mod tests {
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        insert_person_for_team_in_pg(reader.clone(), team.id, "user123".to_string(), None)
+            .await
+            .expect("Failed to insert person");
+
         // Create a feature flag with conditions that will cause an error
         let flags = vec![FeatureFlag {
             name: Some("Error Flag".to_string()),
@@ -693,7 +719,7 @@ mod tests {
             key: "error-flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     // Reference a non-existent cohort
@@ -722,8 +748,8 @@ mod tests {
 
         // Set up evaluation context
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
+            team_id: team.id,
+            project_id: team.project_id,
             distinct_id: "user123".to_string(),
             feature_flags: feature_flag_list,
             reader,
@@ -735,7 +761,9 @@ mod tests {
             hash_key_override: None,
         };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
         let error_flag = result.flags.get("error-flag");
         assert!(error_flag.is_some());
         assert_eq!(
@@ -957,7 +985,8 @@ mod tests {
             hash_key_override: None,
         };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(!result.errors_while_computing_flags);
         assert!(result.flags["flag_1"].enabled);
@@ -1048,7 +1077,8 @@ mod tests {
             hash_key_override: None,
         };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(!result.errors_while_computing_flags);
 
@@ -1191,7 +1221,8 @@ mod tests {
             hash_key_override: None,
         };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(
             result.flags.contains_key("test_flag"),
@@ -1270,7 +1301,8 @@ mod tests {
             hash_key_override: None,
         };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);

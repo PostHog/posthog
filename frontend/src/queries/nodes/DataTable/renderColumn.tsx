@@ -41,6 +41,7 @@ export function renderColumn(
     value: any,
     record: Record<string, any> | any[],
     recordIndex: number,
+    rowCount: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext<DataTableNode>
@@ -61,12 +62,20 @@ export function renderColumn(
                 value={value}
                 query={query}
                 recordIndex={recordIndex}
+                rowCount={rowCount}
             />
         )
     } else if (context?.columns?.[key] && context?.columns?.[key].render) {
         const Component = context?.columns?.[key]?.render
         return Component ? (
-            <Component record={record} columnName={key} value={value} query={query} recordIndex={recordIndex} />
+            <Component
+                record={record}
+                columnName={key}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         ) : (
             String(value)
         )
@@ -267,7 +276,14 @@ export function renderColumn(
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? (
-            <Component record={record} columnName={columnName} value={value} query={query} recordIndex={recordIndex} />
+            <Component
+                record={record}
+                columnName={columnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         ) : (
             String(value)
         )

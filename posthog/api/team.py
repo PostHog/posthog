@@ -1,8 +1,8 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import cached_property
 from pydantic import ValidationError
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -90,6 +90,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -131,6 +132,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_trigger_config",
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
+    "session_recording_trigger_match_type_config",
     "session_replay_config",
     "survey_config",
     "week_start_day",
@@ -259,7 +261,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return list(
-            GroupTypeMapping.objects.filter(project_id=team.project_id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+            GroupTypeMapping.objects.filter(project_id=team.project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
@@ -290,6 +294,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if received_keys not in valid_keys:
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+            )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
+        if value not in ["all", "any", None]:
+            raise exceptions.ValidationError(
+                "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
             )
 
         return value
@@ -702,27 +715,17 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-
-        if created and isinstance(user, User):
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
-        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
-        product_intent.save()
+        product_intent_serializer = ProductIntentSerializer(data=request.data)
+        product_intent_serializer.is_valid(raise_exception=True)
+        intent_data = product_intent_serializer.validated_data
+        product_intent = ProductIntent.register(
+            team=team,
+            product_type=product_type,
+            context=intent_data["intent_context"],
+            user=cast(User, user),
+            metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=True,
+        )
 
         if isinstance(user, User):  # typing
             report_user_action(
@@ -732,7 +735,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
+                    "intent_context": intent_data["intent_context"],
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),

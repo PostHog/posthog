@@ -33,7 +33,7 @@ pub async fn insert_new_team_in_redis(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: i64::from(id) - 1,
+        project_id: i64::from(id),
         name: "team".to_string(),
         api_token: token,
         cookieless_server_hash_mode: 0,

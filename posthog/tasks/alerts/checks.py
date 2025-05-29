@@ -265,7 +265,7 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         logger.exception(AlertCheckException(err))
         capture_exception(
             AlertCheckException(err),
-            tags={
+            properties={
                 "alert_configuration_id": alert_id,
             },
         )

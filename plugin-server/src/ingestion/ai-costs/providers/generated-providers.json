@@ -1,310 +1,23 @@
 [
     {
-        "model": "deepseek-v3-base:free",
+        "model": "gpt-4.1",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008
         }
     },
     {
-        "model": "deepseek-chat-v3-0324:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-chat-v3-0324",
-        "cost": {
-            "prompt_token": 2.7e-7,
-            "completion_token": 0.0000011
-        }
-    },
-    {
-        "model": "deepseek-r1-zero:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-llama-8b",
-        "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 4e-8
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-1.5b",
-        "cost": {
-            "prompt_token": 1.8e-7,
-            "completion_token": 1.8e-7
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-32b:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-32b",
-        "cost": {
-            "prompt_token": 1.2e-7,
-            "completion_token": 1.8e-7
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-14b:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-qwen-14b",
-        "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-llama-70b:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1-distill-llama-70b",
-        "cost": {
-            "prompt_token": 2.3e-7,
-            "completion_token": 6.9e-7
-        }
-    },
-    {
-        "model": "deepseek-r1:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-r1",
-        "cost": {
-            "prompt_token": 5.5e-7,
-            "completion_token": 0.00000219
-        }
-    },
-    {
-        "model": "deepseek-chat:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-chat",
+        "model": "gpt-4.1-mini",
         "cost": {
             "prompt_token": 4e-7,
-            "completion_token": 8.9e-7
+            "completion_token": 0.0000016
         }
     },
     {
-        "model": "gemini-2.5-pro-exp-03-25:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-1b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-4b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-4b-it",
-        "cost": {
-            "prompt_token": 2e-8,
-            "completion_token": 4e-8
-        }
-    },
-    {
-        "model": "gemma-3-12b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-12b-it",
-        "cost": {
-            "prompt_token": 5e-8,
-            "completion_token": 1e-7
-        }
-    },
-    {
-        "model": "gemma-3-27b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-3-27b-it",
-        "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-lite-001",
-        "cost": {
-            "prompt_token": 7.5e-8,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-001",
+        "model": "gpt-4.1-nano",
         "cost": {
             "prompt_token": 1e-7,
             "completion_token": 4e-7
-        }
-    },
-    {
-        "model": "gemini-2.0-pro-exp-02-05:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-thinking-exp:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-thinking-exp-1219:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-2.0-flash-exp:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "learnlm-1.5-pro-experimental:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b",
-        "cost": {
-            "prompt_token": 3.75e-8,
-            "completion_token": 1.5e-7
-        }
-    },
-    {
-        "model": "gemini-flash-1.5-8b-exp",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-2-27b-it",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 8e-7
-        }
-    },
-    {
-        "model": "gemma-2-9b-it:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "gemma-2-9b-it",
-        "cost": {
-            "prompt_token": 7e-8,
-            "completion_token": 7e-8
-        }
-    },
-    {
-        "model": "gemini-flash-1.5",
-        "cost": {
-            "prompt_token": 7.5e-8,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "gemini-pro-1.5",
-        "cost": {
-            "prompt_token": 0.00000125,
-            "completion_token": 0.000005
-        }
-    },
-    {
-        "model": "gemini-pro-vision",
-        "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
-        }
-    },
-    {
-        "model": "gemini-pro",
-        "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
-        }
-    },
-    {
-        "model": "palm-2-chat-bison-32k",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "palm-2-codechat-bison-32k",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "palm-2-chat-bison",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "palm-2-codechat-bison",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000002
         }
     },
     {
@@ -532,6 +245,482 @@
         }
     },
     {
+        "model": "llama-4-maverick:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-4-maverick",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 6e-7
+        }
+    },
+    {
+        "model": "llama-4-scout:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-4-scout",
+        "cost": {
+            "prompt_token": 8e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "llama-guard-3-8b",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "llama-3.3-70b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-3.3-70b-instruct",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 2.5e-7
+        }
+    },
+    {
+        "model": "llama-3.2-3b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-3.2-3b-instruct",
+        "cost": {
+            "prompt_token": 1.5e-8,
+            "completion_token": 2.5e-8
+        }
+    },
+    {
+        "model": "llama-3.2-1b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-3.2-1b-instruct",
+        "cost": {
+            "prompt_token": 1e-8,
+            "completion_token": 1e-8
+        }
+    },
+    {
+        "model": "llama-3.2-90b-vision-instruct",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000016
+        }
+    },
+    {
+        "model": "llama-3.2-11b-vision-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-3.2-11b-vision-instruct",
+        "cost": {
+            "prompt_token": 4.9e-8,
+            "completion_token": 4.9e-8
+        }
+    },
+    {
+        "model": "llama-3.1-405b",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "llama-3.1-8b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-3.1-8b-instruct",
+        "cost": {
+            "prompt_token": 2e-8,
+            "completion_token": 4.5e-8
+        }
+    },
+    {
+        "model": "llama-3.1-405b-instruct",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
+        "model": "llama-3.1-70b-instruct",
+        "cost": {
+            "prompt_token": 1.2e-7,
+            "completion_token": 2.8e-7
+        }
+    },
+    {
+        "model": "llama-guard-2-8b",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "llama-3-8b-instruct",
+        "cost": {
+            "prompt_token": 3e-8,
+            "completion_token": 6e-8
+        }
+    },
+    {
+        "model": "llama-3-70b-instruct",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "llama-2-13b-chat",
+        "cost": {
+            "prompt_token": 2.2e-7,
+            "completion_token": 2.2e-7
+        }
+    },
+    {
+        "model": "llama-2-70b-chat",
+        "cost": {
+            "prompt_token": 9e-7,
+            "completion_token": 9e-7
+        }
+    },
+    {
+        "model": "gemini-2.5-pro-preview-03-25",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.00001
+        }
+    },
+    {
+        "model": "gemini-2.5-pro-exp-03-25:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-1b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-4b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-4b-it",
+        "cost": {
+            "prompt_token": 2e-8,
+            "completion_token": 4e-8
+        }
+    },
+    {
+        "model": "gemma-3-12b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-12b-it",
+        "cost": {
+            "prompt_token": 5e-8,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "gemma-3-27b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-3-27b-it",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-lite-001",
+        "cost": {
+            "prompt_token": 7.5e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-001",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-thinking-exp:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-thinking-exp-1219:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-2.0-flash-exp:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "learnlm-1.5-pro-experimental:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemini-flash-1.5-8b",
+        "cost": {
+            "prompt_token": 3.75e-8,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "gemini-flash-1.5-8b-exp",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-2-27b-it",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
+        "model": "gemma-2-9b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "gemma-2-9b-it",
+        "cost": {
+            "prompt_token": 7e-8,
+            "completion_token": 7e-8
+        }
+    },
+    {
+        "model": "gemini-flash-1.5",
+        "cost": {
+            "prompt_token": 7.5e-8,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "gemini-pro-1.5",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.000005
+        }
+    },
+    {
+        "model": "gemini-pro-vision",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
+        }
+    },
+    {
+        "model": "gemini-pro",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
+        }
+    },
+    {
+        "model": "palm-2-chat-bison-32k",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "palm-2-codechat-bison-32k",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "palm-2-chat-bison",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "palm-2-codechat-bison",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "deepseek-v3-base:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-chat-v3-0324:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-chat-v3-0324",
+        "cost": {
+            "prompt_token": 2.7e-7,
+            "completion_token": 0.0000011
+        }
+    },
+    {
+        "model": "deepseek-r1-zero:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-llama-8b",
+        "cost": {
+            "prompt_token": 4e-8,
+            "completion_token": 4e-8
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-1.5b",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 1.8e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-32b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-32b",
+        "cost": {
+            "prompt_token": 1.2e-7,
+            "completion_token": 1.8e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-14b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-qwen-14b",
+        "cost": {
+            "prompt_token": 1.5e-7,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-llama-70b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1-distill-llama-70b",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "deepseek-r1:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1",
+        "cost": {
+            "prompt_token": 5.4e-7,
+            "completion_token": 0.00000218
+        }
+    },
+    {
+        "model": "deepseek-chat:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-chat",
+        "cost": {
+            "prompt_token": 3.8e-7,
+            "completion_token": 8.9e-7
+        }
+    },
+    {
         "model": "mistral-small-3.1-24b-instruct:free",
         "cost": {
             "prompt_token": 0,
@@ -653,7 +842,7 @@
     {
         "model": "mistral-7b-instruct-v0.3",
         "cost": {
-            "prompt_token": 3e-8,
+            "prompt_token": 4e-8,
             "completion_token": 5.5e-8
         }
     },
@@ -697,13 +886,6 @@
         "cost": {
             "prompt_token": 2e-7,
             "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "mixtral-8x7b",
-        "cost": {
-            "prompt_token": 6e-7,
-            "completion_token": 6e-7
         }
     },
     {
@@ -998,146 +1180,6 @@
         "cost": {
             "prompt_token": 0.000008,
             "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "llama-guard-3-8b",
-        "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "llama-3.3-70b-instruct:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "llama-3.3-70b-instruct",
-        "cost": {
-            "prompt_token": 1.2e-7,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "llama-3.2-3b-instruct:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "llama-3.2-3b-instruct",
-        "cost": {
-            "prompt_token": 1.5e-8,
-            "completion_token": 2.5e-8
-        }
-    },
-    {
-        "model": "llama-3.2-1b-instruct:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "llama-3.2-1b-instruct",
-        "cost": {
-            "prompt_token": 1e-8,
-            "completion_token": 1e-8
-        }
-    },
-    {
-        "model": "llama-3.2-90b-vision-instruct",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 0.0000016
-        }
-    },
-    {
-        "model": "llama-3.2-11b-vision-instruct:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "llama-3.2-11b-vision-instruct",
-        "cost": {
-            "prompt_token": 5.5e-8,
-            "completion_token": 5.5e-8
-        }
-    },
-    {
-        "model": "llama-3.1-405b",
-        "cost": {
-            "prompt_token": 0.000002,
-            "completion_token": 0.000002
-        }
-    },
-    {
-        "model": "llama-3.1-8b-instruct:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "llama-3.1-8b-instruct",
-        "cost": {
-            "prompt_token": 2e-8,
-            "completion_token": 5e-8
-        }
-    },
-    {
-        "model": "llama-3.1-405b-instruct",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 8e-7
-        }
-    },
-    {
-        "model": "llama-3.1-70b-instruct",
-        "cost": {
-            "prompt_token": 1.2e-7,
-            "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "llama-guard-2-8b",
-        "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
-        }
-    },
-    {
-        "model": "llama-3-8b-instruct",
-        "cost": {
-            "prompt_token": 3e-8,
-            "completion_token": 6e-8
-        }
-    },
-    {
-        "model": "llama-3-70b-instruct",
-        "cost": {
-            "prompt_token": 2.3e-7,
-            "completion_token": 4e-7
-        }
-    },
-    {
-        "model": "llama-2-13b-chat",
-        "cost": {
-            "prompt_token": 2.2e-7,
-            "completion_token": 2.2e-7
-        }
-    },
-    {
-        "model": "llama-2-70b-chat",
-        "cost": {
-            "prompt_token": 9e-7,
-            "completion_token": 9e-7
         }
     }
 ]

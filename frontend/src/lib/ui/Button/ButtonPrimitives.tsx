@@ -11,13 +11,6 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 type ButtonVariant = 'default' | 'outline' | 'default-group' | 'side-action-group'
 
-const BUTTON_HEIGHT_SM = 'h-[var(--button-height-sm)]'
-const BUTTON_ICON_WIDTH_SM = 'w-[var(--button-height-sm)]'
-const BUTTON_HEIGHT_BASE = 'h-[var(--button-height-base)]'
-const BUTTON_ICON_WIDTH_BASE = 'w-[var(--button-height-base)]'
-const BUTTON_HEIGHT_LG = 'h-[var(--button-height-lg)]'
-const BUTTON_ICON_WIDTH_LG = 'w-[var(--button-height-lg)]'
-
 export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit'
 
 interface ButtonGroupContextValue {
@@ -74,16 +67,13 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         sizeContext: size,
     }
 
-    let buttonHeight = ''
+    let buttonHeight = 'button-primitive-height-base'
     switch (size) {
         case 'sm':
-            buttonHeight = BUTTON_HEIGHT_SM
-            break
-        case 'base':
-            buttonHeight = BUTTON_HEIGHT_BASE
+            buttonHeight = 'button-primitive-height-sm'
             break
         case 'lg':
-            buttonHeight = BUTTON_HEIGHT_LG
+            buttonHeight = 'button-primitive-height-lg'
             break
         case 'fit':
             buttonHeight = ''
@@ -182,9 +172,9 @@ const buttonVariants = cva({
             `,
         },
         size: {
-            sm: `button-primitive-size-sm ${BUTTON_HEIGHT_SM} text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)]`,
-            base: `button-primitive-size-base ${BUTTON_HEIGHT_BASE} text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)]`,
-            lg: `button-primitive-size-lg ${BUTTON_HEIGHT_LG} text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)]`,
+            sm: `button-primitive-size-sm button-primitive-height-sm text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)]`,
+            base: `button-primitive-size-base button-primitive-height-base text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)]`,
+            lg: `button-primitive-size-lg button-primitive-height-lg text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)]`,
             fit: 'px-0',
         },
         iconOnly: {
@@ -230,17 +220,17 @@ const buttonVariants = cva({
         {
             iconOnly: true,
             size: 'sm',
-            className: BUTTON_ICON_WIDTH_SM,
+            className: 'w-[var(--button-height-sm)]',
         },
         {
             iconOnly: true,
             size: 'base',
-            className: BUTTON_ICON_WIDTH_BASE,
+            className: 'w-[var(--button-height-base)]',
         },
         {
             iconOnly: true,
             size: 'lg',
-            className: BUTTON_ICON_WIDTH_LG,
+            className: 'w-[var(--button-height-lg)]',
         },
         {
             sideActionLeft: true,

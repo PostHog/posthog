@@ -121,8 +121,7 @@ describe('PersonsManagementScene', () => {
         const withinTable = within(lemonTable)
 
         await waitFor(() => {
-            // TODO: this shouldn't say events, right?
-            expect(withinTable.getByText('There are no matching events for this query')).toBeInTheDocument()
+            expect(withinTable.getByText('There are no matching persons for this query')).toBeInTheDocument()
         })
     })
 

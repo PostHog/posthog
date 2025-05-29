@@ -240,7 +240,7 @@ export function DeltaChart({
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
-                    className="p-2 overflow-auto"
+                    className="p-2"
                 >
                     <MetricHeader
                         metricIndex={metricIndex}

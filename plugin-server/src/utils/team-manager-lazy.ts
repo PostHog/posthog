@@ -31,6 +31,14 @@ export class TeamManagerLazy {
         return this.lazyLoader.get(token)
     }
 
+    public async getTeams(teamIds: number[]): Promise<Record<string, Team | null>> {
+        return this.lazyLoader.getMany(teamIds.map(String))
+    }
+
+    public async getTeamsByTokens(tokens: string[]): Promise<Record<string, Team | null>> {
+        return this.lazyLoader.getMany(tokens)
+    }
+
     public async hasAvailableFeature(teamId: number, feature: string): Promise<boolean> {
         const team = await this.getTeam(teamId)
         return team?.available_features?.includes(feature) || false

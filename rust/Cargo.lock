@@ -2248,6 +2248,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "rand",
+ "rayon",
  "redis",
  "regex",
  "reqwest 0.12.3",
@@ -2777,6 +2778,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest",
+]
+
+[[package]]
+name = "hogvm"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

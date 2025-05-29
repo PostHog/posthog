@@ -229,6 +229,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
+        widthOverride: [
+            null as number | null,
+            {
+                setIframeWidth: (_, { width }) => width,
+            },
+        ],
     }),
 
     selectors({

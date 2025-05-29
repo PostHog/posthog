@@ -416,6 +416,103 @@ describe('SessionBatchRecorder', () => {
                 ['window1', messages[3].message.eventsByWindowId.window1[0]],
             ])
         })
+
+        it('should handle same session id with different teams as separate sessions', async () => {
+            const messages = [
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1 },
+                        },
+                    ],
+                    {},
+                    1,
+                    'user1'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.Meta,
+                            timestamp: 1100,
+                            data: { href: 'https://example.com' },
+                        },
+                    ],
+                    {},
+                    2,
+                    'user2'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2 },
+                        },
+                    ],
+                    {},
+                    1,
+                    'user1'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.Custom,
+                            timestamp: 2100,
+                            data: { tag: 'click' },
+                        },
+                    ],
+                    {},
+                    2,
+                    'user2'
+                ),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
+
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines1 = parseLines(writtenData[0])
+            const lines2 = parseLines(writtenData[1])
+
+            // Events should be grouped by team ID despite having same session ID
+            expect(lines1).toEqual([
+                // All team 1 events
+                ['window1', messages[0].message.eventsByWindowId.window1[0]],
+                ['window1', messages[2].message.eventsByWindowId.window1[0]],
+            ])
+            expect(lines2).toEqual([
+                // All team 2 events
+                ['window1', messages[1].message.eventsByWindowId.window1[0]],
+                ['window1', messages[3].message.eventsByWindowId.window1[0]],
+            ])
+
+            // Verify metadata store received separate session blocks for each team
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        sessionId: 'same_session_id',
+                        teamId: 1,
+                        distinctId: 'user1',
+                    }),
+                    expect.objectContaining({
+                        sessionId: 'same_session_id',
+                        teamId: 2,
+                        distinctId: 'user2',
+                    }),
+                ])
+            )
+        })
     })
 
     describe('console log recording', () => {

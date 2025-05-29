@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 
@@ -13,16 +14,23 @@ func TestDecodeAuthToken(t *testing.T) {
 	viper.Set("jwt.secret", "test-secret")
 
 	tests := []struct {
-		name        string
-		authHeader  string
-		expectError bool
-		expectedAud string
+		name           string
+		authHeader     string
+		expectError    bool
+		expectedAud    string
+		expectedTeamID int
+		expectedToken  string
 	}{
 		{
-			name:        "Valid token",
-			authHeader:  "Bearer " + createValidToken(ExpectedScope),
-			expectError: false,
-			expectedAud: ExpectedScope,
+			name: "Valid token",
+			authHeader: "Bearer " + createValidToken(ExpectedScope, jwt.MapClaims{
+				"team_id":   123.,
+				"api_token": "token123",
+			}),
+			expectError:    false,
+			expectedAud:    ExpectedScope,
+			expectedTeamID: 123,
+			expectedToken:  "token123",
 		},
 		{
 			name:        "Invalid token format",
@@ -31,12 +39,12 @@ func TestDecodeAuthToken(t *testing.T) {
 		},
 		{
 			name:        "Missing Bearer prefix",
-			authHeader:  createValidToken(ExpectedScope),
+			authHeader:  createValidToken(ExpectedScope, nil),
 			expectError: true,
 		},
 		{
 			name:        "Invalid audience",
-			authHeader:  "Bearer " + createValidToken("invalid:scope"),
+			authHeader:  "Bearer " + createValidToken("invalid:scope", nil),
 			expectError: true,
 		},
 		{
@@ -66,16 +74,26 @@ func TestDecodeAuthToken(t *testing.T) {
 				if claims["aud"] != tt.expectedAud {
 					t.Errorf("Expected audience %s, but got %s", tt.expectedAud, claims["aud"])
 				}
+				teamID, token, err := getDataFromClaims(claims)
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				assert.Equal(t, tt.expectedTeamID, teamID)
+				assert.Equal(t, tt.expectedToken, token)
 			}
 		})
 	}
 }
 
-func createValidToken(audience string) string {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+func createValidToken(audience string, claims jwt.MapClaims) string {
+	newClaims := jwt.MapClaims{
 		"aud": audience,
 		"exp": time.Now().Add(time.Hour).Unix(),
-	})
+	}
+	for k, v := range claims {
+		newClaims[k] = v
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
 	tokenString, _ := token.SignedString([]byte(viper.GetString("jwt.secret")))
 	return tokenString
 }

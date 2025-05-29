@@ -416,7 +416,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(aggregations["volumeDay"]), 3)
             self.assertEqual(len(aggregations["volumeRange"]), 3)
 
-        ## Make sure occurences are correct
+        ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(first_aggregations["volumeDay"], [0, 0, 0])  # Should not appear in the last 24hours
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
@@ -455,7 +455,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(aggregations["volumeDay"]), 4)
             self.assertEqual(len(aggregations["volumeRange"]), 4)
 
-        ## Make sure occurences are correct
+        ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])

@@ -5,12 +5,10 @@ import { HogTransformerService } from '../cdp/hog-transformations/hog-transforme
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import {
     eventDroppedCounter,
-    ingestionPartitionKeyOverflowed,
     latestOffsetTimestampGauge,
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
@@ -26,6 +24,11 @@ import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/ev
 import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+const ingestionEventOverflowed = new Counter({
+    name: 'ingestion_event_overflowed',
+    help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
+})
 
 const histogramKafkaBatchSize = new Histogram({
     name: 'ingestion_batch_size',
@@ -46,8 +49,14 @@ const forcedOverflowEventsCounter = new Counter({
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
 
+type EventsForDistinctId = {
+    token: string
+    distinctId: string
+    events: IncomingEvent[]
+}
+
 type IncomingEventsByDistinctId = {
-    [key: string]: IncomingEvent[]
+    [key: string]: EventsForDistinctId
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -57,6 +66,16 @@ const KNOWN_SET_EVENTS = new Set([
     'survey dismissed',
     'survey sent',
 ])
+
+const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent) => {
+    if (
+        !PERSON_EVENTS.has(event.event) &&
+        !KNOWN_SET_EVENTS.has(event.event) &&
+        (event.properties?.$set || event.properties?.$set_once || event.properties?.$unset)
+    ) {
+        setUsageInNonPersonEventsCounter.inc()
+    }
+}
 
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
@@ -78,8 +97,7 @@ export class IngestionConsumer {
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
-    private tokensToForceOverflow: string[] = []
-
+    private tokenDistinctIdsToForceOverflow: string[] = []
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -103,7 +121,9 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToSkipPersons = hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.tokensToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_TOKENS.split(',').filter((x) => !!x)
+        this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
+            (x) => !!x
+        )
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -178,11 +198,21 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
+        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
+        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
+        // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
+        if (shouldRunHogWatcher) {
+            await this.fetchAndCacheHogFunctionStates(parsedMessages)
+        }
+
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
-                Object.values(parsedMessages).map(async (x) => {
+                Object.values(parsedMessages).map(async (events) => {
+                    const eventsToProcess = this.redirectEvents(events)
+
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(x)
+                        this.processEventsForDistinctId(eventsToProcess)
                     )
                 })
             )
@@ -201,78 +231,190 @@ export class IngestionConsumer {
         }
     }
 
-    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
+    /**
+     * Redirect events to overflow or testing topic based on their configuration
+     * returning events that have not been redirected
+     */
+    private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
+        if (!eventsForDistinctId.events.length) {
+            return eventsForDistinctId
+        }
+
+        if (this.testingTopic) {
+            void this.scheduleWork(this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message)))
+            return {
+                ...eventsForDistinctId,
+                events: [],
+            }
+        }
+
+        // NOTE: We know at this point that all these events are the same token distinct_id
+        const token = eventsForDistinctId.token
+        const distinctId = eventsForDistinctId.distinctId
+        const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
+        const eventKey = `${token}:${distinctId}`
+
+        // Check if this token is in the force overflow list
+        const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
+
+        // Check the rate limiter and emit to overflow if necessary
+        const isBelowRateLimit = this.overflowRateLimiter.consume(
+            eventKey,
+            eventsForDistinctId.events.length,
+            kafkaTimestamp
+        )
+
+        if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
+            ingestionEventOverflowed.inc(eventsForDistinctId.events.length)
+
+            if (shouldForceOverflow) {
+                forcedOverflowEventsCounter.inc()
+            } else if (this.ingestionWarningLimiter.consume(eventKey, eventsForDistinctId.events.length)) {
+                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+            }
+
+            // NOTE: If we are forcing to overflow we typically want to keep the partition key
+            // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
+            // of random partitioning.
+            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+
+            void this.scheduleWork(
+                this.emitToOverflow(
+                    eventsForDistinctId.events.map((x) => x.message),
+                    preserveLocality
+                )
+            )
+
+            return {
+                ...eventsForDistinctId,
+                events: [],
+            }
+        }
+
+        return eventsForDistinctId
+    }
+
+    /**
+     * Fetches and caches hog function states for all teams in the batch
+     */
+    private async fetchAndCacheHogFunctionStates(parsedMessages: IncomingEventsByDistinctId): Promise<void> {
+        await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
+            // Clear cached hog function states before fetching new ones
+            this.hogTransformer.clearHogFunctionStates()
+
+            const tokensToFetch = new Set<string>()
+            Object.values(parsedMessages).forEach((eventsForDistinctId) => tokensToFetch.add(eventsForDistinctId.token))
+
+            if (tokensToFetch.size === 0) {
+                return // No teams to process
+            }
+
+            const teams = await this.hub.teamManagerLazy.getTeamsByTokens(Array.from(tokensToFetch))
+
+            const teamIdsArray = Object.values(teams)
+                .map((x) => x?.id)
+                .filter(Boolean) as number[]
+
+            // Get hog function IDs for transformations
+            const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
+                teamIdsArray,
+                ['transformation']
+            )
+
+            // Flatten all hog function IDs into a single array
+            const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+
+            if (allHogFunctionIds.length > 0) {
+                // Cache the hog function states
+                await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
+            }
+        })
+    }
+
+    private async processEventsForDistinctId(eventsForDistinctId: EventsForDistinctId): Promise<void> {
         // Process every message sequentially, stash promises to await on later
-        for (const { message, event } of incomingEvents) {
+        for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-            if (
-                event.properties &&
-                !PERSON_EVENTS.has(event.event) &&
-                !KNOWN_SET_EVENTS.has(event.event) &&
-                ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
-            ) {
-                setUsageInNonPersonEventsCounter.inc()
-            }
-
-            try {
-                logger.debug('🔁', `Processing event`, {
-                    event,
-                })
-
-                if (this.testingTopic) {
-                    void this.scheduleWork(this.emitToTestingTopic([message]))
-                    continue
-                }
-
-                const eventKey = `${event.token}:${event.distinct_id}`
-                // Check if this token is in the force overflow list
-                const shouldForceOverflow = event.token && this.tokensToForceOverflow.includes(event.token)
-
-                // Check the rate limiter and emit to overflow if necessary
-                const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
-
-                if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-                    logger.debug('🔁', `Sending to overflow`, {
-                        event,
-                        reason: shouldForceOverflow ? 'force_overflow_token' : 'rate_limit',
-                    })
-                    ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-
-                    if (shouldForceOverflow) {
-                        forcedOverflowEventsCounter.inc()
-                    } else if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
-                        logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-                    }
-
-                    void this.scheduleWork(this.emitToOverflow([message], shouldForceOverflow ? true : undefined))
-                    continue
-                }
-
-                const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
-
-                logger.debug('🔁', `Processed event`, {
-                    event,
-                })
-
-                // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
-                result.ackPromises?.forEach((promise) => {
-                    void this.scheduleWork(
-                        promise.catch(async (error) => {
-                            await this.handleProcessingError(error, message, event)
-                        })
-                    )
-                })
-            } catch (error) {
-                await this.handleProcessingError(error, message, event)
-            }
+            trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
+            await this.runEventRunnerV1(incomingEvent)
         }
     }
 
-    private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
-        return await retryIfRetriable(async () => {
-            const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
-            return await runner.runEventPipeline(event)
+    private async runEventRunnerV1(incomingEvent: IncomingEvent): Promise<EventPipelineResult | undefined> {
+        const { event, message } = incomingEvent
+        try {
+            const result = await this.runInstrumented('runEventPipeline', () =>
+                retryIfRetriable(async () => {
+                    const runner = this.getEventPipelineRunnerV1(event)
+                    return await runner.runEventPipeline(event)
+                })
+            )
+
+            // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
+            result.ackPromises?.forEach((promise) => {
+                void this.scheduleWork(
+                    promise.catch(async (error) => {
+                        await this.handleProcessingErrorV1(error, message, event)
+                    })
+                )
+            })
+
+            return result
+        } catch (error) {
+            await this.handleProcessingErrorV1(error, message, event)
+        }
+    }
+
+    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent) {
+        logger.error('🔥', `Error processing message`, {
+            stack: error.stack,
+            error: error,
         })
+
+        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
+        // error.
+        //
+        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
+        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
+        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
+        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
+        //
+        // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
+        // fact that node-rdkafka adheres to the `isRetriable` interface.
+
+        if (error?.isRetriable === false) {
+            const sentryEventId = captureException(error)
+            const headers: MessageHeader[] = message.headers ?? []
+            headers.push({ ['sentry-event-id']: sentryEventId })
+            headers.push({ ['event-id']: event.uuid })
+            try {
+                await this.kafkaProducer!.produce({
+                    topic: this.dlqTopic,
+                    value: message.value,
+                    key: message.key ?? null, // avoid undefined, just to be safe
+                    headers: headers,
+                })
+            } catch (error) {
+                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
+                // offset and move on.
+                if (error?.isRetriable === false) {
+                    logger.error('🔥', `Error pushing to DLQ`, {
+                        stack: error.stack,
+                        error: error,
+                    })
+                    return
+                }
+
+                // If we can't send to the DLQ and it is retriable, raise the error.
+                throw error
+            }
+        } else {
+            throw error
+        }
+    }
+
+    private getEventPipelineRunnerV1(event: PipelineEvent): EventPipelineRunner {
+        return new EventPipelineRunner(this.hub, event, this.hogTransformer)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
@@ -324,10 +466,14 @@ export class IngestionConsumer {
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
             if (!batches[eventKey]) {
-                batches[eventKey] = []
+                batches[eventKey] = {
+                    token: event.token ?? '',
+                    distinctId: event.distinct_id ?? '',
+                    events: [],
+                }
             }
 
-            batches[eventKey].push({ message, event })
+            batches[eventKey].events.push({ message, event })
         }
 
         return Promise.resolve(batches)
@@ -386,54 +532,6 @@ export class IngestionConsumer {
         })
     }
 
-    private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        logger.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
-
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
-        //
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
-
-        if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
-            try {
-                await this.kafkaProducer!.produce({
-                    topic: this.dlqTopic,
-                    value: message.value,
-                    key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
-                })
-            } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    logger.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
-                    })
-                    return
-                }
-
-                // If we can't send to the DLQ and it is retriable, raise the error.
-                throw error
-            }
-        } else {
-            throw error
-        }
-    }
-
     private logDroppedEvent(token?: string, distinctId?: string) {
         logger.debug('🔁', `Dropped event`, {
             token,
@@ -460,6 +558,14 @@ export class IngestionConsumer {
             (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
         )
     }
+
+    private shouldForceOverflow(token?: string, distinctId?: string) {
+        return (
+            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
+            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
+        )
+    }
+
     private overflowEnabled() {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
@@ -480,11 +586,6 @@ export class IngestionConsumer {
             preservePartitionLocalityOverride !== undefined
                 ? preservePartitionLocalityOverride
                 : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-        const overflowMode = preservePartitionLocality
-            ? IngestionOverflowMode.Reroute
-            : IngestionOverflowMode.RerouteRandomly
-
-        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
 
         await Promise.all(
             kafkaMessages.map((message) =>
@@ -494,7 +595,7 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: useRandomPartitioning ? null : message.key ?? null,
+                    key: preservePartitionLocality ? message.key ?? null : null,
                     headers: message.headers,
                 })
             )

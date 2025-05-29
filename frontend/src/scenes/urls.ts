@@ -41,8 +41,20 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
 
-    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
-        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+    pipelineNodeNew: (
+        stage: PipelineStage | ':stage',
+        { id, kind }: { id?: string | number; kind?: string } = {}
+    ): string => {
+        let base = `/pipeline/new/${stage}`
+        if (id) {
+            base += `/${id}`
+        }
+
+        if (kind) {
+            return `${base}?kind=${kind}`
+        }
+
+        return base
     },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
@@ -163,4 +175,5 @@ export const urls = {
     messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
     messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
+    startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
 }

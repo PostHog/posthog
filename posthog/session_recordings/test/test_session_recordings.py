@@ -37,6 +37,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_postgres_queries,
 )
+from clickhouse_driver.errors import ServerException
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -1343,3 +1345,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "source": None,
             },
         )
+
+    @parameterized.expand(
+        [
+            (
+                "too_many_queries",
+                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
+                "Too many simultaneous queries. Try again later.",
+            ),
+            (
+                "timeout_exceeded",
+                ServerException("CHQueryErrorTimeoutExceeded"),
+                "Query timeout exceeded. Try again later.",
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_query_errors(self, name, exception, expected_message, mock_run):
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json() == {
+            "attr": None,
+            "code": "throttled",
+            "detail": expected_message,
+            "type": "throttled_error",
+        }

@@ -12,6 +12,7 @@ import {
     IconLifecycle,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -253,6 +254,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
+        name: 'Revenue Analytics Growth Rate',
+        description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website.',
@@ -286,6 +305,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebVitalsPathBreakdownQuery]: {
         name: 'Web vitals path breakdown',
         description: 'View web vitals broken down by path.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebPageURLSearchQuery]: {
+        name: 'Web Page URL Search',
+        description: 'Search and analyze web page URLs.',
         icon: IconPieChart,
         inMenu: true,
     },

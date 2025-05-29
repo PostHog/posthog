@@ -1,5 +1,3 @@
-import * as Sentry from '@sentry/react'
-import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -476,11 +474,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
+    }
+
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -1505,7 +1511,6 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         posthog.captureException(e)
-        Sentry.captureException(e)
         return null
     }
 }
@@ -2042,27 +2047,4 @@ export const getJSHeapMemory = (): {
         }
     }
     return {}
-}
-
-interface PreviewFlagsV2Config {
-    rolloutPercentage: number
-    includedHashes?: Set<string>
-    excludedHashes?: Set<string>
-}
-
-export function shouldEnablePreviewFlagsV2(apiKey: string, config: PreviewFlagsV2Config): boolean {
-    const hashHex = crypto.createHash('sha1').update(`preview_flags_v2.${apiKey}`).digest('hex')
-
-    // Check explicit includes/excludes first
-    if (config.includedHashes && config.includedHashes.has(hashHex)) {
-        return true
-    }
-    if (config.excludedHashes && config.excludedHashes.has(hashHex)) {
-        return false
-    }
-
-    // For all other keys, use percentage rollout
-    // Use first 8 characters of hash for percentage calculation to avoid floating point precision issues
-    const normalizedHash = parseInt(hashHex.slice(0, 8), 16) / 0xffffffff
-    return normalizedHash <= config.rolloutPercentage / 100
 }

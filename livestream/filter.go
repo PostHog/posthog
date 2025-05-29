@@ -6,12 +6,11 @@ import (
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 type Subscription struct {
-	// Client
-	ClientId string
+	SubID uint64
 
 	// Filters
 	TeamId     int
@@ -28,7 +27,7 @@ type Subscription struct {
 
 type ResponsePostHogEvent struct {
 	Uuid       string                 `json:"uuid"`
-	Timestamp  string                 `json:"timestamp"`
+	Timestamp  interface{}            `json:"timestamp"`
 	DistinctId string                 `json:"distinct_id"`
 	PersonId   string                 `json:"person_id"`
 	Event      string                 `json:"event"`
@@ -82,14 +81,13 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 	return uuid.NewV5(personUUIDV5Namespace, input).String()
 }
 
-func removeSubscription(clientId string, subs []Subscription) []Subscription {
-	var lighterSubs []Subscription
+func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
-		if clientId == sub.ClientId {
-			lighterSubs = slices.Delete(subs, i, i+1)
+		if subID == sub.SubID {
+			return slices.Delete(subs, i, i+1)
 		}
 	}
-	return lighterSubs
+	return subs
 }
 
 func (c *Filter) Run() {
@@ -98,7 +96,7 @@ func (c *Filter) Run() {
 		case newSub := <-c.subChan:
 			c.subs = append(c.subs, newSub)
 		case unSub := <-c.unSubChan:
-			c.subs = removeSubscription(unSub.ClientId, c.subs)
+			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
 			var responseEvent *ResponsePostHogEvent
 			var responseGeoEvent *ResponseGeoEvent

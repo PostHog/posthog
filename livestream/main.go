@@ -62,10 +62,10 @@ func main() {
 
 	stats := newStatsKeeper()
 
-	phEventChan := make(chan PostHogEvent)
-	statsChan := make(chan PostHogEvent)
-	subChan := make(chan Subscription)
-	unSubChan := make(chan Subscription)
+	phEventChan := make(chan PostHogEvent, 1000)
+	statsChan := make(chan CountEvent, 1000)
+	subChan := make(chan Subscription, 1000)
+	unSubChan := make(chan Subscription, 1000)
 
 	go stats.keepStats(statsChan)
 
@@ -117,16 +117,16 @@ func main() {
 
 	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
 
-	e.GET("/jwt", func(c echo.Context) error {
-		claims, err := getAuth(c.Request().Header)
-		if err != nil {
-			return err
-		}
-
-		return c.JSON(http.StatusOK, claims)
-	})
-
 	if !isProd {
+		e.GET("/jwt", func(c echo.Context) error {
+			claims, err := getAuth(c.Request().Header)
+			if err != nil {
+				return err
+			}
+
+			return c.JSON(http.StatusOK, claims)
+		})
+
 		e.File("/debug", "./index.html")
 		e.GET("/debug/sse", func(c echo.Context) error {
 			e.Logger.Printf("Map client connected, ip: %v", c.RealIP())

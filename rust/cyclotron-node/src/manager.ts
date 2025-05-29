@@ -2,20 +2,34 @@
 const cyclotron = require('../index.node')
 
 import { convertToInternalPoolConfig, serializeObject } from './helpers'
-import { CyclotronJobInit, CyclotronPoolConfig } from './types'
+import { CyclotronJobInit, CyclotronPoolConfig, CyclotronInternalPoolConfig } from './types'
+
+type CyclotronManagerInternalConfig = {
+    shards: CyclotronInternalPoolConfig[]
+    shardDepthLimit?: number
+    shardDepthCheckIntervalSeconds?: number
+    shouldCompressVmState?: boolean
+    shouldUseBulkJobCopy?: boolean
+}
+
+export type CyclotronManagerConfig = Omit<CyclotronManagerInternalConfig, 'shards'> & {
+    shards: CyclotronPoolConfig[]
+}
 
 export class CyclotronManager {
-    constructor(private config: { shards: CyclotronPoolConfig[]; shardDepthLimit: number }) {
+    constructor(private config: CyclotronManagerConfig) {
         this.config = config
     }
 
     async connect(): Promise<void> {
-        return await cyclotron.maybeInitManager(
-            JSON.stringify({
-                shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
-                shard_depth_limit: this.config.shardDepthLimit,
-            })
-        )
+        const config: CyclotronManagerInternalConfig = {
+            shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
+            shardDepthLimit: this.config.shardDepthLimit,
+            shardDepthCheckIntervalSeconds: this.config.shardDepthCheckIntervalSeconds,
+            shouldCompressVmState: this.config.shouldCompressVmState,
+            shouldUseBulkJobCopy: this.config.shouldUseBulkJobCopy,
+        }
+        return await cyclotron.maybeInitManager(JSON.stringify(config))
     }
 
     async createJob(job: CyclotronJobInit): Promise<string> {

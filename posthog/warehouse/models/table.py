@@ -112,6 +112,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     __repr__ = sane_repr("name")
 
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
     def soft_delete(self):
         from posthog.warehouse.models.join import DataWarehouseJoin
 

@@ -4,34 +4,36 @@ import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { DateRange } from '~/queries/schema/schema-general'
 
-import { SparklineSelectedPeriod } from './errorTrackingSceneLogic'
+import { SparklineData, SparklineOptions } from './components/SparklineChart/SparklineChart'
+import { useDefaultSparklineColorVars, useSparklineOptions } from './hooks/use-sparkline-options'
 import { generateSparklineLabels } from './utils'
 
 export function OccurrenceSparkline({
-    values,
-    labels,
+    data,
     className,
     displayXAxis = false,
-    loading = false,
 }: {
-    values: number[]
-    labels: string[]
+    data: SparklineData
     className?: string
     displayXAxis?: boolean
     loading?: boolean
 }): JSX.Element {
-    const colors = useSparklineColors()
-
-    const [data, labelRenderer] = useMemo(() => {
+    const colorVars = useDefaultSparklineColorVars()
+    const options = useSparklineOptions({
+        backgroundColor: colorVars[0],
+        hoverBackgroundColor: colorVars[1],
+    })
+    const [occurrences, labels, labelRenderer] = useMemo(() => {
         return [
-            wrapDataWithColor(values, colors),
+            wrapDataWithColor(data, options),
+            data.map((value) => dayjs(value.date).toISOString()),
             (label: string) => {
                 return dayjs(label).format('D MMM YYYY HH:mm (UTC)')
             },
         ]
-    }, [values, colors])
+    }, [data, options])
 
     const withXScale = useCallback((scale: AnyScaleOptions) => {
         return {
@@ -58,16 +60,15 @@ export function OccurrenceSparkline({
     return (
         <Sparkline
             className={className}
-            data={data}
+            data={occurrences}
             labels={labels}
             renderLabel={labelRenderer}
             withXScale={displayXAxis ? withXScale : undefined}
-            loading={loading}
         />
     )
 }
 
-function useSparklineColors(): { color: string; hoverColor: string } {
+export function useSparklineColors(): { color: string; hoverColor: string } {
     const { isDarkModeOn } = useValues(themeLogic)
 
     return useMemo(() => {
@@ -79,41 +80,27 @@ function useSparklineColors(): { color: string; hoverColor: string } {
 }
 
 export function useSparklineData(
-    selectedPeriod: SparklineSelectedPeriod = 'day',
+    resolution: number,
     dateRange: DateRange,
-    aggregations?: ErrorTrackingIssueAggregations
+    values?: number[]
 ): { values: number[]; labels: string[] } {
     const result = useMemo(() => {
-        if (!aggregations) {
-            return { values: [], labels: [] }
+        const labels = generateSparklineLabels(dateRange, resolution).map((label) => label.toISOString())
+        if (!values) {
+            return { values: new Array(resolution).fill(0), labels }
         }
-
-        const { values, aggregationDateRange } = {
-            day: {
-                values: aggregations.volumeDay,
-                aggregationDateRange: { date_from: '-24h' },
-            },
-            custom: {
-                values: aggregations.volumeRange,
-                aggregationDateRange: dateRange,
-            },
-        }[selectedPeriod]
-
-        const resolution = values.length
-        const labels = generateSparklineLabels(aggregationDateRange, resolution)
-
         return { values, labels }
-    }, [aggregations, selectedPeriod, dateRange])
-
+    }, [values, dateRange, resolution])
     return result
 }
 
-function wrapDataWithColor(data: any[] | null, colors: { color: string; hoverColor: string }): any[] {
+function wrapDataWithColor(data: SparklineData, options: SparklineOptions): any[] {
     return [
         {
-            values: data || [],
+            values: data.map((d) => d.value),
             name: 'Occurrences',
-            ...colors,
+            color: options.backgroundColor,
+            hoverColor: options.hoverBackgroundColor,
         },
     ]
 }

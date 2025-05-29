@@ -62,6 +62,7 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
             data: JSON.stringify(event),
         }
         return {
+            key: `${event.token}:${event.distinct_id}`,
             value: Buffer.from(JSON.stringify(captureEvent)),
             size: 1,
             topic: 'test',
@@ -157,21 +158,6 @@ describe('IngestionConsumer', () => {
                 ).toMatchSnapshot()
             })
 
-            it('should allow some events to pass', async () => {
-                const manyOverflowedMessages = createKafkaMessages([
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                ])
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 999, now())
-                await ingester.handleKafkaBatch(manyOverflowedMessages)
-                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-
-                expect(
-                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
-                ).toMatchSnapshot()
-            })
-
             it('does not overflow if it is consuming from the overflow topic', async () => {
                 ingester['topic'] = 'events_plugin_ingestion_overflow_test'
                 ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
@@ -185,67 +171,79 @@ describe('IngestionConsumer', () => {
 
             describe('force overflow', () => {
                 beforeEach(async () => {
-                    // Reset ingester with force overflow tokens
+                    // Reset ingester with force overflow token:distinct_id pair
                     await ingester.stop()
-                    hub.INGESTION_FORCE_OVERFLOW_TOKENS = team.api_token
+                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
                     ingester = new IngestionConsumer(hub)
                     await ingester.start()
                 })
 
-                it('should force events with matching token to overflow', async () => {
+                it('should force events with matching token:distinct_id to overflow', async () => {
                     const events = [
-                        createEvent({ token: team.api_token, distinct_id: 'team1-user' }),
-                        createEvent({ token: team2.api_token, distinct_id: 'team2-user' }),
+                        createEvent({ token: team.api_token, distinct_id: 'team1-user' }), // should overflow
+                        createEvent({ token: team.api_token, distinct_id: 'team1-other' }), // should not overflow (different distinct_id)
+                        createEvent({ token: team2.api_token, distinct_id: 'team1-user' }), // should not overflow (different token)
                     ]
                     const messages = createKafkaMessages(events)
 
                     await ingester.handleKafkaBatch(messages)
 
-                    // The team1 event should be routed to overflow
+                    // Only the matching token:distinct_id event should be routed to overflow
                     expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(2)
 
-                    // Verify the right event went to overflow (team1) and the right event was processed normally (team2)
+                    // Verify the right event went to overflow and the right events were processed normally
                     const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
                     const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
 
                     expect(overflowMessages[0].value.distinct_id).toEqual('team1-user')
-                    expect(normalMessages[0].value.distinct_id).toEqual('team2-user')
+                    expect(overflowMessages[0].value.token).toEqual(team.api_token)
+                    expect(normalMessages.map((m) => m.value.distinct_id).sort()).toEqual(['team1-other', 'team1-user'])
 
                     // Add snapshot for the overflow messages
                     expect(forSnapshot(overflowMessages)).toMatchSnapshot('force overflow messages')
                 })
 
-                it('should handle multiple tokens in the force overflow setting', async () => {
-                    // Reset ingester with multiple force overflow tokens
+                it('should handle multiple token:distinct_id pairs in force overflow setting', async () => {
+                    // Reset ingester with multiple force overflow token:distinct_id pairs
                     await ingester.stop()
-                    hub.INGESTION_FORCE_OVERFLOW_TOKENS = `${team.api_token},${team2.api_token}`
+                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
                     ingester = new IngestionConsumer(hub)
                     await ingester.start()
 
-                    // Create events for both teams
                     const events = [
-                        createEvent({ token: team.api_token, distinct_id: 'distinct-id-team1' }),
-                        createEvent({ token: team2.api_token, distinct_id: 'distinct-id-team2' }),
+                        createEvent({ token: team.api_token, distinct_id: 'user1' }), // should overflow
+                        createEvent({ token: team.api_token, distinct_id: 'other' }), // should not overflow
+                        createEvent({ token: team2.api_token, distinct_id: 'user2' }), // should overflow
+                        createEvent({ token: team2.api_token, distinct_id: 'other' }), // should not overflow
                     ]
                     const messages = createKafkaMessages(events)
 
                     await ingester.handleKafkaBatch(messages)
 
-                    // Both events should be routed to overflow
+                    // Both matching token:distinct_id pairs should be routed to overflow
                     expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(2)
 
-                    // Verify both team events went to overflow
+                    // Verify both matching events went to overflow
                     const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                    const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
 
                     // Sort messages by distinct_id to make the test deterministic
                     const sortedOverflowMessages = [...overflowMessages].sort((a, b) =>
                         String(a.value.distinct_id).localeCompare(String(b.value.distinct_id))
                     )
 
-                    expect(sortedOverflowMessages[0].value.distinct_id).toEqual('distinct-id-team1')
-                    expect(sortedOverflowMessages[1].value.distinct_id).toEqual('distinct-id-team2')
+                    expect(sortedOverflowMessages.map((m) => [m.value.token, m.value.distinct_id])).toEqual([
+                        [team.api_token, 'user1'],
+                        [team2.api_token, 'user2'],
+                    ])
+                    expect(normalMessages.map((m) => m.value.distinct_id).sort()).toEqual(['other', 'other'])
+
+                    // Add snapshot for the overflow messages
+                    expect(forSnapshot(sortedOverflowMessages)).toMatchSnapshot(
+                        'force overflow messages multiple pairs'
+                    )
                 })
             })
         })
@@ -399,9 +397,25 @@ describe('IngestionConsumer', () => {
             const batches = await ingester['parseKafkaBatch'](messages)
 
             expect(Object.keys(batches)).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
-            expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
+
+            // Rewrite the test to check for the overall object with the correct length
+            expect(batches).toEqual({
+                [`${team.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team.api_token,
+                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
+                },
+                [`${team.api_token}:distinct-id-2`]: {
+                    distinctId: 'distinct-id-2',
+                    token: team.api_token,
+                    events: [expect.any(Object)],
+                },
+                [`${team2.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team2.api_token,
+                    events: [expect.any(Object)],
+                },
+            })
         })
     })
 
@@ -426,7 +440,11 @@ describe('IngestionConsumer', () => {
 
             const error: any = new Error('test')
             error.isRetriable = false
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
 
             await ingester.handleKafkaBatch(messages)
 
@@ -438,7 +456,11 @@ describe('IngestionConsumer', () => {
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
             const error: any = new Error('test')
             error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
 
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
@@ -695,6 +717,73 @@ describe('IngestionConsumer', () => {
         })
 
         it(
+            'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
+            async () => {
+                // Set hogwatcher enabled (100% sample rate)
+                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+                // Create spies for methods after the service is configured
+                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
+
+                // Process batch with hogwatcher enabled
+                // in this stage we do not have the teamId on the event but the token is present
+                const event = createEvent({
+                    ip: '89.160.20.129',
+                    properties: { $ip: '89.160.20.129' },
+                })
+                const messages = createKafkaMessages([event])
+
+                await ingester.handleKafkaBatch(messages)
+
+                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
+                expect(fetchAndCacheSpy).toHaveBeenCalled()
+                expect(clearStatesSpy).toHaveBeenCalled()
+
+                // Verify the full integration flow worked
+                expect(observeResultsSpy).toHaveBeenCalled()
+
+                // Verify that results were passed to observeResults with the correct structure
+                const results = observeResultsSpy.mock.calls[0][0]
+                expect(results).toBeInstanceOf(Array)
+                expect(results.length).toBeGreaterThan(0)
+
+                // Check that the results contain our transformation function
+                const functionResult = results.find((r) => r.invocation.hogFunction.id === transformationFunction.id)
+                expect(functionResult).toBeDefined()
+                expect(functionResult?.finished).toBe(true)
+            },
+            TRANSFORMATION_TEST_TIMEOUT
+        )
+
+        it(
+            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
+            async () => {
+                // Set hogwatcher disabled (0% sample rate)
+                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+                // Create spies for methods after the service is configured
+                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+
+                // Process batch with hogwatcher disabled
+                const event = createEvent({
+                    ip: '89.160.20.129',
+                    properties: { $ip: '89.160.20.129' },
+                })
+                const messages = createKafkaMessages([event])
+
+                await ingester.handleKafkaBatch(messages)
+
+                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
+                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
+                expect(clearStatesSpy).not.toHaveBeenCalled()
+            },
+            TRANSFORMATION_TEST_TIMEOUT
+        )
+
+        it(
             'should invoke transformation for matching team with error case',
             async () => {
                 // make the geoip lookup fail
@@ -864,7 +953,7 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "key": null,
+                    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {
                       "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",

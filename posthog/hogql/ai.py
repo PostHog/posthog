@@ -35,13 +35,24 @@ FROM (
    GROUP BY person.id, week_of
 )
 GROUP BY week_of
-ORDER BY week_of DESC"""
+ORDER BY week_of DESC
 
-SCHEMA_MESSAGE = (
-    "This project's schema is:\n\n{schema_description}\nPerson or event metadata unspecified above (emails, names, etc.) "
-    'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.\n'
-    "virtual_table and lazy_table fields are connections to linked tables, e.g. the `person` table allows accessing person properties like so: `person.properties.foo`."
-)
+Important HogQL differences versus other SQL dialects:
+- JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+"""
+
+SCHEMA_MESSAGE = """
+This project's schema is:
+
+{schema_description}
+
+Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
+Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
+
+Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
+
+`virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
+""".strip()
 
 CURRENT_QUERY_MESSAGE = (
     "The query I've currently got is:\n{current_query_input}\nTweak it instead of writing a new one if it's relevant."

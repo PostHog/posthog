@@ -50,6 +50,11 @@ def create_data_warehouse_table_from_csv(
     # Append XDIST_SUFFIX to test bucket if it exists
     test_bucket = test_bucket + XDIST_SUFFIX
 
+    # Guarantee prefix is valid
+    if source_prefix is None:
+        source_prefix = "posthog_test_"
+    table_name = f"{source_prefix}{table_name}"
+
     # Write CSV directly to S3
     folder = f"{OBJECT_STORAGE_BUCKET}/{test_bucket}/{table_name}"
     path_to_s3_object = f"{folder}/data.csv"
@@ -63,7 +68,7 @@ def create_data_warehouse_table_from_csv(
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSource.Type.STRIPE,
-            prefix=source_prefix or "posthog_test_",
+            prefix=source_prefix,
         )
 
     if credential is None:
@@ -77,6 +82,7 @@ def create_data_warehouse_table_from_csv(
         name=table_name,
         format=DataWarehouseTable.TableFormat.CSVWithNames,
         team=team,
+        external_data_source=source,
         credential=credential,
         url_pattern=f"http://host.docker.internal:19000/{folder}/*.csv",
         columns=table_columns,

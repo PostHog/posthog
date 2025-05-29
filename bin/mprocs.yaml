@@ -50,7 +50,7 @@ procs:
             bin/start-rust-service property-defs-rs
 
     storybook:
-        shell: 'pnpm --filter=@posthog/storybook install && pnpm --filter=@posthog/storybook start'
+        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
 
 mouse_scroll_speed: 1

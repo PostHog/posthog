@@ -1,6 +1,7 @@
 import json
 import re
 import socket
+import time
 import urllib.parse
 from enum import Enum, auto
 from functools import wraps
@@ -33,6 +34,7 @@ from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.schema import QueryTiming
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -486,3 +488,45 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
         return wrapped_function
 
     return decorator
+
+
+# context manager for gathering a sequence of server timings
+# can be used to then return the timings in the HTTP response headers
+# so that browsers and other tools can show them
+class ServerTimingsGathered:
+    def __init__(self):
+        # Instance level dictionary to store timings
+        self.timings_dict = {}
+
+    def __call__(self, name):
+        self.name = name
+        return self
+
+    def __enter__(self):
+        # timings are assumed to be in milliseconds when reported
+        # but are gathered by time.perf_counter which is fractional seconds 🫠
+        # so each value is multiplied by 1000 at collection
+        self.start_time = time.perf_counter() * 1000
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter() * 1000
+        elapsed_time = end_time - self.start_time
+        self.timings_dict[self.name] = elapsed_time
+
+    def get_all_timings(self):
+        return self.timings_dict
+
+    def generate_timings(self, hogql_timings: list[QueryTiming] | None = None) -> dict[str, float]:
+        timings_dict = self.get_all_timings()
+        hogql_timings_dict = {}
+        for timing in hogql_timings or []:
+            new_key = f"hogql_{timing.k.lstrip('./').replace('/', '_')}"
+            # HogQL query timings are in seconds, convert to milliseconds
+            hogql_timings_dict[new_key] = timing.t * 1000
+        all_timings = {**timings_dict, **hogql_timings_dict}
+        return all_timings
+
+    def to_header_string(self, hogql_timings: list[QueryTiming] | None = None):
+        return ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}" for key, duration in self.generate_timings(hogql_timings).items()
+        )

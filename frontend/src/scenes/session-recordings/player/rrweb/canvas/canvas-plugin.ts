@@ -8,8 +8,8 @@ import {
     eventWithTime,
     IncrementalSource,
 } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import { debounce } from 'lib/utils'
+import posthog from 'posthog-js'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
@@ -244,5 +244,5 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 }
 
 const handleMutationError = (error: unknown): void => {
-    captureException(error)
+    posthog.captureException(error)
 }

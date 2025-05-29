@@ -1,7 +1,6 @@
 import './Login.scss'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -15,7 +14,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { loginLogic } from './loginLogic'
-import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
 
@@ -59,16 +58,6 @@ export function Login(): JSX.Element {
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
 
     useEffect(() => {
-        if (preflight?.cloud) {
-            try {
-                redirectIfLoggedInOtherInstance()
-            } catch (e) {
-                captureException(e)
-            }
-        }
-    }, [])
-
-    useEffect(() => {
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
         }
@@ -86,6 +75,7 @@ export function Login(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
+            {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>Log in</h2>
                 {generalError && (

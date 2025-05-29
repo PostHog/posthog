@@ -407,6 +407,9 @@
                       "$entry_mc_cid",
                       "$entry_igshid",
                       "$entry_ttclid",
+                      "$entry_epik",
+                      "$entry_qclid",
+                      "$entry_sccid",
                       "$entry__kx",
                       "$entry_irclid",
                       "$pageview_count",
@@ -999,6 +1002,36 @@
                   "hogql_value": "`$entry_ttclid`",
                   "id": null,
                   "name": "$entry_ttclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_epik": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_epik`",
+                  "id": null,
+                  "name": "$entry_epik",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_qclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_qclid`",
+                  "id": null,
+                  "name": "$entry_qclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_sccid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_sccid`",
+                  "id": null,
+                  "name": "$entry_sccid",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -1676,6 +1709,9 @@
                       "$entry_mc_cid",
                       "$entry_igshid",
                       "$entry_ttclid",
+                      "$entry_epik",
+                      "$entry_qclid",
+                      "$entry_sccid",
                       "$entry__kx",
                       "$entry_irclid",
                       "$pageview_count",
@@ -2243,6 +2279,36 @@
                   "hogql_value": "`$entry_ttclid`",
                   "id": null,
                   "name": "$entry_ttclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_epik": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_epik`",
+                  "id": null,
+                  "name": "$entry_epik",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_qclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_qclid`",
+                  "id": null,
+                  "name": "$entry_qclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_sccid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_sccid`",
+                  "id": null,
+                  "name": "$entry_sccid",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

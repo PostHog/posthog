@@ -1,17 +1,11 @@
-from freezegun import freeze_time
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
-from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
-    RevenueExampleDataWarehouseTablesQueryRunner,
-)
-from products.revenue_analytics.backend.models import STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
+from freezegun import freeze_time
 
 from posthog.schema import (
     RevenueExampleDataWarehouseTablesQuery,
-    RevenueTrackingConfig,
     RevenueExampleDataWarehouseTablesQueryResponse,
-    CurrencyCode,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -19,46 +13,17 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import ExternalDataSchema
-
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
+    RevenueExampleDataWarehouseTablesQueryRunner,
+)
+from products.revenue_analytics.backend.models import STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
+from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
+    REVENUE_TRACKING_CONFIG,
+    STRIPE_CHARGE_COLUMNS,
+)
 
 
-STRIPE_CHARGE_COLUMNS = {
-    "id": "String",
-    "paid": "Int8",
-    "amount": "Int64",
-    "object": "String",
-    "status": "String",
-    "created": "DateTime",
-    "invoice": "String",
-    "captured": "Int8",
-    "currency": "String",
-    "customer": "String",
-    "disputed": "Int8",
-    "livemode": "Int8",
-    "metadata": "String",
-    "refunded": "Int8",
-    "description": "String",
-    "receipt_url": "String",
-    "failure_code": "String",
-    "fraud_details": "String",
-    "radar_options": "String",
-    "receipt_email": "String",
-    "payment_intent": "String",
-    "payment_method": "String",
-    "amount_captured": "Int64",
-    "amount_refunded": "Int64",
-    "billing_details": "String",
-    "failure_message": "String",
-    "balance_transaction": "String",
-    "statement_descriptor": "String",
-    "calculated_statement_descriptor": "String",
-    "source": "String",
-    "outcome": "String",
-    "payment_method_details": "String",
-}
-
-REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(baseCurrency=CurrencyCode.GBP, events=[])
 TEST_BUCKET = "test_storage_bucket-posthog.revenue.stripe_charges"
 
 
@@ -121,10 +86,31 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         # Not all rows in the CSV have a status of "succeeded", let's filter them out here
         assert len(results) == len(self.csv_df[self.csv_df["status"] == "succeeded"])
 
-        # Proper conversions for some of the rows
-        assert results[0][2:] == (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP")
-        assert results[1][2:] == (Decimal("180"), "GBP", Decimal("180"), "GBP")
+        # Sort results by the original amount just to guarantee order
+        results.sort(key=lambda x: x[2])
 
-        # Test JPY where there are no decimals, and an input of 500 implies 500 Yen
-        # rather than the above where we had 22000 for 220 EUR (and etc.)
-        assert results[3][2:] == (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP")
+        # We only care about the last 4 columns (amount, currency, converted_amount, converted_currency)
+        results = [row[2:] for row in results]
+
+        assert results == [
+            (Decimal("50"), "GBP", Decimal("50"), "GBP"),
+            (Decimal("100"), "USD", Decimal("79.7"), "GBP"),
+            (Decimal("100"), "USD", Decimal("79.7"), "GBP"),
+            (Decimal("120"), "USD", Decimal("95.64"), "GBP"),
+            (Decimal("120"), "USD", Decimal("95.64"), "GBP"),
+            (Decimal("125"), "GBP", Decimal("125"), "GBP"),
+            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
+            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
+            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
+            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
+            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
+            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
+            (Decimal("200"), "USD", Decimal("159.4"), "GBP"),
+            (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP"),
+            (Decimal("245"), "USD", Decimal("195.265"), "GBP"),
+            (Decimal("250"), "EUR", Decimal("207.0990541523"), "GBP"),
+            (Decimal("300"), "USD", Decimal("239.1"), "GBP"),
+            # Important here how we treated the 500 in the CSV as 500 Yen rather than 5 Yen
+            # like we do with other currencies (20000 -> 200 EUR)
+            (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP"),
+        ]

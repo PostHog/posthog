@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.models import Organization
+from posthog.models.organization import OrganizationMembership
 
 logger = structlog.get_logger(__name__)
 
@@ -349,6 +350,56 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = res.json()
         BillingManager(license).update_license_details(data)
         return Response({"success": True})
+
+    @action(methods=["POST"], detail=False, url_path="startups/apply")
+    def apply_startup_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to apply for the startup program")
+
+        organization_id = request.data.get("organization_id")
+        if not organization_id:
+            raise ValidationError({"organization_id": "This field is required."})
+
+        organization = Organization.objects.get(id=organization_id)
+        if not organization:
+            raise ValidationError({"organization_id": "Organization not found."})
+
+        membership = OrganizationMembership.objects.get(user=user, organization=organization)
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
+
+        billing_manager = self.get_billing_manager()
+
+        # Add user info to the request
+        data = {
+            **request.data,
+            "email": user.email,
+        }
+
+        if user.first_name:
+            data["first_name"] = user.first_name
+        if user.last_name:
+            data["last_name"] = user.last_name
+
+        try:
+            res = billing_manager.apply_startup_program(organization, data)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
 
     def _get_org(self) -> Optional[Organization]:
         org = None if self.request.user.is_anonymous else self.request.user.organization

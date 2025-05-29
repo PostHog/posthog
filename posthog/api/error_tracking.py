@@ -115,10 +115,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
 
             if record:
-                if not record.issue_id == self.request.GET.get("pk"):
+                if not str(record.issue_id) == self.kwargs.get("pk"):
                     return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-                serializer = self.get_serializer(record.issue)
+                issue_with_first_seen = ErrorTrackingIssue.objects.with_first_seen().get(id=record.issue_id)
+                serializer = self.get_serializer(issue_with_first_seen)
                 return Response(serializer.data)
 
         return super().retrieve(request, *args, **kwargs)

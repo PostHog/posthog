@@ -1,7 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
 import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -785,9 +784,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
             const extra = { fingerprint, playbackSessionId: values.sessionRecordingId }
-            captureException(error, {
-                extra,
-                tags: { feature: 'replayer error swallowed' },
+            posthog.captureException(error, {
+                ...extra,
+                feature: 'replayer error swallowed',
             })
             if (posthog.config.debug) {
                 posthog.capture('replayer error swallowed', extra)

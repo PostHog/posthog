@@ -63,17 +63,25 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    volumeResolution,
+    filterGroup,
+    filterTestAccounts,
+    searchQuery,
+    volumeResolution = 0,
 }: {
     issueId: string
     dateRange: DateRange
-    volumeResolution: number
+    filterGroup?: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    searchQuery?: string
+    volumeResolution?: number
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange: resolveDateRange(dateRange).toDateRange(),
-        filterTestAccounts: false,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts,
+        searchQuery,
         volumeResolution,
     }
 }

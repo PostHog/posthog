@@ -51,6 +51,7 @@ serde_urlencoded = { workspace = true }
 urlencoding = "2.1.3"
 dateparser = "0.2.1"
 rust_decimal = "1.37.1"
+rayon = "1.10.0"
 
 [lints]
 workspace = true

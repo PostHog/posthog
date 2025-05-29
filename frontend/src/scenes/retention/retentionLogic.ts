@@ -5,6 +5,7 @@ import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
 import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
@@ -22,6 +23,8 @@ export const retentionLogic = kea<retentionLogicType>([
         values: [
             insightVizDataLogic(props),
             ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
+            teamLogic,
+            ['timezone'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
     })),
@@ -39,12 +42,13 @@ export const retentionLogic = kea<retentionLogicType>([
     selectors({
         hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
         results: [
-            (s) => [s.insightQuery, s.insightData, s.retentionFilter],
-            (insightQuery, insightData, retentionFilter): ProcessedRetentionPayload[] => {
+            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
+            (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
                 const rawResults = isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []
 
                 const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
                     ...result,
+
                     values: result.values.map((value, index) => {
                         const totalCount = result.values[0]['count']
                         const previousCount = index > 0 ? result.values[index - 1]['count'] : totalCount
@@ -55,8 +59,8 @@ export const retentionLogic = kea<retentionLogicType>([
                         const periodUnit = (
                             retentionFilter?.period ?? RetentionPeriod.Day
                         ).toLowerCase() as dayjs.UnitTypeLong
-                        const cellDate = dayjs.utc(result.date).add(index, periodUnit)
-                        const now = dayjs.utc()
+                        const cellDate = dayjs(result.date).tz(timezone).add(index, periodUnit)
+                        const now = dayjs().tz(timezone)
 
                         return {
                             ...value,
@@ -71,6 +75,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 // Filter out future values for now
                 return results.map((result) => ({
                     ...result,
+                    date: dayjs(result.date).tz(timezone),
                     values: result.values.filter((value) => !value.isFuture),
                 }))
             },

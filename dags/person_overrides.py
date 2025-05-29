@@ -110,7 +110,7 @@ class PersonOverridesSnapshotDictionary:
                 version Int64
             )
             PRIMARY KEY team_id, distinct_id
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -118,6 +118,7 @@ class PersonOverridesSnapshotDictionary:
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
+                "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
             },
         )

@@ -162,6 +162,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
+            tooltip: isLayoutPanelVisible ? 'Close project tree' : 'Open project tree',
         },
         {
             identifier: 'Dashboards',

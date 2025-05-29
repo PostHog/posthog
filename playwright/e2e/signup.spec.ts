@@ -186,7 +186,7 @@ test.describe('Signup', () => {
 
     test('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
         // Equivalent to setupFeatureFlags in Playwright
-        await page.route('**/decide/*', async (route) => {
+        await page.route('**/flags/*', async (route) => {
             const response = {
                 config: {
                     enable_collect_everything: true,

@@ -186,7 +186,7 @@ runs:
               pytest ${{
                   inputs.person-on-events == 'true'
                   && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                  || 'posthog'
+                  || 'posthog products'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \

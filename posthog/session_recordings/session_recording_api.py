@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -9,6 +8,7 @@ from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
@@ -27,13 +27,17 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
+from rest_framework.exceptions import Throttled
 
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+
+import posthog.session_recordings.queries.sub_queries.events_subquery
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, safe_clickhouse_string
+from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
@@ -144,31 +148,6 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
 
     encoder_class = SurrogatePairSafeJSONEncoder
-
-
-# context manager for gathering a sequence of server timings
-class ServerTimingsGathered:
-    def __init__(self):
-        # Instance level dictionary to store timings
-        self.timings_dict = {}
-
-    def __call__(self, name):
-        self.name = name
-        return self
-
-    def __enter__(self):
-        # timings are assumed to be in milliseconds when reported
-        # but are gathered by time.perf_counter which is fractional seconds 🫠
-        # so each value is multiplied by 1000 at collection
-        self.start_time = time.perf_counter() * 1000
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        end_time = time.perf_counter() * 1000
-        elapsed_time = end_time - self.start_time
-        self.timings_dict[self.name] = elapsed_time
-
-    def get_all_timings(self):
-        return self.timings_dict
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -420,13 +399,30 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        query = filter_from_params_to_query(request.GET.dict())
+        user_distinct_id = cast(User, request.user).distinct_id
 
-        self._maybe_report_recording_list_filters_changed(request, team=self.team)
-        return list_recordings_response(
-            list_recordings_from_query(query, cast(User, request.user), team=self.team),
-            context=self.get_serializer_context(),
-        )
+        try:
+            query = filter_from_params_to_query(request.GET.dict())
+
+            self._maybe_report_recording_list_filters_changed(request, team=self.team)
+            return list_recordings_response(
+                list_recordings_from_query(query, cast(User, request.user), team=self.team),
+                context=self.get_serializer_context(),
+            )
+
+        except CHQueryErrorTooManySimultaneousQueries:
+            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ServerException, Exception) as e:
+            if isinstance(e, exceptions.ValidationError):
+                raise
+
+            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                raise Throttled(detail="Query timeout exceeded. Try again later.")
+
+            posthoganalytics.capture_exception(
+                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+            )
+            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
@@ -458,17 +454,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
         results, _, timings = (
-            posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
                 query=query, team=self.team, hogql_query_modifiers=modifiers
             ).get_event_ids_for_session()
         )
 
         response = JsonResponse(data={"results": results})
 
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}"
-            for key, duration in _generate_timings(timings, ServerTimingsGathered()).items()
-        )
+        response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response
 
     @extend_schema(
@@ -819,7 +812,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        summary = summarize_recording(recording, user, self.team)
+        replay_summarizer = ReplaySummarizer(recording, user, self.team)
+        summary = replay_summarizer.summarize_recording()
         timings = summary.pop("timings", None)
         cache.set(cache_key, summary, timeout=30)
 
@@ -1072,9 +1066,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         response = Response(
             {"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]}
         )
-        response.headers["Server-Timing"] = ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}" for key, duration in _generate_timings(None, timer).items()
-        )
+        response.headers["Server-Timing"] = timer.to_header_string()
         return response
 
 
@@ -1171,7 +1163,7 @@ def list_recordings_from_query(
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, _generate_timings(hogql_timings, timer)
+    return recordings, more_recordings_available, timer.generate_timings(hogql_timings)
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
@@ -1221,7 +1213,7 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         #     distinct_id,
         #     groups=groups,
         # )
-        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        modifier_overrides = (flags_n_bags.get("featureFlagPayloads") or {}).get(flag_key, None)
         if modifier_overrides:
             modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
     except:
@@ -1229,17 +1221,6 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         pass
 
     return modifiers
-
-
-def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:
-    timings_dict = timer.get_all_timings()
-    hogql_timings_dict = {}
-    for key, value in hogql_timings or {}:
-        new_key = f"hogql_{key[1].lstrip('./').replace('/', '_')}"
-        # HogQL query timings are in seconds, convert to milliseconds
-        hogql_timings_dict[new_key] = value[1] * 1000
-    all_timings = {**timings_dict, **hogql_timings_dict}
-    return all_timings
 
 
 def _get_openai_client() -> OpenAI:

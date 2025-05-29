@@ -1,8 +1,10 @@
-def capture_exception(error=None, sentry_scope=None, **sentry_scope_kwargs):
-    from sentry_sdk import capture_exception as sentry_capture_exception
+def capture_exception(error=None, properties=None):
     from posthoganalytics import api_key, capture_exception as posthog_capture_exception
+    import structlog
 
-    sentry_capture_exception(error, scope=sentry_scope, **sentry_scope_kwargs)
+    logger = structlog.get_logger(__name__)
+
+    logger.exception(error)
 
     if api_key:
-        posthog_capture_exception(error)
+        posthog_capture_exception(error, properties=properties)

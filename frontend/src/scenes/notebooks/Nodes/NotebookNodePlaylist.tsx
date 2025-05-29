@@ -11,12 +11,12 @@ import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
+import { PostHogErrorBoundary } from 'posthog-js/react'
 
 const Component = ({
     attributes,
@@ -120,9 +120,9 @@ export const Settings = ({
     }
 
     return (
-        <ErrorBoundary>
+        <PostHogErrorBoundary>
             <RecordingsUniversalFilters filters={filters} setFilters={setFilters} />
-        </ErrorBoundary>
+        </PostHogErrorBoundary>
     )
 }
 
