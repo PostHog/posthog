@@ -827,6 +827,9 @@ importers:
       kea-window-values:
         specifier: ^3.0.0
         version: 3.0.0(kea@3.1.5(react@18.2.0))
+      liquidjs:
+        specifier: ^10.21.1
+        version: 10.21.1
       lodash.debounce:
         specifier: ^4.0.8
         version: 4.0.8
@@ -11695,6 +11698,11 @@ packages:
     engines: {node: '>=18.12.0'}
     hasBin: true
 
+  liquidjs@10.21.1:
+    resolution: {integrity: sha512-NZXmCwv3RG5nire3fmIn9HsOyJX3vo+ptp0yaXUHAMzSNBhx74Hm+dAGJvscUA6lNqbLuYfXgNavRQ9UbUJhQQ==}
+    engines: {node: '>=14'}
+    hasBin: true
+
   listr2@3.14.0:
     resolution: {integrity: sha512-TyWI8G99GX9GjE54cJ+RrNMcIFBfwMPxc3XTFiAYGN4s10hWROGtOg7+O6u6LE3mNkyld7RSLE6nrKBvTfcs3g==}
     engines: {node: '>=10.0.0'}
@@ -15633,8 +15641,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.263.0:
-    resolution: {integrity: sha512-dOpGPj8P6WkpR1lSRJqprPh8KzFTLdXN7TQAJWjPeSw+RwnIyGtiBRH80efV21S/gjBVT5UL7K1g12S3zTEL6w==}
+  unlayer-types@1.270.0:
+    resolution: {integrity: sha512-SefALGM4jFKLZ6UyQEgpdPMD94EwDXZOjdvvX1EjvK28ItShDzaMkV1n/c5KWheqUFLDAWhITncW9YvW0nM0GA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -28783,6 +28791,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  liquidjs@10.21.1:
+    dependencies:
+      commander: 10.0.1
+
   listr2@3.14.0(enquirer@2.4.1):
     dependencies:
       cli-truncate: 2.1.0
@@ -31460,7 +31472,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.263.0
+      unlayer-types: 1.270.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33572,7 +33584,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.263.0: {}
+  unlayer-types@1.270.0: {}
 
   unpipe@1.0.0: {}
 
