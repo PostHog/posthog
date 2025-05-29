@@ -5159,7 +5159,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
