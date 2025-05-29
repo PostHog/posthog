@@ -315,6 +315,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
         )
+        capture_exception(err)
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
         await logger.ainfo("Materialized model %s", model.label)
