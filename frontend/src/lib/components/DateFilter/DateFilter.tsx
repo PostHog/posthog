@@ -15,7 +15,7 @@ import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/Lemo
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { DateMappingOption, PropertyOperator } from '~/types'
 
@@ -119,14 +119,8 @@ export function DateFilter({
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
-        forceGranularity ?? dateFromHasTimePrecision ? 'minute' : 'day'
+        forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
     )
-    // sometimes this renders before forceGranularity is set, so we need to ensure it is applied
-    useEffect(() => {
-        if (forceGranularity) {
-            setGranularity(forceGranularity)
-        }
-    }, [forceGranularity])
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
