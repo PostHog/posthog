@@ -28,7 +28,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew, IconSync } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
@@ -49,7 +49,7 @@ import { ProductKey } from '~/types'
 
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { getScrollableContainer, maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
@@ -69,52 +69,8 @@ export function Thread({ sidePanel }: ThreadProps): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
-    const threadRef = useRef<HTMLDivElement | null>(null)
-    const scrollStatus = useRef({ user: false, programmatic: false })
-
-    useLayoutEffect(() => {
-        if (scrollStatus.current.user || !threadRef.current || !streamingActive) {
-            return
-        }
-
-        const scrollableContainer = getScrollableContainer(threadRef.current)
-        if (
-            scrollableContainer &&
-            scrollableContainer.scrollTop + scrollableContainer.clientHeight < scrollableContainer.scrollHeight
-        ) {
-            scrollStatus.current.programmatic = true
-            scrollableContainer.scrollTo({ top: scrollableContainer.scrollHeight, behavior: 'instant' })
-            requestAnimationFrame(() => {
-                scrollStatus.current.programmatic = false
-            })
-        }
-    }, [threadGrouped, streamingActive])
-
-    useLayoutEffect(() => {
-        function scrollListener(): void {
-            if (scrollStatus.current.programmatic) {
-                return
-            }
-            scrollStatus.current.user = true
-        }
-
-        const scrollableContainer = getScrollableContainer(threadRef.current)
-        if (!streamingActive || !scrollableContainer) {
-            return
-        }
-
-        scrollableContainer.addEventListener('scroll', scrollListener)
-        return () => {
-            scrollableContainer.removeEventListener('scroll', scrollListener)
-            scrollStatus.current = { user: false, programmatic: false }
-        }
-    }, [streamingActive])
-
     return (
-        <div
-            className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3"
-            ref={threadRef}
-        >
+        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
             {conversationLoading ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
