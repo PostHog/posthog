@@ -13,7 +13,6 @@ import { recordings } from './__mocks__/recordings'
 
 const meta: Meta = {
     title: 'Replay/Tabs/Home/Failure',
-    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
