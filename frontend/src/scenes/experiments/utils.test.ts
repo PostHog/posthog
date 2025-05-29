@@ -275,6 +275,12 @@ describe('getViewRecordingFilters', () => {
                     operator: PropertyOperator.IsNot,
                     type: PropertyFilterType.Event,
                 },
+                {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
             ],
         })
     })
@@ -294,9 +300,15 @@ describe('getViewRecordingFilters', () => {
             type: 'events',
             properties: [
                 {
-                    key: '$feature/my-flag',
+                    key: '$feature_flag_response',
                     type: PropertyFilterType.Event,
                     value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: 'my-flag',
                     operator: PropertyOperator.Exact,
                 },
             ],
@@ -324,9 +336,15 @@ describe('getViewRecordingFilters', () => {
             type: 'events',
             properties: [
                 {
-                    key: '$feature/my-flag',
+                    key: '$feature_flag_response',
                     type: PropertyFilterType.Event,
                     value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: 'my-flag',
                     operator: PropertyOperator.Exact,
                 },
             ],
@@ -371,7 +389,12 @@ describe('getViewRecordingFilters', () => {
             name: 'event1',
             type: 'events',
             properties: [
-                { key: 'foo', value: 'bar', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+                {
+                    key: 'foo',
+                    value: 'bar',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
             ],
         })
     })
