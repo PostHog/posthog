@@ -69,14 +69,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 SELECT
     arrayFilter(
         x -> x like %(search)s,
-        arraySort(groupArrayDistinctArrayMerge(attribute_keys)) as flat_unique_paths
+        arraySort(groupArrayDistinctArrayMerge(attribute_keys)) as keys
     )
 FROM log_attributes
-WHERE time >= toStartOfHour(now()) AND time <= toStartOfHour(now())
+WHERE time_bucket >= toStartOfHour(now()) AND time_bucket <= toStartOfHour(now())
+AND team_id = %(team_id)s
 GROUP BY team_id
-LIMIT 1000;
+LIMIT 1;
 """,
-            args={"search": f"%{search}%"},
+            args={"search": f"%{search}%", "team_id": self.team.id},
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
@@ -107,13 +108,14 @@ SELECT
                     groupArrayDistinctArrayMerge(attribute_values)
                 )
             )
-        ) as flat_unique_paths
-FROM log_attributes2
+        ) as values
+FROM log_attributes
 WHERE time_bucket >= toStartOfHour(now()) AND time_bucket <= toStartOfHour(now())
+AND team_id = %(team_id)s
 GROUP BY team_id
-LIMIT 1000;
+LIMIT 1;
 """,
-            args={"key": key, "search": f"%{search}%"},
+            args={"key": key, "search": f"%{search}%", "team_id": self.team.id},
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
