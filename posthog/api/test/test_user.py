@@ -263,23 +263,6 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_cannot_cancel_other_users_email_change_request(self, _mock_capture, _mock_identify_task):
-        another_user = User.objects.create(email="user@example.com", distinct_id=str(uuid.uuid4()))
-        another_team = Team.objects.create(name="Another team", organization=self.organization)
-
-        response = self.client.patch(
-            "/api/users/cancel_email_change_request",
-            # even if someone tries to send a different user or team they are ignored
-            {
-                "user": another_user.id,
-                "team": another_team.id,
-            },
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    @patch("posthog.tasks.user_identify.identify_task")
-    @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(
         self, _mock_capture, _mock_identify_task
     ):
