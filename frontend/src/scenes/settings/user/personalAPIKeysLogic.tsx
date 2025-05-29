@@ -101,12 +101,6 @@ export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: stri
         scopes: ['project:write', 'organization:read', 'organization_member:write'],
     },
     {
-        value: 'editor',
-        label: 'PostHog Editor',
-        scopes: ['feature_flag:write', 'insight:read', 'project:read', 'organization:read', 'user:read'],
-        isCloudOnly: true,
-    },
-    {
         value: 'mcp_server',
         label: 'MCP Server',
         scopes: APIScopes.map(({ key }) => (key === 'feature_flag' ? `${key}:write` : `${key}:read`)),
