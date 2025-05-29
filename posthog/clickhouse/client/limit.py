@@ -170,8 +170,9 @@ def get_api_personal_rate_limiter():
             ),
             ttl=600,
             bypass_all=(not settings.API_QUERIES_ENABLED),
-            # the p25 duration for a query is 167ms, p50 is 458ms, there's a 25% chance that after 167ms the slot is free.
-            retry=0.1314,
+            # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
+            # the slot is free.
+            retry=0.134,
             # The default timeout for a query on ClickHouse is 60s. p99 duration is 19s, 30 seconds should be enough
             # for some other query to finish. If the query cannot get a slot in this period, the user should contact us
             # about increasing the quota.
