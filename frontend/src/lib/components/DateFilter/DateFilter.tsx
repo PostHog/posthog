@@ -146,7 +146,7 @@ export function DateFilter({
                 }}
                 onClose={open}
                 granularity={forceGranularity ?? granularity}
-                showTimeToggle={allowTimePrecision}
+                showTimeToggle={forceGranularity ? false : allowTimePrecision}
                 onToggleTime={
                     forceGranularity ? undefined : () => setGranularity(granularity === 'minute' ? 'day' : 'minute')
                 }
