@@ -132,7 +132,7 @@ class SessionReplayEvents:
                     groupArrayArray(block_last_timestamps) as block_last_timestamps,
                     groupArrayArray(block_urls) as block_urls
                 FROM
-                    session_replay_events
+                    session_replay_events_v2_test
                     PREWHERE
                     team_id = %(team_id)s
                     AND session_id = %(session_id)s
