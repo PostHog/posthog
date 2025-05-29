@@ -167,6 +167,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_CUSTOM_FONTS: 'surveys-custom-fonts', // owner: #team-surveys
     SURVEYS_PARTIAL_RESPONSES: 'surveys-partial-responses', // owner: #team-surveys
+    SURVEYS_NEW_QUESTION_VIZ: 'surveys-new-question-viz', // owner: #team-surveys
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
@@ -269,7 +270,8 @@ export const FEATURE_FLAGS = {
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     SIMPLE_INFINITE_LIST_NUMERICAL_FILTER: 'simple-infinite-list-numerical-filter', // owner: @rafaeelaudibert #team-revenue-analytics
     REPLAY_SCREENSHOT: 'replay-screenshot', // owner: @veryayskiy #team-replay
-    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
+    ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay,
+    EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN: 'experiments-new-query-runner-for-users-on-free-plan', // owner: #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

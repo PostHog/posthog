@@ -1,6 +1,6 @@
 import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/rrweb-types'
 import { expectLogic } from 'kea-test-utils'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+import { api } from 'lib/api.mock'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -15,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
 
@@ -227,29 +228,21 @@ describe('sessionRecordingDataLogic', () => {
                 logic.actions.loadSnapshots()
             }).toDispatchActions(['loadEvents', 'loadEventsSuccess'])
 
-            expect(api.create).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/query`,
-                {
-                    client_query_id: undefined,
-                    query: {
-                        kind: 'HogQLQuery',
-                        query: `
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
-                            FROM events
-                            WHERE timestamp > '2023-05-01 14:41:20'
-                              AND timestamp < '2023-05-01 14:51:32'
-                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
-                        
-                            AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
-                        
-                        ORDER BY timestamp ASC
-                        LIMIT 1000000
-                    `,
-                    },
-                },
-                expect.anything()
+            expect(api.create).toHaveBeenCalledTimes(2)
+
+            const queries = (api.create as jest.MockedFunction<typeof api.create>).mock.calls.map(
+                (call) => (call[1] as { query: HogQLQueryResponse })?.query?.query
             )
 
+            // queries 0 varies 24 hours around start time
+            expect(queries[0]).toMatch(/WHERE timestamp > '2023-04-30 14:46:20'/)
+            expect(queries[0]).toMatch(/AND timestamp < '2023-05-02 14:46:32'/)
+
+            // queries one varies 5 minutes around start time
+            expect(queries[1]).toMatch(/WHERE timestamp > '2023-05-01 14:41:20'/)
+            expect(queries[1]).toMatch(/AND timestamp < '2023-05-01 14:51:32'/)
+
+            expect(api.create.mock.calls).toMatchSnapshot()
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
         })
     })
@@ -375,21 +368,21 @@ describe('sessionRecordingDataLogic', () => {
                 // the response to that triggers loading of the first item which is the blob source
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.source?.source === 'blob',
+                    action.payload.sources?.[0]?.source === 'blob',
                 'loadSnapshotsForSourceSuccess',
                 // and then we report having viewed the recording
                 'markViewed',
                 // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.source?.source === 'realtime',
+                    action.payload.sources?.[0]?.source === 'realtime',
                 'loadSnapshotsForSourceSuccess',
                 // having loaded any real time data we start polling to check for more
                 'pollRealtimeSnapshots',
                 // which in turn triggers another load
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.source?.source === 'realtime',
+                    action.payload.sources?.[0]?.source === 'realtime',
                 'loadSnapshotsForSourceSuccess',
             ])
         })

@@ -12,13 +12,13 @@ interface SelfManagedProps {
     id: string
 }
 
-export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
+export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.Element => {
     const { table } = useValues(dataWarehouseTableLogic({ id }))
     const { updateTable, editingTable } = useActions(dataWarehouseTableLogic({ id }))
 
     return (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
-            <SelfManagedTable table={table} updateTable={updateTable} editingTable={editingTable} />
+            <DataPipelinesSelfManagedSourceTable table={table} updateTable={updateTable} editingTable={editingTable} />
         </BindLogic>
     )
 }
@@ -29,7 +29,7 @@ interface Props {
     editingTable: (editing: boolean) => void
 }
 
-export function SelfManagedTable({ table, updateTable, editingTable }: Props): JSX.Element {
+export function DataPipelinesSelfManagedSourceTable({ table, updateTable, editingTable }: Props): JSX.Element {
     return (
         <>
             <PageHeader

@@ -197,7 +197,12 @@ async fn handle_legacy(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
+            // at the moment, main way this can fail on RequestParsingError is
+            // when an unnamed event (no "event" attrib) is submitted to an
+            // endpoint other than /engage
             error!("event hydration from request failed: {}", e);
+            report_dropped_events("event_missing_name", 1);
+            report_internal_error_metrics(e.to_metric_tag(), "event_hydration");
             return Err(e);
         }
     };
@@ -347,7 +352,12 @@ async fn handle_common(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
+            // at the moment, main way this can fail on RequestParsingError is
+            // when an unnamed event (no "event" attrib) is submitted to an
+            // endpoint other than /engage
             error!("event hydration from request failed: {}", e);
+            report_dropped_events("event_missing_name", 1);
+            report_internal_error_metrics(e.to_metric_tag(), "event_hydration");
             return Err(e);
         }
     };

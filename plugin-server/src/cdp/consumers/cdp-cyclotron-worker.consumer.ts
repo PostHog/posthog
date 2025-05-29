@@ -4,12 +4,13 @@ import { captureException } from '../../utils/posthog'
 import { FetchExecutorService } from '../services/fetch-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
-    HogFunctionAppMetric,
-    HogFunctionInvocation,
-    HogFunctionInvocationJobQueue,
-    HogFunctionInvocationResult,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
     HogFunctionTypeType,
-    LogEntry,
+    MinimalAppMetric,
+    MinimalLogEntry,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -19,31 +20,30 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
+    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
+    private queue: CyclotronJobQueueKind
     protected fetchExecutor: FetchExecutorService
 
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
-    private queue: HogFunctionInvocationJobQueue
-
-    constructor(hub: Hub, queue: HogFunctionInvocationJobQueue = 'hog') {
+    constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
         super(hub)
         this.queue = queue
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, this.hogFunctionManager, (batch) =>
-            this.processBatch(batch)
-        )
-        this.fetchExecutor = new FetchExecutorService(this.hub)
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
+        this.fetchExecutor = new FetchExecutorService(hub)
     }
 
     /**
      * Processes a single invocation. This is the core of the worker and is responsible for executing the hog code and any fetch requests.
      */
-    private async processInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    private async processInvocation(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let performedAsyncRequest = false
-        let result: HogFunctionInvocationResult | null = null
-        const metrics: HogFunctionAppMetric[] = []
-        const logs: LogEntry[] = []
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
+        const metrics: MinimalAppMetric[] = []
+        const logs: MinimalLogEntry[] = []
 
         while (!result || !result.finished) {
-            const nextInvocation: HogFunctionInvocation = result?.invocation ?? invocation
+            const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             if (nextInvocation.queue === 'hog') {
                 result = this.hogExecutor.execute(nextInvocation)
@@ -56,7 +56,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     // if we have performed an async request already then we break the loop and return the result
                     break
                 }
-                result = await this.fetchExecutor.execute(nextInvocation)
+                result = (await this.fetchExecutor.execute(
+                    nextInvocation
+                )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
                 performedAsyncRequest = true
             } else {
                 throw new Error(`Unhandled queue: ${nextInvocation.queue}`)
@@ -82,13 +84,46 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return result
     }
 
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        return await Promise.all(invocations.map((item) => this.processInvocation(item)))
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
+        const loadedInvocations = await this.loadHogFunctions(invocations)
+        return await Promise.all(loadedInvocations.map((item) => this.processInvocation(item)))
+    }
+
+    protected async loadHogFunctions(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<CyclotronJobInvocationHogFunction[]> {
+        const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
+        const failedInvocations: CyclotronJobInvocation[] = []
+
+        await Promise.all(
+            invocations.map(async (item) => {
+                const hogFunction = await this.hogFunctionManager.getHogFunction(item.functionId)
+                if (!hogFunction) {
+                    logger.error('⚠️', 'Error finding hog function', {
+                        id: item.functionId,
+                    })
+
+                    failedInvocations.push(item)
+
+                    return null
+                }
+
+                loadedInvocations.push({
+                    ...item,
+                    state: item.state as CyclotronJobInvocationHogFunction['state'],
+                    hogFunction,
+                })
+            })
+        )
+
+        await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+
+        return loadedInvocations
     }
 
     public async processBatch(
-        invocations: HogFunctionInvocation[]
-    ): Promise<{ backgroundTask: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
+        invocations: CyclotronJobInvocation[]
+    ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
         if (!invocations.length) {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
@@ -119,7 +154,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return { backgroundTask, invocationResults }
     }
 
-    protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {
+    protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 

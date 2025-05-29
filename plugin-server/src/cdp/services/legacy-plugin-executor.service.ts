@@ -16,7 +16,7 @@ import {
     LegacyTransformationPluginMeta,
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
-import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 
@@ -113,10 +113,10 @@ export class LegacyPluginExecutorService {
     }
 
     public async execute(
-        invocation: HogFunctionInvocation,
+        invocation: CyclotronJobInvocationHogFunction,
         options?: LegacyPluginExecutorOptions
-    ): Promise<HogFunctionInvocationResult> {
-        const result = createInvocationResult(invocation, {
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'plugin',
         })
 
@@ -157,13 +157,13 @@ export class LegacyPluginExecutorService {
             let state = this.pluginState[invocation.hogFunction.id]
 
             // NOTE: If this is set then we can add in the legacy storage
-            const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
+            const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
 
             if (!state) {
                 const geoip = await this.hub.geoipService.get()
 
                 const meta: LegacyTransformationPluginMeta = {
-                    config: invocation.globals.inputs,
+                    config: invocation.state.globals.inputs,
                     global: {},
                     logger: pluginLogger,
                     geoip: {
@@ -252,17 +252,18 @@ export class LegacyPluginExecutorService {
             }
 
             const start = performance.now()
+            const globals = invocation.state.globals
 
             const event = {
-                distinct_id: invocation.globals.event.distinct_id,
-                ip: invocation.globals.event.properties.$ip,
+                distinct_id: globals.event.distinct_id,
+                ip: globals.event.properties.$ip,
                 team_id: invocation.hogFunction.team_id,
-                event: invocation.globals.event.event,
-                properties: invocation.globals.event.properties,
-                timestamp: invocation.globals.event.timestamp,
-                $set: invocation.globals.event.properties.$set,
-                $set_once: invocation.globals.event.properties.$set_once,
-                uuid: invocation.globals.event.uuid,
+                event: globals.event.event,
+                properties: globals.event.properties,
+                timestamp: globals.event.timestamp,
+                $set: globals.event.properties.$set,
+                $set_once: globals.event.properties.$set_once,
+                uuid: globals.event.uuid,
             }
 
             if ('onEvent' in plugin) {

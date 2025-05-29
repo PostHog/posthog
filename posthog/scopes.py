@@ -59,3 +59,11 @@ APIScopeObjectOrNotSupported = Literal[
 
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+
+
+def get_scope_descriptions() -> dict[str, str]:
+    return {
+        f"{obj}:{action}": f"{action.capitalize()} access to {obj}"
+        for obj in API_SCOPE_OBJECTS
+        for action in API_SCOPE_ACTIONS
+    }

@@ -13,9 +13,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         feature_flag: {
+            name: 'Feature flag',
             icon: <IconToggle />,
             href: (ref: string) => urls.featureFlag(ref),
             iconColor: ['var(--product-feature-flags-light)'],
+            filterKey: 'feature_flag',
         },
     },
     treeItemsNew: [
@@ -33,7 +35,4 @@ export const manifest: ProductManifest = {
             visualOrder: PRODUCT_VISUAL_ORDER.featureFlags,
         },
     ],
-    fileSystemFilterTypes: {
-        feature_flag: { name: 'Feature flags' },
-    },
 }

@@ -7,7 +7,7 @@ import {
     IconPlusSmall,
     IconX,
 } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -43,11 +43,12 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
-import { FiltersDropdown, PanelLayoutPanel } from '../PanelLayoutPanel'
+import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { DashboardsMenu } from './menus/DashboardsMenu'
 import { ProductAnalyticsMenu } from './menus/ProductAnalyticsMenu'
 import { SessionReplayMenu } from './menus/SessionReplayMenu'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
+import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { calculateMovePath } from './utils'
 
@@ -74,6 +75,7 @@ export function ProjectTree({
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
         treeTableKeys,
@@ -92,7 +94,7 @@ export function ProjectTree({
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
-    } = useValues(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
+    } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
         createFolder,
         rename,
@@ -114,7 +116,7 @@ export function ProjectTree({
         setTreeTableColumnSizes,
         setSelectMode,
         setSearchTerm,
-    } = useActions(projectTreeLogic({ key: logicKey ?? uniqueKey, root }))
+    } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -153,6 +155,9 @@ export function ProjectTree({
         const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
         const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
 
+        const showSelectMenuItems =
+            item.record?.protocol === 'project://' && item.record?.path && !item.disableSelect && !onlyTree
+
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
             item.record?.protocol === 'products://' && item.name === 'Product analytics' ? (
@@ -166,7 +171,7 @@ export function ProjectTree({
         return (
             <>
                 {productMenu}
-                {item.record?.protocol === 'products://' && item.record?.path && !item.disableSelect && !onlyTree ? (
+                {showSelectMenuItems ? (
                     <>
                         <MenuItem
                             asChild
@@ -584,9 +589,6 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'games://') {
-                    return <>Play {nameNode}</>
-                }
                 if (root === 'products://' || root === 'data-management://' || root === 'persons://') {
                     return <>View {nameNode}</>
                 }
@@ -676,52 +678,62 @@ export function ProjectTree({
     return (
         <PanelLayoutPanel
             filterDropdown={
-                showFilterDropdown ? <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} /> : null
+                showFilterDropdown ? (
+                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
+                ) : null
             }
             searchField={
-                <TreeSearchField
-                    root={root}
-                    logicKey={PROJECT_TREE_KEY}
-                    uniqueKey={PROJECT_TREE_KEY}
-                    placeholder={searchPlaceholder}
-                />
+                <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        logicKey={logicKey}
+                        uniqueKey={uniqueKey}
+                    />
+                </BindLogic>
             }
             panelActions={
-                <>
-                    {sortMethod !== 'recent' ? (
-                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
-                            <IconFolderPlus className="text-tertiary" />
-                        </ButtonPrimitive>
-                    ) : null}
+                root === 'project://' ? (
+                    <>
+                        {sortMethod !== 'recent' ? (
+                            <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
+                                <IconFolderPlus className="text-tertiary" />
+                            </ButtonPrimitive>
+                        ) : null}
 
-                    {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
-                        <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
-                            <IconCheckbox className="text-tertiary size-4" />
-                        </ButtonPrimitive>
-                    ) : (
-                        <>
-                            {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        setCheckedItems({})
-                                        setSelectMode('default')
-                                    }}
-                                    tooltip="Clear selected and disable multi-select"
-                                >
-                                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                                </ButtonPrimitive>
-                            ) : (
-                                <ButtonPrimitive
-                                    onClick={() => setSelectMode('default')}
-                                    tooltip="Disable multi-select"
-                                    iconOnly
-                                >
-                                    <IconX className="text-tertiary size-4" />
-                                </ButtonPrimitive>
-                            )}
-                        </>
-                    )}
-                </>
+                        {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                            <ButtonPrimitive
+                                onClick={() => setSelectMode('multi')}
+                                tooltip="Enable multi-select"
+                                iconOnly
+                            >
+                                <IconCheckbox className="text-tertiary size-4" />
+                            </ButtonPrimitive>
+                        ) : (
+                            <>
+                                {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
+                                    <ButtonPrimitive
+                                        onClick={() => {
+                                            setCheckedItems({})
+                                            setSelectMode('default')
+                                        }}
+                                        tooltip="Clear selected and disable multi-select"
+                                    >
+                                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                                    </ButtonPrimitive>
+                                ) : (
+                                    <ButtonPrimitive
+                                        onClick={() => setSelectMode('default')}
+                                        tooltip="Disable multi-select"
+                                        iconOnly
+                                    >
+                                        <IconX className="text-tertiary size-4" />
+                                    </ButtonPrimitive>
+                                )}
+                            </>
+                        )}
+                    </>
+                ) : null
             }
         >
             <ButtonPrimitive

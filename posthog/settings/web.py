@@ -5,6 +5,7 @@ from datetime import timedelta
 import structlog
 from corsheaders.defaults import default_headers
 
+from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -61,6 +62,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "oauth2_provider",
 ]
 
 MIDDLEWARE = [
@@ -474,3 +476,37 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
+
+####
+# OAuth
+
+OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
+
+OAUTH2_PROVIDER = {
+    "OIDC_ENABLED": True,
+    "PKCE_REQUIRED": True,
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "SCOPES": {
+        "openid": "OpenID Connect scope",
+        "profile": "Access to user's profile",
+        "email": "Access to user's email address",
+        "*": "Full access to all scopes",
+        **get_scope_descriptions(),
+    },
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    "DEFAULT_SCOPES": ["openid"],
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
+}
+
+
+OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
+OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
+OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
+OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
+OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+if DEBUG:
+    OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

@@ -479,6 +479,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Hog function',
     },
+    [Scene.DataPipelines]: {
+        projectBased: true,
+        name: 'Data pipelines',
+    },
+    [Scene.DataPipelinesNew]: {
+        projectBased: true,
+        name: 'New data pipeline',
+    },
     [Scene.Game368]: {
         name: '368 Hedgehogs',
         projectBased: true,
@@ -556,6 +564,7 @@ export const redirects: Record<
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
     '/messaging': urls.messagingBroadcasts(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
+    '/data-pipelines': urls.dataPipelines('overview'),
     ...productRedirects,
 }
 
@@ -685,6 +694,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
+    [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
+    [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],

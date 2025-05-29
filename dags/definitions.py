@@ -55,10 +55,8 @@ defs = dagster.Definitions(
         orm_examples.pending_deletions,
         orm_examples.process_pending_deletions,
         web_preaggregated_internal.web_analytics_preaggregated_tables,
-        web_preaggregated_internal.web_overview_daily,
         web_preaggregated_internal.web_stats_daily,
         web_preaggregated_internal.web_bounces_daily,
-        web_preaggregated_internal.web_paths_daily,
     ],
     jobs=[
         deletes.deletes_job,

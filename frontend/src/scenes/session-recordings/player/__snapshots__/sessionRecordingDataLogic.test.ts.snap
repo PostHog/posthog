@@ -2079,6 +2079,95 @@ exports[`sessionRecordingDataLogic deduplicateSnapshots should match snapshot 1`
 ]
 `;
 
+exports[`sessionRecordingDataLogic loading session events load events after metadata with 5 minute buffer 1`] = `
+[
+  [
+    "api/environments/997/query",
+    {
+      "client_query_id": undefined,
+      "filters_override": undefined,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+FROM events
+WHERE timestamp > '2023-04-30 14:46:20'
+AND timestamp < '2023-05-02 14:46:32'
+AND $session_id = '2'
+ORDER BY timestamp ASC
+LIMIT 1000000",
+      },
+      "refresh": undefined,
+      "variables_override": undefined,
+    },
+    {
+      "data": {
+        "client_query_id": undefined,
+        "filters_override": undefined,
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+FROM events
+WHERE timestamp > '2023-04-30 14:46:20'
+AND timestamp < '2023-05-02 14:46:32'
+AND $session_id = '2'
+ORDER BY timestamp ASC
+LIMIT 1000000",
+        },
+        "refresh": undefined,
+        "variables_override": undefined,
+      },
+    },
+  ],
+  [
+    "api/environments/997/query",
+    {
+      "client_query_id": undefined,
+      "filters_override": undefined,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+FROM events
+WHERE timestamp > '2023-05-01 14:41:20'
+AND timestamp < '2023-05-01 14:51:32'
+AND (empty ($session_id) OR isNull($session_id))
+AND properties.$lib != 'web'
+AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
+ORDER BY timestamp ASC
+LIMIT 1000000
+                    ",
+      },
+      "refresh": undefined,
+      "variables_override": undefined,
+    },
+    {
+      "data": {
+        "client_query_id": undefined,
+        "filters_override": undefined,
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+FROM events
+WHERE timestamp > '2023-05-01 14:41:20'
+AND timestamp < '2023-05-01 14:51:32'
+AND (empty ($session_id) OR isNull($session_id))
+AND properties.$lib != 'web'
+AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
+ORDER BY timestamp ASC
+LIMIT 1000000
+                    ",
+        },
+        "refresh": undefined,
+        "variables_override": undefined,
+      },
+    },
+  ],
+]
+`;
+
 exports[`sessionRecordingDataLogic snapshot parsing handles data with unparseable lines 1`] = `
 [
   {

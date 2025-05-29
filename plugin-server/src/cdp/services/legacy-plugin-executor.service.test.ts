@@ -16,12 +16,17 @@ import {
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType, LogEntry } from '../types'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    MinimalLogEntry,
+} from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 jest.setTimeout(1000)
 
-const getLogMessages = (logs: LogEntry[]) => {
+const getLogMessages = (logs: MinimalLogEntry[]) => {
     return logs.map((l) => {
         return l.message.replace(/\d+\.\d+ms/, 'REPLACED-TIME-ms')
     })
@@ -174,8 +179,8 @@ describe('LegacyPluginExecutorService', () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -275,8 +280,8 @@ describe('LegacyPluginExecutorService', () => {
 
             const invocation = createExampleInvocation(fn, globals)
             invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -304,8 +309,8 @@ describe('LegacyPluginExecutorService', () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -377,8 +382,8 @@ describe('LegacyPluginExecutorService', () => {
 
             it('should not drop if event is returned', async () => {
                 const invocation = createExampleInvocation(fn, globals)
-                invocation.globals.event.event = 'dont-drop-me'
-                invocation.globals.event.properties = {
+                invocation.state.globals.event.event = 'dont-drop-me'
+                invocation.state.globals.event.properties = {
                     email: 'test@posthog.com',
                 }
 
@@ -405,8 +410,8 @@ describe('LegacyPluginExecutorService', () => {
 
             it('should drop if event is dropped', async () => {
                 const invocation = createExampleInvocation(fn, globals)
-                invocation.globals.event.event = 'drop-me'
-                invocation.globals.event.properties = {
+                invocation.state.globals.event.event = 'drop-me'
+                invocation.state.globals.event.properties = {
                     email: 'test@posthog.com',
                 }
 
@@ -430,7 +435,7 @@ describe('LegacyPluginExecutorService', () => {
 
             it('should modify the event', async () => {
                 const invocation = createExampleInvocation(fn, globals)
-                invocation.globals.event.properties = {
+                invocation.state.globals.event.properties = {
                     version: '1.12.20',
                 }
 
@@ -463,9 +468,9 @@ describe('LegacyPluginExecutorService', () => {
     describe('smoke tests', () => {
         const buildInvocation = (
             plugin: LegacyDestinationPlugin | LegacyTransformationPlugin
-        ): HogFunctionInvocation => {
+        ): CyclotronJobInvocationHogFunction => {
             const invocation = createExampleInvocation(fn, globals)
-            invocation.globals.inputs = {}
+            invocation.state.globals.inputs = {}
             invocation.hogFunction.template_id = plugin.template.id
 
             const inputs: Record<string, any> = {}
@@ -487,7 +492,7 @@ describe('LegacyPluginExecutorService', () => {
                 }
             }
 
-            invocation.globals.inputs = inputs
+            invocation.state.globals.inputs = inputs
             return invocation
         }
         const testCasesDestination = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
@@ -497,10 +502,10 @@ describe('LegacyPluginExecutorService', () => {
         it.each(testCasesDestination)('should run the destination plugin: %s', async ({ name, plugin }) => {
             const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
-            invocation.globals.event.event = '$identify' // Many plugins filter for this
+            invocation.state.globals.event.event = '$identify' // Many plugins filter for this
 
             if (plugin.template.id === 'plugin-customerio-plugin') {
-                invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+                invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfig.id
             }
             const res = await service.execute(invocation)
             expect(getLogMessages(res.logs)).toMatchSnapshot()
@@ -515,14 +520,14 @@ describe('LegacyPluginExecutorService', () => {
             const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
             invocation.hogFunction.type = 'transformation'
-            invocation.globals.event.event = '$pageview'
+            invocation.state.globals.event.event = '$pageview'
             const res = await service.execute(invocation)
             expect(getLogMessages(res.logs)).toMatchSnapshot()
         })
     })
 
     describe('first-time-event-tracker', () => {
-        let invocation: HogFunctionInvocation
+        let invocation: CyclotronJobInvocationHogFunction
         beforeEach(() => {
             fn = createHogFunction({
                 team_id: team.id,
@@ -546,7 +551,7 @@ describe('LegacyPluginExecutorService', () => {
         })
 
         it('should succeed if legacy plugin config id is provided', async () => {
-            invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+            invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfig.id
 
             const res = await service.execute(invocation)
 

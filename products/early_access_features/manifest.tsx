@@ -35,9 +35,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         early_access_feature: {
+            name: 'Early access feature',
             icon: <IconRocket />,
             href: (ref: string) => urls.earlyAccessFeature(ref),
             iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
+            filterKey: 'early_access_feature',
         },
     },
     treeItemsNew: [
@@ -55,7 +57,4 @@ export const manifest: ProductManifest = {
             visualOrder: PRODUCT_VISUAL_ORDER.earlyAccessFeatures,
         },
     ],
-    fileSystemFilterTypes: {
-        early_access_feature: { name: 'Early access features' },
-    },
 }
