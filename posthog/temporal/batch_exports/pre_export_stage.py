@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import json
 import typing
 import uuid
 from dataclasses import dataclass
@@ -45,10 +46,10 @@ from posthog.temporal.batch_exports.spmc import (
 )
 from posthog.temporal.batch_exports.sql import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
-    SELECT_FROM_EVENTS_VIEW,
-    SELECT_FROM_EVENTS_VIEW_BACKFILL,
-    SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    EXPORT_TO_S3_FROM_EVENTS,
+    EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
+    EXPORT_TO_S3_FROM_EVENTS_RECENT,
+    EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     SELECT_FROM_PERSONS,
     SELECT_FROM_PERSONS_BACKFILL,
 )
@@ -349,7 +350,7 @@ async def _get_query(
         # may not be able to handle the load from all batch exports
         if is_5_min_batch_export(full_range=full_range) and not is_backfill:
             logger.info("Using events_recent table for 5 min batch export")
-            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+            query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
         # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
         # which is a distributed table that sits in front of the `events_recent` table
         elif use_distributed_events_recent_table(
@@ -358,14 +359,14 @@ async def _get_query(
             logger.info("Using distributed_events_recent table for batch export")
             query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            logger.info("Using events_batch_export_unbounded view for batch export")
-            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+            logger.info("Using unbounded events query for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_backfill:
             logger.info("Using events_batch_export_backfill view for batch export")
-            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+            query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
         else:
-            logger.info("Using events_batch_export view for batch export")
-            query_template = SELECT_FROM_EVENTS_VIEW
+            logger.info("Using events table for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
@@ -379,6 +380,9 @@ async def _get_query(
         if filters_str:
             filters_str = f"AND {filters_str}"
 
+        # TODO - configure this
+        num_partitions = 10
+
         query = query_template.safe_substitute(
             fields=query_fields,
             filters=filters_str,
@@ -389,9 +393,18 @@ async def _get_query(
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
             ),
+            num_partitions=num_partitions,
         )
 
     parameters["team_id"] = team_id
+
+    query_tags = {
+        "team_id": team_id,
+        "batch_export_id": batch_export_id,
+        "kind": "batch_export",
+    }
+    parameters["log_comment"] = json.dumps(query_tags)
+
     parameters = {**parameters, **extra_query_parameters}
     return query, parameters
 
