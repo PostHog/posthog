@@ -21,6 +21,7 @@ from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceS
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 import posthoganalytics
 from posthog.models import Team
+from posthog.exceptions_capture import capture_exception
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -290,7 +291,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not is_warehouse_api_enabled:
             return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "Warehouse API is not enabled for this endpoint"}
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Warehouse API is not enabled for this organization"},
             )
 
         if "file" not in request.FILES:
@@ -301,9 +303,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate table name format
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name) or not re.match(
-            r"^[a-zA-Z_][a-zA-Z0-9_]*$", file.name
-        ):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
@@ -334,6 +334,14 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     access_key=settings.AIRBYTE_BUCKET_KEY,
                     access_secret=settings.AIRBYTE_BUCKET_SECRET,
                 )
+            else:
+                capture_exception(
+                    Exception("Object storage keys not found: AIRBYTE_BUCKET_KEY or AIRBYTE_BUCKET_SECRET")
+                )
+                return response.Response(
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    data={"message": "An unexpected error occurred. Please try again later."},
+                )
 
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
@@ -348,7 +356,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Generate URL pattern and store file in object storage
             if credential and settings.DATAWAREHOUSE_BUCKET:
                 s3 = boto3.client(
-                    "s3", aws_access_key_id=credential.access_key, aws_secret_access_key=credential.access_secret
+                    "s3",
+                    aws_access_key_id=credential.access_key,
+                    aws_secret_access_key=credential.access_secret,
+                    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
                 )
                 s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"dlt/managed/team_{team_id}/{file.name}")
 
@@ -379,5 +390,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Object storage must be available to upload files."},
                 )
-        except Exception:
+        except Exception as e:
+            capture_exception(e)
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})

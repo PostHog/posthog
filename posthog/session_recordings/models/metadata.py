@@ -46,6 +46,9 @@ class RecordingBlockListing:
     block_last_timestamps: list[datetime]
     block_urls: list[str]
 
+    def is_empty(self) -> bool:
+        return not self.block_urls
+
 
 class RecordingMetadata(TypedDict):
     distinct_id: str
