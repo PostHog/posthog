@@ -187,8 +187,6 @@ export const maxLogic = kea<maxLogicType>([
                     _?: {
                         /** If true, the current thread will not be updated with the retrieved conversation. */
                         doNotUpdateCurrentThread?: boolean
-                        /** If true, the current thread will not be scrolled to the bottom. */
-                        disableAutoScroll?: boolean
                     }
                 ) => {
                     const response = await api.conversations.list()

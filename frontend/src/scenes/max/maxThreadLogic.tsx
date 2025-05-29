@@ -358,7 +358,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         completeThreadGeneration: () => {
             // Update the conversation history to include the new conversation
-            actions.loadConversationHistory({ doNotUpdateCurrentThread: true, disableAutoScroll: true })
+            actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
 
             if (!values.conversation) {
                 return

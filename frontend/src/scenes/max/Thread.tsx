@@ -63,7 +63,7 @@ import {
 
 export function Thread(): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
@@ -83,10 +83,7 @@ export function Thread(): JSX.Element | null {
                         // Reset the components when the thread changes
                         key={`${conversationId}-${index}`}
                         messages={group}
-                        index={index}
                         isFinal={index === threadGrouped.length - 1}
-                        streamingActive={streamingActive}
-                        totalConversationLength={threadGrouped.length}
                     />
                 ))
             ) : (
@@ -133,9 +130,6 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
-    index: number
-    streamingActive: boolean
-    totalConversationLength: number
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
