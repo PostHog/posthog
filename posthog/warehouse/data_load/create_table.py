@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 
+from posthog.exceptions_capture import capture_exception
 from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     aget_or_create_datawarehouse_credential,
@@ -97,6 +98,7 @@ async def create_table_from_saved_query(
                 saved_query.table = table_created
                 await asave_saved_query(saved_query)
         except Exception as e:
+            capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
 
