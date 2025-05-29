@@ -5,11 +5,11 @@ import datetime as dt
 import enum
 import itertools
 import json
+import os
 import re
 import typing
 import uuid
 
-import os
 import dlt
 import dlt.common.data_types as dlt_data_types
 import dlt.common.schema.typing as dlt_typing
@@ -34,7 +34,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
+from posthog.warehouse.models import (
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+)
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
 
@@ -299,12 +303,18 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
 
             key, delta_table, _ = await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
+        await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
+        await logger.aexception("Type coercion error for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Type coercion error for model %s: %s")
     except DataModelingCancelledException as err:
+        await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
         await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s")
     except Exception as err:
+        await logger.aexception(
+            "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
+        )
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
         await logger.ainfo("Materialized model %s", model.label)
@@ -317,6 +327,7 @@ async def handle_error(
     job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
 ):
     if job:
+        await logger.ainfo("Marking job %s as failed", job.id)
         job.status = DataModelingJob.Status.FAILED
         job.error = str(error)
         await database_sync_to_async(job.save)()
@@ -473,6 +484,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
     """
     Mark DataModelingJob as failed
     """
+    await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
