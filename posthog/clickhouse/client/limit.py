@@ -90,7 +90,7 @@ class RateLimit:
         """
         Acquire the resource before execution or throw exception.
         """
-        t0 = datetime.datetime.now()
+        wait_deadline = datetime.datetime.now() + self.retry_timeout
         task_name = self.get_task_name(*args, **kwargs)
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
@@ -127,8 +127,7 @@ class RateLimit:
             # team in beta cannot skip limits
             if bypass or (not in_beta and self.bypass_all):
                 return None, None
-            still_have_time = (datetime.datetime.now() - t0) < self.retry_timeout
-            if self.retry and still_have_time:
+            if self.retry and datetime.datetime.now() < wait_deadline:
                 sleep(backoff(count))
                 count += 1
                 continue
