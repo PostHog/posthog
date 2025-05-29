@@ -2511,7 +2511,7 @@ describe('JSONB optimization flag compatibility', () => {
                 hub.db.kafkaProducer,
                 new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, newUserDistinctId),
                 0,
-                false
+                0.0
             )
             legacyPersonState.updateIsIdentified = updateIsIdentified
 
@@ -2524,7 +2524,7 @@ describe('JSONB optimization flag compatibility', () => {
                 hub.db.kafkaProducer,
                 new MeasuringPersonsStoreForDistinctIdBatch(hub.db, mainTeam.api_token, oldUserDistinctId),
                 0,
-                true
+                1.0
             )
             optimizedPersonState.updateIsIdentified = updateIsIdentified
 
