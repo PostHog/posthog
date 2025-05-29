@@ -1,6 +1,8 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
@@ -21,18 +23,27 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-const OPTIONS: LemonSegmentedButtonOption<RevenueAnalyticsInsightsQueryGroupBy>[] = [
-    { label: 'All', value: 'all' },
-    { label: 'Product', value: 'product' },
-    { label: 'Cohort', value: 'cohort', disabledReason: 'Coming soon' },
-]
-
 export const GrossRevenueTile = (): JSX.Element => {
     const { queries, grossRevenueGroupBy } = useValues(revenueAnalyticsLogic)
     const { setGrossRevenueGroupBy } = useActions(revenueAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const query = queries[QUERY_ID]
     const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
+
+    const OPTIONS: LemonSegmentedButtonOption<RevenueAnalyticsInsightsQueryGroupBy>[] = [
+        { label: 'All', value: 'all' },
+        {
+            label: 'Product',
+            value: 'product',
+            disabledReason: featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_PRODUCT_GROUPING] ? undefined : 'Coming soon',
+        },
+        {
+            label: 'Cohort',
+            value: 'cohort',
+            disabledReason: featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_COHORT_GROUPING] ? undefined : 'Coming soon',
+        },
+    ]
 
     return (
         <div className="flex flex-col gap-2">
