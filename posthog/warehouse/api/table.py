@@ -356,7 +356,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Generate URL pattern and store file in object storage
             if credential and settings.DATAWAREHOUSE_BUCKET:
                 s3 = boto3.client(
-                    "s3", aws_access_key_id=credential.access_key, aws_secret_access_key=credential.access_secret
+                    "s3",
+                    aws_access_key_id=credential.access_key,
+                    aws_secret_access_key=credential.access_secret,
+                    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
                 )
                 s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"dlt/managed/team_{team_id}/{file.name}")
 

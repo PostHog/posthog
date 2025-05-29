@@ -6,6 +6,8 @@ from clickhouse_driver.errors import ServerException
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+import boto3
+from posthog.settings import settings
 
 
 class TestTable(APIBaseTest):
@@ -493,3 +495,74 @@ class TestTable(APIBaseTest):
         mock_s3.upload_fileobj.assert_called_once_with(
             ANY, "test-warehouse-bucket", f"dlt/managed/team_{self.team.id}/updated_file.csv"
         )
+
+    def _delete_all_from_s3(self, s3_client, bucket_name, prefix=""):
+        """Helper to delete all objects in a bucket with a given prefix."""
+        response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                if "Key" in obj:
+                    s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_file_upload_with_minio(self, mock_feature_enabled):
+        """Test file upload using actual MinIO bucket instead of mocking."""
+
+        # Create a unique bucket name for testing
+        test_bucket_name = f"test-warehouse"
+
+        # Setup real S3 client
+        s3_client = boto3.client(
+            "s3",
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id="object_storage_root_user",
+            aws_secret_access_key="object_storage_root_password",
+            region_name="us-east-1",
+        )
+
+        s3_client.create_bucket(Bucket=test_bucket_name)
+
+        # Create a test file
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
+        test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
+
+        # Patch get_columns to return test columns
+        with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {
+                "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+                "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+                "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            }
+            # Patch the settings to use our test bucket
+            with self.settings(
+                AIRBYTE_BUCKET_KEY="object_storage_root_user",
+                AIRBYTE_BUCKET_SECRET="object_storage_root_password",
+                AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
+                BUCKET_URL=f"s3://{test_bucket_name}/dlt",
+                DATAWAREHOUSE_BUCKET=test_bucket_name,
+            ):
+                # Make the API request
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                    {"file": test_file, "name": "minio_csv_table", "format": "CSVWithNames"},
+                    format="multipart",
+                )
+
+        # Assert the response is successful
+        self.assertEqual(response.status_code, 201)
+
+        # Verify the table was created
+        table = DataWarehouseTable.objects.get(name="minio_csv_table")
+        self.assertIsNotNone(table)
+
+        # Check that the file was actually uploaded to MinIO
+        response = s3_client.list_objects_v2(
+            Bucket=test_bucket_name, Prefix=f"dlt/managed/team_{self.team.id}/test_file.csv"
+        )
+        self.assertIn("Contents", response, "No objects found in the bucket")
+
+        # TODO: DRY
+        self._delete_all_from_s3(s3_client, test_bucket_name)
+        s3_client.delete_bucket(Bucket=test_bucket_name)
