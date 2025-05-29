@@ -105,7 +105,7 @@ impl LogRow {
         let span_id = extract_span_id(&record.span_id);
 
         // Trace flags
-        let trace_flags = record.flags as u8;
+        let trace_flags = record.flags;
 
         let log_row = Self {
             // uuid: Uuid::now_v7(),
