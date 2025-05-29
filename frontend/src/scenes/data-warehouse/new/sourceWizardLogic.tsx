@@ -45,14 +45,14 @@ const StripeCaption = (): JSX.Element => (
         Currently, <strong>read permissions are required</strong> for the following resources:
         <ul className="list-disc list-inside">
             <li>
-                Under the <b>Core</b> resource type, read for <b>Balance transaction sources</b>, <b>Charges</b>,{' '}
+                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>, <b>Charges</b>,{' '}
                 <b>Customer</b>, and <b>Product</b>
             </li>
             <li>
-                Under the <b>Billing</b> resource type, read for <b>Invoice</b>, <b>Price</b>, and <b>Subscription</b>
+                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and <b>Subscription</b>
             </li>
             <li>
-                Under the <b>Connected</b> resource type, read for the <b>entire resource</b>
+                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
             </li>
         </ul>
     </>
