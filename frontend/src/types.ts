@@ -4483,6 +4483,15 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'GoogleAds',
+    'MetaAds',
+    'Klaviyo',
+    'Mailchimp',
+    'Braze',
+    'Mailjet',
+    'Redshift',
+    'GoogleSheets',
+    'Mongodb',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4990,6 +4999,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     oauthPayload?: string[]
     existingSource?: boolean
+    unreleasedSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
