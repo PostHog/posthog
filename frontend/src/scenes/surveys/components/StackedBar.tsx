@@ -20,9 +20,9 @@ export interface StackedBarSegment {
     tooltip?: string
 }
 
-export function StackedBarSkeleton(): JSX.Element {
+export function StackedBarSkeleton({ className }: { className?: string }): JSX.Element {
     return (
-        <div className="flex flex-col gap-4">
+        <div className={clsx('flex flex-col gap-2', className)}>
             <div className="relative w-full mx-auto h-10">
                 <LemonSkeleton className="w-full h-10" />
             </div>
@@ -30,7 +30,7 @@ export function StackedBarSkeleton(): JSX.Element {
                 {Array.from({ length: 3 }).map((_, index) => (
                     <div key={index} className="flex items-center gap-2">
                         <LemonSkeleton className="size-3 rounded-full" />
-                        <LemonSkeleton className="h-3 w-24" />
+                        <LemonSkeleton className="h-6 w-24" />
                     </div>
                 ))}
             </div>
@@ -38,7 +38,13 @@ export function StackedBarSkeleton(): JSX.Element {
     )
 }
 
-export function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Element | null {
+export function StackedBar({
+    segments,
+    className,
+}: {
+    segments: StackedBarSegment[]
+    className?: string
+}): JSX.Element | null {
     const total = segments.reduce((sum, segment) => sum + segment.count, 0)
     let accumulatedPercentage = 0
 
@@ -47,7 +53,7 @@ export function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className={clsx('flex flex-col gap-2', className)}>
             <div className="relative w-full mx-auto h-10">
                 {segments.map(({ count, label, colorClass, tooltip }, index) => {
                     const percentage = (count / total) * 100
