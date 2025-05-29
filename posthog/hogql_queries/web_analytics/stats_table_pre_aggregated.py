@@ -53,7 +53,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {visitors_tuple} AS `context.columns.visitors`,
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
-            FROM web_bounces_daily
+            FROM web_bounces_daily FINAL
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
@@ -86,7 +86,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM
-                web_stats_daily
+                web_stats_daily FINAL
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
             GROUP BY `context.columns.breakdown_value`
@@ -137,7 +137,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     {breakdown_field} as `context.columns.breakdown_value`,
                     {visitors_tuple} AS `context.columns.visitors`,
                     {views_tuple} as `context.columns.views`
-                FROM web_stats_daily
+                FROM web_stats_daily FINAL
                 GROUP BY `context.columns.breakdown_value`
                 """,
                     placeholders={

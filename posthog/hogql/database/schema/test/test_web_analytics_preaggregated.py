@@ -145,8 +145,26 @@ class TestWebAnalyticsPreAggregatedSchema:
         stats_table = WebStatsDailyTable()
         bounces_table = WebBouncesDailyTable()
 
-        assert stats_table.to_printed_clickhouse(None) == "web_stats_daily"
+        assert stats_table.to_printed_clickhouse(None) == "web_stats_daily FINAL"
         assert stats_table.to_printed_hogql() == "web_stats_daily"
 
-        assert bounces_table.to_printed_clickhouse(None) == "web_bounces_daily"
+        assert bounces_table.to_printed_clickhouse(None) == "web_bounces_daily FINAL"
         assert bounces_table.to_printed_hogql() == "web_bounces_daily"
+
+    def test_aggregation_fields_present(self):
+        stats_table = WebStatsDailyTable()
+        bounces_table = WebBouncesDailyTable()
+
+        # Test that the new aggregation fields are present
+        expected_agg_fields = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
+
+        for field in expected_agg_fields:
+            assert field in stats_table.fields, f"Aggregation field '{field}' missing from WebStatsDailyTable"
+            assert field in bounces_table.fields, f"Aggregation field '{field}' missing from WebBouncesDailyTable"
+
+    def test_updated_at_field_present(self):
+        stats_table = WebStatsDailyTable()
+        bounces_table = WebBouncesDailyTable()
+
+        assert "updated_at" in stats_table.fields, "updated_at field missing from WebStatsDailyTable"
+        assert "updated_at" in bounces_table.fields, "updated_at field missing from WebBouncesDailyTable"
