@@ -1,4 +1,3 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -47,8 +46,10 @@ export function UserDetails(): JSX.Element {
                 />
             </LemonField>
             {user?.pending_email && (
-                <div className="flex flex-row gap-1">
-                    <LemonTag type="highlight">Pending verification for {user.pending_email}</LemonTag>
+                <div className="flex flex-row gap-2">
+                    <div className="text-danger text-xs font-medium mt-1.25">
+                        Pending verification for {user.pending_email}
+                    </div>
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
