@@ -1,5 +1,6 @@
 import { IconDashboard } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -21,8 +22,11 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         dashboard: {
+            name: 'Dashboard',
             icon: <IconDashboard />,
             href: (ref: string) => urls.dashboard(ref),
+            iconColor: ['var(--product-dashboards-light)'],
+            filterKey: 'dashboard',
         },
     },
     treeItemsNew: [
@@ -32,7 +36,12 @@ export const manifest: ProductManifest = {
             href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
-    fileSystemFilterTypes: {
-        dashboard: { name: 'Dashboards' },
-    },
+    treeItemsProducts: [
+        {
+            path: 'Dashboards',
+            type: 'dashboard',
+            href: urls.dashboards(),
+            visualOrder: PRODUCT_VISUAL_ORDER.dashboards,
+        },
+    ],
 }

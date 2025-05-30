@@ -56,7 +56,7 @@ export function Sparkline({
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        return !isSparkLineTimeSeries(data) ? [{ name: 'Data', color: 'muted', values: data }] : data
+        return !isSparkLineTimeSeries(data) ? [{ name: 'Count', color: 'muted', values: data }] : data
     }, [data])
 
     useEffect(() => {
@@ -109,7 +109,7 @@ export function Sparkline({
             border: { display: false },
             alignToPixels: true,
             afterFit: (axis) => {
-                // Remove unneccessary padding
+                // Remove unnecessary padding
                 axis.paddingTop = 1 // 1px and not 0 to avoid clipping of the grid
                 axis.paddingBottom = 1
             },

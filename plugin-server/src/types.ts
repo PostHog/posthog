@@ -15,11 +15,12 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
 import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
-import { CyclotronJobQueueKind } from './cdp/types'
+import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
@@ -64,7 +65,6 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
-    async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -74,7 +74,9 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
     cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
+    cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     functional_tests = 'functional-tests',
@@ -105,10 +107,14 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueKind
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
+
+    CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
+    CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
+    CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
 
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -215,17 +221,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    JOB_QUEUES: string // retry queue engine and fallback queues
-    JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
-    JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
-    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
-    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
-    JOB_QUEUE_S3_AWS_ACCESS_KEY: string
-    JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
-    JOB_QUEUE_S3_AWS_REGION: string
-    JOB_QUEUE_S3_BUCKET_NAME: string
-    JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
-    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
@@ -336,6 +331,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+    PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
     DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
@@ -387,7 +383,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
@@ -397,7 +392,9 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
+    cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpCyclotronWorkerSegment?: boolean
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -1007,6 +1004,11 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
+    type: 'hogql'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
@@ -1041,6 +1043,7 @@ export type PropertyFilter =
     | CohortPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | HogQLPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
@@ -1214,6 +1217,17 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
+export interface IncomingEvent {
+    message: Message
+    event: PipelineEvent
+}
+
+export interface IncomingEventWithTeam {
+    message: Message
+    event: PipelineEvent
+    team: Team
+}
+
 export type RedisPool = GenericPool<Redis>
 
 export type RRWebEvent = Record<string, any> & {
@@ -1267,24 +1281,4 @@ export interface HookPayload {
             created_at: ISOTimestamp | null
         }
     }
-}
-
-export type AppMetric2Type = {
-    team_id: number
-    timestamp: ClickHouseTimestamp
-    app_source: string
-    app_source_id: string
-    instance_id?: string
-    metric_kind: 'failure' | 'success' | 'other'
-    metric_name:
-        | 'succeeded'
-        | 'failed'
-        | 'filtered'
-        | 'disabled_temporarily'
-        | 'disabled_permanently'
-        | 'masked'
-        | 'filtering_failed'
-        | 'inputs_failed'
-        | 'fetch'
-    count: number
 }

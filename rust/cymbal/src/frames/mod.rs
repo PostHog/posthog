@@ -38,7 +38,9 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
-            RawFrame::JavaScriptNode(frame) => (Ok(frame.into()), "javascript"),
+            RawFrame::JavaScriptNode(frame) => {
+                (frame.resolve(team_id, catalog).await, "javascript")
+            }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
         };
 
@@ -116,8 +118,8 @@ pub struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ContextLine {
-    number: u32,
-    line: String,
+    pub number: u32,
+    pub line: String,
 }
 
 impl FingerprintComponent for Frame {

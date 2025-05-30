@@ -347,6 +347,16 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def enforce_numeric_offset(properties: dict[str, Any]):
+    try:
+        raw_offset = properties["offset"]
+    except KeyError:
+        return
+
+    if not isinstance(raw_offset, int):
+        raise ValueError(f'Event field "offset" must be numeric, received {type(properties["offset"]).__name__}!')
+
+
 def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
@@ -426,6 +436,20 @@ def get_csp_event(request):
     # we want to handle this as early as possible and avoid any processing
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
+
+    debug_enabled = request.GET.get("debug", "").lower() == "true"
+    if debug_enabled:
+        logger.exception(
+            "CSP debug request",
+            error=ValueError("CSP debug request"),
+            method=request.method,
+            url=request.build_absolute_uri(),
+            content_type=request.content_type,
+            headers=dict(request.headers),
+            query_params=dict(request.GET),
+            body_size=len(request.body) if request.body else 0,
+            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
+        )
 
     csp_report, error_response = process_csp_report(request)
 
@@ -891,6 +915,8 @@ def parse_event(event):
 
     if not event.get("properties"):
         event["properties"] = {}
+
+    enforce_numeric_offset(event["properties"])
 
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))

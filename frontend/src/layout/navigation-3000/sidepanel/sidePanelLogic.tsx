@@ -15,13 +15,7 @@ import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-const ALWAYS_EXTRA_TABS = [
-    SidePanelTab.Settings,
-    SidePanelTab.FeaturePreviews,
-    SidePanelTab.Activity,
-    SidePanelTab.Status,
-    SidePanelTab.Exports,
-]
+const ALWAYS_EXTRA_TABS = [SidePanelTab.Settings, SidePanelTab.Activity, SidePanelTab.Status, SidePanelTab.Exports]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
@@ -82,6 +76,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
+                tabs.push(SidePanelTab.FeaturePreviews)
                 if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
@@ -94,7 +89,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
                 tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {

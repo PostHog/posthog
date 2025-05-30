@@ -1,15 +1,20 @@
+import './sparkline-loading.scss'
+
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
+import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
-import { ResourceFilter } from './filters/ResourceFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
@@ -19,51 +24,100 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs } = useValues(logsLogic)
-    const { fetchLogs } = useActions(logsLogic)
+    const { wrapBody, logs, sparkline, logsLoading, sparklineLoading } = useValues(logsLogic)
+    const { runQuery } = useActions(logsLogic)
 
     useEffect(() => {
-        fetchLogs()
-    }, [])
+        runQuery()
+    }, [runQuery])
+
+    const labels: string[] = []
+    let lastTime = ''
+    let i = -1
+    const timeseries = Object.entries(
+        sparkline.reduce((accumulator, currentItem) => {
+            if (currentItem.time !== lastTime) {
+                labels.push(humanFriendlyDetailedTime(currentItem.time))
+                lastTime = currentItem.time
+                i++
+            }
+            const key = currentItem.level
+            if (!accumulator[key]) {
+                accumulator[key] = Array(sparkline.length)
+            }
+            accumulator[key][i] = currentItem.count
+            return accumulator
+        }, {})
+    )
+        .map(([level, data]) => ({
+            name: level,
+            values: data as number[],
+            color: {
+                fatal: 'danger-dark',
+                error: 'danger',
+                warn: 'warning',
+                info: 'brand-blue',
+                debug: 'muted',
+                trace: 'muted-alt',
+            }[level],
+        }))
+        .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
-            <Sparkline labels={['bucket 1']} data={[1]} className="w-full" />
-            <DisplayOptions />
-            <div className="flex-1">
-                <LemonTable
-                    hideScrollbar
-                    dataSource={logs}
-                    loading={false}
-                    size="small"
-                    columns={[
-                        {
-                            title: 'Level',
-                            key: 'severity_text',
-                            dataIndex: 'severity_text',
-                            width: 0,
-                            render: (_, record) => <LogTag level={record.severity_text} />,
-                        },
-                        {
-                            title: 'Message',
-                            key: 'body',
-                            dataIndex: 'body',
-                            render: (body) => <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>,
-                        },
-                    ]}
-                    expandable={{
-                        noIndent: true,
-                        expandedRowRender: (log) => <ExpandedLog log={log} />,
-                    }}
-                />
-            </div>
+            <>
+                <div className={sparklineLoading ? 'sparkline-loading' : ''}>
+                    <Sparkline labels={labels} data={timeseries} className="w-full" />
+                    {sparklineLoading && <div className="sparkline-loading-overlay" />}
+                </div>
+                <DisplayOptions />
+                <div className="flex-1">
+                    <LemonTable
+                        hideScrollbar
+                        dataSource={logs}
+                        loading={logsLoading}
+                        size="small"
+                        columns={[
+                            {
+                                title: 'Timestamp',
+                                key: 'timestamp',
+                                dataIndex: 'timestamp',
+                                width: 0,
+                                render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
+                            },
+                            {
+                                title: 'Level',
+                                key: 'severity_text',
+                                dataIndex: 'severity_text',
+                                width: 0,
+                                render: (_, record) => <LogTag level={record.severity_text} />,
+                            },
+                            {
+                                title: 'Message',
+                                key: 'body',
+                                dataIndex: 'body',
+                                render: (body) => (
+                                    <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>
+                                        {colors.unstyle(body)}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                        expandable={{
+                            noIndent: true,
+                            expandedRowRender: (log) => <ExpandedLog log={log} />,
+                        }}
+                    />
+                </div>
+            </>
         </div>
     )
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const rows = Object.entries(log.attributes).map(([key, value]) => ({ key, value }))
+    const attributes = log.attributes
+    const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
     return (
         <LemonTable
@@ -74,6 +128,7 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     title: 'Key',
                     key: 'key',
                     dataIndex: 'key',
+                    width: 0,
                 },
                 {
                     title: 'Value',
@@ -100,19 +155,26 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { fetchLogs } = useActions(logsLogic)
+    const { logsLoading } = useValues(logsLogic)
+    const { runQuery } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
-            <div className="flex justify-between gap-y-2">
-                <div className="flex gap-x-1">
-                    <ResourceFilter />
+            <div className="flex justify-between gap-y-2 flex-wrap-reverse">
+                <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
+                    <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <DateRangeFilter />
-                    <LemonButton size="small" icon={<IconRefresh />} type="secondary" onClick={fetchLogs}>
-                        Refresh
+                    <LemonButton
+                        size="small"
+                        icon={<IconRefresh />}
+                        type="secondary"
+                        onClick={() => runQuery()}
+                        loading={logsLoading}
+                    >
+                        {logsLoading ? 'Loading...' : 'Search'}
                     </LemonButton>
                 </div>
             </div>

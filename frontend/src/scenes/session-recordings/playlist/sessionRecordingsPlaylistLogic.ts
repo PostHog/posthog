@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -312,6 +312,8 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
+const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
+
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingPlaylistLogicProps),
@@ -437,7 +439,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
             },
         ],
-
+    })),
+    lazyLoaders(({ props }) => ({
         pinnedRecordings: [
             [] as SessionRecordingType[],
             {
@@ -491,8 +494,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             })
                             return getDefaultFilters(props.personUUID)
                         }
+
                         return {
                             ...state,
+                            // if we're setting a relative date_from, then we need to clear the existing date_to
+                            date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
                             ...filters,
                         }
                     } catch (e) {
@@ -790,19 +796,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
-        allowFlagsFilters: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_FLAGS_FILTERS],
-        ],
-
         allowHogQLFilters: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
 
         taxonomicGroupTypes: [
-            (s) => [s.allowFlagsFilters, s.allowHogQLFilters],
-            (allowFlagsFilters, allowHogQLFilters) => {
+            (s) => [s.allowHogQLFilters],
+            (allowHogQLFilters) => {
                 const taxonomicGroupTypes = [
                     TaxonomicFilterGroupType.Replay,
                     TaxonomicFilterGroupType.Events,
@@ -810,14 +811,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.SessionProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
                 ]
 
                 if (allowHogQLFilters) {
                     taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
                 }
-                if (allowFlagsFilters) {
-                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.EventFeatureFlags)
-                }
+
                 return taxonomicGroupTypes
             },
         ],
@@ -896,6 +896,5 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions }) => {
         actions.loadSessionRecordings()
-        actions.loadPinnedRecordings()
     }),
 ])

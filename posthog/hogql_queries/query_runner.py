@@ -11,6 +11,7 @@ from sentry_sdk import get_traceparent, push_scope, set_tag
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import get_api_personal_rate_limiter, get_app_org_rate_limiter
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -32,7 +33,6 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
-    EventsHeatMapQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -44,11 +44,13 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     GroupsQuery,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -211,11 +213,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "EventsHeatMapQuery":
-        from .web_analytics.web_active_hours_heatmap_query_runner import EventsHeatMapQueryRunner
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
-        return EventsHeatMapQueryRunner(
-            query=cast(EventsHeatMapQuery | dict[str, Any], query),
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -307,11 +309,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "HogQLQuery":
+    if kind == "HogQLQuery" or kind == "HogQLASTQuery":
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | dict[str, Any], query),
+            query=cast(HogQLQuery | HogQLASTQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -622,6 +624,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     is_query_service: bool = False
+    workload: Optional[Workload] = None
 
     def __init__(
         self,
@@ -631,12 +634,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        workload: Optional[Workload] = None,
         extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
+        self.workload = workload
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):

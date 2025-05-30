@@ -1,12 +1,13 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { parseKafkaHeaders } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { runOnEvent } from '../../worker/plugins/run'
-import { HogFunctionInvocation, HogFunctionInvocationGlobals } from '../types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
 
@@ -17,9 +18,10 @@ import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
  */
 export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpLegacyEventsConsumer'
+    protected promiseScheduler = new PromiseScheduler()
 
     constructor(hub: Hub) {
-        super(hub, KAFKA_EVENTS_JSON, 'clickhouse-plugin-server-async-onevent')
+        super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
         logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
             pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
@@ -41,28 +43,30 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             person_id: undefined,
         }
 
-        await runOnEvent(this.hub, event)
+        return await runOnEvent(this.hub, event)
     }
 
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: HogFunctionInvocation[] }> {
-        if (!invocationGlobals.length) {
-            return { backgroundTask: Promise.resolve(), invocations: [] }
+    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
+        if (invocationGlobals.length) {
+            const results = await Promise.all(
+                invocationGlobals.map((x) => {
+                    return this.runInstrumented('cdpLegacyEventsConsumer.processEvent', () => this.processEvent(x))
+                })
+            )
+
+            // Schedule the background work
+            for (const subtasks of results) {
+                for (const { backgroundTask } of subtasks) {
+                    void this.promiseScheduler.schedule(backgroundTask)
+                }
+            }
         }
-
-        await Promise.all(
-            invocationGlobals.map((x) => {
-                return this.runInstrumented('cdpLegacyEventsConsumer.processEvent', () => this.processEvent(x))
-            })
-        )
-
-        // NOTE: We _could_ consider moving this to a background task to improve throughput with a max concurrency of 2 for example
-        // but we should avoid it if possible
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.resolve(),
+            backgroundTask: this.promiseScheduler.waitForAll(),
             invocations: [],
         }
     }
@@ -90,6 +94,13 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                                 if (pluginConfigs.length === 0) {
                                     return
                                 }
+
+                                if (this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC) {
+                                    void this.promiseScheduler.schedule(this.emitToReplicaTopic([message]))
+
+                                    return
+                                }
+
                                 events.push(
                                     convertToHogFunctionInvocationGlobals(
                                         clickHouseEvent,
@@ -106,6 +117,24 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
                     return events
                 },
+            })
+        )
+    }
+
+    private async emitToReplicaTopic(kafkaMessages: Message[]) {
+        const redirectTopic = this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC
+        if (!redirectTopic) {
+            throw new Error('No redirect topic configured')
+        }
+
+        await Promise.all(
+            kafkaMessages.map((message) => {
+                return this.kafkaProducer!.produce({
+                    topic: redirectTopic,
+                    value: message.value,
+                    key: message.key ?? null,
+                    headers: parseKafkaHeaders(message.headers),
+                })
             })
         )
     }

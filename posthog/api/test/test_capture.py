@@ -431,12 +431,31 @@ class TestCapture(BaseTest):
                     assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_non_numeric_offset(self, kafka_produce):
+        data = {
+            "event": "$exception",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "offset": "should_blow_up",  # only integer values may pass!
+            },
+        }
+        with self.assertNumQueries(0):  # Capture does not hit PG anymore
+            response = self.client.get(
+                "/e/?data={}".format(quote(self._to_json(data))),
+                HTTP_ORIGIN="https://localhost",
+            )
+
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
             "properties": {
                 "distinct_id": 2,
                 "token": self.team.api_token,
+                "offset": 1234,
                 "$elements": [
                     {
                         "tag_name": "a",
@@ -2401,6 +2420,8 @@ class TestCapture(BaseTest):
 
         assert event_data["event"] == "$csp_violation"
         assert event_data["properties"]["$csp_document_url"] == "https://example.com/foo/bar"
+        # copied from $csp_document_url
+        assert event_data["properties"]["$current_url"] == "https://example.com/foo/bar"
         assert event_data["properties"]["$csp_violated_directive"] == "default-src self"
         assert event_data["properties"]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
 
@@ -2635,3 +2656,77 @@ class TestCapture(BaseTest):
         # Should return 400 as usual - the /e/ endpoint doesn't handle CSP content types
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert response.json()["code"] == "no_data"
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_enabled(self, mock_logger):
+        """Test that debug logging is enabled when debug=true parameter is present"""
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=true",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "CSP debug request"
+        assert call_args[1]["method"] == "POST"
+        assert "debug=true" in call_args[1]["url"]
+        assert call_args[1]["content_type"] == "application/csp-report"
+        assert "body" in call_args[1]
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_disabled(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_not_called()
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_case_insensitive(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=TRUE",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
+
+        mock_logger.reset_mock()
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=True",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
