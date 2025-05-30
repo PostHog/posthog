@@ -145,10 +145,10 @@ class TestWebAnalyticsPreAggregatedSchema:
         stats_table = WebStatsDailyTable()
         bounces_table = WebBouncesDailyTable()
 
-        assert stats_table.to_printed_clickhouse(None) == "web_stats_daily FINAL"
+        assert stats_table.to_printed_clickhouse(None) == "web_stats_daily"
         assert stats_table.to_printed_hogql() == "web_stats_daily"
 
-        assert bounces_table.to_printed_clickhouse(None) == "web_bounces_daily FINAL"
+        assert bounces_table.to_printed_clickhouse(None) == "web_bounces_daily"
         assert bounces_table.to_printed_hogql() == "web_bounces_daily"
 
     def test_aggregation_fields_present(self):
