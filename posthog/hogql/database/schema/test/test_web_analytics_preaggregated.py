@@ -155,7 +155,6 @@ class TestWebAnalyticsPreAggregatedSchema:
         stats_table = WebStatsDailyTable()
         bounces_table = WebBouncesDailyTable()
 
-        # Test that the new aggregation fields are present
         expected_agg_fields = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
 
         for field in expected_agg_fields:
