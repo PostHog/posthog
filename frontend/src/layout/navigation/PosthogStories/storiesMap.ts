@@ -1,3 +1,4 @@
+// This should eventually be moved to a DB.
 export interface story {
     id: string
     title: string

@@ -11,8 +11,8 @@ import { Story } from 'react-insta-stories/dist/interfaces'
 import { storiesLogic } from './storiesLogic'
 import type { story } from './storiesMap'
 
-const STORY_INTERVAL = 3000
-const MAX_VIDEO_DURATION_MS = 1000000
+const IMAGE_STORY_INTERVAL = 3000
+const CRAZY_VIDEO_DURATION = 1000000 // this is a hack to make the video play for as long as a video would pla
 const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 1200 // Maximum width in pixels
 const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
@@ -195,7 +195,7 @@ export const StoriesModal = (): JSX.Element | null => {
                       sendStoryEndEvent('see_more')
                       setOpenStoriesModal(false)
                       window.open(story.link, '_self')
-                      return <></>
+                      return null
                   }
                 : undefined,
             preloadResource: true,
@@ -206,7 +206,7 @@ export const StoriesModal = (): JSX.Element | null => {
         <LemonModal isOpen={openStoriesModal} onClose={() => handleClose(true)} simple className="StoriesModal__modal">
             <Stories
                 stories={stories}
-                defaultInterval={activeStory?.type === 'video' ? MAX_VIDEO_DURATION_MS : STORY_INTERVAL}
+                defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
                 width="100%"
                 height="100%"
                 currentIndex={activeStoryIndex}
