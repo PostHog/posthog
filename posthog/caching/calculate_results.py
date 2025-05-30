@@ -5,6 +5,7 @@ import structlog
 from pydantic import BaseModel
 
 from posthog.api.services.query import ExecutionMode, process_query_dict
+from posthog.api.utils import is_insight_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
@@ -17,6 +18,8 @@ from posthog.models import (
 )
 from posthog.models.insight import generate_insight_filters_hash
 from posthog.schema import CacheMissResponse, DashboardFilter
+from posthog.hogql.constants import LimitContext
+
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -79,6 +82,10 @@ def calculate_for_query_based_insight(
         user=user,
         insight_id=insight.pk,
         dashboard_id=dashboard.pk if dashboard else None,
+        limit_context=(
+            # QUERY_ASYNC provides extended max execution time for insight queries
+            LimitContext.QUERY_ASYNC if is_insight_query(insight.query) else None
+        ),
     )
 
     if isinstance(process_response, BaseModel):
