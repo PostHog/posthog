@@ -112,7 +112,7 @@ class MetricsClient:
         if labels is None:
             labels = {}
 
-        if not value > 0:
+        if value < 0:
             raise ValueError("value must be non-negative")
 
         return self.cluster.any_host(
