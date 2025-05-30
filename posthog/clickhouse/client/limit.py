@@ -206,6 +206,7 @@ def get_app_org_rate_limiter():
     if __APP_CONCURRENT_QUERY_PER_ORG is None:
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
             max_concurrency=10,
+            applicable=lambda *args, **kwargs: not TEST and kwargs.get("org_id") and not kwargs.get("personal_api_key"),
             limit_name="app_per_org",
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
