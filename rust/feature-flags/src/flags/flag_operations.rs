@@ -104,7 +104,8 @@ impl FeatureFlagList {
                   f.deleted,
                   f.active,
                   f.ensure_experience_continuity,
-                  f.version
+                  f.version,
+                  f.creation_context
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
@@ -138,6 +139,7 @@ impl FeatureFlagList {
                     active: row.active,
                     ensure_experience_continuity: row.ensure_experience_continuity,
                     version: row.version,
+                    creation_context: row.creation_context,
                 })
             })
             .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
@@ -436,6 +438,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: false,
             version: Some(1),
+            creation_context: None,
         };
 
         let flag2 = FeatureFlagRow {
@@ -448,6 +451,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: false,
             version: Some(1),
+            creation_context: None,
         };
 
         // Insert multiple flags for the team
@@ -573,6 +577,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -673,6 +678,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -807,6 +813,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -904,6 +911,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -991,6 +999,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -1009,6 +1018,7 @@ mod tests {
                 active: false,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -1110,6 +1120,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: false,
                 version: Some(1),
+                creation_context: None,
             }),
         )
         .await
@@ -1190,6 +1201,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 }),
             )
             .await
@@ -1281,6 +1293,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 }),
             )
             .await
@@ -1367,6 +1380,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 }),
             )
             .await
@@ -1481,6 +1495,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: false,
                     version: Some(1),
+                    creation_context: None,
                 }),
             )
             .await

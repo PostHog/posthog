@@ -1787,6 +1787,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: false,
             version: Some(1),
+            creation_context: None,
         }
     }
 
@@ -4592,6 +4593,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: false,
             version: Some(1),
+            creation_context: None,
         };
 
         // Test user "11" - should get first-variant

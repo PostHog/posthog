@@ -297,6 +297,7 @@ pub async fn insert_flag_for_team_in_pg(
                 ],
             }),
             version: None,
+            creation_context: None,
         },
     };
 
@@ -540,5 +541,6 @@ pub fn create_test_flag(
         active: active.unwrap_or(true),
         ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
         version: Some(1),
+        creation_context: None,
     }
 }
