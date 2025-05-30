@@ -1,5 +1,6 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
+import { Liquid } from 'liquidjs'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
@@ -134,6 +135,44 @@ export const buildGlobalsWithInputs = (
     }
 
     return newGlobals
+}
+
+export const parseLiquidTemplate = (
+    template: string,
+    context: HogFunctionInvocationGlobals,
+    inputs?: Record<string, any>,
+    allowLiquid: boolean = false
+): string => {
+    // Early return if liquid processing is disabled
+    if (!allowLiquid) {
+        return template
+    }
+
+    try {
+        const liquid = new Liquid({
+            strictFilters: false, // Allow unknown filters to pass through
+            strictVariables: false, // Allow unknown variables to be undefined
+            outputEscape: 'escape', // HTML escape by default for security
+        })
+
+        // Build the liquid context from hog function globals and inputs
+        const liquidContext = {
+            event: context.event,
+            person: context.person,
+            groups: context.groups,
+            project: context.project,
+            source: context.source,
+            inputs: inputs || {},
+        }
+
+        // Parse synchronously (liquidjs supports sync parsing for simple templates)
+        return liquid.parseAndRenderSync(template, liquidContext)
+    } catch (error) {
+        // If liquid parsing fails, return the original template
+        // Log the error but don't break email sending
+        logger.warn('Liquid template parsing failed', { error: error.message, template })
+        return template
+    }
 }
 
 export class HogExecutorService {
@@ -545,9 +584,59 @@ export class HogExecutorService {
                                 throw new Error('sendEmail: Must provide a mail integration')
                             }
 
+                            // Check if liquid processing is enabled (could be from hog function config or inputs)
+                            const allowLiquid =
+                                invocation.hogFunction.template?.allowLiquid || inputs.allowLiquid || false
+
+                            // Parse liquid templates in email content only if enabled
+                            const processedEmail = { ...email }
+
+                            if (email.subject && typeof email.subject === 'string') {
+                                processedEmail.subject = parseLiquidTemplate(
+                                    email.subject,
+                                    result.invocation.globals,
+                                    inputs,
+                                    allowLiquid
+                                )
+                            }
+
+                            if (email.html && typeof email.html === 'string') {
+                                processedEmail.html = parseLiquidTemplate(
+                                    email.html,
+                                    result.invocation.globals,
+                                    inputs,
+                                    allowLiquid
+                                )
+                            }
+
+                            if (email.text && typeof email.text === 'string') {
+                                processedEmail.text = parseLiquidTemplate(
+                                    email.text,
+                                    result.invocation.globals,
+                                    inputs,
+                                    allowLiquid
+                                )
+                            }
+
+                            // Parse liquid in custom headers if they exist
+                            if (email.headers && typeof email.headers === 'object') {
+                                const processedHeaders = { ...email.headers }
+                                for (const [key, value] of Object.entries(processedHeaders)) {
+                                    if (typeof value === 'string') {
+                                        processedHeaders[key] = parseLiquidTemplate(
+                                            value,
+                                            result.invocation.globals,
+                                            inputs,
+                                            allowLiquid
+                                        )
+                                    }
+                                }
+                                processedEmail.headers = processedHeaders
+                            }
+
                             const fetchQueueParameters = this.enrichFetchRequest({
                                 // TODO: Add support for other providers
-                                ...createMailjetRequest(email, auth),
+                                ...createMailjetRequest(processedEmail, auth),
                                 return_queue: 'hog',
                             })
 
