@@ -38,6 +38,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgreSQLHeartbeatDetails,
     insert_into_postgres_activity,
     postgres_default_fields,
+    remove_invalid_json,
 )
 from posthog.temporal.batch_exports.spmc import (
     Producer,
@@ -1434,3 +1435,21 @@ async def test_insert_into_postgres_activity_completes_range_when_there_is_a_fai
         expect_duplicates=True,
         primary_key=["uuid"] if model.name == "events" else ["distinct_id", "person_id"],
     )
+
+
+@pytest.mark.parametrize(
+    "input_data, expected_data",
+    [
+        (b"Hello \uD83D\uDE00 World", b"Hello \uD83D\uDE00 World"),  # Valid emoji pair (😀)
+        (b"Bad \uD800 unpaired high", b"Bad  unpaired high"),  # Unpaired high surrogate
+        (b"Bad \uDC00 unpaired low", b"Bad  unpaired low"),  # Unpaired low surrogate
+        (
+            b"\uD83C\uDF89 Party \uD800 \uD83D\uDE0A mixed",
+            b"\uD83C\uDF89 Party  \uD83D\uDE0A mixed",
+        ),  # Mix of valid pairs and unpaired
+        (b"Hello \\u0000 World", b"Hello  World"),  # \u0000 is not a valid JSON character in PostgreSQL
+        (b"Hello \\\\u0000 World", b"Hello \\\\u0000 World"),  # \\u0000 is escaped
+    ],
+)
+def test_remove_invalid_json(input_data, expected_data):
+    assert remove_invalid_json(input_data) == expected_data
