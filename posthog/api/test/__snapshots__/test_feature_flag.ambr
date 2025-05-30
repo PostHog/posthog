@@ -431,7 +431,6 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.13
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -441,7 +440,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -637,7 +637,6 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.7
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -647,7 +646,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -876,7 +876,6 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.13
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -886,7 +885,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -1362,7 +1362,6 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.18
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1372,7 +1371,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -1589,7 +1589,6 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.8
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1599,7 +1598,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -1749,7 +1749,6 @@
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.11
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -1759,7 +1758,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -2290,7 +2290,6 @@
 # name: TestFeatureFlag.test_creating_static_cohort.18
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2300,7 +2299,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
@@ -2792,7 +2792,6 @@
 # name: TestFeatureFlag.test_creating_static_cohort.9
   '''
   SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
          "posthog_filesystem"."depth",
@@ -2802,7 +2801,8 @@
          "posthog_filesystem"."shortcut",
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
