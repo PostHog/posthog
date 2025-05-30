@@ -15,7 +15,6 @@ let CACHE: Record<string, HogBytecode> | null = null
 const CONCURRENT_WORKERS = 10
 
 class Semaphore {
-    private permits: number
     private waiting: Array<() => void> = []
 
     constructor(private permits: number) {}
