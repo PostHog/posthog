@@ -639,6 +639,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         host = payload.get("host", "")
         port = payload.get("port", "")
         namespace = payload.get("namespace", "")
+        encryption_key = payload.get("encryption_key", None)
         server_client_root_ca = payload.get("server_client_root_ca", "")
         client_certificate = payload.get("client_certificate", "")
         client_private_key = payload.get("client_private_key", "")
@@ -655,6 +656,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "host": host,
                 "port": port,
                 "namespace": namespace,
+                "encryption_key": encryption_key,
                 "server_client_root_ca": server_client_root_ca,
                 "client_certificate": client_certificate,
                 "client_private_key": client_private_key,

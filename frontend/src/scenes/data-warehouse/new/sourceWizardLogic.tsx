@@ -774,6 +774,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '',
             },
             {
+                name: 'encryption_key',
+                label: 'Encryption key',
+                type: 'text',
+                required: false,
+                placeholder: '',
+            },
+            {
                 name: 'server_client_root_ca',
                 label: 'Server client root CA',
                 type: 'textarea',

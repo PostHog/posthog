@@ -1,27 +1,29 @@
 import asyncio
 import datetime
-from enum import Enum
+from enum import StrEnum
 from queue import Queue
 import threading
+import dataclasses
 from typing import Any, Optional
 
+from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 from temporalio.client import Client
-from temporalio.service import TLSConfig, RPCError
+from temporalio.service import RPCError
 
 
-class TemporalIOResource(Enum):
+class TemporalIOResource(StrEnum):
     Workflows = "workflows"
     WorkflowHistories = "workflow_histories"
 
 
-ENDPOINTS = (TemporalIOResource.Workflows.value, TemporalIOResource.WorkflowHistories.value)
-INCREMENTAL_ENDPOINTS = (TemporalIOResource.Workflows.value, TemporalIOResource.WorkflowHistories.value)
+ENDPOINTS = (TemporalIOResource.Workflows, TemporalIOResource.WorkflowHistories)
+INCREMENTAL_ENDPOINTS = (TemporalIOResource.Workflows, TemporalIOResource.WorkflowHistories)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    TemporalIOResource.Workflows.value: [
+    TemporalIOResource.Workflows: [
         {
             "label": "CloseTime",
             "type": IncrementalFieldType.DateTime,
@@ -29,7 +31,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.DateTime,
         }
     ],
-    TemporalIOResource.WorkflowHistories.value: [
+    TemporalIOResource.WorkflowHistories: [
         {
             "label": "CloseTime",
             "type": IncrementalFieldType.DateTime,
@@ -48,10 +50,11 @@ class TemporalIOSourceConfig(config.Config):
     server_client_root_ca: str
     client_certificate: str
     client_private_key: str
+    encryption_key: str | None
 
 
 def _async_iter_to_sync(async_iter):
-    q: Queue[Any] = Queue()
+    q: Queue[Any] = Queue(maxsize=5000)
     sentinel = object()
 
     async def runner():
@@ -69,11 +72,16 @@ def _async_iter_to_sync(async_iter):
     while True:
         item = q.get()
         if item is sentinel:
+            q.task_done()
             break
+
         yield item
+        q.task_done()
 
 
 def _sanitize(obj):
+    """This converts some underlying non-serializable classes to their string representation"""
+
     def safe_convert(value):
         try:
             if isinstance(value, int | float | str | bool | dict | list | datetime.datetime):
@@ -87,17 +95,24 @@ def _sanitize(obj):
     return {k: safe_convert(v) for k, v in obj.items()}
 
 
-async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
-    tls = TLSConfig(
-        server_root_ca_cert=bytes(config.server_client_root_ca, "utf-8"),
-        client_cert=bytes(config.client_certificate, "utf-8"),
-        client_private_key=bytes(config.client_private_key, "utf-8"),
-    )
+@dataclasses.dataclass
+class FakeSettings:
+    """Required to trick temporal.io client to think its reading from django settings"""
 
-    return await Client.connect(
-        f"{config.host}:{config.port}",
+    SECRET_KEY: str
+
+
+async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
+    return await connect(
+        host=config.host,
+        port=config.port,
         namespace=config.namespace,
-        tls=tls,
+        server_root_ca_cert=config.server_client_root_ca,
+        client_cert=config.client_certificate,
+        client_key=config.client_private_key,
+        settings=FakeSettings(config.encryption_key)
+        if config.encryption_key and len(config.encryption_key) > 0
+        else None,
     )
 
 
