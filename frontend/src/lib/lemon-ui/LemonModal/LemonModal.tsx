@@ -188,7 +188,7 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className={clsx(className, 'LemonModal', fullScreen && 'LemonModal--fullscreen')}
+            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen', className)}
             overlayClassName={clsx(
                 'LemonModal__overlay',
                 zIndex && `LemonModal__overlay--z-${zIndex}`,

@@ -17,6 +17,7 @@ export interface storyGroup {
 
 // NOTE: The order of the stories is important. The first story in each group is the one that is shown when the group is clicked
 // from top to bottom.
+// Important: we use the first thumbnail of the first story in each group as the thumbnail of the group.
 export const storiesMap: storyGroup[] = [
     {
         id: 'changelog',
@@ -110,7 +111,7 @@ export const storiesMap: storyGroup[] = [
                 type: 'image',
             },
             {
-                id: 'toolbar_web_vitals_2',
+                id: 'cool_features_1',
                 title: 'Cool features',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flag_12cb052a7e.png',
                 mediaUrl:

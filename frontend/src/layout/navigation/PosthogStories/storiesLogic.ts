@@ -11,7 +11,6 @@ const STORAGE_KEY = 'posthog_stories_viewed'
 
 export interface ViewedStories {
     storyIds: string[]
-    groupIds: string[]
 }
 
 export const storiesLogic = kea<storiesLogicType>([
@@ -26,14 +25,14 @@ export const storiesLogic = kea<storiesLogicType>([
 
     loaders(() => ({
         viewedStories: [
-            { storyIds: [], groupIds: [] } as ViewedStories,
+            { storyIds: [] } as ViewedStories,
             {
                 loadViewedStories: async () => {
                     try {
                         const stored = localStorage.getItem(STORAGE_KEY)
-                        return stored ? JSON.parse(stored) : { storyIds: [], groupIds: [] }
+                        return stored ? JSON.parse(stored) : { storyIds: [] }
                     } catch (e) {
-                        return { storyIds: [], groupIds: [] }
+                        return { storyIds: [] }
                     }
                 },
             },
