@@ -85,9 +85,13 @@ export function NonNativeExternalDataSourceConfiguration({
 
     const removeTableMapping = (tableId: string): void => {
         // Remove all field mappings for this table by setting each to undefined
-        Object.keys(MARKETING_ANALYTICS_SCHEMA).forEach((fieldName) => {
-            updateSourceMapping(tableId, fieldName, null)
-        })
+        const sourceMapping = sources_map?.[tableId]
+
+        if (sourceMapping) {
+            Object.keys(sourceMapping).forEach((fieldName) => {
+                updateSourceMapping(tableId, fieldName, null)
+            })
+        }
     }
 
     const hasAnyMapping = (tableId: string): boolean => {
