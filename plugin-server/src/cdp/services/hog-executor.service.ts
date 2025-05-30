@@ -185,12 +185,29 @@ export const parseLiquidTemplate = (
             inputs: inputs || {},
         }
 
+        // Debug logging to see the actual context structure
+        logger.info('Liquid template debug', {
+            template,
+            personStructure: JSON.stringify(context.person, null, 2),
+            eventStructure: JSON.stringify(context.event, null, 2),
+            hasPersonProperties: !!context.person?.properties,
+            personPropertiesKeys: context.person?.properties ? Object.keys(context.person.properties) : [],
+        })
+
         // Parse synchronously (liquidjs supports sync parsing for simple templates)
-        return liquid.parseAndRenderSync(template, liquidContext)
+        const result = liquid.parseAndRenderSync(template, liquidContext)
+
+        logger.info('Liquid template result', {
+            template,
+            result,
+            templateChanged: template !== result,
+        })
+
+        return result
     } catch (error) {
         // If liquid parsing fails, return the original template
         // Log the error but don't break email sending
-        logger.warn('Liquid template parsing failed', { error: error.message, template })
+        logger.warn('Liquid template parsing failed', { error: error.message, template, stack: error.stack })
         return template
     }
 }

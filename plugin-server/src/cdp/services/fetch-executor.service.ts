@@ -1,7 +1,9 @@
+import { Liquid } from 'liquidjs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '../../utils/request'
 import {
@@ -27,6 +29,39 @@ const RETRIABLE_STATUS_CODES = [
     503, // Service Unavailable
     504, // Gateway Timeout
 ]
+
+const parseLiquidTemplate = (
+    template: string,
+    context: any,
+    inputs?: Record<string, any>,
+    allowLiquid: boolean = false
+): string => {
+    if (!allowLiquid) {
+        return template
+    }
+
+    try {
+        const liquid = new Liquid({
+            strictFilters: false,
+            strictVariables: false,
+            outputEscape: 'escape',
+        })
+
+        const liquidContext = {
+            event: context.event,
+            person: context.person,
+            groups: context.groups,
+            project: context.project,
+            source: context.source,
+            inputs: inputs || {},
+        }
+
+        return liquid.parseAndRenderSync(template, liquidContext)
+    } catch (error) {
+        logger.warn('Liquid template parsing failed', { error: error.message, template })
+        return template
+    }
+}
 
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
@@ -132,6 +167,10 @@ export class FetchExecutorService {
     }
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+        logger.info('🐕', `[FetchExecutor] Executing fetch request`, {
+            hogFunctionId: invocation.hogFunction.id,
+            url: (invocation.queueParameters as HogFunctionQueueParametersFetchRequest)?.url,
+        })
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
             throw new Error('Bad invocation')
         }
@@ -139,13 +178,89 @@ export class FetchExecutorService {
         const start = performance.now()
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
         const method = params.method.toUpperCase()
+
+        // Check if this is an email request (Mailjet or other email providers, we can add more later)
+        const isEmailRequest = params.url.includes('mailjet') || params.url.includes('sendgrid')
+
+        let processedBody = params.body
+
+        // If it's an email request, parse liquid templates
+        if (isEmailRequest && params.body) {
+            try {
+                const bodyData = typeof params.body === 'string' ? parseJSON(params.body) : params.body
+
+                // Check for liquid setting in multiple places:
+                // 1. Template-level setting
+                // 2. Input-level setting
+                // 3. Schema-level setting (templating: false means liquid enabled)
+                const templateAllowLiquid = invocation.hogFunction.template?.allowLiquid || false
+                const inputAllowLiquid = invocation.globals.inputs?.allowLiquid || false
+
+                // Check if any email input schema has templating disabled (which means liquid enabled)
+                const emailSchemas = invocation.hogFunction.inputs_schema?.filter((s) => s.type === 'email') || []
+                const schemaAllowLiquid = emailSchemas.some((s) => s.templating === false)
+
+                const allowLiquid = templateAllowLiquid || inputAllowLiquid || schemaAllowLiquid
+
+                logger.info('🐕', `[FetchExecutor] Processing email with liquid templates`, {
+                    hogFunctionId: invocation.hogFunction.id,
+                    allowLiquid,
+                    templateAllowLiquid,
+                    inputAllowLiquid,
+                    schemaAllowLiquid,
+                    emailSchemas: emailSchemas.map((s) => ({ key: s.key, templating: s.templating })),
+                })
+
+                // Process email fields that might contain liquid templates
+                if (bodyData.Messages) {
+                    // Mailjet format
+                    bodyData.Messages = bodyData.Messages.map((message: any) => ({
+                        ...message,
+                        Subject: message.Subject
+                            ? parseLiquidTemplate(
+                                  message.Subject,
+                                  invocation.globals,
+                                  invocation.globals.inputs,
+                                  allowLiquid
+                              )
+                            : message.Subject,
+                        HTMLPart: message.HTMLPart
+                            ? parseLiquidTemplate(
+                                  message.HTMLPart,
+                                  invocation.globals,
+                                  invocation.globals.inputs,
+                                  allowLiquid
+                              )
+                            : message.HTMLPart,
+                        TextPart: message.TextPart
+                            ? parseLiquidTemplate(
+                                  message.TextPart,
+                                  invocation.globals,
+                                  invocation.globals.inputs,
+                                  allowLiquid
+                              )
+                            : message.TextPart,
+                    }))
+                }
+
+                processedBody = JSON.stringify(bodyData)
+            } catch (error) {
+                logger.warn('Failed to process email liquid templates', {
+                    error: error.message,
+                    hogFunctionId: invocation.hogFunction.id,
+                })
+                // Continue with original body if parsing fails
+            }
+        }
+
         const fetchParams: FetchOptions = {
             method,
             headers: params.headers,
             timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
         }
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+
+        if (!['GET', 'HEAD'].includes(method) && processedBody) {
+            fetchParams.body = processedBody
         }
 
         let fetchResponse: FetchResponse | null = null
