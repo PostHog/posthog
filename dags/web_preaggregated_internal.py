@@ -72,6 +72,7 @@ def web_analytics_preaggregated_tables(
     def create_tables(client: Client):
         client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
         client.execute(WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"))
+
         client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
         client.execute(DISTRIBUTED_WEB_BOUNCES_DAILY_SQL())
 
