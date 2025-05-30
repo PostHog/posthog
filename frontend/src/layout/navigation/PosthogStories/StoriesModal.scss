@@ -2,7 +2,7 @@
 .StoriesModal__modal {
     min-width: 0;
 
-    // This will change the opacity of the swipe component
+    // This will change the opacity of the swipe component so it's not visible until hovered
     div > div:nth-child(2) > div:nth-child(2) {
         cursor: pointer;
         opacity: 0;
