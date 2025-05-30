@@ -870,7 +870,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 tag_queries(chargeable=1)
 
             with get_app_org_rate_limiter().run(
-                org_id=self.team.organization_id, task_id=self.query_id, team_id=self.team.id
+                is_api=get_query_tag_value("access_method") == "personal_api_key",
+                org_id=self.team.organization_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
             ):
                 with get_app_dashboard_queries_rate_limiter().run(
                     org_id=self.team.organization_id,

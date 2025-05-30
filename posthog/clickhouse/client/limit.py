@@ -207,6 +207,7 @@ def get_app_org_rate_limiter():
     if __APP_CONCURRENT_QUERY_PER_ORG is None:
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
             max_concurrency=20,
+            applicable=lambda *args, **kwargs: not TEST and not kwargs.get("is_api"),
             limit_name="app_per_org",
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
@@ -223,13 +224,15 @@ def get_app_dashboard_queries_rate_limiter():
     if __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG is None:
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
             max_concurrency=4,
-            applicable=lambda *args, **kwargs: not TEST and kwargs.get("dashboard_id"),
+            applicable=(
+                lambda *args, **kwargs: not TEST and not kwargs.get("is_api") and kwargs.get("dashboard_id") is not None
+            ),
             limit_name="app_dashboard_queries_per_org",
             get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
             ttl=600,
         )
-    return __APP_CONCURRENT_QUERY_PER_ORG
+    return __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
 
 
 class ConcurrencyLimitExceeded(Exception):
