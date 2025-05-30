@@ -14,6 +14,7 @@ from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from django.db import connections
 from sentry_sdk.api import start_span
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.metrics import LABEL_TEAM_ID
 
 from posthog.exceptions_capture import capture_exception
@@ -40,7 +41,6 @@ from .feature_flag import (
     FeatureFlagHashKeyOverride,
     get_feature_flags_for_team_in_cache,
     set_feature_flags_for_team_in_cache,
-    SURVEY_TARGETING_FLAG_PREFIX,
 )
 
 logger = structlog.get_logger(__name__)

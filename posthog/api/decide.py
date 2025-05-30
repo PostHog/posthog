@@ -17,6 +17,7 @@ from posthog.api.utils import (
     get_token,
     on_permitted_recording_domain,
 )
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
     RequestParsingError,
@@ -27,7 +28,6 @@ from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
-from posthog.models.feature_flag.feature_flag import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.models.feature_flag import get_all_feature_flags_with_details
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
