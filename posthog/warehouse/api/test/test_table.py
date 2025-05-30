@@ -399,13 +399,11 @@ class TestTable(APIBaseTest):
 
         # Verify S3 client was called to upload the file
         mock_s3.upload_fileobj.assert_called_once_with(
-            ANY, "test-warehouse-bucket", f"dlt/managed/team_{self.team.id}/test_file.csv"
+            ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/test_file.csv"
         )
 
         # Verify URL pattern was set correctly
-        assert (
-            table.url_pattern == f"https://test-bucket.s3.amazonaws.com/dlt/managed/team_{self.team.id}/test_file.csv"
-        )
+        assert table.url_pattern == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/test_file.csv"
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_file_upload_api_disabled(self, mock_feature_enabled):
@@ -484,7 +482,7 @@ class TestTable(APIBaseTest):
         existing_table.refresh_from_db()
         assert (
             existing_table.url_pattern
-            == f"https://test-bucket.s3.amazonaws.com/dlt/managed/team_{self.team.id}/updated_file.csv"
+            == f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/updated_file.csv"
         )
 
         # columns will be false as validation doesn't work for mocked fields
@@ -496,7 +494,7 @@ class TestTable(APIBaseTest):
 
         # Verify S3 client was called to upload the file
         mock_s3.upload_fileobj.assert_called_once_with(
-            ANY, "test-warehouse-bucket", f"dlt/managed/team_{self.team.id}/updated_file.csv"
+            ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/updated_file.csv"
         )
 
     def _delete_all_from_s3(self, s3_client, bucket_name, prefix=""):
@@ -543,7 +541,7 @@ class TestTable(APIBaseTest):
                 AIRBYTE_BUCKET_KEY="object_storage_root_user",
                 AIRBYTE_BUCKET_SECRET="object_storage_root_password",
                 AIRBYTE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
-                BUCKET_URL=f"s3://{test_bucket_name}/dlt",
+                BUCKET_URL=f"s3://{test_bucket_name}",
                 DATAWAREHOUSE_BUCKET=test_bucket_name,
             ):
                 # Make the API request
@@ -562,7 +560,7 @@ class TestTable(APIBaseTest):
 
         # Check that the file was actually uploaded to MinIO
         objects = s3_client.list_objects_v2(
-            Bucket=test_bucket_name, Prefix=f"dlt/managed/team_{self.team.id}/test_file.csv"
+            Bucket=test_bucket_name, Prefix=f"managed/team_{self.team.id}/test_file.csv"
         )
         self.assertIn("Contents", objects, "No objects found in the bucket")
 

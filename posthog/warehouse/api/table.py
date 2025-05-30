@@ -361,10 +361,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     aws_secret_access_key=credential.access_secret,
                     endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
                 )
-                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"dlt/managed/team_{team_id}/{file.name}")
+                s3.upload_fileobj(file, settings.DATAWAREHOUSE_BUCKET, f"managed/team_{team_id}/{file.name}")
 
                 # Set the URL pattern for the table
-                table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/managed/team_{team_id}/{file.name}"
+                table.url_pattern = f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/managed/team_{team_id}/{file.name}"
                 table.format = file_format
 
                 if table.credential is None:
