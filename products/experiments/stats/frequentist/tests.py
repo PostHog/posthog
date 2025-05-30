@@ -1,16 +1,8 @@
-"""
-Test type implementations for frequentist A/B testing.
-
-This module provides various hypothesis test implementations including
-standard fixed-sample tests and sequential tests with anytime-valid inference.
-"""
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
-from .statistics import AnyStatistic, StatisticError
-from .enums import DifferenceType
+from .statistics import AnyStatistic, StatisticError, DifferenceType
 from .utils import (
     calculate_point_estimate,
     calculate_variance_pooled,

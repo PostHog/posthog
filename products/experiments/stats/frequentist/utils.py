@@ -1,30 +1,21 @@
-"""
-Core statistical calculation utilities for frequentist A/B testing.
-
-This module provides fundamental statistical calculations including
-point estimates, variance calculations, degrees of freedom, and
-supporting mathematical functions.
-"""
-
 import numpy as np
 from scipy import stats
 
 from .statistics import (
     ProportionStatistic,
     AnyStatistic,
+    SampleMeanStatistic,
     StatisticError,
+    DifferenceType,
 )
-from .enums import DifferenceType
 
 
 def get_mean(statistic: AnyStatistic) -> float:
     """Extract the mean/central value from any statistic type."""
-    if hasattr(statistic, "mean"):
+    if isinstance(statistic, SampleMeanStatistic):
         return statistic.mean
-    elif hasattr(statistic, "proportion"):
+    elif isinstance(statistic, ProportionStatistic):
         return statistic.proportion
-    else:
-        raise StatisticError(f"Cannot extract mean from {type(statistic)}")
 
 
 def get_variance(statistic: AnyStatistic) -> float:
@@ -69,12 +60,6 @@ def calculate_point_estimate(
             raise StatisticError("Control mean cannot be zero for relative difference calculation")
         return (treatment_mean - control_mean) / control_mean
 
-    elif difference_type == DifferenceType.SCALED:
-        if abs(control_mean) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for scaled difference calculation")
-        relative_diff = (treatment_mean - control_mean) / control_mean
-        return relative_diff * scaling_factor
-
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")
 
@@ -104,7 +89,7 @@ def calculate_variance_pooled(
     if difference_type == DifferenceType.ABSOLUTE:
         return treatment_var / treatment_n + control_var / control_n
 
-    elif difference_type in [DifferenceType.RELATIVE, DifferenceType.SCALED]:
+    elif difference_type == DifferenceType.RELATIVE:
         # Delta method for relative differences
         treatment_mean = get_mean(treatment_stat)
         control_mean = get_mean(control_stat)
@@ -231,18 +216,6 @@ def calculate_confidence_interval(
         t_critical = stats.t.ppf(1 - alpha / 2, degrees_of_freedom)
         margin = t_critical * standard_error
         return (point_estimate - margin, point_estimate + margin)
-
-    elif test_type == "greater":
-        # Lower bound only
-        t_critical = stats.t.ppf(alpha, degrees_of_freedom)
-        lower_bound = point_estimate + t_critical * standard_error
-        return (lower_bound, float("inf"))
-
-    elif test_type == "less":
-        # Upper bound only
-        t_critical = stats.t.ppf(1 - alpha, degrees_of_freedom)
-        upper_bound = point_estimate + t_critical * standard_error
-        return (float("-inf"), upper_bound)
 
     else:
         raise StatisticError(f"Unknown test type: {test_type}")
