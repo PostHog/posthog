@@ -5,40 +5,19 @@ import { getSeriesColorPalette } from 'lib/colors'
 import { downloadFile } from 'lib/utils'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { takeScreenshotLogic } from './takeScreenshotLogic'
-
-// Define interfaces for better type safety
-interface Point {
-    x: number
-    y: number
-}
-
-interface DrawingItem {
-    path: Point[]
-    color: string
-    width: number
-}
-
-interface TextItem {
-    content: string
-    x: number
-    y: number
-    color: string
-    font: string
-    width?: number // For bounding box, useful for moving
-    height?: number // For bounding box, useful for moving
-}
-
-interface HistoryItem {
-    type: 'draw' | 'text'
-}
+import {
+    type DrawingItem,
+    type HistoryItem,
+    type Point,
+    takeScreenshotLogic,
+    type TextItem,
+} from './takeScreenshotLogic'
 
 export function ScreenShotEditor(): JSX.Element {
-    const { isOpen, imageFile } = useValues(takeScreenshotLogic)
-    const { setIsOpen } = useActions(takeScreenshotLogic)
+    const { isOpen, imageFile, mode } = useValues(takeScreenshotLogic)
+    const { setIsOpen, setMode } = useActions(takeScreenshotLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const [mode, setMode] = useState<'draw' | 'text' | 'moveText'>('draw')
     const [drawings, setDrawings] = useState<DrawingItem[]>([])
     const [texts, setTexts] = useState<TextItem[]>([])
     const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null)
@@ -452,7 +431,9 @@ export function ScreenShotEditor(): JSX.Element {
 
                     {mode === 'text' && textInputPosition.visible && selectedTextIndex === null && (
                         <div
-                            className={`absolute bg-white border rounded p-1 z-10 top-${textInputPosition.y} left-${textInputPosition.x}`}
+                            className="absolute bg-white border rounded p-1 z-10"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ top: textInputPosition.y, left: textInputPosition.x }}
                         >
                             <LemonInput
                                 value={currentText}
