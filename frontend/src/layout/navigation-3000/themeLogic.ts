@@ -72,10 +72,13 @@ export const themeLogic = kea<themeLogicType>([
         isDarkModeOn: [
             (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
             (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
+                const isUnauthenticatedScene = sceneConfig?.allowUnauthenticated || sceneConfig?.onlyUnauthenticated
+
                 if (
                     typeof window !== 'undefined' &&
                     window.document &&
                     document.body.classList.contains('storybook-test-runner') &&
+                    !isUnauthenticatedScene &&
                     document.body.getAttribute('theme') == 'dark'
                 ) {
                     return true
@@ -84,7 +87,7 @@ export const themeLogic = kea<themeLogicType>([
                     return !!theme?.dark
                 }
                 // NOTE: Unauthenticated users always get the light mode until we have full support for dark mode there
-                if (sceneConfig?.allowUnauthenticated || sceneConfig?.onlyUnauthenticated) {
+                if (isUnauthenticatedScene) {
                     return false
                 }
 
