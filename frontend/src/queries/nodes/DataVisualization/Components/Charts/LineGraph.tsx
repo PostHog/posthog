@@ -1,5 +1,4 @@
 import 'chartjs-adapter-dayjs-3'
-import './LineGraph.scss'
 // TODO: Move the below scss to somewhere more common
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
@@ -24,6 +23,7 @@ import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
@@ -96,6 +96,7 @@ const getYAxisSettings = (
 // LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const { ref: containerRef, height } = useResizeObserver()
     const colors = getGraphColors()
 
     // TODO: Extract this logic out of this component and inject values in
@@ -503,12 +504,19 @@ export const LineGraph = (): JSX.Element => {
     return (
         <div
             className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
-                DataVisualization__LineGraph: presetChartHeight,
-                'h-full': !presetChartHeight,
                 border: showEditingUI,
+                'h-[60vh]': presetChartHeight,
+                'h-full': !presetChartHeight,
             })}
+            ref={containerRef}
         >
-            <div className="flex flex-1 w-full h-full overflow-hidden">
+            <div
+                className={clsx('flex flex-1 w-full overflow-hidden', {
+                    'h-full': !presetChartHeight,
+                })}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={height ? { height: `${height}px` } : {}}
+            >
                 <canvas ref={canvasRef} />
             </div>
         </div>

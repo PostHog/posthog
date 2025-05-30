@@ -21,7 +21,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showQueryHelp?: boolean
     insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
-    emptyStateDetail?: string
+    emptyStateDetail?: string | JSX.Element
     renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
@@ -47,6 +47,7 @@ export type QueryContextColumnComponent = ComponentType<{
     query: DataTableNode | DataVisualizationNode
     record: unknown
     recordIndex: number
+    rowCount: number
     value: unknown
 }>
 

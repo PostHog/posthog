@@ -4,6 +4,7 @@ use crate::flags::flag_models::FeatureFlag;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FlagsResponseCode {
@@ -31,6 +32,7 @@ pub struct FlagsResponse {
     pub flags: HashMap<String, FlagDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -41,6 +43,7 @@ pub struct LegacyFlagsResponse {
     pub feature_flag_payloads: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
 }
 
 impl LegacyFlagsResponse {
@@ -63,6 +66,7 @@ impl LegacyFlagsResponse {
                 })
                 .collect(),
             quota_limited: response.quota_limited,
+            request_id: response.request_id,
         }
     }
 }
@@ -72,11 +76,13 @@ impl FlagsResponse {
         errors_while_computing_flags: bool,
         flags: HashMap<String, FlagDetails>,
         quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
     ) -> Self {
         Self {
             errors_while_computing_flags,
             flags,
             quota_limited,
+            request_id,
         }
     }
 }
@@ -141,7 +147,7 @@ impl FromFeatureAndMatch for FlagDetails {
             metadata: FlagDetailsMetadata {
                 id: flag.id,
                 version: flag.version.unwrap_or(0),
-                description: flag.name.clone(),
+                description: None,
                 payload: flag_match.payload.clone(),
             },
         }
@@ -160,7 +166,7 @@ impl FromFeatureAndMatch for FlagDetails {
             metadata: FlagDetailsMetadata {
                 id: flag.id,
                 version: flag.version.unwrap_or(0),
-                description: flag.name.clone(),
+                description: None,
                 payload: None,
             },
         }
@@ -344,7 +350,8 @@ mod tests {
             },
         );
 
-        let response = FlagsResponse::new(false, flags, None);
+        let request_id = Uuid::new_v4();
+        let response = FlagsResponse::new(false, flags, None, request_id);
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
@@ -370,5 +377,8 @@ mod tests {
                 .get("flag_with_null_payload"),
             Some(&json!(null))
         );
+
+        // Check that the request_id is included
+        assert_eq!(legacy_response.request_id, request_id);
     }
 }

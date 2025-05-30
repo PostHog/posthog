@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
-    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
+    isPostHogProperty,
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
 } from '~/taxonomy/taxonomy'
@@ -242,6 +242,8 @@ export function PropertiesTable({
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
+                    [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
@@ -289,10 +291,7 @@ export function PropertiesTable({
                     return false
                 }
                 if (hidePostHogPropertiesInTable) {
-                    const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
-                    const isNonDollarPostHogProperty =
-                        isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
-                    return !isPostHogProperty && !isNonDollarPostHogProperty
+                    return !isPostHogProperty(key, isCloudOrDev)
                 }
                 return true
             })

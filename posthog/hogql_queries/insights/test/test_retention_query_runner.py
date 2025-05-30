@@ -33,6 +33,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+
 
 def _create_action(**kwargs):
     team = kwargs.pop("team")
@@ -788,17 +790,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("US/Pacific")),
             ],
         )
 
@@ -3392,3 +3394,110 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_retention_with_breakdown_limit(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p_chrome_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p_chrome_2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p_chrome_3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p_safari_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p_safari_2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p_firefox_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p_edge_1"])
+
+        # Create events with different browser properties
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort (largest - 3 people)
+                ("p_chrome_1", _date(0), {"browser": "Chrome"}),
+                ("p_chrome_1", _date(1), {"browser": "Chrome"}),  # Day 1 return
+                ("p_chrome_2", _date(0), {"browser": "Chrome"}),
+                ("p_chrome_2", _date(2), {"browser": "Chrome"}),  # Day 2 return
+                ("p_chrome_3", _date(0), {"browser": "Chrome"}),
+                # Safari cohort (second largest - 2 people)
+                ("p_safari_1", _date(0), {"browser": "Safari"}),
+                ("p_safari_1", _date(1), {"browser": "Safari"}),  # Day 1 return
+                ("p_safari_2", _date(0), {"browser": "Safari"}),
+                # Firefox cohort (small - 1 person)
+                ("p_firefox_1", _date(0), {"browser": "Firefox"}),
+                ("p_firefox_1", _date(3), {"browser": "Firefox"}),  # Day 3 return
+                # Edge cohort (small - 1 person)
+                ("p_edge_1", _date(0), {"browser": "Edge"}),
+                ("p_edge_1", _date(4), {"browser": "Edge"}),  # Day 4 return
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {
+                    "breakdowns": [{"property": "browser", "type": "event"}],
+                    "breakdown_limit": 2,  # Limit to top 2 browsers + Other
+                },
+            }
+        )
+
+        # 1. Check that breakdown values are Chrome, Safari, and Other
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Chrome", "Safari", BREAKDOWN_OTHER_STRING_LABEL})
+
+        # 2. Check Chrome counts (should be top cohort)
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
+        self.assertEqual(
+            chrome_cohorts,
+            pad(
+                [
+                    [3, 1, 1, 0, 0, 0],  # Day 0: 3 start, Day 1: 1 returns, Day 2: 1 returns
+                    [1, 0, 0, 0, 0, 0],  # Day 1: p_chrome_1 event. No returns in subsequent intervals.
+                    [1, 0, 0, 0, 0, 0],  # Day 2: p_chrome_2 event. No returns.
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        # 3. Check Safari counts (should be second cohort)
+        safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
+        self.assertEqual(
+            safari_cohorts,
+            pad(
+                [
+                    [2, 1, 0, 0, 0, 0],  # Day 0: 2 start, Day 1: 1 returns
+                    [1, 0, 0, 0, 0, 0],  # Day 1: (p_safari_1 started)
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        # 4. Check "Other" counts (should be sum of Firefox + Edge)
+        other_cohorts = pluck(
+            [c for c in result if c.get("breakdown_value") == BREAKDOWN_OTHER_STRING_LABEL], "values", "count"
+        )
+        self.assertEqual(
+            other_cohorts,
+            pad(
+                [
+                    [
+                        2,
+                        0,
+                        0,
+                        1,
+                        1,
+                        0,
+                    ],  # Day 0: 2 start (firefox+edge), Day 3: 1 returns (firefox), Day 4: 1 returns (edge)
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],  # Day 3: (p_firefox_1 started)
+                    [1, 0, 0, 0, 0, 0],  # Day 4: (p_edge_1 started)
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )

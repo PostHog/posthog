@@ -63,3 +63,8 @@ runs:
           shell: bash
           run: |
               npm run schema:build:python && git diff --exit-code
+
+        # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
+        #   shell: bash
+        #   run: |
+        #       npm run taxonomy:build:json && git diff --exit-code

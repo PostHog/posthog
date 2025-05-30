@@ -1,6 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import * as Sentry from '@sentry/react'
 import { LegendOptions, ScaleOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -28,6 +27,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -278,7 +278,7 @@ export interface LineGraphProps {
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
-        <ErrorBoundary tags={{ feature: 'LineGraph' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'LineGraph' }}>
             {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
@@ -356,11 +356,17 @@ export function LineGraph_({
         }
 
         // Scroll events happen on the main element due to overflow-y: scroll
+        // but we need to make sure it exists before adding the event listener,
+        // e.g: it does not exist in the shared pages
         const main = document.getElementsByTagName('main')[0]
-        main.addEventListener('scrollend', hideTooltip)
+        if (main) {
+            main.addEventListener('scrollend', hideTooltip)
+        }
 
         return () => {
-            main.removeEventListener('scrollend', hideTooltip)
+            if (main) {
+                main.removeEventListener('scrollend', hideTooltip)
+            }
         }
     }, [hideTooltipOnScroll])
 
@@ -391,7 +397,7 @@ export function LineGraph_({
                     console.error(event)
                 }
 
-                Sentry.captureException(event)
+                posthog.captureException(event)
             }
 
             canvas.addEventListener('contextlost', handleEvent)
@@ -583,7 +589,9 @@ export function LineGraph_({
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
-        const goalLines = _goalLines || []
+        const goalLines = (_goalLines || []).filter(
+            (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
+        )
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
@@ -737,13 +745,14 @@ export function LineGraph_({
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
+
                                         return (
                                             <div className="datum-label-column">
                                                 {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
                                                         hasBreakdown={hasBreakdown}
-                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                        seriesIndex={datum.action?.order ?? datum.id}
                                                         seriesColor={datum.color}
                                                     />
                                                 )}

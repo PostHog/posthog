@@ -1,26 +1,20 @@
-use common_types::PersonId;
 use petgraph::algo::is_cyclic_directed;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use serde_json::Value;
-use sqlx::Row;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
-use crate::flags::flag_matching::PostgresReader;
-use crate::properties::property_matching::match_property;
-use crate::properties::property_models::OperatorType;
-use crate::{
-    api::errors::FlagError, client::database::Client as DatabaseClient,
-    properties::property_models::PropertyFilter,
-};
-
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
+use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::properties::property_matching::match_property;
+use crate::properties::property_models::OperatorType;
+use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
+use common_database::Client as DatabaseClient;
 
 impl Cohort {
     /// Returns all cohorts for a given team
@@ -147,7 +141,8 @@ impl Cohort {
             for filter in &cohort_values.values {
                 if filter.is_cohort() {
                     // Assuming the value is a single integer CohortId
-                    if let Some(cohort_id) = filter.value.as_i64() {
+                    if let Some(cohort_id) = filter.value.as_ref().and_then(|value| value.as_i64())
+                    {
                         dependencies.insert(cohort_id as CohortId);
                     } else {
                         return Err(FlagError::CohortFiltersParsingError);
@@ -475,49 +470,6 @@ fn build_cohort_dependency_graph(
     Ok(graph)
 }
 
-/// Evaluates static cohort membership by checking the database.
-///
-/// This function performs a single database query to check if a person
-/// is a member of multiple static cohorts at once, optimizing performance
-/// by batching the lookups.
-pub async fn evaluate_static_cohorts(
-    reader: PostgresReader,
-    person_id: PersonId,
-    cohort_ids: Vec<CohortId>,
-) -> Result<Vec<(CohortId, bool)>, FlagError> {
-    let mut conn = reader.get_connection().await?;
-
-    let query = r#"
-           WITH cohort_membership AS (
-               SELECT c.cohort_id, 
-                      CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
-               FROM unnest($1::integer[]) AS c(cohort_id)
-               LEFT JOIN posthog_cohortpeople AS pc
-                 ON pc.person_id = $2
-                 AND pc.cohort_id = c.cohort_id
-           )
-           SELECT cohort_id, is_member
-           FROM cohort_membership
-       "#;
-
-    let rows = sqlx::query(query)
-        .bind(&cohort_ids)
-        .bind(person_id)
-        .fetch_all(&mut *conn)
-        .await?;
-
-    let result = rows
-        .into_iter()
-        .map(|row| {
-            let cohort_id: CohortId = row.get("cohort_id");
-            let is_member: bool = row.get("is_member");
-            (cohort_id, is_member)
-        })
-        .collect();
-
-    Ok(result)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,7 +547,7 @@ mod tests {
         let result = cohort.parse_filters().unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].key, "$initial_browser_version");
-        assert_eq!(result[0].value, json!(["125"]));
+        assert_eq!(result[0].value, Some(json!(["125"])));
         assert_eq!(result[0].prop_type, "person");
     }
 
@@ -608,7 +560,7 @@ mod tests {
                 values: vec![
                     PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -616,7 +568,7 @@ mod tests {
                     },
                     PropertyFilter {
                         key: "age".to_string(),
-                        value: json!(25),
+                        value: Some(json!(25)),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -629,9 +581,9 @@ mod tests {
         let result = cohort_property.to_inner();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].key, "email");
-        assert_eq!(result[0].value, json!("test@example.com"));
+        assert_eq!(result[0].value, Some(json!("test@example.com")));
         assert_eq!(result[1].key, "age");
-        assert_eq!(result[1].value, json!(25));
+        assert_eq!(result[1].value, Some(json!(25)));
     }
 
     #[tokio::test]

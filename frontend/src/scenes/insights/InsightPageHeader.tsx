@@ -12,6 +12,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -41,6 +42,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ExporterFormat,
     InsightLogicProps,
@@ -181,11 +183,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
                                     onClick={() => {
@@ -202,8 +205,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             )
                         ) : (
                             <InsightSaveButton
-                                saveAs={saveAs}
-                                saveInsight={saveInsight}
+                                saveAs={() =>
+                                    openSaveToModal({
+                                        callback: (folder) => saveAs(undefined, undefined, folder),
+                                        defaultFolder: 'Unfiled/Insights',
+                                    })
+                                }
+                                saveInsight={(redirectToViewMode) =>
+                                    insight.short_id
+                                        ? saveInsight(redirectToViewMode)
+                                        : openSaveToModal({
+                                              callback: (folder) => saveInsight(redirectToViewMode, folder),
+                                              defaultFolder: 'Unfiled/Insights',
+                                          })
+                                }
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
@@ -379,7 +394,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonDivider />
                                             <AccessControlledLemonButton
                                                 userAccessLevel={insight.user_access_level}
-                                                minAccessLevel="editor"
+                                                minAccessLevel={AccessControlLevel.Editor}
                                                 resourceType={AccessControlResourceType.Insight}
                                                 status="danger"
                                                 onClick={() =>

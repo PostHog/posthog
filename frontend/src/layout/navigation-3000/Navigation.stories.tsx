@@ -21,6 +21,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/dashboards/1/collaborators/': [],
                 '/api/environments/:team_id/insights/my_last_viewed/': require('../../scenes/saved-insights/__mocks__/insightsMyLastViewed.json'),
                 '/api/environments/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
+                '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
     ],

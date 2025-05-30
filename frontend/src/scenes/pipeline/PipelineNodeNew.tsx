@@ -10,6 +10,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
+import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +19,6 @@ import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { NewDestinations } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
-import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
@@ -27,9 +27,11 @@ import { PipelineBackend } from './types'
 import { RenderApp } from './utils'
 
 const paramsToProps = ({
-    params: { stage, id },
+    params: { stage, id } = {},
+    searchParams: { kind } = {},
 }: {
     params: { stage?: string; id?: string }
+    searchParams?: { kind?: string }
 }): PipelineNodeNewLogicProps => {
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
     const pluginId = numericId && !isNaN(numericId) ? numericId : null
@@ -41,6 +43,7 @@ const paramsToProps = ({
         pluginId,
         batchExportDestination,
         hogFunctionId,
+        kind: kind ?? null,
     }
 }
 
@@ -161,7 +164,7 @@ function NodeOptionsTable({
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={urls.pipelineNodeNew(stage, target.id)}
+                                    to={urls.pipelineNodeNew(stage, { id: target.id })}
                                     title={target.name}
                                     description={target.description}
                                 />
@@ -179,7 +182,7 @@ function NodeOptionsTable({
                                     data-attr={`new-${stage}-${target.id}`}
                                     icon={<IconPlusSmall />}
                                     // Preserve hash params to pass config in
-                                    to={combineUrl(urls.pipelineNodeNew(stage, target.id), {}, hashParams).url}
+                                    to={combineUrl(urls.pipelineNodeNew(stage, { id: target.id }), {}, hashParams).url}
                                 >
                                     Create
                                 </LemonButton>

@@ -19,7 +19,7 @@ export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): Dat
 /**
  * This is meant to provide a human-readable sentence that computes the times of day in which a sync
  * will occur.
- * "The sync runs at 11:00 AM, 5:00 PM, and 11:00 PM UTC"
+ * "The sync runs at 5:00 AM, 11:00 AM, 5:00 PM, and 11:00 PM UTC"
  * @param anchorTime - The time at which the sync was anchored (UTC)
  * @param syncFrequency - Interval at which the sync will reoccur
  */
@@ -45,10 +45,20 @@ export const syncAnchorIntervalToHumanReadable = (
         return `The sync runs monthly at ${humanTimeFormatter(hours, minutes)} UTC`
     }
 
+    // by this point the syncFrequency should be in the format "6hour" or "12hour"
+    const intervalMatch = syncFrequency.match(/\d+/)?.[0]
+    if (!intervalMatch) {
+        return ''
+    }
+    const interval = Number(intervalMatch)
     const syncTimes: string[] = []
-    const interval = syncFrequency === '6hour' ? 6 : 12
 
-    for (let i = hours; i < 24; i += interval) {
+    // get the first sync time
+    let start = hours
+    while (start >= interval) {
+        start -= interval
+    }
+    for (let i = start; i < 24; i += interval) {
         syncTimes.push(humanTimeFormatter(i, minutes))
     }
 
@@ -61,4 +71,24 @@ function humanTimeFormatter(hours: number, minutes: number): string {
     const period = hours >= 12 ? 'PM' : 'AM'
     const displayHours = hours % 12 || 12 // Convert 0 to 12 for 12 AM
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`
+}
+
+const typeSizes = {
+    undefined: () => 0,
+    boolean: () => 4,
+    number: () => 8,
+    string: (item: string) => 2 * item.length,
+    object: (item: Record<any, any>) =>
+        !item
+            ? 0
+            : Array.isArray(item)
+            ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
+            : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
+    function: () => 0,
+    symbol: () => 0,
+    bigint: () => 0,
+}
+
+export const sizeOfInBytes = (value: any): number => {
+    return (typeSizes[typeof value] || (() => 0))(value)
 }

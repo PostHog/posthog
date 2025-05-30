@@ -1,5 +1,6 @@
 import './PropertyFilters.scss'
 
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -33,7 +34,9 @@ interface PropertyFiltersProps {
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
+    editable?: boolean
     buttonText?: string
+    buttonSize?: LemonButtonProps['size']
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
@@ -45,6 +48,7 @@ interface PropertyFiltersProps {
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
+    addFilterDocLink?: string
 }
 
 export function PropertyFilters({
@@ -64,6 +68,8 @@ export function PropertyFilters({
     propertyGroupType = null,
     addText = null,
     buttonText = 'Add filter',
+    editable = true,
+    buttonSize,
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
@@ -75,6 +81,7 @@ export function PropertyFilters({
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
+    addFilterDocLink,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -100,7 +107,7 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
+                    {(allowNew && editable ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
                         return (
                             <React.Fragment key={index}>
                                 {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
@@ -118,6 +125,7 @@ export function PropertyFilters({
                                     label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
+                                    editable={editable}
                                     filterComponent={(onComplete) => (
                                         <TaxonomicPropertyFilter
                                             key={index}
@@ -141,6 +149,9 @@ export function PropertyFilters({
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
+                                            size={buttonSize}
+                                            addFilterDocLink={addFilterDocLink}
+                                            editable={editable}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

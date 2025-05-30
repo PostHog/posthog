@@ -18,10 +18,11 @@ from posthog.models.integration import (
     Integration,
     OauthIntegration,
     SlackIntegration,
+    LinearIntegration,
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
-    MailIntegration,
+    EmailIntegration,
 )
 
 
@@ -51,11 +52,22 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
         elif validated_data["kind"] == "email":
             config = validated_data.get("config", {})
-            if config.get("vendor") == "mailjet" and not (config.get("api_key") and config.get("secret_key")):
-                raise ValidationError("Both api_key and secret_key are required for Mail integration")
-            instance = MailIntegration.integration_from_keys(
-                config["api_key"],
-                config["secret_key"],
+
+            if config.get("api_key") is not None:
+                if not (config.get("api_key") and config.get("secret_key")):
+                    raise ValidationError("Both api_key and secret_key are required for Mail integration")
+                instance = EmailIntegration.integration_from_keys(
+                    config["api_key"],
+                    config["secret_key"],
+                    team_id,
+                    request.user,
+                )
+                return instance
+
+            if not (config.get("domain")):
+                raise ValidationError("Domain is required for email integration")
+            instance = EmailIntegration.integration_from_domain(
+                config["domain"],
                 team_id,
                 request.user,
             )
@@ -217,3 +229,14 @@ class IntegrationViewSet(
         ]
 
         return Response({"adAccounts": accounts})
+
+    @action(methods=["GET"], detail=True, url_path="linear_teams")
+    def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        linear = LinearIntegration(self.get_object())
+        return Response({"teams": linear.list_teams()})
+
+    @action(methods=["POST"], detail=True, url_path="email/verify")
+    def email_verify(self, request, **kwargs):
+        email = EmailIntegration(self.get_object())
+        verification_result = email.verify()
+        return Response(verification_result)

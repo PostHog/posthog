@@ -1,27 +1,18 @@
-import {
-    IconInfo,
-    IconSparkles,
-    IconThumbsDown,
-    IconThumbsDownFilled,
-    IconThumbsUp,
-    IconThumbsUpFilled,
-} from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import {
+    ResponseSummariesButton,
+    ResponseSummariesDisplay,
+} from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 import { getResponseFieldWithId, NPSBreakdown } from 'scenes/surveys/utils'
@@ -94,7 +85,9 @@ export function RatingQuestionBarChart({
                             ? '1 - 5'
                             : '1 - 3'
                     } rating`}</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        Question {questionIndex + 1}: {question.question}
+                    </div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
@@ -176,9 +169,7 @@ export function NPSSurveyResultsBarChart({
         <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
-                <></>
-            ) : (
+            ) : !surveyRecurringNPSResults[questionIndex]?.total ? null : (
                 <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
@@ -279,7 +270,9 @@ export function SingleChoiceQuestionPieChart({
                 <div className="flex flex-col gap-2">
                     <div>
                         <div className="font-semibold text-secondary">Single choice</div>
-                        <div className="text-xl font-bold">{question.question}</div>
+                        <div className="text-xl font-bold mb-2">
+                            Question {questionIndex + 1}: {question.question}
+                        </div>
                     </div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
@@ -389,9 +382,11 @@ export function MultipleChoiceQuestionBarChart({
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">Multiple choice</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        Question {questionIndex + 1}: {question.question}
+                    </div>
 
                     <div
                         className="border rounded pt-8 pr-10 overflow-y-scroll"
@@ -458,170 +453,77 @@ export function OpenTextViz({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
+    const atLeastOneResponse = !!surveyOpenTextResults?.[questionIndex]?.events?.length
+
     return (
         <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
-                <>no results for open text analysis</>
             ) : (
-                <>
-                    <div className="flex flex-row justify-between items-center">
-                        <Tooltip title="See all Open Text responses in the Events table at the bottom.">
-                            <div className="inline-flex gap-1">
-                                <div className="font-semibold text-secondary">Open text</div>
-                                <LemonDivider vertical className="my-1 mx-1" />
-                                <div className="font-semibold text-secondary">random selection</div>
-                                <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
-                            </div>
-                        </Tooltip>
-                        <ResponseSummariesButton questionIndex={questionIndex} />
-                    </div>
-                    <div className="text-xl font-bold mb-4">{question.question}</div>
-                    <ResponseSummariesDisplay />
-                    <div className="mt-4 mb-8 masonry-container">
-                        {surveyOpenTextResults[questionIndex].events.map((event, i) => {
-                            const personProp = {
-                                distinct_id: event.distinct_id,
-                                properties: event.personProperties,
-                            }
-
-                            const { idBasedKey, indexBasedKey } = getResponseFieldWithId(questionIndex, question?.id)
-                            const surveyResponse = idBasedKey
-                                ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
-                                : event.properties[indexBasedKey]
-
-                            return (
-                                <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                    <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof surveyResponse !== 'string'
-                                            ? JSON.stringify(surveyResponse)
-                                            : surveyResponse}
-                                    </div>
-                                    <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
-                                        <PersonDisplay
-                                            person={personProp}
-                                            withIcon={true}
-                                            noEllipsis={false}
-                                            isCentered
-                                        />
-                                    </div>
+                <div className="flex flex-col gap-2">
+                    <div>
+                        <div className="flex flex-row justify-between items-center">
+                            <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                                <div className="inline-flex gap-1">
+                                    <div className="font-semibold text-secondary">Open text</div>
+                                    <LemonDivider vertical className="my-1 mx-1" />
+                                    <div className="font-semibold text-secondary">random selection</div>
+                                    <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
                                 </div>
-                            )
-                        })}
+                            </Tooltip>
+                            {atLeastOneResponse && (
+                                <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
+                            )}
+                        </div>
+                        <div className="text-xl font-bold">
+                            Question {questionIndex + 1}: {question.question}
+                        </div>
                     </div>
-                </>
-            )}
-        </div>
-    )
-}
+                    {atLeastOneResponse ? (
+                        <>
+                            <ResponseSummariesDisplay />
+                            <div className="masonry-container">
+                                {surveyOpenTextResults[questionIndex].events.map((event, i) => {
+                                    const personProp = {
+                                        distinct_id: event.distinct_id,
+                                        properties: event.personProperties,
+                                    }
 
-function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
-    const { summarize } = useActions(surveyLogic)
-    const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const [showConsentPopover, setShowConsentPopover] = useState(false)
+                                    const { idBasedKey, indexBasedKey } = getResponseFieldWithId(
+                                        questionIndex,
+                                        question?.id
+                                    )
+                                    const surveyResponse = idBasedKey
+                                        ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
+                                        : event.properties[indexBasedKey]
 
-    const summarizeQuestion = (): void => {
-        summarize({ questionIndex })
-    }
-
-    const handleSummarizeClick = (): void => {
-        if (!dataProcessingAccepted) {
-            setShowConsentPopover(true)
-        } else {
-            summarizeQuestion()
-        }
-    }
-
-    const handleDismissPopover = (): void => {
-        setShowConsentPopover(false)
-    }
-
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {dataProcessingAccepted || !showConsentPopover ? (
-                <LemonButton
-                    type="secondary"
-                    data-attr="summarize-survey"
-                    onClick={handleSummarizeClick}
-                    disabledReason={
-                        responseSummaryLoading ? 'Let me think...' : responseSummary ? 'Already summarized' : undefined
-                    }
-                    icon={<IconSparkles />}
-                    loading={responseSummaryLoading}
-                >
-                    {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
-                </LemonButton>
-            ) : (
-                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
-                    <LemonButton
-                        type="secondary"
-                        data-attr="summarize-survey"
-                        onClick={handleSummarizeClick}
-                        disabledReason={dataProcessingApprovalDisabledReason || 'Data processing not accepted'}
-                        icon={<IconSparkles />}
-                        loading={responseSummaryLoading}
-                    >
-                        {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
-                    </LemonButton>
-                </AIConsentPopoverWrapper>
-            )}
-        </FlaggedFeature>
-    )
-}
-
-function ResponseSummariesDisplay(): JSX.Element {
-    const { survey, responseSummary } = useValues(surveyLogic)
-
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {responseSummary ? (
-                <>
-                    <h1>Responses summary</h1>
-                    <LemonMarkdown>{responseSummary.content}</LemonMarkdown>
-                    <LemonDivider dashed={true} />
-                    <ResponseSummaryFeedback surveyId={survey.id} />
-                </>
-            ) : null}
-        </FlaggedFeature>
-    )
-}
-
-function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Element {
-    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
-            return // Already rated
-        }
-        setRating(newRating)
-        posthog.capture('ai_survey_summary_rated', {
-            survey_id: surveyId,
-            answer_rating: newRating,
-        })
-    }
-
-    return (
-        <div className="flex items-center justify-end">
-            {rating === null ? <>Summaries are generated by AI. What did you think?</> : null}
-            {rating !== 'bad' && (
-                <LemonButton
-                    icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                    type="tertiary"
-                    size="small"
-                    tooltip="Good summary"
-                    onClick={() => submitRating('good')}
-                />
-            )}
-            {rating !== 'good' && (
-                <LemonButton
-                    icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                    type="tertiary"
-                    size="small"
-                    tooltip="Bad summary"
-                    onClick={() => submitRating('bad')}
-                />
+                                    return (
+                                        <div
+                                            key={`open-text-${questionIndex}-${i}`}
+                                            className="masonry-item border rounded"
+                                        >
+                                            <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
+                                                {typeof surveyResponse !== 'string'
+                                                    ? JSON.stringify(surveyResponse)
+                                                    : surveyResponse}
+                                            </div>
+                                            <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                                <PersonDisplay
+                                                    person={personProp}
+                                                    withIcon={true}
+                                                    noEllipsis={false}
+                                                    isCentered
+                                                />
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    ) : (
+                        <div>There are no responses for this question.</div>
+                    )}
+                </div>
             )}
         </div>
     )

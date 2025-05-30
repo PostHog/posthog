@@ -11,7 +11,14 @@ import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
+import {
+    EditConclusionModal,
+    ExploreButton,
+    LoadingState,
+    PageHeaderCustom,
+    ResultsQuery,
+    StopExperimentModal,
+} from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -36,7 +43,7 @@ const ResultsTab = (): JSX.Element => {
 
     return (
         <>
-            {!hasSomeResults && !metricResultsLoading && (
+            {!experiment.start_date && !metricResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -88,7 +95,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -101,7 +108,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}
@@ -122,7 +129,7 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {shouldUseExperimentMetrics ? (
+                        {usesNewQueryRunner ? (
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
@@ -141,6 +148,9 @@ export function ExperimentView(): JSX.Element {
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <StopExperimentModal experimentId={experimentId} />
+                        <EditConclusionModal experimentId={experimentId} />
 
                         <VariantDeltaTimeseries />
                     </>

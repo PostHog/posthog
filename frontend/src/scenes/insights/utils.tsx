@@ -405,6 +405,7 @@ export const INSIGHT_TYPE_URLS = {
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    CALENDAR_HEATMAP: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -478,7 +479,11 @@ export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | Fu
 
 export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
     const payload = {
-        series: Number.isInteger(dataset.action?.order) ? dataset.action?.order : 'formula',
+        series: Number.isInteger(dataset.action?.order)
+            ? dataset.action?.order
+            : dataset.seriesIndex > 0
+            ? `formula${dataset.seriesIndex + 1}`
+            : 'formula',
         breakdown_value: dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }

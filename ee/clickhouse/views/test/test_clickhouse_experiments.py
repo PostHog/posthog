@@ -55,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(13, 14)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(13, 14)):
+        with self.assertNumQueries(FuzzyInt(14, 15)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1675,7 +1675,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -2031,6 +2031,62 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
 
+    def test_create_multiple_experiments_with_same_feature_flag(self):
+        # Create a feature flag with proper structure for experiments
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Shared feature flag",
+            key="shared-feature-flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        # Create first experiment with this feature flag
+        first_experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "First experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(first_experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first_experiment_response.json()["feature_flag"]["id"], feature_flag.id)
+
+        # Create second experiment with the same feature flag - this would have previously failed
+        second_experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Second experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        # Assert that the second experiment is created successfully
+        self.assertEqual(second_experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_experiment_response.json()["feature_flag"]["id"], feature_flag.id)
+
+        # Verify both experiments exist and point to the same feature flag
+        first_experiment_id = first_experiment_response.json()["id"]
+        second_experiment_id = second_experiment_response.json()["id"]
+
+        # Ensure both experiments exist in the database
+        first_experiment = Experiment.objects.get(id=first_experiment_id)
+        second_experiment = Experiment.objects.get(id=second_experiment_id)
+
+        # Verify both experiments use the same feature flag
+        self.assertEqual(first_experiment.feature_flag_id, feature_flag.id)
+        self.assertEqual(second_experiment.feature_flag_id, feature_flag.id)
+
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants
         response = self.client.post(
@@ -2210,6 +2266,118 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_experiment_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Folder Test Experiment",
+                "description": "This experiment goes in a custom folder",
+                "feature_flag_key": "folder-experiment",
+                # ensure the experiment is in draft so it doesn't fail if user doesn't pass certain date fields
+                "start_date": None,
+                "filters": {"events": [], "properties": []},
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+                "_create_in_folder": "Special Folder/Experiments",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        experiment_id = response.json()["id"]
+        self.assertTrue(Experiment.objects.filter(id=experiment_id).exists())
+
+        ff_key = response.json()["feature_flag_key"]
+        self.assertTrue(FeatureFlag.objects.filter(team=self.team, key=ff_key).exists())
+        ff_id = FeatureFlag.objects.filter(team=self.team, key=ff_key).first().id
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(experiment_id), type="experiment").first()
+        assert fs_entry is not None, "Expected a FileSystem entry for the newly created experiment."
+        assert (
+            "Special Folder/Experiments" in fs_entry.path
+        ), f"Expected path to contain 'Special Folder/Experiments', got {fs_entry.path}"
+
+        ff_entry = FileSystem.objects.filter(team=self.team, ref=str(ff_id), type="feature_flag").first()
+        assert ff_entry is not None, "Expected a FileSystem entry for the newly created feature flag."
+        assert (
+            "Special Folder/Experiments" in ff_entry.path
+        ), f"Expected path to contain 'Special Folder/Experiments', got {ff_entry.path}"
+
+    def test_list_endpoint_excludes_deleted_experiments(self):
+        """Test that list endpoint doesn't return soft-deleted experiments"""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment_id = response.json()["id"]
+
+        response2 = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Active Experiment",
+                "feature_flag_key": "active-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        active_experiment_id = response2.json()["id"]
+
+        # Soft delete the first experiment
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        experiment_ids = [exp["id"] for exp in response.json()["results"]]
+
+        # Should only contain the active experiment
+        self.assertIn(active_experiment_id, experiment_ids)
+        self.assertNotIn(experiment_id, experiment_ids)
+
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
+        """Test that detail endpoint returns 404 for soft-deleted experiments"""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment_id = response.json()["id"]
+
+        # Soft delete the experiment
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        # Try to get the deleted experiment
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
@@ -2349,6 +2517,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "key": "$pageview",
                             "value": "http://example.com",
                             "type": "person",
+                            "operator": "exact",
                         },
                     ],
                 }
@@ -2492,13 +2661,13 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "key": "$pageview",
                             "value": "http://example.com",
                             "type": "person",
+                            "operator": "exact",
                         },
                     ],
                 }
             },
             name="cohort_X",
         )
-        cohort_extra.calculate_people_ch(pending_version=1)
 
         action1 = Action.objects.create(
             team=self.team,
@@ -2627,6 +2796,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             timestamp=datetime.now() - timedelta(days=2),
         )
         flush_persons_and_events()
+
+        cohort_extra.calculate_people_ch(pending_version=1)
 
         # now call to make cohort
         response = self.client.post(

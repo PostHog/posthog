@@ -61,6 +61,26 @@ class FunnelBase(ABC):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
+        # validate funnel steps range
+        max_series_index = len(self.context.query.series) - 1
+        if self.context.funnelsFilter.funnelFromStep is not None:
+            if not (0 <= self.context.funnelsFilter.funnelFromStep <= max_series_index - 1):
+                raise ValidationError(
+                    f"funnelFromStep is out of bounds. It must be between 0 and {max_series_index - 1}."
+                )
+
+        if self.context.funnelsFilter.funnelToStep is not None:
+            if not (1 <= self.context.funnelsFilter.funnelToStep <= max_series_index):
+                raise ValidationError(f"funnelToStep is out of bounds. It must be between 1 and {max_series_index}.")
+
+            if (
+                self.context.funnelsFilter.funnelFromStep is not None
+                and self.context.funnelsFilter.funnelFromStep >= self.context.funnelsFilter.funnelToStep
+            ):
+                raise ValidationError(
+                    "Funnel step range is invalid. funnelToStep should be greater than funnelFromStep."
+                )
+
         # validate exclusions
         if self.context.funnelsFilter.exclusions is not None:
             for exclusion in self.context.funnelsFilter.exclusions:
@@ -164,8 +184,11 @@ class FunnelBase(ABC):
                     )
 
                 final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
-            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
+            if for_udf:
+                return [prop_basic, *select_columns, final_select]
+
+            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
             BreakdownAttributionType.FIRST_TOUCH,
@@ -182,6 +205,8 @@ class FunnelBase(ABC):
             )
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            if for_udf:
+                return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
             prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
             return [
                 prop_basic,
@@ -461,12 +486,11 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+        query, funnelsFilter, breakdown, breakdownType = (
             self.context.query,
             self.context.funnelsFilter,
             self.context.breakdown,
             self.context.breakdownType,
-            self.context.breakdownAttributionType,
         )
         entities_to_use = entities or query.series
 
@@ -497,7 +521,7 @@ class FunnelBase(ABC):
                 exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
                 all_step_cols.append(exclusion_col_expr)
 
-        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=False)
+        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=True)
 
         if breakdown_select_prop:
             all_step_cols.extend(breakdown_select_prop)
@@ -512,10 +536,6 @@ class FunnelBase(ABC):
             assert isinstance(funnel_events_query.where, ast.Expr)
             steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
-
-        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
-            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
-            return self._add_breakdown_attribution_subquery(funnel_events_query)
 
         return funnel_events_query
 
@@ -539,7 +559,7 @@ class FunnelBase(ABC):
 
         for cohort in self.breakdown_cohorts:
             query = parse_select(
-                f"select id as cohort_person_id, {cohort.pk} as value from persons where id in cohort {cohort.pk}"
+                f"select person_id as cohort_person_id, {cohort.pk} as value from cohort_people where person_id in cohort {cohort.pk}"
             )
             assert isinstance(query, ast.SelectQuery)
             cohort_queries.append(query)
@@ -741,13 +761,17 @@ class FunnelBase(ABC):
 
         if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
-            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            first_time_filter = ast.CompareOperation(
+                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
+            )
             return ast.And(exprs=[*filters, first_time_filter])
         elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
             subquery = FirstTimeForUserAggregationQuery(
                 self.context, ast.Constant(value=1), ast.And(exprs=filters)
             ).to_query()
-            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            first_time_filter = ast.CompareOperation(
+                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
+            )
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
             return ast.And(exprs=filters)
@@ -1059,7 +1083,7 @@ class FunnelBase(ABC):
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
-        return not isinstance(breakdown, str) and breakdownType != "cohort"
+        return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
     def _get_exclusion_condition(self) -> list[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter

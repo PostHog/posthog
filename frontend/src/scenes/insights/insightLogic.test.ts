@@ -17,6 +17,7 @@ import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     AnyPropertyFilter,
     DashboardTile,
     DashboardType,
@@ -99,7 +100,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
-        user_access_level: 'editor',
+        user_access_level: AccessControlLevel.Editor,
         ...properties,
     } as QueryBasedInsightModel
 }

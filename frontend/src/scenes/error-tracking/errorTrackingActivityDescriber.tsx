@@ -17,8 +17,8 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { AssigneeDisplay } from './AssigneeDisplay'
-import { assigneeSelectLogic } from './assigneeSelectLogic'
+import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './components/Assignee/AssigneeDisplay'
+import { assigneeSelectLogic } from './components/Assignee/assigneeSelectLogic'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
@@ -30,14 +30,14 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
     }, [ensureAssigneeTypesLoaded])
 
     return (
-        <AssigneeDisplay assignee={assignee}>
-            {({ displayAssignee }) => (
+        <AssigneeResolver assignee={assignee}>
+            {({ assignee }) => (
                 <span className="flex gap-x-0.5">
-                    {displayAssignee.icon}
-                    <span>{displayAssignee.displayName}</span>
+                    <AssigneeIconDisplay assignee={assignee} />
+                    <AssigneeLabelDisplay assignee={assignee} />
                 </span>
             )}
-        </AssigneeDisplay>
+        </AssigneeResolver>
     )
 }
 
@@ -115,7 +115,8 @@ const errorTrackingIssueActionsMapping: Record<
     aggregations: () => null,
     first_seen: () => null,
     last_seen: () => null,
-    earliest: () => null,
+    first_event: () => null,
+    library: () => null,
 }
 
 export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

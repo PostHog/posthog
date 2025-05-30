@@ -1,8 +1,17 @@
-import { IconRevert, IconTrash, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonDialog, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconRevert, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonDialog,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTabs,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
+import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -10,10 +19,24 @@ import { useEffect, useState } from 'react'
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
+const SYMBOL_SET_FILTER_OPTIONS = [
+    {
+        label: <IconCheckCircle />,
+        value: 'valid',
+    },
+    {
+        label: <IconWarning />,
+        value: 'invalid',
+    },
+    {
+        label: 'All',
+        value: 'all',
+    },
+] as { label: string; value: SymbolSetStatusFilter }[]
+
 export function ErrorTrackingSymbolSets(): JSX.Element {
-    const logic = errorTrackingSymbolSetLogic()
-    const { missingSymbolSets, validSymbolSets } = useValues(logic)
-    const { loadSymbolSets } = useActions(logic)
+    const { symbolSetStatusFilter } = useValues(errorTrackingSymbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter } = useActions(errorTrackingSymbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -29,51 +52,74 @@ export function ErrorTrackingSymbolSets(): JSX.Element {
                 Cases where it was not possible are listed below. Source maps can be uploaded retroactively but changes
                 will only apply to all future exceptions ingested.
             </p>
-            {missingSymbolSets.length > 0 && (
-                <SymbolSetTable id="missing" dataSource={missingSymbolSets} pageSize={5} missing />
-            )}
-            {(validSymbolSets.length > 0 || missingSymbolSets.length === 0) && (
-                <SymbolSetTable id="valid" dataSource={validSymbolSets} pageSize={10} />
-            )}
+            <div className="space-y-2">
+                <div className="flex justify-end items-center gap-2">
+                    <span className="mb-0">Status:</span>
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={symbolSetStatusFilter}
+                        options={SYMBOL_SET_FILTER_OPTIONS}
+                        onChange={setSymbolSetStatusFilter}
+                    />
+                </div>
+                <SymbolSetTable />
+            </div>
             <SymbolSetUploadModal />
         </div>
     )
 }
 
-const SymbolSetTable = ({
-    id,
-    dataSource,
-    pageSize,
-    missing,
-}: {
-    id: string
-    dataSource: ErrorTrackingSymbolSet[]
-    pageSize: number
-    missing?: boolean
-}): JSX.Element => {
-    const { symbolSetsLoading } = useValues(errorTrackingSymbolSetLogic)
+const SymbolSetTable = (): JSX.Element => {
+    // @ts-expect-error: automagical typing does not work here for some obscure reason
+    const { pagination, symbolSets, symbolSetResponseLoading } = useValues(errorTrackingSymbolSetLogic)
     const { deleteSymbolSet, setUploadSymbolSetId } = useActions(errorTrackingSymbolSetLogic)
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
-        { title: missing && 'Missing symbol sets', dataIndex: 'ref' },
+        {
+            title: 'Source',
+            width: 200,
+            render: (_, { ref }) => {
+                return (
+                    <div className="truncate w-100 overflow-hidden rtl py-0.5" title={ref}>
+                        {ref}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: (_, { failure_reason }) => {
+                return (
+                    <Tooltip title={failure_reason} placement="top">
+                        {failure_reason ? (
+                            <span className="text-danger cursor-pointer">
+                                <IconWarning /> Missing
+                            </span>
+                        ) : (
+                            <span className="text-success">
+                                <IconCheckCircle /> Uploaded
+                            </span>
+                        )}
+                    </Tooltip>
+                )
+            },
+        },
         { title: 'Created At', dataIndex: 'created_at', render: (data) => humanFriendlyDetailedTime(data as string) },
         {
             dataIndex: 'id',
-            render: (_, { id }) => {
+            align: 'right',
+            render: (_, { id, failure_reason }) => {
                 return (
-                    <div className="flex justify-end deprecated-space-x-1">
+                    <div className="flex justify-end items-center gap-1">
                         <LemonButton
-                            type={missing ? 'primary' : 'secondary'}
+                            type={failure_reason ? 'primary' : 'tertiary'}
                             size="xsmall"
-                            tooltip={missing ? 'Upload symbol set' : 'Replace symbol set'}
-                            icon={missing ? <IconUpload /> : <IconRevert />}
+                            tooltip={failure_reason ? 'Upload symbol set' : 'Replace symbol set'}
+                            icon={failure_reason ? <IconUpload /> : <IconRevert />}
                             onClick={() => setUploadSymbolSetId(id)}
-                            className="py-1"
-                        >
-                            {missing && 'Upload'}
-                        </LemonButton>
+                        />
                         <LemonButton
-                            type="secondary"
+                            type="tertiary"
                             size="xsmall"
                             tooltip="Delete symbol set"
                             icon={<IconTrash />}
@@ -92,7 +138,6 @@ const SymbolSetTable = ({
                                     },
                                 })
                             }
-                            className="py-1"
                         />
                     </div>
                 )
@@ -100,18 +145,13 @@ const SymbolSetTable = ({
         },
     ]
 
-    if (missing) {
-        columns.splice(1, 0, { title: 'Failure reason', dataIndex: 'failure_reason' })
-    }
-
     return (
         <LemonTable
-            id={id}
-            showHeader={missing}
-            pagination={{ pageSize }}
+            id="symbol-sets"
+            pagination={pagination}
             columns={columns}
-            loading={symbolSetsLoading}
-            dataSource={dataSource}
+            loading={symbolSetResponseLoading}
+            dataSource={symbolSets}
             expandable={{
                 noIndent: true,
                 expandedRowRender: function RenderPropertiesTable(symbolSet) {

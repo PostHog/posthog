@@ -318,18 +318,18 @@ class AISustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
-    rate = "40/day"
+    rate = "100/day"
 
 
-class EditorProxyBurstRateThrottle(UserRateThrottle):
-    scope = "editor_proxy_burst"
+class LLMProxyBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_burst"
     rate = "30/minute"
 
 
-class EditorProxySustainedRateThrottle(UserRateThrottle):
+class LLMProxySustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "editor_proxy_sustained"
+    scope = "llm_proxy_sustained"
     rate = "500/hour"
 
 
@@ -339,8 +339,13 @@ class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     rate = "120/hour"
 
 
-class APIQueriesThrottle(PersonalApiKeyRateThrottle):
-    scope = "query"
+class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_burst"
+    rate = "120/minute"
+
+
+class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_sustained"
     rate = "1200/hour"
 
 

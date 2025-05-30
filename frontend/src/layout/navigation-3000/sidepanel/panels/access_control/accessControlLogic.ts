@@ -10,10 +10,12 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
     AccessControlTypeMember,
+    AccessControlTypeOrganizationAdmins,
     AccessControlTypeProject,
     AccessControlTypeRole,
     AccessControlUpdateType,
@@ -23,11 +25,13 @@ import {
 } from '~/types'
 
 import type { accessControlLogicType } from './accessControlLogicType'
-import { roleBasedAccessControlLogic } from './roleBasedAccessControlLogic'
+import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export type AccessControlLogicProps = {
     resource: APIScopeObject
     resource_id: string
+    title: string
+    description: string
 }
 
 export const accessControlLogic = kea<accessControlLogicType>([
@@ -40,7 +44,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             ['sortedMembers'],
             teamLogic,
             ['currentTeam'],
-            roleBasedAccessControlLogic,
+            roleAccessControlLogic,
             ['roles'],
             upgradeModalLogic,
             ['guardAvailableFeature'],
@@ -51,19 +55,19 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
         ) => ({ accessControl }),
-        updateAccessControlDefault: (level: AccessControlType['access_level']) => ({
+        updateAccessControlDefault: (level: AccessControlLevel) => ({
             level,
         }),
         updateAccessControlRoles: (
             accessControls: {
                 role: RoleType['id']
-                level: AccessControlType['access_level']
+                level: AccessControlLevel | null
             }[]
         ) => ({ accessControls }),
         updateAccessControlMembers: (
             accessControls: {
                 member: OrganizationMemberType['id']
-                level: AccessControlType['access_level']
+                level: AccessControlLevel | null
             }[]
         ) => ({ accessControls }),
     }),
@@ -79,9 +83,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         // Return empty access controls
                         return {
                             access_controls: [],
-                            available_access_levels: ['none', 'viewer', 'editor'],
-                            user_access_level: 'none',
-                            default_access_level: 'none',
+                            available_access_levels: [
+                                AccessControlLevel.None,
+                                AccessControlLevel.Viewer,
+                                AccessControlLevel.Editor,
+                            ],
+                            user_access_level: AccessControlLevel.None,
+                            default_access_level: AccessControlLevel.None,
                             user_can_edit_access_levels: false,
                         }
                     }
@@ -178,14 +186,14 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         availableLevelsWithNone: [
             (s) => [s.accessControls],
-            (accessControls): string[] => {
+            (accessControls): AccessControlLevel[] => {
                 return accessControls?.available_access_levels ?? []
             },
         ],
 
         availableLevels: [
             (s) => [s.availableLevelsWithNone],
-            (availableLevelsWithNone): string[] => {
+            (availableLevelsWithNone): AccessControlLevel[] => {
                 return availableLevelsWithNone.filter((level) => level !== 'none')
             },
         ],
@@ -238,32 +246,35 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
 
-        organizationAdminsAsAccessControlMembers: [
+        organizationAdminsAsAccessControlMember: [
             (s) => [s.organizationAdmins],
-            (organizationAdmins): AccessControlTypeMember[] => {
-                return organizationAdmins.map((admin) => ({
-                    organization_member: admin.id,
-                    access_level: 'admin',
+            (organizationAdmins): AccessControlTypeOrganizationAdmins => {
+                return {
+                    organization_admin_members: organizationAdmins.map((member) => member.id),
+                    access_level: AccessControlLevel.Admin,
                     created_by: null,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     resource: 'organization',
-                }))
+                }
             },
         ],
 
         accessControlMembers: [
-            (s) => [s.accessControls, s.organizationAdminsAsAccessControlMembers],
-            (accessControls, organizationAdminsAsAccessControlMembers): AccessControlTypeMember[] => {
+            (s) => [s.accessControls, s.organizationAdminsAsAccessControlMember],
+            (
+                accessControls,
+                organizationAdminsAsAccessControlMember
+            ): (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[] => {
                 const members = (accessControls?.access_controls || [])
                     .filter((accessControl) => !!accessControl.organization_member)
                     .filter(
                         (accessControl) =>
-                            !organizationAdminsAsAccessControlMembers.some(
-                                (admin) => admin.organization_member === accessControl.organization_member
+                            !organizationAdminsAsAccessControlMember.organization_admin_members.some(
+                                (member) => member === accessControl.organization_member
                             )
-                    ) as AccessControlTypeMember[]
-                return organizationAdminsAsAccessControlMembers.concat(members)
+                    ) as (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[]
+                return members.concat(organizationAdminsAsAccessControlMember)
             },
         ],
 

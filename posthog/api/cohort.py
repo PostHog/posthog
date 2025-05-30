@@ -6,21 +6,21 @@ from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
 import structlog
 
-from posthog.models.activity_logging.activity_log import log_activity, Detail, changes_between, load_activity
+from posthog.models.activity_logging.activity_log import log_activity, Detail, dict_changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
     get_feature_flag_hash_key_overrides,
 )
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import property_group_to_Q
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import Any, cast, Optional
+from typing import Any, cast, Optional, Union
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
@@ -81,6 +81,95 @@ from posthog.tasks.calculate_cohort import (
 )
 from posthog.utils import format_query_params_absolute_url
 from prometheus_client import Counter
+from typing import Literal, Annotated
+from pydantic import BaseModel, Field, model_validator
+from pydantic import ValidationError as PydanticValidationError
+
+
+class EventPropFilter(BaseModel, extra="forbid"):
+    type: Literal["event"]
+    key: str
+    value: Any
+    operator: str | None = None
+
+
+class HogQLFilter(BaseModel, extra="forbid"):
+    type: Literal["hogql"]
+    key: str
+    value: Any | None = None
+
+
+class BehavioralFilter(BaseModel, extra="forbid"):
+    type: Literal["behavioral"]
+    key: Union[str, int]  # action IDs can be ints
+    value: str
+    event_type: str
+    time_value: int | None = None
+    time_interval: str | None = None
+    negation: bool = False
+    operator: str | None = None
+    operator_value: int | None = None
+    seq_time_interval: str | None = None
+    seq_time_value: int | None = None
+    seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
+    seq_event_type: str | None = None
+    total_periods: int | None = None
+    min_periods: int | None = None
+    event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
+    explicit_datetime: str | None = None
+
+
+class CohortFilter(BaseModel, extra="forbid"):
+    type: Literal["cohort"]
+    key: Literal["id"]
+    value: int
+    negation: bool = False
+
+
+class PersonFilter(BaseModel, extra="forbid"):
+    type: Literal["person"]
+    key: str
+    operator: str | None = None  # accept any legacy operator
+    value: Any | None = None  # mostly likely it's list[str], str, or None
+    negation: bool = False
+
+    @model_validator(mode="after")
+    def _missing_keys_check(self):
+        missing: list[str] = []
+
+        # value is required unless operator is an *is_set* variant
+        if self.value is None and self.operator not in ("is_set", "is_not_set"):
+            missing.append("value")
+
+        # operator is required whenever value is supplied,
+        # and also when both value & operator are missing
+        if self.operator is None:
+            missing.append("operator")
+
+        if missing:
+            raise ValueError(f"Missing required keys for person filter: {', '.join(missing)}")
+
+        return self
+
+
+PropertyFilter = Annotated[
+    Union[BehavioralFilter, CohortFilter, PersonFilter],
+    Field(discriminator="type"),
+]
+
+FilterOrGroup = Annotated[Union[PropertyFilter, "Group"], Field(discriminator="type")]
+
+
+class Group(BaseModel, extra="forbid"):
+    type: Literal["AND", "OR"]
+    values: list[FilterOrGroup]
+
+
+Group.model_rebuild()
+
+
+class CohortFilters(BaseModel, extra="forbid"):
+    properties: Group
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
@@ -95,6 +184,7 @@ logger = structlog.get_logger(__name__)
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
@@ -117,6 +207,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
             "experiment_set",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -185,44 +276,85 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
 
-    def validate_filters(self, request_filters: dict):
-        if isinstance(request_filters, dict) and "properties" in request_filters:
-            if self.context["request"].method == "PATCH":
-                parsed_filter = Filter(data=request_filters)
-                instance = cast(Cohort, self.instance)
-                cohort_id = instance.pk
-                flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
-                    team__project_id=self.context["project_id"], active=True, deleted=False
+    def validate_filters(self, raw: dict):
+        """
+        1. structural/schema check → pydantic
+        2. domain rules (feature-flag gotchas) → bespoke fn
+        """
+        # Skip validation for static cohorts
+        if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
+            return raw
+        if not isinstance(raw, dict) or "properties" not in raw:
+            raise ValidationError(
+                {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
+            )
+        try:
+            CohortFilters.model_validate(raw)  # raises if malformed
+        except PydanticValidationError as exc:
+            # pydantic → drf error shape
+            raise ValidationError(detail=self._cohort_error_message(exc))
+
+        self._validate_feature_flag_constraints(raw)  # keep your side-rules
+        return raw
+
+    @staticmethod
+    def _cohort_error_message(exc: PydanticValidationError) -> str:
+        """
+        make pydantic's missing-field error read like the old
+        'Missing required keys for <kind> filter: <field>' string.
+        if we can't map it, fall back to the raw pydantic payload.
+        """
+        for err in exc.errors():
+            # custom ValueError raised by model_validator
+            if err["type"] == "value_error":
+                msg = err["msg"]
+                idx = msg.find("Missing required keys")
+                if idx != -1:
+                    return msg[idx:]  # strip the "Value error, " prefix
+
+            # generic missing-field case
+            if err["type"] == "missing":
+                loc = [str(p) for p in err["loc"]]
+                missing_field = loc[-1]
+                for kind in ("behavioral", "cohort", "person"):
+                    if kind in loc:
+                        return f"Missing required keys for {kind} filter: {missing_field}"
+        return str(exc.errors())
+
+    def _validate_feature_flag_constraints(self, request_filters: dict):
+        if self.context["request"].method != "PATCH":
+            return
+
+        parsed_filter = Filter(data=request_filters)
+        instance = cast(Cohort, self.instance)
+        cohort_id = instance.pk
+
+        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True, deleted=False)
+        cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
+
+        if not cohort_used_in_flags:
+            return
+
+        for prop in parsed_filter.property_groups.flat:
+            if prop.type == "behavioral":
+                raise serializers.ValidationError(
+                    detail="Behavioral filters cannot be added to cohorts used in feature flags.",
+                    code="behavioral_cohort_found",
                 )
-                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
 
-                for prop in parsed_filter.property_groups.flat:
-                    if prop.type == "behavioral":
-                        if cohort_used_in_flags:
-                            raise serializers.ValidationError(
-                                detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
-                                code="behavioral_cohort_found",
-                            )
+            if prop.type == "cohort":
+                self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
 
-                    if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-                        dependent_cohorts = get_dependent_cohorts(nested_cohort)
-                        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-                            if (
-                                cohort_used_in_flags
-                                and len(
-                                    [prop for prop in dependent_cohort.properties.flat if prop.type == "behavioral"]
-                                )
-                                > 0
-                            ):
-                                raise serializers.ValidationError(
-                                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
-                                    code="behavioral_cohort_found",
-                                )
+    def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
+        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
+        dependent_cohorts = get_dependent_cohorts(nested_cohort)
 
-            return request_filters
-        else:
-            raise ValidationError("Filters must be a dictionary with a 'properties' key.")
+        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
+            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
+                raise serializers.ValidationError(
+                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
+                    code="behavioral_cohort_found",
+                )
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
@@ -499,7 +631,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         item_id = kwargs["pk"]
         if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="Cohort",
@@ -512,28 +644,41 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     def perform_create(self, serializer):
         serializer.save()
+        instance = cast(Cohort, serializer.instance)
+
+        # Although there are no changes when creating a Cohort, we synthesize one here because
+        # it is helpful to show the list of people in the cohort when looking at the activity log.
+        people = instance.to_dict()["people"]
+        changes = dict_changes_between(
+            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
+        )
+
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
             was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
+            item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(name=serializer.instance.name),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
     def perform_update(self, serializer):
-        instance_id = serializer.instance.id
+        instance = cast(Cohort, serializer.instance)
+        instance_id = instance.id
 
         try:
-            before_update = Cohort.objects.get(pk=instance_id)
+            # Using to_dict() here serializer.save() was changing the instance in memory,
+            # so we need to get the before state in a "detached" manner that won't be
+            # affected by the serializer.save() call.
+            before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
-            before_update = None
+            before_update = {}
 
         serializer.save()
 
-        changes = changes_between("Cohort", previous=before_update, current=serializer.instance)
+        changes = dict_changes_between("Cohort", previous=before_update, new=instance.to_dict())
 
         log_activity(
             organization_id=self.organization.id,
@@ -543,7 +688,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance_id,
             scope="Cohort",
             activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
 
@@ -715,7 +860,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
         # iterate through all persons
         queryset = (
-            Person.objects.filter(team_id=team_id)
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
             .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
         )
@@ -729,14 +875,18 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             #     "distinct_id", flat=True
             # )[0]
             distinct_id_subquery = Subquery(
-                PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[:3]
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(person_id=OuterRef("person_id"))
+                .values_list("id", flat=True)[:3]
             )
             prefetch_related_objects(
                 batch_of_persons,
                 Prefetch(
                     "persondistinctid_set",
                     to_attr="distinct_ids_cache",
-                    queryset=PersonDistinctId.objects.filter(id__in=distinct_id_subquery),
+                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                        id__in=distinct_id_subquery
+                    ),
                 ),
             )
 

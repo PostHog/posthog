@@ -1,5 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FilterableInspectorListItemTypes } from '~/types'
@@ -128,6 +128,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingInspectorMiniFilterViewed']],
     })),
     reducers(() => ({
         showOnlyMatching: [
@@ -223,10 +224,10 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         setMiniFilter: ({ key, enabled }) => {
             if (enabled) {
-                eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
+                actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
             }
         },
     })),

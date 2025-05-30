@@ -51,6 +51,7 @@ export function Navbar(): JSX.Element {
                                                 item.onClick?.()
                                             }}
                                             active={activeNavbarItemId === item.identifier && isSidebarShown}
+                                            tooltipDocLink={item.tooltipDocLink}
                                         />
                                     )
                                 )}

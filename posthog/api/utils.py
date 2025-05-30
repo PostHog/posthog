@@ -1,6 +1,7 @@
 import json
 import re
 import socket
+import time
 import urllib.parse
 from enum import Enum, auto
 from functools import wraps
@@ -33,8 +34,10 @@ from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.schema import QueryTiming
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
+from posthoganalytics import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -144,9 +147,20 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     return result
 
 
+def is_csp_report(request) -> bool:
+    return (
+        request.path == "/report"
+        or request.path == "/report/"
+        or request.headers.get("Content-Type") in {"application/reports+json", "application/csp-report"}
+    )
+
+
 def get_token(data, request) -> Optional[str]:
     token = None
-    if request.method == "GET":
+
+    if request.method == "GET" or is_csp_report(
+        request
+    ):  # CSPs are actually POST, but the token must be available at the report-uri/to URL
         if request.GET.get("token"):
             token = request.GET.get("token")  # token passed as query param
         elif request.GET.get("api_key"):
@@ -174,7 +188,7 @@ def get_token(data, request) -> Optional[str]:
 
 def get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
-        return int(request.POST["project_id"])
+        return int(request.GET["project_id"])
     if request.POST.get("project_id"):
         return int(request.POST["project_id"])
     if isinstance(data, list):
@@ -186,6 +200,7 @@ def get_project_id(data, request) -> Optional[int]:
 
 def get_data(request):
     data = None
+
     try:
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
@@ -486,3 +501,71 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
         return wrapped_function
 
     return decorator
+
+
+# context manager for gathering a sequence of server timings
+# can be used to then return the timings in the HTTP response headers
+# so that browsers and other tools can show them
+class ServerTimingsGathered:
+    def __init__(self):
+        # Instance level dictionary to store timings
+        self.timings_dict = {}
+
+    def __call__(self, name):
+        self.name = name
+        return self
+
+    def __enter__(self):
+        # timings are assumed to be in milliseconds when reported
+        # but are gathered by time.perf_counter which is fractional seconds 🫠
+        # so each value is multiplied by 1000 at collection
+        self.start_time = time.perf_counter() * 1000
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter() * 1000
+        elapsed_time = end_time - self.start_time
+        self.timings_dict[self.name] = elapsed_time
+
+    def get_all_timings(self):
+        return self.timings_dict
+
+    def generate_timings(self, hogql_timings: list[QueryTiming] | None = None) -> dict[str, float]:
+        timings_dict = self.get_all_timings()
+        hogql_timings_dict = {}
+        for timing in hogql_timings or []:
+            new_key = f"hogql_{timing.k.lstrip('./').replace('/', '_')}"
+            # HogQL query timings are in seconds, convert to milliseconds
+            hogql_timings_dict[new_key] = timing.t * 1000
+        all_timings = {**timings_dict, **hogql_timings_dict}
+        return all_timings
+
+    def to_header_string(self, hogql_timings: list[QueryTiming] | None = None) -> str:
+        timings = self.generate_timings(hogql_timings).items()
+        result: list[str] = []
+        current_length = 0
+
+        for key, duration in timings:
+            timing_str = f"{key};dur={round(duration, ndigits=2)}"
+            # +2 for ", " separator, except for first item
+            new_length = current_length + len(timing_str) + (2 if result else 0)
+
+            if new_length > 10000:
+                """
+                The server timings can grow to arbitrary length - in the case that caused us problems over 33,000 characters
+                AWS ALBs have limits on size for both each individual header and for all headers on a request
+                If we exceed that limit then the ALB returns a 502 with no other explanation
+                leading to confusion and distraction
+                So, we limit here to 10k characters to avoid that issue
+                The timings header is a debug signal we don't rely on for functionality
+                so not receiving all timings is not the worse thing in the world
+                """
+                capture_exception(
+                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
+                    properties={"timings": timings},
+                )
+                break
+
+            result.append(timing_str)
+            current_length = new_length
+
+        return ", ".join(result)

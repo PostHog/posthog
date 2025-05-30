@@ -27,28 +27,27 @@ from posthog.test.base import (
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
-        person_result = []
         for id, timestamps in data:
             with freeze_time(timestamps[0][0]):
-                person_result.append(
-                    _create_person(
-                        team_id=self.team.pk,
-                        distinct_ids=[id],
-                        properties={
-                            "name": id,
-                            **({"email": "test@posthog.com"} if id == "test" else {}),
-                        },
-                    )
+                _create_person(
+                    team_id=self.team.pk,
+                    distinct_ids=[id],
+                    properties={
+                        "name": id,
+                        **({"email": "test@posthog.com"} if id == "test" else {}),
+                    },
                 )
-            for timestamp, session_id, pathname in timestamps:
+            for timestamp, *rest in timestamps:
+                properties = rest[0] if rest else {}
                 _create_event(
                     team=self.team,
                     event=event,
                     distinct_id=id,
                     timestamp=timestamp,
-                    properties={"$session_id": session_id, "$pathname": pathname},
+                    properties={
+                        **properties,
+                    },
                 )
-        return person_result
 
     def _create_web_stats_table_query(self, date_from, date_to, properties, breakdown_by=WebStatsBreakdown.PAGE):
         query = WebStatsTableQuery(

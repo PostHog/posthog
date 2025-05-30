@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
@@ -45,6 +46,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -90,7 +93,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
-    user_access_level: 'admin',
+    user_access_level: AccessControlLevel.Admin,
     access_control: true,
     group_types: [
         {
@@ -125,13 +128,37 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: {
-        baseCurrency: CurrencyCode.USD,
+    revenue_analytics_config: {
+        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                currencyAwareDecimal: false,
+            },
+            {
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                currencyAwareDecimal: true,
+            },
+        ],
+        goals: [
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+            },
+            {
+                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                name: '2035 Q4',
+                goal: 10_000_000,
+            },
+            {
+                due_date: '2045-12-31',
+                name: '2045 Q4',
+                goal: 100_000_000,
             },
         ],
     },

@@ -1,4 +1,4 @@
-use posthog_cli::cmd;
+use posthog_cli::{cmd, utils::posthog::init_posthog};
 use tracing::{error, info};
 
 fn main() {
@@ -11,6 +11,8 @@ fn main() {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+
+    init_posthog();
 
     match cmd::Cli::run() {
         Ok(_) => info!("All done, happy hogging!"),

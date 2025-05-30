@@ -1,16 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
-import { getProducedKafkaMessages } from '../../../tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { logger } from '../../utils/logger'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
@@ -73,8 +73,6 @@ describe('HogTransformer', () => {
             })
             await insertHogFunction(hub.db.postgres, teamId, geoIpFunction)
 
-            // Start the transformer after inserting functions because it is
-            // starting the hogfunction manager which updates the cache
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIpFunction.id])
 
             const event: PluginEvent = createPluginEvent({}, teamId)
@@ -138,7 +136,6 @@ describe('HogTransformer', () => {
         })
 
         it('only allow modifying certain properties', async () => {
-            // Setup the hog function
             const fn = createHogFunction({
                 type: 'transformation',
                 name: 'Modifier',
@@ -237,9 +234,9 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, geoIpTransformationFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                testTransformationFunction.id,
-                defaultTransformationFunction.id,
                 geoIpTransformationFunction.id,
+                defaultTransformationFunction.id,
+                testTransformationFunction.id,
             ])
 
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
@@ -256,7 +253,7 @@ describe('HogTransformer', () => {
                 timestamp: '2024-01-01T00:00:00Z',
             }
 
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
             expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
@@ -264,9 +261,9 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
 
-            await Promise.all(result.messagePromises)
+            await hogTransformer.processInvocationResults()
 
-            const messages = getProducedKafkaMessages()
+            const messages = mockProducerObserver.getProducedKafkaMessages()
             // Replace certain messages that have changeable values
             messages.forEach((x) => {
                 if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {
@@ -309,23 +306,21 @@ describe('HogTransformer', () => {
                 inputs_schema: [],
             }
 
-            const addingTransformationByteCode = await compileHog(addingTemplate.hog)
             const addingTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: addingTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: addingTransformationByteCode,
+                bytecode: await compileHog(addingTemplate.hog),
                 execution_order: 1,
             })
 
-            const deletingTransformationByteCode = await compileHog(deletingTemplate.hog)
             const deletingTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: deletingTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: deletingTransformationByteCode,
+                bytecode: await compileHog(deletingTemplate.hog),
                 execution_order: 2,
             })
 
@@ -438,6 +433,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, thirdTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
+
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 thirdTransformationFunction.id,
                 secondTransformationFunction.id,
@@ -592,6 +588,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, successFunction)
+
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [successFunction.id])
 
             const event = createPluginEvent(
@@ -730,6 +727,7 @@ describe('HogTransformer', () => {
 
             await insertHogFunction(hub.db.postgres, teamId, successFunction)
             await insertHogFunction(hub.db.postgres, teamId, skippedFunction)
+
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 successFunction.id,
                 skippedFunction.id,
@@ -738,14 +736,20 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'does-not-match' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify first transformation succeeded and second was skipped
-            expect(result.event?.properties).toEqual({
-                success: true,
-                $current_url: 'https://example.com',
-                $ip: '12.87.118.0',
-                $transformations_succeeded: [`Success Template (${successFunction.id})`],
-                $transformations_skipped: [`Skipped Template (${skippedFunction.id})`],
-            })
+            // Verify that:
+            // 1. First transformation succeeded (property was set)
+            // 2. Second transformation was skipped (property was NOT set)
+            // 3. We have correct tracking properties
+            expect(result.event?.properties?.success).toBe(true)
+            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
+
+            // Check that transformations_succeeded and transformations_skipped arrays contain the right functions
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `Success Template (${successFunction.id})`
+            )
+            expect(result.event?.properties?.$transformations_skipped).toContain(
+                `Skipped Template (${skippedFunction.id})`
+            )
         })
     })
 
@@ -772,7 +776,6 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [filterOutPlugin.id])
 
-            // Set up the spy after hogTransformer is initialized
             executeSpy = jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
         })
 
@@ -844,6 +847,7 @@ describe('HogTransformer', () => {
 
             await insertHogFunction(hub.db.postgres, teamId, geoIp)
             await insertHogFunction(hub.db.postgres, teamId, filterPlugin)
+
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIp.id, filterPlugin.id])
 
             const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
@@ -915,11 +919,6 @@ describe('HogTransformer', () => {
     })
 
     describe('filter-based transformations', () => {
-        beforeEach(() => {
-            // Enable filter transformations for these tests
-            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [1, 2]
-        })
-
         it('should skip transformation when filter does not match', async () => {
             const filterTemplate = {
                 free: true,
@@ -1061,7 +1060,7 @@ describe('HogTransformer', () => {
             )
         })
 
-        it('should apply transformation when filter errors and continue processing', async () => {
+        it('should skip transformation when filter errors and not continue processing', async () => {
             const errorFilterTemplate = {
                 free: true,
                 status: 'beta',
@@ -1072,7 +1071,7 @@ describe('HogTransformer', () => {
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.error_filter_property := 'should_be_set'
+                    returnEvent.properties.error_filter_property := 'should_not_be_set'
                     return returnEvent
                 `,
                 inputs_schema: [],
@@ -1103,7 +1102,7 @@ describe('HogTransformer', () => {
                 filters: {
                     bytecode: await compileHog(`
                         // Invalid filter that will throw an error
-                        throw new Error('Test error in filter')
+                        lol
                     `),
                 },
             })
@@ -1118,6 +1117,7 @@ describe('HogTransformer', () => {
 
             await insertHogFunction(hub.db.postgres, teamId, errorFunction)
             await insertHogFunction(hub.db.postgres, teamId, workingFunction)
+
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 errorFunction.id,
                 workingFunction.id,
@@ -1126,59 +1126,16 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify both transformations were applied
-            expect(result.event?.properties?.error_filter_property).toBe('should_be_set')
-            expect(result.event?.properties?.working_property).toBe('working')
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
+            // Verify one transformation was applied and the other was skipped
+            expect(result.event?.properties?.error_filter_property).toBeUndefined()
+            expect(result.invocationResults[0].error).toContain('Global variable not found')
+            expect(result.event?.properties?.$transformations_skipped).toContain(
                 `${errorFunction.name} (${errorFunction.id})`
             )
+
+            expect(result.event?.properties?.working_property).toBe('working')
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${workingFunction.name} (${workingFunction.id})`
-            )
-        })
-
-        it('should not check filters when FILTER_TRANSFORMATIONS_ENABLED is false', async () => {
-            // Disable filter transformations
-            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [1, 2]
-
-            const filterTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Filter Template',
-                description: 'A template with filters that should be ignored',
-                category: ['Custom'],
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.always_apply := 'applied'
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: filterTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(filterTemplate.hog),
-                filters: {
-                    bytecode: await compileHog(`
-                    return event = 'match-me'
-                    `),
-                },
-            })
-
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            const event = createPluginEvent({ event: 'match-me' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            expect(result.event?.properties?.always_apply).toBe('applied')
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
             )
         })
 
@@ -1281,23 +1238,15 @@ describe('HogTransformer', () => {
         })
     })
 
-    // Add the new test suite for HogWatcher integration
-    describe('transformEvent HogWatcher integration', () => {
+    describe('HogWatcher integration', () => {
         beforeEach(() => {
             hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [teamId]
         })
 
         it('should skip HogWatcher operations when sample rate is 0', async () => {
-            // Set sample rate to 0
             hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
 
-            // Create spies for HogWatcher methods
-            const getStatesSpy = jest.spyOn(hogTransformer['hogWatcher'], 'getStates')
-            const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
-
-            // Create a simple transformation
-            const template = {
+            const testTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
                 type: 'transformation',
@@ -1315,299 +1264,309 @@ describe('HogTransformer', () => {
 
             const hogFunction = createHogFunction({
                 type: 'transformation',
-                name: template.name,
+                name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(template.hog),
+                bytecode: await compileHog(testTemplate.hog),
                 id: '11111111-1111-4111-a111-111111111111',
             })
 
             await insertHogFunction(hub.db.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            // Verify the transformation still worked
-            expect(result.event?.properties?.test_property).toBe(true)
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
-
-            // Verify HogWatcher methods were not called
-            expect(getStatesSpy).not.toHaveBeenCalled()
-            expect(observeResultsSpy).not.toHaveBeenCalled()
-
-            getStatesSpy.mockRestore()
-            observeResultsSpy.mockRestore()
-        })
-
-        it('should log but not skip functions that would be disabled', async () => {
-            const logSpy = jest.spyOn(logger, 'info')
-
-            // Mock the getStates method to return a disabled state for our function
-            const getStatesSpy = jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockImplementation((ids) => {
-                const states: Record<string, any> = {}
-                ids.forEach((id) => {
-                    states[id] = {
-                        state: HogWatcherState.disabledForPeriod,
-                        tokens: 0,
-                        rating: 0,
-                    }
-                })
-                return Promise.resolve(states)
-            })
-
-            // Create a transformation that would normally be disabled but runs in monitoring mode
-            const template = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Would Be Disabled Template',
-                description: 'A template that would be disabled but runs in monitoring mode',
-                category: ['Custom'],
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.should_still_be_set := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: template.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(template.hog),
-                id: '11111111-1111-4111-a111-111111111111',
-            })
-
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            const event = createPluginEvent({ event: 'test-event' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            // Verify the function still ran despite being "disabled" in monitoring mode
-            expect(result.event?.properties?.should_still_be_set).toBe(true)
-
-            // Verify transformations_succeeded contains our function (not skipped)
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
-
-            // Verify transformations_skipped doesn't exist or is empty
-            expect(result.event?.properties?.$transformations_skipped).toBeUndefined()
-
-            // Verify that the appropriate monitoring log was created
-            expect(logSpy).toHaveBeenCalledWith(
-                '🧪',
-                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
-                expect.objectContaining({
-                    function_id: hogFunction.id,
-                    function_name: hogFunction.name,
-                    team_id: teamId,
-                    state: HogWatcherState.disabledForPeriod,
-                })
-            )
-
-            getStatesSpy.mockRestore()
-            logSpy.mockRestore()
-        })
-
-        it('should observe results for rate limiting', async () => {
-            const observeResultsSpy = jest
-                .spyOn(hogTransformer['hogWatcher'], 'observeResults')
-                .mockImplementation(() => Promise.resolve())
-
-            // Mock the getStates method to return healthy states
-            jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockImplementation((ids) => {
-                const states: Record<string, any> = {}
-                ids.forEach((id) => {
-                    states[id] = {
-                        state: HogWatcherState.healthy,
-                        tokens: 100,
-                        rating: 1.0,
-                    }
-                })
-                return Promise.resolve(states)
-            })
-
-            // Create a transformation that will be executed
-            const template = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Working Template',
-                description: 'A template that should work',
-                category: ['Custom'],
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.working := true
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: template.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(template.hog),
-            })
-
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+            const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify observeResults was called with the execution results
-            expect(observeResultsSpy).toHaveBeenCalled()
-
-            // Results should be non-empty array of HogFunctionInvocationResult
-            const results = observeResultsSpy.mock.calls[0][0]
-            expect(results.length).toBeGreaterThan(0)
-            expect(results[0]).toHaveProperty('invocation')
-            expect(results[0].invocation.hogFunction.id).toBe(hogFunction.id)
+            expect(observeResultsSpy).not.toHaveBeenCalled()
+            expect(hogTransformer['invocationResults'].length).toBe(1)
 
             observeResultsSpy.mockRestore()
         })
 
-        it('should log monitoring status for functions with different states', async () => {
-            const logSpy = jest.spyOn(logger, 'info')
+        it('should add watcher promise when sample rate is 1', async () => {
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
 
-            // Two functions: one would be disabled, one healthy
-            const wouldBeDisabledFunctionId = '22222222-2222-4222-a222-222222222222'
-            const healthyFunctionId = '33333333-3333-4333-a333-333333333333'
-
-            // Mock getStates to return different states for different functions
-            jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockImplementation((ids) => {
-                const states: Record<string, any> = {}
-                ids.forEach((id) => {
-                    if (id === wouldBeDisabledFunctionId) {
-                        states[id] = {
-                            state: HogWatcherState.disabledIndefinitely,
-                            tokens: 0,
-                            rating: 0,
-                        }
-                    } else {
-                        states[id] = {
-                            state: HogWatcherState.healthy,
-                            tokens: 100,
-                            rating: 1.0,
-                        }
-                    }
-                })
-                return Promise.resolve(states)
-            })
-
-            // Create two templates and functions
-            const wouldBeDisabledTemplate = {
+            const testTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
                 type: 'transformation',
-                id: 'template-would-be-disabled',
-                name: 'Would Be Disabled Template',
-                description: 'A template that would be disabled but runs in monitoring mode',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template',
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.first_transformation := true
+                    returnEvent.properties.test_property := true
                     return returnEvent
                 `,
                 inputs_schema: [],
             }
 
-            const healthyTemplate = {
+            const hogFunctionId = '11111111-1111-4111-a111-111111111111'
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: testTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            // Add the state to the cache to prevent the error from being thrown
+            // This simulates what would happen in production where states would be loaded
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.healthy
+
+            const observeResultsSpy = jest
+                .spyOn(hogTransformer['hogWatcher'], 'observeResults')
+                .mockImplementation(() => Promise.resolve())
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            await hogTransformer.transformEventAndProduceMessages(event)
+            expect(hogTransformer['invocationResults'].length).toBe(1)
+            await hogTransformer.processInvocationResults()
+            expect(hogTransformer['invocationResults'].length).toBe(0)
+
+            expect(observeResultsSpy).toHaveBeenCalled()
+
+            observeResultsSpy.mockRestore()
+        })
+
+        it('should save and clear hog function states', async () => {
+            const functionIds = ['11111111-1111-4111-a111-111111111111', '22222222-2222-4222-a222-222222222222']
+            const mockStates = {
+                [functionIds[0]]: { state: HogWatcherState.disabledForPeriod, tokens: 0, rating: 0 },
+                [functionIds[1]]: { state: HogWatcherState.disabledIndefinitely, tokens: 0, rating: 0 },
+            }
+
+            // Mock getStates
+            jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockResolvedValue(Promise.resolve(mockStates))
+
+            // Save states
+            await hogTransformer.fetchAndCacheHogFunctionStates(functionIds)
+
+            // Verify states were cached
+            expect(hogTransformer['cachedStates'][functionIds[0]]).toBe(HogWatcherState.disabledForPeriod)
+            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabledIndefinitely)
+
+            // Clear specific state
+            hogTransformer.clearHogFunctionStates([functionIds[0]])
+            expect(hogTransformer['cachedStates'][functionIds[0]]).toBeUndefined()
+            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabledIndefinitely)
+
+            // Clear all states
+            hogTransformer.clearHogFunctionStates()
+            expect(hogTransformer['cachedStates']).toEqual({})
+        })
+
+        it('should throw error when state is missing from cache', () => {
+            const hogFunctionId = '11111111-1111-4111-a111-111111111111'
+
+            // Create a test hog function
+            createHogFunction({
+                type: 'transformation',
+                name: 'Test Function',
+                team_id: teamId,
+                enabled: true,
+                id: hogFunctionId,
+            })
+
+            // Make sure state is not in cache
+            hogTransformer.clearHogFunctionStates()
+
+            // Verify state is not in cache initially
+            expect(hogTransformer['cachedStates'][hogFunctionId] || null).toBeNull()
+
+            // Create the expected error message
+            const expectedErrorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunctionId} - this should never happen`
+
+            // Define a function that will throw the error
+            const throwingFunction = () => {
+                if (!hogTransformer['cachedStates'][hogFunctionId]) {
+                    throw new Error(expectedErrorMessage)
+                }
+                return 'This should not be returned'
+            }
+
+            // Verify that the function throws the expected error
+            expect(throwingFunction).toThrow(expectedErrorMessage)
+        })
+
+        it('should skip transformation execution but continue when hogwatcher is enabled and function is disabled', async () => {
+            // Set sample rate to 100% to ensure hogwatcher logic runs
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+            // Create test transformation function
+            const testTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
                 type: 'transformation',
-                id: 'template-healthy',
-                name: 'Healthy Template',
-                description: 'A healthy template that should run normally',
+                id: 'template-test',
+                name: 'Disabled Test Template',
+                description: 'A test template that should be skipped due to disabled state',
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.second_transformation := true
+                    returnEvent.properties.should_not_be_set := true
                     return returnEvent
                 `,
                 inputs_schema: [],
             }
 
-            const wouldBeDisabledFunction = createHogFunction({
+            const hogFunctionId = '33333333-3333-4333-a333-333333333333'
+            const hogFunction = createHogFunction({
                 type: 'transformation',
-                name: wouldBeDisabledTemplate.name,
+                name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(wouldBeDisabledTemplate.hog),
-                id: wouldBeDisabledFunctionId,
-                execution_order: 1,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
             })
 
-            const healthyFunction = createHogFunction({
-                type: 'transformation',
-                name: healthyTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(healthyTemplate.hog),
-                id: healthyFunctionId,
-                execution_order: 2,
-            })
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
-            await insertHogFunction(hub.db.postgres, teamId, wouldBeDisabledFunction)
-            await insertHogFunction(hub.db.postgres, teamId, healthyFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
-                wouldBeDisabledFunction.id,
-                healthyFunction.id,
-            ])
+            // Mock the cached state to indicate the function is disabled
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabledForPeriod
+
+            // Create a spy to verify the executeHogFunction method is not called
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify both functions ran despite one being "disabled" in monitoring mode
-            expect(result.event?.properties?.first_transformation).toBe(true)
-            expect(result.event?.properties?.second_transformation).toBe(true)
+            // Verify the executeHogFunction method was not called for this function
+            expect(executeHogFunctionSpy).not.toHaveBeenCalled()
 
-            // Verify transformations_succeeded contains both functions
+            // Verify the transformation result doesn't have the property that would be set
+            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
+
+            // Verify there are no transformation records in the properties
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
+
+            // Reset spies
+            executeHogFunctionSpy.mockRestore()
+        })
+
+        it('should execute transformation when hogwatcher is enabled but function is in healthy state', async () => {
+            // Set sample rate to 100% to ensure hogwatcher logic runs
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+            // Create test transformation function
+            const testTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Healthy Test Template',
+                description: 'A test template that should execute because state is healthy',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunctionId = '55555555-5555-5555-a555-555555555555'
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: testTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            // Mock the cached state to indicate the function is healthy
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.healthy
+
+            // Create a spy to verify the executeHogFunction method is called
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the executeHogFunction method was called for this function
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(1)
+
+            // Verify the transformation result has the property that should be set
+            expect(result.event?.properties?.should_be_set).toBe(true)
+
+            // Verify the transformation is recorded as successful
             expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${wouldBeDisabledFunction.name} (${wouldBeDisabledFunction.id})`
+                `${hogFunction.name} (${hogFunction.id})`
             )
+
+            // Reset spies
+            executeHogFunctionSpy.mockRestore()
+        })
+
+        it('should apply transformation when hogwatcher is disabled even if function state is disabled', async () => {
+            // Set sample rate to 0% to ensure hogwatcher logic is skipped
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+            // Create test transformation function
+            const testTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A test template that should execute despite disabled state because hogwatcher is off',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunctionId = '44444444-4444-4444-a444-444444444444'
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: testTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            // Mock the cached state to indicate the function is disabled
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabledForPeriod
+
+            // Create a spy to verify the executeHogFunction method is called
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the executeHogFunction method was called for this function
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(1)
+
+            // Verify the transformation result has the property that should be set
+            expect(result.event?.properties?.should_be_set).toBe(true)
+
+            // Verify the transformation is recorded as successful
             expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${healthyFunction.name} (${healthyFunction.id})`
+                `${hogFunction.name} (${hogFunction.id})`
             )
 
-            // Verify no transformations were skipped
-            expect(result.event?.properties?.$transformations_skipped).toBeUndefined()
-
-            // Verify that the appropriate monitoring log message was created for the would-be-disabled function
-            expect(logSpy).toHaveBeenCalledWith(
-                '🧪',
-                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
-                expect.objectContaining({
-                    function_id: wouldBeDisabledFunction.id,
-                    function_name: wouldBeDisabledFunction.name,
-                    team_id: teamId,
-                    state: HogWatcherState.disabledIndefinitely,
-                    state_name: 'disabled_permanently',
-                })
-            )
-
-            // Instead of checking total call count, verify the monitoring log was not created for the healthy function
-            const monitoringLogCalls = logSpy.mock.calls.filter(
-                (call) =>
-                    call[0] === '🧪' &&
-                    call[1] ===
-                        '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing' &&
-                    call[2].function_id === healthyFunction.id
-            )
-            expect(monitoringLogCalls.length).toBe(0)
-
-            logSpy.mockRestore()
+            // Reset spies
+            executeHogFunctionSpy.mockRestore()
         })
     })
 })

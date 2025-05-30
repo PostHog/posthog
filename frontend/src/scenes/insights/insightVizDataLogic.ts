@@ -12,6 +12,7 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -28,6 +29,7 @@ import {
     DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
+    FunnelsFilter,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
@@ -58,6 +60,7 @@ import {
     getShowValuesOnSeries,
     getYAxisScaleType,
     isActionsNode,
+    isCalendarHeatmapQuery,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
@@ -150,12 +153,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
+        isCalendarHeatmap: [(s) => [s.querySource], (q) => isCalendarHeatmapQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
-        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
+        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
             (s) => [s.querySource, s.display, s.dateRange],
@@ -196,7 +200,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         formulaNodes: [
             (s) => [s.querySource],
-            (querySource: InsightQueryNode | null) => {
+            (querySource: InsightQueryNode | null): TrendsFormulaNode[] => {
                 const formula = getFormula(querySource)
                 const formulas = getFormulas(querySource)
 
@@ -265,18 +269,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isSingleSeries: [
-            (s) => [s.isTrends, s.formula, s.formulas, s.series, s.breakdownFilter],
+            (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series, s.breakdownFilter],
             (
                 isTrends: boolean,
                 formula: string | undefined,
                 formulas: string[] | undefined,
+                formulaNodes: TrendsFormulaNode[] | undefined,
                 series: any[],
                 breakdownFilter: BreakdownFilter | null
             ): boolean => {
-                return (
-                    ((isTrends && (!!formula || (formulas && formulas.length > 0))) || (series || []).length <= 1) &&
-                    !breakdownFilter?.breakdown
-                )
+                const hasSingleFormula =
+                    (formula && !formulas) ||
+                    (formulas && formulas.length === 1) ||
+                    (formulaNodes && formulaNodes.length === 1)
+                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
             },
         ],
         isBreakdownSeries: [
@@ -651,6 +657,19 @@ const handleQuerySourceUpdateSideEffects = (
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'week'
+        }
+    }
+
+    // clamp the funnel steps
+    if (
+        maybeChangedSeries &&
+        isFunnelsQuery(currentState) &&
+        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
+            (insightFilter as FunnelsFilter)?.funnelToStep != null)
+    ) {
+        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+            ...(insightFilter as FunnelsFilter),
+            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, maybeChangedSeries),
         }
     }
 

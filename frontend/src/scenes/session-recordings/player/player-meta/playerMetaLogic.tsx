@@ -1,6 +1,6 @@
 import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
+import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -22,12 +22,10 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { aiSummaryMock } from './ai-summary.mock'
 import type { playerMetaLogicType } from './playerMetaLogicType'
+import { SessionSummaryContent } from './types'
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
-
-export interface SessionSummaryResponse {
-    content: string
-}
 
 const ALLOW_LISTED_PERSON_PROPERTIES = [
     '$os_name',
@@ -103,6 +101,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     actions({
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
+        setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
+        summarizeSession: () => ({}),
+        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -111,21 +112,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 sessionSummaryFeedback: () => true,
             },
         ],
-    })),
-    loaders(({ props }) => ({
-        sessionSummary: {
-            summarizeSession: async (): Promise<SessionSummaryResponse | null> => {
-                const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
-                if (!id) {
-                    return null
-                }
-                const response = await api.recordings.summarize(id)
-                if (!response.content) {
-                    lemonToast.warning('Unable to load session summary')
-                }
-                return { content: response.content }
+        sessionSummary: [
+            null as SessionSummaryContent | null,
+            {
+                setSessionSummaryContent: (_, { content }) => content,
             },
-        },
+        ],
+        sessionSummaryLoading: [
+            false,
+            {
+                summarizeSession: () => true,
+                setSessionSummaryContent: () => false,
+                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
     })),
     selectors(() => ({
         loading: [
@@ -315,6 +315,61 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 session_summary: values.sessionSummary,
                 summarized_session_id: props.sessionRecordingId,
             })
+        },
+        // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
+        summarizeSession: async () => {
+            // TODO: Remove after testing
+            const local = false
+            if (local) {
+                actions.setSessionSummaryContent(aiSummaryMock)
+                return
+            }
+            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
+            const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
+            if (!id) {
+                return
+            }
+            try {
+                const response = await api.recordings.summarizeStream(id)
+                const reader = response.body?.getReader()
+                if (!reader) {
+                    throw new Error('No reader available')
+                }
+                const decoder = new TextDecoder()
+                const parser = createParser({
+                    onEvent: ({ event, data }) => {
+                        try {
+                            // Stop loading and show error if encountered an error event
+                            if (event === 'session-summary-error') {
+                                lemonToast.error(data)
+                                actions.setSessionSummaryLoading(false)
+                                return
+                            }
+                            const parsedData = JSON.parse(data)
+                            if (parsedData) {
+                                actions.setSessionSummaryContent(parsedData)
+                            }
+                        } catch (e) {
+                            // Don't handle errors as we can afford to fail some chunks silently.
+                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
+                        }
+                    },
+                })
+                // Consume stream until exhausted
+                while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) {
+                        break
+                    }
+                    const decodedValue = decoder.decode(value)
+                    parser.feed(decodedValue)
+                }
+            } catch (err) {
+                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
+                throw err
+            } finally {
+                actions.setSessionSummaryLoading(false)
+            }
         },
     })),
 ])

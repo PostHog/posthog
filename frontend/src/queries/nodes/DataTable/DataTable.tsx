@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -136,6 +137,10 @@ export function DataTable({
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
+    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const usedWebAnalyticsPreAggregatedTables =
+        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables && response?.hogql
+
     const dataTableLogicProps: DataTableLogicProps = {
         query,
         vizKey,
@@ -182,7 +187,12 @@ export function DataTable({
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
+            render: function RenderDataTableColumn(
+                _: any,
+                { result, label }: DataTableRow,
+                recordIndex: number,
+                rowCount: number
+            ) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -193,9 +203,9 @@ export function DataTable({
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, rowCount, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, rowCount, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -446,7 +456,12 @@ export function DataTable({
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.groupsSearch) ? (
-            <GroupsSearch key="groups-search" query={query.source as GroupsQuery} setQuery={setQuerySource} />
+            <GroupsSearch
+                key="groups-search"
+                query={query.source as GroupsQuery}
+                setQuery={setQuerySource}
+                groupTypeLabel={context?.groupTypeLabel}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
@@ -512,7 +527,6 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
-
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -540,7 +554,9 @@ export function DataTable({
                     {showResultsTable && (
                         <LemonTable
                             data-attr={dataAttr}
-                            className="DataTable"
+                            className={clsx('DataTable', {
+                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
+                            })}
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
                             embedded={embedded}

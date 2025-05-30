@@ -1,8 +1,7 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import cached_property
-from pydantic import ValidationError
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -19,7 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User
+from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -33,9 +32,10 @@ from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPI
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -49,7 +49,6 @@ from posthog.permissions import (
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.schema import RevenueTrackingConfig
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -57,6 +56,17 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from django.core.cache import cache
+
+
+def _format_serializer_errors(serializer_errors: dict) -> str:
+    """Formats DRF serializer errors into a human readable string."""
+    error_messages: list[str] = []
+    for field, field_errors in serializer_errors.items():
+        if isinstance(field_errors, list):
+            error_messages.extend(f"{field}: {error}" for error in field_errors)
+        else:
+            error_messages.append(f"{field}: {field_errors}")
+    return ". ".join(error_messages)
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -81,6 +91,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
+            "secret_api_token",
+            "secret_api_token_backup",
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
@@ -90,6 +102,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -131,6 +144,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_trigger_config",
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
+    "session_recording_trigger_match_type_config",
     "session_replay_config",
     "survey_config",
     "week_start_day",
@@ -148,32 +162,36 @@ TEAM_CONFIG_FIELDS = (
     "flags_persistence_default",
     "capture_dead_clicks",
     "default_data_theme",
-    "revenue_tracking_config",
+    "revenue_analytics_config",
     "onboarding_tasks",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
-class RevenueTrackingConfigSerializer(serializers.Field):
-    def to_representation(self, value):
-        # When reading, access the revenue_config from the team model
-        if value is None:
-            return None
-        # Get the instance (Team) that has this field
-        team = self.parent.instance
-        if team and hasattr(team, "revenue_config"):
-            return team.revenue_config.model_dump() if team.revenue_config else None
-        return None
+class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+    events = serializers.JSONField(required=False)
+    goals = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamRevenueAnalyticsConfig
+        fields = ["base_currency", "events", "goals"]
+
+    def to_representation(self, instance):
+        repr = super().to_representation(instance)
+        if instance.events:
+            repr["events"] = [event.model_dump() for event in instance.events]
+        if instance.goals:
+            repr["goals"] = [goal.model_dump() for goal in instance.goals]
+        return repr
 
     def to_internal_value(self, data):
-        if data is None:
-            return None
-
-        try:
-            return RevenueTrackingConfig.model_validate(data).model_dump()
-        except ValidationError as e:
-            raise serializers.ValidationError(str(e))
+        internal_value = super().to_internal_value(data)
+        if "events" in internal_value:
+            internal_value["_events"] = internal_value["events"]
+        if "goals" in internal_value:
+            internal_value["_goals"] = internal_value["goals"]
+        return internal_value
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -185,7 +203,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
-    revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
+    revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
 
     class Meta:
         model = Team
@@ -197,6 +215,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
+            "secret_api_token",
+            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -220,6 +240,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "organization",
             "project_id",
             "api_token",
+            "secret_api_token",
+            "secret_api_token_backup",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -259,7 +281,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return list(
-            GroupTypeMapping.objects.filter(project_id=team.project_id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+            GroupTypeMapping.objects.filter(project_id=team.project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
@@ -276,6 +300,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     @staticmethod
+    def validate_revenue_analytics_config(value):
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        serializer = TeamRevenueAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+
+        return serializer.validated_data
+
+    @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
         if value is None:
             return None
@@ -290,6 +328,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if received_keys not in valid_keys:
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+            )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
+        if value not in ["all", "any", None]:
+            raise exceptions.ValidationError(
+                "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
             )
 
         return value
@@ -421,6 +468,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+
+        # Should be validated already, but let's be extra sure
+        if config_data := validated_data.pop("revenue_analytics_config", None):
+            serializer = TeamRevenueAnalyticsConfigSerializer(
+                instance.revenue_analytics_config, data=config_data, partial=True
+            )
+            if not serializer.is_valid():
+                raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+            serializer.save()
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
@@ -639,6 +696,30 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
@@ -702,27 +783,17 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-
-        if created and isinstance(user, User):
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
-        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
-        product_intent.save()
+        product_intent_serializer = ProductIntentSerializer(data=request.data)
+        product_intent_serializer.is_valid(raise_exception=True)
+        intent_data = product_intent_serializer.validated_data
+        product_intent = ProductIntent.register(
+            team=team,
+            product_type=product_type,
+            context=intent_data["intent_context"],
+            user=cast(User, user),
+            metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=True,
+        )
 
         if isinstance(user, User):  # typing
             report_user_action(
@@ -732,7 +803,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
+                    "intent_context": intent_data["intent_context"],
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
@@ -771,9 +842,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response({"success": True}, status=200)
 
+    @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
+    def event_ingestion_restrictions(self, request, **kwargs):
+        team = self.get_object()
+        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+        data = [
+            {
+                "restriction_type": restriction.restriction_type,
+                "distinct_ids": restriction.distinct_ids,
+            }
+            for restriction in restrictions
+        ]
+        return response.Response(data)
+
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action == "reset_token" else None
+        team = self.get_object() if self.action in actions_that_require_current_team else None
         return UserPermissions(cast(User, self.request.user), team)
 
 

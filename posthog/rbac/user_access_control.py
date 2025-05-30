@@ -13,7 +13,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.scopes import APIScopeObject, API_SCOPE_OBJECTS
+from posthog.scopes import APIScopeObject, API_SCOPE_OBJECTS
 
 
 if TYPE_CHECKING:
@@ -38,6 +38,13 @@ AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResourc
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
+
+ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "feature_flag",
+    "dashboard",
+    "insight",
+    "notebook",
+)
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
@@ -396,6 +403,15 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
+    def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
+        if not self._team:
+            # If there is no team, then there can't be any access controls on this resource
+            return False
+
+        filters = self._access_controls_filters_for_resource(resource)
+        access_controls = self._get_access_controls(filters)
+        return bool(access_controls)
+
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
 
@@ -561,4 +577,13 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True
 
-        return self.user_access_control.access_level_for_object(obj)
+        resource = model_to_resource(obj)
+        access_level_for_resource = None
+        if resource and self.user_access_control.has_access_levels_for_resource(resource):
+            access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
+
+        if access_level_for_resource:
+            return access_level_for_resource
+
+        access_level_for_object = self.user_access_control.access_level_for_object(obj)
+        return access_level_for_object

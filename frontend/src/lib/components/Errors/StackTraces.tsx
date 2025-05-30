@@ -1,34 +1,66 @@
 import './StackTraces.scss'
 
+import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { useEffect, useMemo } from 'react'
+import { MouseEvent, useEffect } from 'react'
+import { cancelEvent } from 'scenes/error-tracking/utils'
+import { match, P } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
-import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
+import { CopyToClipboardInline } from '../CopyToClipboard'
+import { errorPropertiesLogic } from './errorPropertiesLogic'
+import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
+import { stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameContext,
     ErrorTrackingStackFrameContextLine,
+    FingerprintRecordPart,
 } from './types'
+import { stacktraceHasInAppFrames } from './utils'
+
+export type ExceptionHeaderProps = {
+    id?: string
+    type?: string
+    value?: string
+    loading: boolean
+    part?: FingerprintRecordPart
+}
+
+function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
+    return (
+        <div className="flex flex-col gap-0.5 mb-2">
+            <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
+                {type}
+                {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
+            </h3>
+            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+                {value}
+            </div>
+        </div>
+    )
+}
+
+type FrameContextClickHandler = (ctx: ErrorTrackingStackFrameContext, e: MouseEvent) => void
 
 export function ChainedStackTraces({
-    exceptionList,
     showAllFrames,
+    renderExceptionHeader,
+    onFrameContextClick,
     embedded = false,
-    fingerprintRecords = [],
 }: {
-    exceptionList: ErrorTrackingException[]
+    renderExceptionHeader?: (props: ExceptionHeaderProps) => React.ReactNode
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded?: boolean
+    onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
-    const checkers = useFingerprintRecords(fingerprintRecords)
+    const { exceptionList, getExceptionFingerprint } = useValues(errorPropertiesLogic)
 
     useEffect(() => {
         const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
@@ -44,177 +76,129 @@ export function ChainedStackTraces({
     return (
         <div className="flex flex-col gap-y-2">
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
-                if (stacktrace && stacktrace.type === 'resolved') {
-                    const { frames } = stacktrace
-                    if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
-                        // if we're not showing all frames and there are no in_app frames, skip this exception
-                        return null
-                    }
-                    return (
-                        <div
-                            key={index}
-                            className={clsx('StackTrace flex flex-col gap-y-2', embedded && 'StackTrace--embedded')}
-                        >
-                            <div className="flex flex-col gap-0.5">
-                                <h3 className="StackTrace__type mb-0" title={type}>
-                                    {type}
-                                    {checkers.includesExceptionType(id) && (
-                                        <IconFingerprint
-                                            className="ml-1"
-                                            color={checkers.isExceptionTypeHighlighted(id) ? 'red' : 'gray'}
-                                        />
-                                    )}
-                                </h3>
-                                <div
-                                    className="StackTrace__value line-clamp-2 text-secondary italic text-xs"
-                                    title={value}
-                                >
-                                    {value}
-                                    {checkers.includesExceptionValue(id) && (
-                                        <IconFingerprint
-                                            className="ml-1"
-                                            color={checkers.isExceptionValueHighlighted(id) ? 'red' : 'gray'}
-                                        />
-                                    )}
-                                </div>
-                            </div>
+                const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
+                const part = getExceptionFingerprint(id)
+                const traceHeaderProps = { id, type, value, part, loading: false }
+                return (
+                    <div
+                        key={id ?? index}
+                        className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
+                    >
+                        {match(renderExceptionHeader)
+                            .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
+                            .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
+                            .exhaustive()}
+                        {displayTrace && (
                             <Trace
-                                frames={frames || []}
+                                frames={stacktrace?.frames || []}
                                 showAllFrames={showAllFrames}
                                 embedded={embedded}
-                                fingerprintRecords={fingerprintRecords}
+                                onFrameContextClick={onFrameContextClick}
                             />
-                        </div>
-                    )
-                }
+                        )}
+                    </div>
+                )
             })}
         </div>
     )
 }
 
+function shouldDisplayTrace(stacktrace: ErrorTrackingException['stacktrace'], showAllFrames: boolean): boolean {
+    if (!stacktrace) {
+        return false
+    }
+    if (stacktrace.type != 'resolved') {
+        return false
+    }
+    if (showAllFrames) {
+        return true
+    }
+    const hasInAppFrames = stacktraceHasInAppFrames(stacktrace)
+    return hasInAppFrames
+}
+
 function Trace({
     frames,
-    fingerprintRecords,
     showAllFrames,
     embedded,
+    onFrameContextClick,
 }: {
     frames: ErrorTrackingStackFrame[]
-    fingerprintRecords: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded: boolean
+    onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
-    const checkers = useFingerprintRecords(fingerprintRecords)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
-    const panels = displayFrames.map(
-        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }, index) => {
-            const record = stackFrameRecords[raw_id]
-            const isUsedInFingerprint = checkers.includesFrame(raw_id)
-            const isHighlighted = checkers.isFrameHighlighted(raw_id)
-
-            return {
-                key: index,
-                header: (
-                    <div className="flex flex-1 justify-between items-center">
-                        <div className="flex flex-wrap gap-x-1">
-                            <span>{source}</span>
-                            {resolved_name ? (
-                                <div className="flex gap-x-1">
-                                    <span className="text-secondary">in</span>
-                                    <span>{resolved_name}</span>
-                                </div>
-                            ) : null}
-                            {line ? (
-                                <div className="flex gap-x-1">
-                                    <span className="text-secondary">@</span>
-                                    <span>
-                                        {line}
-                                        {column && `:${column}`}
-                                    </span>
-                                </div>
-                            ) : null}
-                        </div>
-                        <div className="flex gap-x-1 items-center">
-                            {isUsedInFingerprint && (
-                                <IconFingerprint color={isHighlighted ? 'red' : 'gray'} fontSize="18px" />
-                            )}
-                            {in_app && <LemonTag>In App</LemonTag>}
-                            {!resolved && (
-                                <Tooltip title={resolve_failure}>
-                                    <LemonTag>Unresolved</LemonTag>
-                                </Tooltip>
-                            )}
-                        </div>
-                    </div>
-                ),
-                content:
-                    record && record.context ? (
+    const panels = displayFrames.map((frame: ErrorTrackingStackFrame, idx) => {
+        const { raw_id, lang } = frame
+        const record = stackFrameRecords[raw_id]
+        return {
+            key: idx,
+            header: <FrameHeaderDisplay frame={frame} />,
+            content:
+                record && record.context ? (
+                    <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                         <FrameContext context={record.context} language={getLanguage(lang)} />
-                    ) : null,
-                className: 'p-0',
-            }
+                    </div>
+                ) : null,
+            className: 'p-0',
         }
-    )
+    })
 
     return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" />
 }
 
-function useFingerprintRecords(fingerprintRecords: FingerprintRecordPart[]): {
-    includesExceptionType(exc_id: string): boolean
-    includesExceptionValue(exc_id: string): boolean
-    includesFrame(frame_id: string): boolean
-    isExceptionTypeHighlighted(exc_id: string): boolean
-    isExceptionValueHighlighted(exc_id: string): boolean
-    isFrameHighlighted(frame_id: string): boolean
-} {
-    const { highlightedRecordPart } = useValues(stackFrameLogic)
-    return useMemo(() => {
-        return {
-            includesExceptionType(exc_id: string) {
-                return !!fingerprintRecords.find(
-                    (record) =>
-                        record.type === 'exception' &&
-                        record.id === exc_id &&
-                        record.pieces.some((piece) => piece === 'Exception Type')
-                )
-            },
-            isExceptionTypeHighlighted(exc_id: string) {
-                return !!(
-                    highlightedRecordPart &&
-                    highlightedRecordPart.type === 'exception' &&
-                    highlightedRecordPart.id === exc_id &&
-                    highlightedRecordPart.pieces.some((piece) => piece === 'Exception Type')
-                )
-            },
-            includesExceptionValue(exc_id: string) {
-                return !!fingerprintRecords.find(
-                    (record) =>
-                        record.type === 'exception' &&
-                        record.id === exc_id &&
-                        record.pieces.some((piece) => piece === 'Exception Message')
-                )
-            },
-            isExceptionValueHighlighted(exc_id: string) {
-                return !!(
-                    highlightedRecordPart &&
-                    highlightedRecordPart.type === 'exception' &&
-                    highlightedRecordPart.id === exc_id &&
-                    highlightedRecordPart.pieces.some((piece) => piece === 'Exception Message')
-                )
-            },
-            includesFrame(frame_id: string) {
-                return !!fingerprintRecords.find((record) => record.type === 'frame' && record.raw_id === frame_id)
-            },
-            isFrameHighlighted(frame_id: string) {
-                return !!(
-                    highlightedRecordPart &&
-                    highlightedRecordPart.type === 'frame' &&
-                    highlightedRecordPart.raw_id === frame_id
-                )
-            },
-        }
-    }, [fingerprintRecords, highlightedRecordPart])
+export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
+    const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app } = frame
+    const { getFrameFingerprint } = useValues(errorPropertiesLogic)
+    const part = getFrameFingerprint(raw_id)
+    return (
+        <div className="flex flex-1 justify-between items-center h-full">
+            <div className="flex flex-wrap gap-x-1">
+                {resolved_name ? (
+                    <div className="flex">
+                        <span>{resolved_name}</span>
+                    </div>
+                ) : null}
+                <div className="flex font-light text-xs">
+                    <span>{source}</span>
+                    {line ? (
+                        <>
+                            <span className="text-secondary">@</span>
+                            <span>
+                                {line}
+                                {column && `:${column}`}
+                            </span>
+                        </>
+                    ) : null}
+                </div>
+            </div>
+            <div className="flex gap-x-1 items-center justify-end">
+                {resolved && source && (
+                    <span onClick={cancelEvent} className="text-secondary">
+                        <CopyToClipboardInline
+                            tooltipMessage="Copy file name"
+                            iconSize="xsmall"
+                            explicitValue={source}
+                        />
+                    </span>
+                )}
+                {part && <FingerprintRecordPartDisplay part={part} />}
+                {!in_app && (
+                    <Tooltip title="Vendor frame">
+                        <IconBox className="mr-0.5 text-secondary" fontSize={15} />
+                    </Tooltip>
+                )}
+                {!resolved && (
+                    <Tooltip title={resolve_failure}>
+                        <LemonTag>Unresolved</LemonTag>
+                    </Tooltip>
+                )}
+            </div>
+        </div>
+    )
 }
 
 function FrameContext({

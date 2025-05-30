@@ -2,27 +2,36 @@ import { Counter } from 'prom-client'
 
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
+import { Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
-    HogFunctionAppMetric,
-    HogFunctionInvocationLogEntry,
-    HogFunctionInvocationResult,
-    HogFunctionMessageToProduce,
+    AppMetricType,
+    CyclotronJobInvocationResult,
+    LogEntry,
+    LogEntrySerialized,
+    MetricLogSource,
+    MinimalAppMetric,
 } from '../types'
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
-export const counterHogFunctionMetric = new Counter({
+const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
     help: 'A function invocation was evaluated with an outcome',
     labelNames: ['metric_kind', 'metric_name'],
 })
 
+export type HogFunctionMonitoringMessage = {
+    topic: string
+    value: LogEntrySerialized | AppMetricType
+    key: string
+}
+
 export class HogFunctionMonitoringService {
-    messagesToProduce: HogFunctionMessageToProduce[] = []
+    messagesToProduce: HogFunctionMonitoringMessage[] = []
 
     constructor(private hub: Hub) {}
 
@@ -30,26 +39,34 @@ export class HogFunctionMonitoringService {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
 
-        await this.hub
-            .kafkaProducer!.queueMessages(
-                messages.map((x) => ({
-                    topic: x.topic,
-                    messages: [
-                        {
-                            value: safeClickhouseString(JSON.stringify(x.value)),
+        await Promise.all(
+            messages.map((x) => {
+                const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
+                return this.hub.kafkaProducer
+                    .produce({
+                        topic: x.topic,
+                        key: x.key ? Buffer.from(x.key) : null,
+                        value,
+                    })
+                    .catch((error) => {
+                        // NOTE: We don't hard fail here - this is because we don't want to disrupt the
+                        // entire processing just for metrics.
+                        logger.error('⚠️', `failed to produce message: ${error}`, {
+                            error: String(error),
+                            messageLength: value?.length,
+                            topic: x.topic,
                             key: x.key,
-                        },
-                    ],
-                }))
-            )
-            .catch((reason) => {
-                logger.error('⚠️', `failed to produce message: ${reason}`)
+                        })
+
+                        captureException(error)
+                    })
             })
+        )
     }
 
-    produceAppMetric(metric: HogFunctionAppMetric) {
-        const appMetric: AppMetric2Type = {
-            app_source: 'hog_function',
+    queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
+        const appMetric: AppMetricType = {
+            app_source: source,
             ...metric,
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
         }
@@ -63,15 +80,15 @@ export class HogFunctionMonitoringService {
         })
     }
 
-    produceAppMetrics(metrics: HogFunctionAppMetric[]) {
-        metrics.forEach((metric) => this.produceAppMetric(metric))
+    queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
+        metrics.forEach((metric) => this.queueAppMetric(metric, source))
     }
 
-    produceLogs(logEntries: HogFunctionInvocationLogEntry[]) {
+    queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
         const logs = fixLogDeduplication(
             logEntries.map((logEntry) => ({
                 ...logEntry,
-                log_source: 'hog_function',
+                log_source: source,
             }))
         )
 
@@ -84,34 +101,40 @@ export class HogFunctionMonitoringService {
         })
     }
 
-    async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
+    async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
                 await Promise.all(
                     results.map(async (result) => {
-                        if (result.finished || result.error) {
-                            this.produceAppMetric({
-                                team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.hogFunction.id,
-                                metric_kind: result.error ? 'failure' : 'success',
-                                metric_name: result.error ? 'failed' : 'succeeded',
-                                count: 1,
-                            })
-                        }
+                        const source = 'hogFunction' in result.invocation ? 'hog_function' : 'hog_flow'
 
-                        this.produceLogs(
+                        this.queueLogs(
                             result.logs.map((logEntry) => ({
                                 ...logEntry,
-                                team_id: result.invocation.hogFunction.team_id,
-                                log_source: 'hog_function',
-                                log_source_id: result.invocation.hogFunction.id,
+                                team_id: result.invocation.teamId,
+                                log_source: source,
+                                log_source_id: result.invocation.functionId,
                                 instance_id: result.invocation.id,
-                            }))
+                            })),
+                            source
                         )
 
                         if (result.metrics) {
-                            this.produceAppMetrics(result.metrics)
+                            this.queueAppMetrics(result.metrics, source)
+                        }
+
+                        if (result.finished || result.error) {
+                            this.queueAppMetric(
+                                {
+                                    team_id: result.invocation.teamId,
+                                    app_source_id: result.invocation.functionId,
+                                    metric_kind: result.error ? 'failure' : 'success',
+                                    metric_name: result.error ? 'failed' : 'succeeded',
+                                    count: 1,
+                                },
+                                source
+                            )
                         }
 
                         // Clear the logs so we don't pass them on to the next invocation
@@ -122,7 +145,7 @@ export class HogFunctionMonitoringService {
                         delete result.capturedPostHogEvents
 
                         for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            const team = await this.hub.teamManager.getTeam(event.team_id)
                             if (!team) {
                                 continue
                             }

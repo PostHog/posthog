@@ -178,7 +178,13 @@ describe('SessionBatchRecorder', () => {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+        recorder = new SessionBatchRecorder(
+            mockOffsetManager,
+            mockStorage,
+            mockMetadataStore,
+            mockConsoleLogStore,
+            new Date('2025-01-02 00:00:00Z')
+        )
     })
 
     const createMessage = (
@@ -416,6 +422,103 @@ describe('SessionBatchRecorder', () => {
                 ['window1', messages[3].message.eventsByWindowId.window1[0]],
             ])
         })
+
+        it('should handle same session id with different teams as separate sessions', async () => {
+            const messages = [
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1 },
+                        },
+                    ],
+                    {},
+                    1,
+                    'user1'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.Meta,
+                            timestamp: 1100,
+                            data: { href: 'https://example.com' },
+                        },
+                    ],
+                    {},
+                    2,
+                    'user2'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2 },
+                        },
+                    ],
+                    {},
+                    1,
+                    'user1'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.Custom,
+                            timestamp: 2100,
+                            data: { tag: 'click' },
+                        },
+                    ],
+                    {},
+                    2,
+                    'user2'
+                ),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
+
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines1 = parseLines(writtenData[0])
+            const lines2 = parseLines(writtenData[1])
+
+            // Events should be grouped by team ID despite having same session ID
+            expect(lines1).toEqual([
+                // All team 1 events
+                ['window1', messages[0].message.eventsByWindowId.window1[0]],
+                ['window1', messages[2].message.eventsByWindowId.window1[0]],
+            ])
+            expect(lines2).toEqual([
+                // All team 2 events
+                ['window1', messages[1].message.eventsByWindowId.window1[0]],
+                ['window1', messages[3].message.eventsByWindowId.window1[0]],
+            ])
+
+            // Verify metadata store received separate session blocks for each team
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        sessionId: 'same_session_id',
+                        teamId: 1,
+                        distinctId: 'user1',
+                    }),
+                    expect.objectContaining({
+                        sessionId: 'same_session_id',
+                        teamId: 2,
+                        distinctId: 'user2',
+                    }),
+                ])
+            )
+        })
     })
 
     describe('console log recording', () => {
@@ -435,7 +538,8 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
                 message
@@ -470,7 +574,8 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
             expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
@@ -505,13 +610,15 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
                 messages[0]
@@ -603,19 +710,22 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session3',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
 
             // Get mock recorders
@@ -658,13 +768,15 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 2,
                 expect.any(String),
-                mockConsoleLogStore
+                mockConsoleLogStore,
+                new Date('2025-01-02 00:00:00Z')
             )
 
             // Get mock recorders
@@ -1285,7 +1397,13 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-01T10:00:00.000Z')
+            )
             await recorder.record(message)
             await recorder.flush()
 

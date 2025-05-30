@@ -1,14 +1,15 @@
-import { LemonTable, Spinner } from '@posthog/lemon-ui'
+import { IconRevert, IconX } from '@posthog/icons'
+import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataWarehouseSyncInterval, OrNever } from '~/types'
+import { DataModelingJob, DataWarehouseSyncInterval, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -61,9 +62,19 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { editingView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
 
-    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
-        useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const {
+        dataWarehouseSavedQueryMapById,
+        updatingDataWarehouseSavedQuery,
+        initialDataWarehouseSavedQueryLoading,
+        dataModelingJobs,
+        hasMoreJobsToLoad,
+    } = useValues(dataWarehouseViewsLogic)
+    const {
+        updateDataWarehouseSavedQuery,
+        loadOlderDataModelingJobs,
+        cancelDataWarehouseSavedQuery,
+        revertMaterialization,
+    } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
@@ -90,7 +101,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                     <div>
-                        {savedQuery?.sync_frequency || savedQuery?.last_run_at ? (
+                        {savedQuery?.sync_frequency ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
@@ -101,19 +112,29 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 )}
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
+                                        className="whitespace-nowrap"
                                         loading={savedQuery?.status === 'Running'}
                                         disabledReason={
-                                            savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                            savedQuery?.status === 'Running' && 'Materialization is already running'
                                         }
                                         onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
                                         type="secondary"
+                                        sideAction={{
+                                            icon: <IconX fontSize={16} />,
+                                            tooltip: 'Cancel materialization',
+                                            onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
+                                            disabledReason:
+                                                savedQuery?.status !== 'Running' && 'Materialization is not running',
+                                        }}
                                     >
-                                        Sync now
+                                        {savedQuery?.status === 'Running' ? 'Running...' : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
                                         disabledReason={
-                                            savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                            savedQuery?.status === 'Running'
+                                                ? 'Materialization is already running'
+                                                : false
                                         }
                                         value={
                                             editingView
@@ -134,13 +155,49 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         loading={updatingDataWarehouseSavedQuery}
                                         options={OPTIONS}
                                     />
+                                    {editingView && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            tooltip="Revert materialized view to view"
+                                            disabledReason={
+                                                savedQuery?.status === 'Running' &&
+                                                'Cannot revert while materialization is running'
+                                            }
+                                            icon={<IconRevert />}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Revert materialization',
+                                                    maxWidth: '30rem',
+                                                    description:
+                                                        'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
+                                                    primaryButton: {
+                                                        status: 'danger',
+                                                        children: 'Revert materialization',
+                                                        onClick: () => revertMaterialization(editingView.id),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         ) : (
                             <div>
                                 <p>
                                     Materialized views are a way to pre-compute data in your data warehouse. This allows
-                                    you to run queries faster and more efficiently.
+                                    you to run queries faster and more efficiently. Learn more about materialization{' '}
+                                    <Link
+                                        data-attr="materializing-help"
+                                        to="https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view"
+                                        target="_blank"
+                                    >
+                                        here
+                                    </Link>
+                                    .
                                 </p>
                                 <LemonButton
                                     onClick={() => {
@@ -149,7 +206,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                 id: editingView.id,
                                                 sync_frequency: '24hour',
                                                 types: [[]],
-                                                lifecycle: 'create',
+                                                lifecycle:
+                                                    dataModelingJobs && dataModelingJobs.results.length > 0
+                                                        ? 'update'
+                                                        : 'create',
                                             })
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
@@ -164,6 +224,87 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                 </div>
+                {savedQuery && (
+                    <>
+                        <div>
+                            <h3>Materialization Runs</h3>
+                            <p>The last runs for this materialized view. These can be scheduled or run on demand.</p>
+                        </div>
+                        <LemonTable
+                            loading={initialDataWarehouseSavedQueryLoading}
+                            dataSource={dataModelingJobs?.results || []}
+                            columns={[
+                                {
+                                    title: 'Status',
+                                    dataIndex: 'status',
+                                    render: (_, { status, error }: DataModelingJob) => {
+                                        const statusToType: Record<string, LemonTagType> = {
+                                            Completed: 'success',
+                                            Failed: 'danger',
+                                            Running: 'warning',
+                                        }
+                                        const type = statusToType[status] || 'warning'
+
+                                        return error ? (
+                                            <Tooltip title={error}>
+                                                <LemonTag type={type}>{status}</LemonTag>
+                                            </Tooltip>
+                                        ) : (
+                                            <LemonTag type={type}>{status}</LemonTag>
+                                        )
+                                    },
+                                },
+                                {
+                                    title: 'Rows',
+                                    dataIndex: 'rows_materialized',
+                                    render: (_, { rows_materialized, status }: DataModelingJob) =>
+                                        (status === 'Running' || status === 'Cancelled') && rows_materialized === 0
+                                            ? '~'
+                                            : rows_materialized,
+                                },
+                                {
+                                    title: 'Updated',
+                                    dataIndex: 'last_run_at',
+                                    render: (_, { last_run_at }: DataModelingJob) =>
+                                        humanFriendlyDetailedTime(last_run_at),
+                                },
+                                {
+                                    title: 'Duration',
+                                    render: (_, job: DataModelingJob) => {
+                                        if (job.status === 'Running') {
+                                            return 'In progress'
+                                        }
+                                        // Convert date strings to timestamps before subtraction
+                                        const start = new Date(job.created_at).getTime()
+                                        const end = new Date(job.last_run_at).getTime()
+
+                                        if (start > end) {
+                                            return 'N/A'
+                                        }
+
+                                        return humanFriendlyDuration((end - start) / 1000)
+                                    },
+                                },
+                            ]}
+                            nouns={['run', 'runs']}
+                            emptyState="No runs available"
+                            footer={
+                                hasMoreJobsToLoad && (
+                                    <div className="flex items-center m-2">
+                                        <LemonButton
+                                            center
+                                            fullWidth
+                                            onClick={() => loadOlderDataModelingJobs()}
+                                            loading={initialDataWarehouseSavedQueryLoading}
+                                        >
+                                            Load older runs
+                                        </LemonButton>
+                                    </div>
+                                )
+                            }
+                        />
+                    </>
+                )}
                 <div>
                     <h3>Columns</h3>
                     <p>Columns that are available in the materialized view.</p>
@@ -214,11 +355,18 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         {
                             key: 'Status',
                             title: 'Status',
-                            render: (_, { type, status }) => {
+                            render: (_, { type, status, last_run_at }) => {
                                 if (type === 'source') {
                                     return (
                                         <Tooltip title="This is a source table, so it doesn't have a status">
                                             <span className="text-secondary">N/A</span>
+                                        </Tooltip>
+                                    )
+                                }
+                                if (last_run_at === 'never' && !status) {
+                                    return (
+                                        <Tooltip title="This is a view, so it's always available with the latest data">
+                                            <span className="text-secondary">Available</span>
                                         </Tooltip>
                                     )
                                 }
@@ -228,10 +376,17 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         {
                             key: 'Last run at',
                             title: 'Last run at',
-                            render: (_, { type, last_run_at }) => {
+                            render: (_, { type, last_run_at, status }) => {
                                 if (type === 'source') {
                                     return (
                                         <Tooltip title="This is a source table, so it is never run">
+                                            <span className="text-secondary">N/A</span>
+                                        </Tooltip>
+                                    )
+                                }
+                                if (last_run_at === 'never' && !status) {
+                                    return (
+                                        <Tooltip title="This is a view, so it is never run">
                                             <span className="text-secondary">N/A</span>
                                         </Tooltip>
                                     )

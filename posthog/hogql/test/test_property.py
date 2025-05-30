@@ -310,6 +310,60 @@ class TestProperty(BaseTest):
             self._parse_expr("person.properties.a = 'b'"),
         )
 
+    def test_property_to_expr_error_tracking_issue_properties(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ReferenceError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "exact",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "is_not",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_regex",
+                    "type": "event",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+
     def test_property_to_expr_element(self):
         self.assertEqual(
             self._property_to_expr(
