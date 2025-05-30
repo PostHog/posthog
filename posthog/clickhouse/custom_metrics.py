@@ -77,7 +77,7 @@ CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
 CREATE TABLE IF NOT EXISTS custom_metrics_counter_events (
     name String,
     labels Map(String, String),
-    timestamp DateTime64(3, 'UTC'),
+    timestamp DateTime64(3, 'UTC') DEFAULT now(),
     increment Float64
 ) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (name, labels, timestamp)
@@ -88,11 +88,10 @@ CREATE_CUSTOM_METRICS_COUNTERS_VIEW = f"""
 CREATE OR REPLACE VIEW custom_metrics_counters AS
 SELECT
     name,
-    labels,
+    mapSort(labels) as labels,
     sum(increment) as value,
     '' as help,
     'counter' as type
-    -- max(timestamp) as timestamp
 FROM custom_metrics_counter_events
 GROUP BY name, type, labels
 ORDER BY name, type, labels
