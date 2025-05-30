@@ -357,7 +357,7 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Count mutations before force
     get_mutations_count = Query(
         "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
-        {"table": table}
+        {"table": table},
     )
     mutations_count_before = cluster.map_all_hosts(get_mutations_count).result()
 

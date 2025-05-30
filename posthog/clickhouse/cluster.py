@@ -514,7 +514,7 @@ class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
-    force: bool = False  # whether to force the mutation to run even if it already exists
+    force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -651,7 +651,9 @@ class MutationRunner(abc.ABC):
 
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
-    commands: Set[str] = field(kw_only=True)  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    commands: Set[str] = field(
+        kw_only=True
+    )  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
     def get_all_commands(self) -> Set[str]:
         return self.commands
