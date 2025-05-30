@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonDialog, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -11,7 +11,7 @@ import {
 } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
 import { CustomizationProps } from 'scenes/surveys/survey-appearance/types'
 
-import { AvailableFeature, SurveyAppearance, SurveyWidgetType } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { surveysLogic } from '../surveysLogic'
 
@@ -31,6 +31,8 @@ export function Customization({
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
+    const surveyAppearance = { ...defaultSurveyAppearance, ...survey.appearance }
+
     return (
         <>
             <div className="flex flex-col gap-2">
@@ -46,16 +48,15 @@ export function Customization({
                     hasRatingButtons={hasRatingButtons}
                     validationErrors={validationErrors}
                 />
-
                 <SurveyContainerAppearance
-                    appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
+                    appearance={surveyAppearance}
                     onAppearanceChange={onAppearanceChange}
                     validationErrors={validationErrors}
                     surveyType={survey.type}
                 />
                 <LemonDivider />
                 <SurveyColorsAppearance
-                    appearance={survey.appearance || defaultSurveyAppearance}
+                    appearance={surveyAppearance}
                     onAppearanceChange={onAppearanceChange}
                     validationErrors={validationErrors}
                     customizeRatingButtons={hasRatingButtons}
@@ -71,7 +72,7 @@ export function Customization({
                         }
                         onChange={(checked) =>
                             guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                onAppearanceChange({ ...survey.appearance, whiteLabel: checked })
+                                onAppearanceChange({ whiteLabel: checked })
                             )
                         }
                         checked={survey.appearance?.whiteLabel}
@@ -86,7 +87,7 @@ export function Customization({
                             }
                             onChange={(checked) => {
                                 if (checked && hasBranchingLogic) {
-                                    onAppearanceChange({ ...survey.appearance, shuffleQuestions: false })
+                                    onAppearanceChange({ shuffleQuestions: false })
 
                                     LemonDialog.open({
                                         title: 'Your survey has active branching logic',
@@ -103,7 +104,7 @@ export function Customization({
                                                 if (deleteBranchingLogic) {
                                                     deleteBranchingLogic()
                                                 }
-                                                onAppearanceChange({ ...survey.appearance, shuffleQuestions: true })
+                                                onAppearanceChange({ shuffleQuestions: true })
                                             },
                                         },
                                         secondaryButton: {
@@ -111,7 +112,7 @@ export function Customization({
                                         },
                                     })
                                 } else {
-                                    onAppearanceChange({ ...survey.appearance, shuffleQuestions: checked })
+                                    onAppearanceChange({ shuffleQuestions: checked })
                                 }
                             }}
                             checked={survey.appearance?.shuffleQuestions}
@@ -123,7 +124,7 @@ export function Customization({
                                 checked={!!survey.appearance?.surveyPopupDelaySeconds}
                                 onChange={(checked) => {
                                     const surveyPopupDelaySeconds = checked ? 5 : undefined
-                                    onAppearanceChange({ ...survey.appearance, surveyPopupDelaySeconds })
+                                    onAppearanceChange({ surveyPopupDelaySeconds })
                                 }}
                             />
                             Delay survey popup by at least{' '}
@@ -136,15 +137,9 @@ export function Customization({
                                 value={survey.appearance?.surveyPopupDelaySeconds || NaN}
                                 onChange={(newValue) => {
                                     if (newValue && newValue > 0) {
-                                        onAppearanceChange({
-                                            ...survey.appearance,
-                                            surveyPopupDelaySeconds: newValue,
-                                        })
+                                        onAppearanceChange({ surveyPopupDelaySeconds: newValue })
                                     } else {
-                                        onAppearanceChange({
-                                            ...survey.appearance,
-                                            surveyPopupDelaySeconds: undefined,
-                                        })
+                                        onAppearanceChange({ surveyPopupDelaySeconds: undefined })
                                     }
                                 }}
                                 className="w-12 ignore-error-border"
@@ -154,60 +149,6 @@ export function Customization({
                     </LemonField.Pure>
                 </div>
             </div>
-        </>
-    )
-}
-
-type WidgetCustomizationProps = Pick<CustomizationProps, 'onAppearanceChange' | 'validationErrors'> & {
-    appearance: SurveyAppearance
-}
-
-export function WidgetCustomization({
-    appearance,
-    onAppearanceChange,
-    validationErrors,
-}: WidgetCustomizationProps): JSX.Element {
-    return (
-        <>
-            <LemonField.Pure label="Feedback button type" className="mt-2" labelClassName="font-normal">
-                <LemonSelect
-                    value={appearance.widgetType}
-                    onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
-                    options={[
-                        { label: 'Embedded tab', value: SurveyWidgetType.Tab },
-                        { label: 'Custom', value: SurveyWidgetType.Selector },
-                    ]}
-                />
-            </LemonField.Pure>
-            {appearance.widgetType === SurveyWidgetType.Selector ? (
-                <LemonField.Pure
-                    className="mt-2"
-                    label="CSS selector"
-                    labelClassName="font-normal"
-                    info="Enter a class or ID selector for the feedback button, like .feedback-button or #feedback-button. If you're using a custom theme, you can use the theme's class name."
-                >
-                    <LemonInput
-                        value={appearance.widgetSelector}
-                        onChange={(widgetSelector) => onAppearanceChange({ ...appearance, widgetSelector })}
-                        placeholder="ex: .feedback-button, #feedback-button"
-                    />
-                    {validationErrors?.widgetSelector && <LemonField.Error error={validationErrors?.widgetSelector} />}
-                </LemonField.Pure>
-            ) : (
-                <>
-                    <div className="mt-2">Label</div>
-                    <LemonInput
-                        value={appearance.widgetLabel}
-                        onChange={(widgetLabel) => onAppearanceChange({ ...appearance, widgetLabel })}
-                    />
-                    <div className="mt-2">Background color</div>
-                    <LemonInput
-                        value={appearance.widgetColor}
-                        onChange={(widgetColor) => onAppearanceChange({ ...appearance, widgetColor })}
-                        placeholder="#e0a045"
-                    />
-                </>
-            )}
         </>
     )
 }

@@ -296,7 +296,6 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             },
         ],
         description: 'Works best after a checkout or support flow.',
-        appearance: { ratingButtonColor: '#939393' },
     },
     {
         type: SurveyType.Popover,

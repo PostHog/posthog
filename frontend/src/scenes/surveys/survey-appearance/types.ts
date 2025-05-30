@@ -5,7 +5,7 @@ import { Survey, SurveyAppearance } from '~/types'
 
 export interface CommonProps {
     survey: NewSurvey | Survey
-    onAppearanceChange: (appearance: SurveyAppearance) => void
+    onAppearanceChange: (appearance: Partial<SurveyAppearance>) => void
     validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
     hasRatingButtons: boolean
     hasPlaceholderText: boolean

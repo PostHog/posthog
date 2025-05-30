@@ -61,6 +61,7 @@ export function SurveyTemplates(): JSX.Element {
                                             ...defaultSurveyAppearance,
                                             ...template.appearance,
                                             ...surveyAppearance,
+                                            maxWidth: '300px',
                                         },
                                         conditions: template.conditions ?? null,
                                     })

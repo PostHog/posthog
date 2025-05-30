@@ -137,13 +137,14 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                         hasRatingButtons={true}
                         hasPlaceholderText={true}
                         onAppearanceChange={(appearance) => {
-                            setEditableSurveyConfig({
+                            const newAppearance = {
                                 ...editableSurveyConfig,
                                 ...appearance,
-                            })
+                            }
+                            setEditableSurveyConfig(newAppearance)
                             setTemplatedSurvey({
                                 ...templatedSurvey,
-                                ...{ appearance: appearance },
+                                appearance: newAppearance,
                             })
                         }}
                         validationErrors={validationErrors}

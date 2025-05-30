@@ -98,26 +98,26 @@ export function SurveyContainerAppearance({
             </span>
             <SurveyAppearanceInput
                 value={appearance.maxWidth}
-                onChange={(maxWidth) => onAppearanceChange({ ...appearance, maxWidth })}
+                onChange={(maxWidth) => onAppearanceChange({ maxWidth })}
                 error={validationErrors?.maxWidth}
                 label="Survey width"
                 info="Min-width is always set to 300px"
             />
             <SurveyAppearanceInput
                 value={appearance.boxPadding}
-                onChange={(boxPadding) => onAppearanceChange({ ...appearance, boxPadding })}
+                onChange={(boxPadding) => onAppearanceChange({ boxPadding })}
                 error={validationErrors?.boxPadding}
                 label="Box padding"
             />
             <SurveyAppearanceInput
                 value={appearance.boxShadow}
-                onChange={(boxShadow) => onAppearanceChange({ ...appearance, boxShadow })}
+                onChange={(boxShadow) => onAppearanceChange({ boxShadow })}
                 error={validationErrors?.boxShadow}
                 label="Box shadow"
             />
             <SurveyAppearanceInput
                 value={appearance.borderRadius}
-                onChange={(borderRadius) => onAppearanceChange({ ...appearance, borderRadius })}
+                onChange={(borderRadius) => onAppearanceChange({ borderRadius })}
                 error={validationErrors?.borderRadius}
                 label="Border radius"
             />
@@ -136,7 +136,7 @@ export function SurveyContainerAppearance({
                             key={position}
                             type="tertiary"
                             size="small"
-                            onClick={() => onAppearanceChange({ ...appearance, position })}
+                            onClick={() => onAppearanceChange({ position })}
                             active={appearance.position === position}
                             disabled={!surveysStylingAvailable}
                             className="justify-center text-xs" // Ensure text is centered and button is small
@@ -174,7 +174,7 @@ export function SurveyContainerAppearance({
             >
                 <LemonSelect
                     value={appearance?.fontFamily}
-                    onChange={(fontFamily) => onAppearanceChange({ ...appearance, fontFamily })}
+                    onChange={(fontFamily) => onAppearanceChange({ fontFamily })}
                     options={WEB_SAFE_FONTS.map((font) => {
                         return {
                             label: <span className={font.value.toLowerCase().replace(/\s/g, '-')}>{font.label}</span>,
@@ -187,7 +187,7 @@ export function SurveyContainerAppearance({
             </LemonField.Pure>
             <SurveyAppearanceInput
                 value={appearance.zIndex}
-                onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
+                onChange={(zIndex) => onAppearanceChange({ zIndex })}
                 error={validationErrors?.zIndex}
                 label="Survey form zIndex"
                 info="If the survey popup is hidden, set this value higher than the overlapping element's zIndex."
@@ -210,25 +210,25 @@ export function SurveyColorsAppearance({
         <SurveyOptionsGroup sectionTitle="Colors and placeholder customization">
             <SurveyAppearanceInput
                 value={appearance.backgroundColor}
-                onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+                onChange={(backgroundColor) => onAppearanceChange({ backgroundColor })}
                 error={validationErrors?.backgroundColor}
                 label="Background color"
             />
             <SurveyAppearanceInput
                 value={appearance.borderColor}
-                onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
+                onChange={(borderColor) => onAppearanceChange({ borderColor })}
                 error={validationErrors?.borderColor}
                 label="Border color"
             />
             <SurveyAppearanceInput
                 value={appearance.submitButtonColor}
-                onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                onChange={(submitButtonColor) => onAppearanceChange({ submitButtonColor })}
                 error={validationErrors?.submitButtonColor}
                 label="Button color"
             />
             <SurveyAppearanceInput
                 value={appearance.submitButtonTextColor}
-                onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
+                onChange={(submitButtonTextColor) => onAppearanceChange({ submitButtonTextColor })}
                 error={validationErrors?.submitButtonTextColor}
                 label="Button text color"
             />
@@ -236,15 +236,13 @@ export function SurveyColorsAppearance({
                 <>
                     <SurveyAppearanceInput
                         value={appearance.ratingButtonColor}
-                        onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
+                        onChange={(ratingButtonColor) => onAppearanceChange({ ratingButtonColor })}
                         error={validationErrors?.ratingButtonColor}
                         label="Rating button color"
                     />
                     <SurveyAppearanceInput
                         value={appearance.ratingButtonActiveColor}
-                        onChange={(ratingButtonActiveColor) =>
-                            onAppearanceChange({ ...appearance, ratingButtonActiveColor })
-                        }
+                        onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
                         error={validationErrors?.ratingButtonActiveColor}
                         label="Rating button active color"
                     />
@@ -253,7 +251,7 @@ export function SurveyColorsAppearance({
             {customizePlaceholderText && (
                 <SurveyAppearanceInput
                     value={appearance.placeholder}
-                    onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                    onChange={(placeholder) => onAppearanceChange({ placeholder })}
                     error={validationErrors?.placeholder}
                     label="Placeholder text"
                 />
