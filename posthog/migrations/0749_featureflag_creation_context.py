@@ -10,7 +10,7 @@ def populate_survey_creation_context(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0746_alter_externaldatasource_source_type"),
+        ("posthog", "0748_update_featureflag_super_groups"),
     ]
 
     operations = [
