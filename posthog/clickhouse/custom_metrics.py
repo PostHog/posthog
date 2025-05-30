@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS custom_metrics_counter_events (
     timestamp DateTime64(3, 'UTC') DEFAULT now(),
     increment Float64
 ) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
-ORDER BY (name, labels, timestamp)
+ORDER BY (name, timestamp)
 PARTITION BY toYYYYMM(timestamp)
 """
 
