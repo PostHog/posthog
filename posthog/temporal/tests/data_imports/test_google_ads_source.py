@@ -58,7 +58,6 @@ def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
     private_key_id = "id"
     client_email = "posthog@posthog.com"
     token_uri = "https://posthog.com"
-    developer_token = developer_token
 
     job_inputs = {
         "resource_name": "campaign",
