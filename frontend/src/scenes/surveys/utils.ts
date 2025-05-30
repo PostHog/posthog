@@ -34,12 +34,12 @@ export function sanitizeColor(color: string | undefined): string | undefined {
     return color
 }
 
-function validateCSSProperty(property: string, value: string | undefined, fieldName: string): string | undefined {
+export function validateCSSProperty(property: string, value: string | undefined): string | undefined {
     if (!value) {
         return undefined
     }
     const isValidCSSProperty = CSS.supports(property, value)
-    return !isValidCSSProperty ? `Invalid ${fieldName} value. Please use a valid CSS property.` : undefined
+    return !isValidCSSProperty ? `${value} is not a valid property for ${property}.` : undefined
 }
 
 export function validateSurveyAppearance(
@@ -48,28 +48,20 @@ export function validateSurveyAppearance(
     surveyType: SurveyType
 ): DeepPartialMap<SurveyAppearance, ValidationErrorType> {
     return {
-        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor, 'background color'),
-        borderColor: validateCSSProperty('border-color', appearance.borderColor, 'border color'),
+        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
+        borderColor: validateCSSProperty('border-color', appearance.borderColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
-            ratingButtonActiveColor: validateCSSProperty(
-                'background-color',
-                appearance.ratingButtonActiveColor,
-                'rating button active color'
-            ),
-            ratingButtonColor: validateCSSProperty(
-                'background-color',
-                appearance.ratingButtonColor,
-                'rating button color'
-            ),
+            ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
+            ratingButtonColor: validateCSSProperty('background-color', appearance.ratingButtonColor),
         }),
-        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor, 'button color'),
-        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor, 'button text color'),
-        maxWidth: validateCSSProperty('width', appearance.maxWidth, 'width'),
-        boxPadding: validateCSSProperty('padding', appearance.boxPadding, 'box padding'),
-        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow, 'box shadow'),
-        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius, 'border radius'),
-        zIndex: validateCSSProperty('z-index', appearance.zIndex, 'z-index'),
+        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor),
+        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor),
+        maxWidth: validateCSSProperty('width', appearance.maxWidth),
+        boxPadding: validateCSSProperty('padding', appearance.boxPadding),
+        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
+        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius),
+        zIndex: validateCSSProperty('z-index', appearance.zIndex),
         widgetSelector:
             surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
                 ? 'Please enter a CSS selector.'
