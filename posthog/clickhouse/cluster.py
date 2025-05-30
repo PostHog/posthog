@@ -514,6 +514,7 @@ class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+    force: bool = False  # whether to force the mutation to run even if it already exists
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -535,7 +536,15 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
-        mutations_running = self.find_existing_mutations(client, expected_commands)
+        if self.force:
+            logger.info(
+                "Forcing mutation for %r, even if it already exists. This may cause issues if the mutation is already running.",
+                expected_commands,
+            )
+            mutations_running = {}
+        else:
+            logger.info("Ensuring mutation for %r is running or has completed.", expected_commands)
+            mutations_running = self.find_existing_mutations(client, expected_commands)
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
@@ -640,6 +649,7 @@ class MutationRunner(abc.ABC):
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
     commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    force: bool = False  # whether to force the mutation to run even if it already exists
 
     def get_all_commands(self) -> Set[str]:
         return self.commands
