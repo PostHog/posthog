@@ -598,12 +598,15 @@ class MutationRunner(abc.ABC):
                     t.2 as position
             ) commands
             LEFT OUTER JOIN (
-                SELECT *
+                SELECT
+                    command,
+                    argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
                     database = %(__database)s
                     AND table = %(__table)s
                     AND NOT is_killed  -- ok to restart a killed mutation
+                GROUP BY command
             ) mutations USING (command)
             ORDER BY position ASC
             SETTINGS join_use_nulls = 1
@@ -648,8 +651,7 @@ class MutationRunner(abc.ABC):
 
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
-    commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
-    force: bool = False  # whether to force the mutation to run even if it already exists
+    commands: Set[str] = field(kw_only=True)  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
     def get_all_commands(self) -> Set[str]:
         return self.commands
@@ -660,7 +662,7 @@ class AlterTableMutationRunner(MutationRunner):
 
 @dataclass
 class LightweightDeleteMutationRunner(MutationRunner):
-    predicate: str
+    predicate: str = field(kw_only=True)
 
     def get_all_commands(self) -> Set[str]:
         return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}
