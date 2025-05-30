@@ -215,7 +215,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
                     <ThreadAutoScroller>
-                        <Thread sidePanel={sidePanel} />
+                        <Thread />
                         <QuestionInput isFloating />
                     </ThreadAutoScroller>
                 )}
