@@ -14,27 +14,38 @@ import {
 } from './takeScreenshotLogic'
 
 export function ScreenShotEditor(): JSX.Element {
-    const { isOpen, imageFile, mode } = useValues(takeScreenshotLogic)
-    const { setIsOpen, setMode } = useActions(takeScreenshotLogic)
+    const {
+        isOpen,
+        imageFile,
+        mode,
+        color,
+        isDrawing,
+        originalImage,
+        currentText,
+        selectedTextIndex,
+        dragStartOffset,
+    } = useValues(takeScreenshotLogic)
+    const {
+        setIsOpen,
+        setMode,
+        setColor,
+        setIsDrawing,
+        setOriginalImage,
+        setCurrentText,
+        setSelectedTextIndex,
+        setDragStartOffset,
+    } = useActions(takeScreenshotLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [drawings, setDrawings] = useState<DrawingItem[]>([])
     const [texts, setTexts] = useState<TextItem[]>([])
-    const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null)
-    const [isDrawing, setIsDrawing] = useState<boolean>(false)
     const [currentPath, setCurrentPath] = useState<Point[]>([])
-    const [currentText, setCurrentText] = useState<string>('')
     const [textInputPosition, setTextInputPosition] = useState<{ x: number; y: number; visible: boolean }>({
         x: 0,
         y: 0,
         visible: false,
     })
     const [historyStack, setHistoryStack] = useState<HistoryItem[]>([])
-    const [color, setColor] = useState<string>('#FF0000')
-
-    // For moving text
-    const [selectedTextIndex, setSelectedTextIndex] = useState<number | null>(null)
-    const [dragStartOffset, setDragStartOffset] = useState<Point | null>(null)
 
     const LINE_WIDTH = 3
     const TEXT_FONT = '16px Arial'
@@ -341,140 +352,142 @@ export function ScreenShotEditor(): JSX.Element {
         downloadFile(editedFile)
     }
 
-    if (!isOpen) {
-        return <></>
-    }
-
     return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={handleClose}
-            title="Edit Screenshot"
-            description="Draw or add text to your screenshot."
-            width="auto"
-            maxWidth="100%"
-            footer={
-                <div className="flex justify-between items-center w-full">
-                    <div className="flex gap-2 items-center">
-                        <LemonColorPicker
-                            selectedColor={color}
-                            onSelectColor={(newColor) => {
-                                setColor(newColor)
-                            }}
-                            colors={getSeriesColorPalette().slice(0, 20)}
-                        />
-                        <LemonButton
-                            type={mode === 'draw' ? 'primary' : 'secondary'}
-                            onClick={() => {
-                                setMode('draw')
-                                setSelectedTextIndex(null)
-                                setTextInputPosition({ ...textInputPosition, visible: false })
-                            }}
-                            icon={<IconPencil />}
-                            tooltip="Draw"
-                        />
-                        <LemonButton
-                            type={mode === 'text' || mode === 'moveText' ? 'primary' : 'secondary'}
-                            onClick={() => {
-                                setMode('text')
-                            }}
-                            tooltip="Add or Move Text"
-                        >
-                            Text
-                        </LemonButton>
-                        <LemonButton
-                            onClick={handleUndoLastChange}
-                            disabledReason={historyStack.length === 0 ? 'No actions to undo' : undefined}
-                            icon={<IconUndo />}
-                            tooltip="Undo"
-                        />
-                    </div>
-                    <div className="flex gap-2 items-center">
-                        <LemonButton type="secondary" onClick={handleClose}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                void handleSave()
-                            }}
-                        >
-                            Download
-                        </LemonButton>
-                    </div>
-                </div>
-            }
-        >
-            <div className="flex flex-col gap-4 max-h-[80vh]">
-                <div
-                    className={`flex-grow flex justify-center items-center overflow-hidden ${
-                        mode === 'moveText' && selectedTextIndex !== null
-                            ? 'cursor-move'
-                            : mode === 'draw'
-                            ? 'cursor-crosshair'
-                            : 'cursor-text'
-                    }`}
-                >
-                    <canvas
-                        ref={canvasRef}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
-                        onClick={handleCanvasClickForTextPlacement}
-                        className={`border border-gray-300 ${
-                            originalImage ? 'block' : 'hidden'
-                        } max-w-full max-h-full object-contain`}
-                    />
-                    {!originalImage && imageFile && <p>Loading image...</p>}
-                    {!originalImage && !imageFile && <p>No image selected.</p>}
-
-                    {mode === 'text' && textInputPosition.visible && selectedTextIndex === null && (
-                        <div
-                            className="absolute bg-white border rounded p-1 z-10"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ top: textInputPosition.y, left: textInputPosition.x }}
-                        >
-                            <LemonInput
-                                value={currentText}
-                                onChange={setCurrentText}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault()
-                                        handleTextSubmit(currentText)
-                                    } else if (e.key === 'Escape') {
-                                        setTextInputPosition({ ...textInputPosition, visible: false })
-                                        setCurrentText('')
-                                    }
+        <>
+            <LemonModal
+                isOpen={isOpen}
+                onClose={handleClose}
+                title="Edit Screenshot"
+                description="Draw or add text to your screenshot."
+                width="auto"
+                maxWidth="100%"
+                footer={
+                    <div className="flex justify-between items-center w-full">
+                        <div className="flex gap-2 items-center">
+                            <LemonColorPicker
+                                selectedColor={color}
+                                onSelectColor={(newColor) => {
+                                    setColor(newColor)
                                 }}
-                                autoFocus
-                                placeholder="Type and press Enter"
+                                colors={getSeriesColorPalette().slice(0, 20)}
                             />
-                            <div className="flex gap-2 items-center mt-2">
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    onClick={() => handleTextSubmit(currentText)}
-                                    className="ml-1"
-                                >
-                                    Add
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() => {
-                                        setTextInputPosition({ ...textInputPosition, visible: false })
-                                        setCurrentText('')
-                                    }}
-                                    className="ml-1"
-                                >
-                                    Cancel
-                                </LemonButton>
-                            </div>
+                            <LemonButton
+                                type={mode === 'draw' ? 'primary' : 'secondary'}
+                                onClick={() => {
+                                    setMode('draw')
+                                    setSelectedTextIndex(null)
+                                    setTextInputPosition({ ...textInputPosition, visible: false })
+                                }}
+                                icon={<IconPencil />}
+                                tooltip="Draw"
+                            />
+                            <LemonButton
+                                type={mode === 'text' || mode === 'moveText' ? 'primary' : 'secondary'}
+                                onClick={() => {
+                                    setMode('text')
+                                }}
+                                tooltip="Add or Move Text"
+                            >
+                                Text
+                            </LemonButton>
+                            <LemonButton
+                                onClick={handleUndoLastChange}
+                                disabledReason={historyStack.length === 0 ? 'No actions to undo' : undefined}
+                                icon={<IconUndo />}
+                                tooltip="Undo"
+                            />
                         </div>
-                    )}
+                        <div className="flex gap-2 items-center">
+                            <LemonButton type="secondary" onClick={handleClose}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    void handleSave()
+                                }}
+                            >
+                                Download
+                            </LemonButton>
+                        </div>
+                    </div>
+                }
+            >
+                <div className="flex flex-col gap-4 max-h-[80vh]">
+                    <div
+                        className={`flex-grow flex justify-center items-center overflow-hidden ${
+                            mode === 'moveText' && selectedTextIndex !== null
+                                ? 'cursor-move'
+                                : mode === 'draw'
+                                ? 'cursor-crosshair'
+                                : 'cursor-text'
+                        }`}
+                    >
+                        <canvas
+                            ref={canvasRef}
+                            onMouseDown={handleMouseDown}
+                            onMouseMove={handleMouseMove}
+                            onMouseUp={handleMouseUp}
+                            onMouseLeave={handleMouseUp}
+                            onClick={handleCanvasClickForTextPlacement}
+                            className={`border border-gray-300 ${
+                                originalImage ? 'block' : 'hidden'
+                            } max-w-full max-h-full object-contain`}
+                        />
+                        {!originalImage && imageFile && <p>Loading image...</p>}
+                        {!originalImage && !imageFile && <p>No image selected.</p>}
+
+                        {mode === 'text' && textInputPosition.visible && selectedTextIndex === null && (
+                            <div
+                                className="absolute bg-white border rounded p-1 z-10"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ top: textInputPosition.y, left: textInputPosition.x }}
+                            >
+                                <LemonInput
+                                    value={currentText}
+                                    onChange={setCurrentText}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            handleTextSubmit(currentText)
+                                        } else if (e.key === 'Escape') {
+                                            setTextInputPosition({ ...textInputPosition, visible: false })
+                                            setCurrentText('')
+                                        }
+                                    }}
+                                    autoFocus
+                                    placeholder="Type and press Enter"
+                                />
+                                <div className="flex gap-2 items-center mt-2">
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        onClick={() => handleTextSubmit(currentText)}
+                                        className="ml-1"
+                                    >
+                                        Add
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            setTextInputPosition({ ...textInputPosition, visible: false })
+                                            setCurrentText('')
+                                        }}
+                                        className="ml-1"
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
-        </LemonModal>
+            </LemonModal>
+            {/* maybe we should have a button as a part of the component
+        <LemonButton icon={<IconLlmPromptEvaluation />} size="xsmall" onClick={() => setIsOpen(true)}>
+            Take Screenshot
+        </LemonButton> */}
+        </>
     )
 }
