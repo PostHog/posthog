@@ -78,6 +78,7 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 onClick={() =>
                     void copyToClipboard(privateLinkUrl, privateLinkUrl).catch((e) => posthog.captureException(e))
                 }
+                data-attr="share-recording-private-link-button"
                 title={privateLinkUrl}
                 disabledReason={privateLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
             >
@@ -130,6 +131,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                         to={linearUrl}
                         targetBlank={true}
                         icon={<IconExternal />}
+                        data-attr="share-recording-linear-link-button"
                         disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
                     >
                         Create issue

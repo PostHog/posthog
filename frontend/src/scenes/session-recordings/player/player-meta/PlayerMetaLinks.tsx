@@ -83,6 +83,7 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                                 })
                             }}
                             tooltip="Comment in a notebook"
+                            data-attr="session-recording-add-to-notebook-button"
                         />
                     ) : null}
 

@@ -2,6 +2,7 @@ import './PlayerMeta.scss'
 
 import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import posthog from 'posthog-js'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
@@ -21,6 +22,7 @@ export function PlayerPersonMeta(): JSX.Element {
     const onClick = (): void => {
         setSidebarOpen(true)
         setTab(SessionRecordingSidebarTab.OVERVIEW)
+        posthog.capture('session_recording_open_player_person_meta', { reason: 'recording_engagement' })
     }
 
     return (

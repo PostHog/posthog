@@ -150,6 +150,7 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                                     setPause()
                                     openHeatmap()
                                 }}
+                                data-attr="session-recording-view-heatmap"
                                 label="View heatmap"
                             />
                         </Tooltip>

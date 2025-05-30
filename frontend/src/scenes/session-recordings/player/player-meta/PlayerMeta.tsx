@@ -152,12 +152,14 @@ export function PlayerMeta(): JSX.Element {
         {
             label: <IconWindow value={currentWindowIndex} className="text-secondary" />,
             value: null,
+            'data-attr': 'session-recording-window-follow-user',
             labelInMenu: <>Follow the user</>,
         },
     ]
     windowIds.forEach((windowId, index) => {
         windowOptions.push({
             label: <IconWindow value={index + 1} className="text-secondary" />,
+            'data-attr': 'session-recording-fixed-window',
             labelInMenu: (
                 <div className="flex flex-row gap-x-1 space-between items-center">
                     Follow window:&nbsp;
