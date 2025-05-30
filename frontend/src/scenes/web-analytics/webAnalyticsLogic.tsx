@@ -1449,7 +1449,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     interval: 'week',
                                     dateRange: dateRange,
                                     trendsFilter: {
-                                        display: ChartDisplayType.ActionsLineGraph,
+                                        display: ChartDisplayType.ActionsAreaGraph,
                                         aggregationAxisFormat: 'numeric',
                                         aggregationAxisPrefix: '$',
                                     },
