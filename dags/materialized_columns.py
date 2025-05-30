@@ -146,7 +146,7 @@ class MaterializationConfig(dagster.Config):
 
             if commands:
                 mutations[partition] = AlterTableMutationRunner(
-                    self.table, commands, parameters={"partition": partition}
+                    table=self.table, commands=commands, parameters={"partition": partition}, force=self.force
                 )
 
         return mutations

@@ -106,6 +106,7 @@ export function PanelLayoutPanel({
                             iconOnly
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                             tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
                                 <IconPinFilled className="size-3 text-tertiary" />
@@ -149,6 +150,7 @@ export function PanelLayoutPanel({
             innerClassName="z-[var(--z-layout-panel)]"
             onResizeStart={() => setPanelIsResizing(true)}
             onResizeEnd={() => setPanelIsResizing(false)}
+            data-attr="tree-panel-resizer"
         >
             {panelContents}
         </ResizableElement>
