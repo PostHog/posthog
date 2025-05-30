@@ -337,30 +337,30 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     """Test that force=True skips checking for existing mutations"""
     table = EVENTS_DATA_TABLE()
     count = 100
-    
+
     # Insert test data
     cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
-    
+
     sentinel_uuid = uuid.uuid1()
-    
+
     # First run a mutation normally
     runner = AlterTableMutationRunner(
         table=table,
         commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
         parameters={"uuid": sentinel_uuid},
     )
-    
+
     # Run the mutation and wait for completion
     shard_mutations = cluster.map_one_host_per_shard(runner).result()
     wait_and_check_mutations_on_shards(cluster, shard_mutations)
-    
+
     # Count mutations before force
     get_mutations_count = Query(
         "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
         {"table": table}
     )
     mutations_count_before = cluster.map_all_hosts(get_mutations_count).result()
-    
+
     # Now run the same mutation with force=True
     runner_force = AlterTableMutationRunner(
         table=table,
@@ -368,13 +368,13 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
         parameters={"uuid": sentinel_uuid},
         force=True,
     )
-    
+
     # This should create a new mutation even though one already exists
-    force_mutations = cluster.map_one_host_per_shard(runner_force).result()
-    
+    cluster.map_one_host_per_shard(runner_force).result()
+
     # Count mutations after force
     mutations_count_after = cluster.map_all_hosts(get_mutations_count).result()
-    
+
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
