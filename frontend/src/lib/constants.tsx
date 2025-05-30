@@ -249,6 +249,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_INTEGRATIONS: 'error-tracking-integrations', // owner: @david #team-error-tracking
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
+    POSTHOG_STORIES: 'posthog-stories', // owner: @jabahamondes #team-web-analytics
     ACTIVE_HOURS_HEATMAP: 'active-hours-heatmap', // owner: @jabahamondes #team-web-analytics
     CALENDAR_HEATMAP_INSIGHT: 'calendar-heatmap-insight', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'web-analytics-marketing', // owner: @jabahamondes #team-web-analytics
