@@ -17,7 +17,7 @@ from posthog.utils import generate_short_id
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
-    "Number of times a ClickHouse query exceeded the concurrency limit",
+    "Number of times a team tried to exceed concurrency limit.",
     ["task_name", "team_id", "limit", "limit_name", "result"],
 )
 
@@ -115,23 +115,38 @@ class RateLimit:
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
             bypass = team_is_allowed_to_bypass_throttle(team_id)
-            result = "allow" if bypass else "block"
+
+            # team in beta cannot skip limits
+            if bypass or (not in_beta and self.bypass_all):
+                result = "allow" if bypass else "block"
+                CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
+                    task_name=task_name,
+                    team_id=str(team_id),
+                    limit=max_concurrency,
+                    limit_name=self.limit_name,
+                    result=result,
+                ).inc()
+                return None, None
+
+            if self.retry and datetime.datetime.now() < wait_deadline:
+                CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
+                    task_name=task_name,
+                    team_id=str(team_id),
+                    limit=max_concurrency,
+                    limit_name=self.limit_name,
+                    result="retry",
+                ).inc()
+                sleep(backoff(count))
+                count += 1
+                continue
 
             CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                 task_name=task_name,
                 team_id=str(team_id),
                 limit=max_concurrency,
                 limit_name=self.limit_name,
-                result=result,
+                result="block",
             ).inc()
-
-            # team in beta cannot skip limits
-            if bypass or (not in_beta and self.bypass_all):
-                return None, None
-            if self.retry and datetime.datetime.now() < wait_deadline:
-                sleep(backoff(count))
-                count += 1
-                continue
 
             raise ConcurrencyLimitExceeded(
                 f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"

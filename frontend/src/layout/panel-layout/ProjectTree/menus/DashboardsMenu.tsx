@@ -23,7 +23,7 @@ export function DashboardsMenu({ MenuItem, MenuSeparator }: CustomMenuProps): JS
                             to={urls.dashboard(dashboard.id)}
                         >
                             <IconPinFilled className="size-3 text-tertiary" />
-                            {dashboard.name}
+                            <span className="truncate">{dashboard.name}</span>
                         </Link>
                     </MenuItem>
                 ))
