@@ -15,7 +15,7 @@ class TestRateLimit(BaseTest):
             get_task_id=lambda *args, **kwargs: f"{kwargs.get('task_id') or args[2]}",
             ttl=10,
         )
-        self.cancels: list[tuple[str, str]] = []
+        self.cancels: list[tuple[str | None, str | None]] = []
 
     def tearDown(self) -> None:
         for a, b in self.cancels:
@@ -193,15 +193,15 @@ class TestRateLimit(BaseTest):
 
 class TimeHelper:
     def __init__(self, on_sleep: Callable[[float], None] = lambda _: None):
-        self.t = 1492
+        self.t = 1492.0
         self.on_sleep = on_sleep
-        self.sleep_times = []
+        self.sleep_times: list[float] = []
 
     def get_time(self):
         self.t += 0.0001
         return self.t
 
-    def sleep(self, duration):
+    def sleep(self, duration: float):
         self.sleep_times.append(duration)
         self.on_sleep(duration)
         self.t += duration
