@@ -48,7 +48,7 @@ function AlwaysScheduleBanner({
                     seeing the survey very frequently.
                 </p>
                 <p className="font-normal">
-                    If this isn't intended, consider{' '}
+                    If this isn't intended, consider&nbsp;
                     <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
                         adding a wait period
                     </Link>
@@ -65,11 +65,11 @@ function AlwaysScheduleBanner({
                 persistently. Ensure this is the desired behavior.
             </p>
             <p className="font-normal">
-                If not, consider{' '}
+                If not, consider&nbsp;
                 <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
                     adding a wait period
-                </Link>{' '}
-                or changing its frequency.
+                </Link>
+                &nbsp; or changing its frequency.
             </p>
         </LemonBanner>
     )
@@ -192,10 +192,10 @@ export function SurveyRepeatSchedule(): JSX.Element {
             {canSurveyBeRepeated ? (
                 <span className="font-medium">
                     <h3 className="mb-0">How often should we show this survey to a person?</h3>
-                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the{' '}
-                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>{' '}
+                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the&nbsp;
+                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>&nbsp;
                     <span>{survey.conditions?.events?.values.length === 1 ? 'event is' : 'events are'}</span> triggered.
-                    So these settings are not applicable. If you want, remove the event targeting in the{' '}
+                    So these settings are not applicable. If you want, remove the event targeting in the&nbsp;
                     <LinkToSurveyFormSection section={SurveyEditSection.DisplayConditions} />.
                 </span>
             ) : (
