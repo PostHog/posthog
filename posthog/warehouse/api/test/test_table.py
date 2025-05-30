@@ -424,8 +424,11 @@ class TestTable(APIBaseTest):
         assert response.json()["message"] == "Warehouse API is not enabled for this organization"
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.warehouse.api.table.get_s3_client")
-    def test_file_upload_invalid_table_name(self, mock_get_s3_client, mock_feature_enabled):
+    @patch("boto3.client")
+    def test_file_upload_invalid_table_name(self, mock_boto3_client, mock_feature_enabled):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
@@ -558,10 +561,10 @@ class TestTable(APIBaseTest):
         self.assertIsNotNone(table)
 
         # Check that the file was actually uploaded to MinIO
-        response = s3_client.list_objects_v2(
+        objects = s3_client.list_objects_v2(
             Bucket=test_bucket_name, Prefix=f"dlt/managed/team_{self.team.id}/test_file.csv"
         )
-        self.assertIn("Contents", response, "No objects found in the bucket")
+        self.assertIn("Contents", objects, "No objects found in the bucket")
 
         # TODO: DRY
         self._delete_all_from_s3(s3_client, test_bucket_name)
