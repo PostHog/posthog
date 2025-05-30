@@ -38,7 +38,6 @@ def join_mappings(mappings: Mapping[K1, Mapping[K2, V]]) -> Mapping[K2, Mapping[
 PartitionId = str
 
 
-@dataclass
 class ForceMaterializationRunner(AlterTableMutationRunner):
     """A mutation runner that always creates new mutations, bypassing the check for existing ones."""
 
