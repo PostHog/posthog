@@ -541,7 +541,7 @@ class MutationRunner(abc.ABC):
                 "Forcing mutation for %r, even if it already exists. This may cause issues if the mutation is already running.",
                 expected_commands,
             )
-            mutations_running = {}
+            mutations_running: Mapping[str, str] = {}
         else:
             logger.info("Ensuring mutation for %r is running or has completed.", expected_commands)
             mutations_running = self.find_existing_mutations(client, expected_commands)
