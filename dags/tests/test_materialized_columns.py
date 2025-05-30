@@ -60,8 +60,7 @@ def test_materialization_config_force_default():
 def test_force_materialization_runner():
     # Test that ForceMaterializationRunner always returns empty mutations
     runner = ForceMaterializationRunner(
-        table="test_table",
-        commands={"MATERIALIZE COLUMN test_col IN PARTITION 202401"}
+        table="test_table", commands={"MATERIALIZE COLUMN test_col IN PARTITION 202401"}
     )
     # Mock client - we don't actually need it since we're overriding find_existing_mutations
     assert runner.find_existing_mutations(None) == {}
