@@ -9,7 +9,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
@@ -39,10 +38,10 @@ export function BillingUsage(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        teamOptions,
     } = useValues(logic)
     const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleTeamBreakdown } =
         useActions(logic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
 
     if (restrictionReason) {
         return <BillingNoAccess title="Usage" reason={restrictionReason} />
@@ -80,13 +79,8 @@ export function BillingUsage(): JSX.Element {
                             value={(filters.team_ids || []).map(String)}
                             onChange={(value) => setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })}
                             placeholder="All projects"
-                            options={
-                                currentOrganization?.teams?.map((team) => ({
-                                    key: String(team.id),
-                                    label: team.name,
-                                })) || []
-                            }
-                            loading={currentOrganizationLoading}
+                            options={teamOptions}
+                            loading={billingUsageResponseLoading}
                             allowCustomValues={false}
                         />
                     </div>

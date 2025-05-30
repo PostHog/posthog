@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { BillingType, DateMappingOption } from '~/types'
+import { BillingType, DateMappingOption, OrganizationType } from '~/types'
 
 import { canAccessBilling } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -24,6 +24,7 @@ export interface BillingSpendResponse {
         breakdown_type: 'type' | 'team' | 'multiple' | null
         breakdown_value: string | string[] | null
     }>
+    team_id_options?: number[]
     next?: string
 }
 
@@ -221,6 +222,31 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     return 'Spend is reported on a daily basis so the figures for the current day (UTC) are not available.'
                 }
                 return null
+            },
+        ],
+        teamOptions: [
+            (s) => [s.currentOrganization, s.billingSpendResponse],
+            (currentOrganization: OrganizationType | null, billingSpendResponse: BillingSpendResponse | null) => {
+                const liveTeams = currentOrganization?.teams || []
+                const liveTeamIds = new Set(liveTeams.map((team) => team.id))
+
+                const liveOptions = liveTeams
+                    .map((team) => ({
+                        key: String(team.id),
+                        label: team.name,
+                    }))
+                    .sort((a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label))
+
+                const teamIdOptions = billingSpendResponse?.team_id_options || []
+                const deletedTeamIds = teamIdOptions.filter((id: number) => !liveTeamIds.has(id))
+                const deletedOptions = deletedTeamIds
+                    .sort((a: number, b: number) => a - b)
+                    .map((teamId: number) => ({
+                        key: String(teamId),
+                        label: `ID: ${teamId} (deleted)`,
+                    }))
+
+                return [...liveOptions, ...deletedOptions]
             },
         ],
     }),

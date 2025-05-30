@@ -10,7 +10,6 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { currencyFormatter } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
@@ -41,10 +40,10 @@ export function BillingSpendView(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        teamOptions,
     } = useValues(logic)
     const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleBreakdown } =
         useActions(logic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
 
     if (restrictionReason) {
         return <BillingNoAccess title="Spend" reason={restrictionReason} />
@@ -84,13 +83,8 @@ export function BillingSpendView(): JSX.Element {
                                 setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
                             }
                             placeholder="All projects"
-                            options={
-                                currentOrganization?.teams?.map((team) => ({
-                                    key: String(team.id),
-                                    label: team.name,
-                                })) || []
-                            }
-                            loading={currentOrganizationLoading}
+                            options={teamOptions}
+                            loading={billingSpendResponseLoading}
                             allowCustomValues={false}
                         />
                     </div>
