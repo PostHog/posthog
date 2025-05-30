@@ -1,6 +1,6 @@
 import shlex
 import re
-from typing import Any, cast
+from typing import Any, cast, Optional
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models import Case, When, Value, IntegerField, Q, F
@@ -15,6 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.file_system.file_system import FileSystem, split_path, join_path
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
+from posthog.models.team import Team
 
 HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
 
@@ -212,17 +213,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset.filter(combined_q)
 
-    def _scope_by_team_and_environment(self, queryset: QuerySet) -> QuerySet:
+    def _scope_by_project(self, queryset: QuerySet) -> QuerySet:
+        """
+        Show all objects belonging to the project.
+        """
+        return queryset.filter(team__project_id=self.team.project_id)
+
+    def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
         """
         Show all objects belonging to the project, except for hog functions, which are scoped by team.
         """
-        queryset = queryset.filter(team__project_id=self.team.project_id)
+        queryset = self._scope_by_project(queryset)
         assert "team_id" in self.parent_query_kwargs
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = self._scope_by_team_and_environment(queryset)
+        queryset = self._scope_by_project_and_environment(queryset)
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
@@ -305,12 +312,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.type == "folder":
-            qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-            qs = self._scope_by_team_and_environment(qs)
+            path = instance.path
+            qs = FileSystem.objects.filter(path__startswith=f"{path}/")
+            qs = self._scope_by_project_and_environment(qs)
             if self.user_access_control:
                 qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
-            qs.delete()
-        instance.delete()
+            with transaction.atomic():
+                qs.delete()
+                instance.delete()
+            # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
+            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{path}/"))
+            first_leftover = leftovers.first()
+            if first_leftover:
+                self._assure_parent_folders(first_leftover.path, instance.created_by, first_leftover.team)
+        else:
+            instance.delete()
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["GET"], detail=False)
@@ -339,6 +356,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        old_path = instance.path
         new_path = request.data.get("new_path")
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -351,7 +369,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                qs = self._scope_by_team_and_environment(qs)
+                qs = self._scope_by_project_and_environment(qs)
                 if self.user_access_control:
                     qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
                 for file in qs:
@@ -360,7 +378,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.save()
 
                 targets = FileSystem.objects.filter(path=new_path).all()
-                targets = self._scope_by_team_and_environment(targets)
+                targets = self._scope_by_project_and_environment(targets)
                 # We're a folder, and we're moving into a folder with the same name. Delete one.
                 if any(target.type == "folder" for target in targets):
                     # TODO: merge access controls once those are in place
@@ -374,6 +392,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.path = new_path
             instance.depth = len(split_path(instance.path))
             instance.save()
+
+        # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
+        leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
+        first_leftover = leftovers.first()
+        if first_leftover:
+            self._assure_parent_folders(first_leftover.path, instance.created_by, first_leftover.team)
 
         return Response(
             FileSystemSerializer(instance).data,
@@ -395,7 +419,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                qs = self._scope_by_team_and_environment(qs)
+                qs = self._scope_by_project_and_environment(qs)
                 if self.user_access_control:
                     qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
@@ -407,7 +431,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.save()  # A new instance is created with a new id
 
                 targets_q = FileSystem.objects.filter(path=new_path)
-                targets_q = self._scope_by_team_and_environment(targets_q)
+                targets_q = self._scope_by_project_and_environment(targets_q)
                 targets = targets_q.all()
                 if any(target.type == "folder" for target in targets):
                     # We're a folder, and we're link into a folder with the same name. Noop.
@@ -439,7 +463,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-        qs = self._scope_by_team_and_environment(qs)
+        qs = self._scope_by_project_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
@@ -453,13 +477,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = FileSystem.objects.filter(path__startswith=f"{path_param}/")
-        qs = self._scope_by_team_and_environment(qs)
+        qs = self._scope_by_project_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
-    def _assure_parent_folders(self, path: str, created_by: User) -> None:
+    def _assure_parent_folders(self, path: str, created_by: User, team: Optional[Team] = None) -> None:
         """
         Ensure that all parent folders for the given path exist for the provided team.
         For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
@@ -469,10 +493,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for depth_index in range(1, len(segments)):
             parent_path = join_path(segments[:depth_index])
             parent_q = FileSystem.objects.filter(path=parent_path)
-            parent_q = self._scope_by_team_and_environment(parent_q)
+            parent_q = self._scope_by_project(parent_q)
             if not parent_q.exists():
                 FileSystem.objects.create(
-                    team=self.team,
+                    team=team or self.team,
                     path=parent_path,
                     depth=depth_index,
                     type="folder",
@@ -486,7 +510,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
 
         # TODO: this needs some concurrency controls or a unique index
-        scoped_files = self._scope_by_team_and_environment(FileSystem.objects)
+        scoped_files = self._scope_by_project_and_environment(FileSystem.objects.all())
         existing_paths = set(scoped_files.values_list("path", flat=True))
 
         folders_to_create = []
