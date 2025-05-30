@@ -20,6 +20,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import api from 'lib/api'
+import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -204,6 +205,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
+            takeScreenshotLogic,
+            ['setImageFile', 'setIsOpen'],
         ],
     })),
     actions({
@@ -766,8 +769,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 const snapshot = snapshots[currIndex]
                 return {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
+                    width: (snapshot.data as any).width,
+                    height: (snapshot.data as any).height,
                 }
             },
             {
@@ -1321,7 +1324,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         const file = new File([blob], `${props.sessionRecordingId}-screenshot.jpeg`, {
                             type: 'image/jpeg',
                         })
-                        downloadFile(file)
+                        //downloadFile(file)
+                        actions.setImageFile(file)
+                        actions.setIsOpen(true)
                         posthog.capture('session_recording_player_take_screenshot_success')
                     } else {
                         posthog.capture('session_recording_player_take_screenshot_error')
