@@ -63,6 +63,11 @@ export const ListBox = ({
 
     /** Handle Arrow navigation */
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        // Only handle keyboard navigation if the ListBox or one of its children has focus
+        if (!containerRef.current?.contains(document.activeElement)) {
+            return
+        }
+
         recalculateFocusableElements()
         const elements = focusableElements.current
         if (!elements.length) {
