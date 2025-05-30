@@ -121,3 +121,6 @@ class MetricsClient:
                 [(name, labels, value)],
             )
         )
+
+    def all(self) -> None:
+        return self.cluster.any_host(Query("SELECT * FROM custom_metrics"))
