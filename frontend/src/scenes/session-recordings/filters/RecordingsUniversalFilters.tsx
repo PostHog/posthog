@@ -332,18 +332,6 @@ export const RecordingsUniversalFilters = ({
                             />
                         </>
                     </LemonModal>
-                    <UniversalFilters
-                        rootKey="session-recordings"
-                        group={filters.filter_group}
-                        taxonomicGroupTypes={taxonomicGroupTypes}
-                        onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                    >
-                        <RecordingsUniversalFilterGroup
-                            size="small"
-                            totalFiltersCount={totalFiltersCount}
-                            showAddFilter={false}
-                        />
-                    </UniversalFilters>
                 </>
             </MaxTool>
             <div className="flex gap-2 mt-2 justify-between">
