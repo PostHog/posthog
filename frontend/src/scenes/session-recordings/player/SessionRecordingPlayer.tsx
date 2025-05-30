@@ -224,13 +224,24 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         </LemonButton>
                                     </div>
                                 ) : isLikelyPastTTL ? (
-                                    <div className="flex flex-1 flex-col items-center justify-center">
+                                    <div
+                                        className="flex flex-1 flex-col items-center justify-center"
+                                        data-attr="session-recording-player-past-ttl"
+                                    >
                                         <SleepingHog height={200} />
                                         <h1>This recording is no longer available</h1>
                                         <p>
                                             We store session recordings for a limited time, and this one has expired and
                                             been deleted.
                                         </p>
+                                        <div className="text-right">
+                                            <LemonButton
+                                                type="secondary"
+                                                to="https://posthog.com/docs/session-replay/data-retention"
+                                            >
+                                                Learn more about data retention
+                                            </LemonButton>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="flex w-full h-full">

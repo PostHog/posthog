@@ -176,3 +176,7 @@ export function PastTTL(): JSX.Element {
     }, [])
     return <App />
 }
+
+PastTTL.parameters = {
+    waitForSelector: '[data-attr="session-recording-player-past-ttl"]',
+}
