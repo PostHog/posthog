@@ -29,6 +29,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import {
     ExperimentFunnelsQueryResponse,
+    ExperimentQueryResponse,
     ExperimentTrendsQueryResponse,
     FunnelsQuery,
     InsightQueryNode,
@@ -50,6 +51,7 @@ import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../const
 import { getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
+import { metricToQuery } from '../utils'
 import { getExperimentInsightColour } from '../utils'
 
 export function VariantTag({
@@ -142,10 +144,14 @@ export function ResultsQuery({
     result,
     showTable,
 }: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    result: ExperimentQueryResponse | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     showTable: boolean
 }): JSX.Element {
     if (!result) {
+        return <></>
+    }
+
+    if (result.kind === NodeKind.ExperimentQuery) {
         return <></>
     }
 
@@ -185,18 +191,27 @@ export function ExploreButton({
     result,
     size = 'small',
 }: {
-    result: ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
+    result: ExperimentQueryResponse | ExperimentTrendsQueryResponse | ExperimentFunnelsQueryResponse | null
     size?: 'xsmall' | 'small' | 'large'
 }): JSX.Element {
     if (!result) {
         return <></>
     }
 
-    const query: InsightVizNode = {
-        kind: NodeKind.InsightVizNode,
-        source: (result.kind === NodeKind.ExperimentTrendsQuery
-            ? result.count_query
-            : result.funnels_query) as InsightQueryNode,
+    let query: InsightVizNode
+
+    if (result.kind === NodeKind.ExperimentQuery) {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: metricToQuery(result.metric, true) as InsightQueryNode,
+        }
+    } else {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: (result.kind === NodeKind.ExperimentTrendsQuery
+                ? result.count_query
+                : result.funnels_query) as InsightQueryNode,
+        }
     }
 
     return (

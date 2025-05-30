@@ -65,7 +65,13 @@ const ResultsTab = (): JSX.Element => {
             {statsMethod === ExperimentStatsMethod.Bayesian ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
-                    {/* Show detailed results if there's only a single primary metric */}
+                    {/**
+                     * Show a detailed results if:
+                     * - there's a single primary metric
+                     * - if the metric has insight results
+                     * - if we have the minimum number of exposures
+                     * - if it's the first primary metric (?)
+                     */}{' '}
                     {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                         <div>
                             <div className="pb-4">
