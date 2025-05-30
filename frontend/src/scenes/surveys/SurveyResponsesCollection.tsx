@@ -42,12 +42,10 @@ export function SurveyResponsesCollection(): JSX.Element | null {
                         {
                             value: 'true',
                             label: 'Any question: when at least one question is answered, the response is stored',
-                            'data-attr': 'survey-iteration-frequency-days',
                         },
                         {
                             value: 'false',
                             label: 'Complete survey: the response is stored when all questions are answered',
-                            'data-attr': 'survey-iteration-frequency-days',
                         },
                     ]}
                 />
