@@ -8,7 +8,7 @@ use tokio::time::timeout;
 
 const REDIS_TIMEOUT_MILLISECS: u64 = 10;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
@@ -335,7 +335,7 @@ impl MockRedisClient {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MockRedisValue {
     None,
     Error(CustomRedisError),
@@ -352,9 +352,9 @@ pub enum MockRedisValue {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct MockRedisCall {
-    op: String,
-    key: String,
-    value: MockRedisValue,
+    pub op: String,
+    pub key: String,
+    pub value: MockRedisValue,
 }
 
 #[async_trait]

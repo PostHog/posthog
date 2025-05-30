@@ -29,6 +29,10 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
 from posthog.temporal.data_imports.pipelines.chargebee import (
     validate_credentials as validate_chargebee_credentials,
 )
+from posthog.temporal.data_imports.pipelines.google_ads import (
+    GoogleAdsServiceAccountSourceConfig,
+    get_schemas as get_google_ads_schemas,
+)
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
@@ -470,6 +474,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model, bigquery_schemas = self._handle_bigquery_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.CHARGEBEE:
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -485,6 +491,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = snowflake_schemas
         elif source_type == ExternalDataSource.Type.BIGQUERY:
             default_schemas = bigquery_schemas
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            default_schemas = google_ads_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
@@ -810,6 +818,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model, list(schemas.keys())
 
+    def _handle_google_ads_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        customer_id = payload.get("customer_id", "")
+        resource_name = payload.get("resource_name", "")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"customer_id": customer_id, "resource_name": resource_name},
+            prefix=prefix,
+        )
+
+        schemas = get_google_ads_schemas(GoogleAdsServiceAccountSourceConfig.from_dict(new_source_model.job_inputs))
+
+        return new_source_model, list(schemas.keys())
+
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
             ExternalDataSource.objects.exclude(deleted=True)
@@ -997,6 +1031,44 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Chargebee credentials are incorrect"},
                 )
+
+        elif source_type == ExternalDataSource.Type.GOOGLEADS:
+            customer_id = request.data.get("customer_id")
+            resource_name = request.data.get("resource_name")
+
+            if not customer_id:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required input: 'customer_id'"},
+                )
+
+            if not resource_name:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required input: 'resource_name'"},
+                )
+
+            google_ads_config = GoogleAdsServiceAccountSourceConfig(
+                customer_id=customer_id, resource_name=resource_name
+            )
+
+            google_ads_schemas = get_google_ads_schemas(
+                google_ads_config,
+            )
+
+            result_mapped_to_options = [
+                {
+                    "table": name,
+                    "should_sync": False,
+                    "incremental_fields": [],
+                    "incremental_available": False,
+                    "incremental_field": None,
+                    "sync_type": None,
+                }
+                for name, _ in google_ads_schemas.items()
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Get schemas and validate SQL credentials
         if source_type in [

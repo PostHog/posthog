@@ -30,7 +30,7 @@ export function ProductAnalyticsMenu({ MenuItem, MenuSeparator }: CustomMenuProp
                     >
                         <ButtonPrimitive menuItem>
                             {child.icon}
-                            New {child.name.toLowerCase()}
+                            New insight: {child.name.toLowerCase()}
                         </ButtonPrimitive>
                     </MenuItem>
                 ))}

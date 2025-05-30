@@ -82,13 +82,9 @@ export const MetricHeader = ({
                                         content: (
                                             <div className="text-sm text-secondary max-w-lg">
                                                 <p>
-                                                    You're about to duplicate a shared metric. You'll be taken to the
-                                                    shared metric form, where you can customize and save it. Once saved,
-                                                    the new metric will appear among your shared metrics.
-                                                </p>
-                                                <p>
-                                                    When you're done, head back to your experiment and add it to your
-                                                    list of tracked metrics.
+                                                    We'll take you to the form to customize and save this metric. Your
+                                                    new version will appear in your shared metrics, ready to add to your
+                                                    experiment.
                                                 </p>
                                             </div>
                                         ),
