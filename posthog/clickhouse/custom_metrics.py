@@ -1,4 +1,5 @@
 from posthog import settings
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 
 # This view is accesed through an endpoint exposed to Prometheus.
@@ -67,3 +68,15 @@ def CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW():
         AND timestamp < now() + toIntervalMinute(3) AND inserted_at > now() - toIntervalHour(3)
     GROUP BY event;
     """ % {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS}
+
+
+CREATE_METRICS_COUNTER_EVENTS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS metrics_counter_events (
+    name String,
+    labels Map(String, String),
+    timestamp DateTime64(3, 'UTC'),
+    increment Float64
+) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
+ORDER BY (name, labels, timestamp)
+PARTITION BY toYYYYMM(timestamp)
+"""
