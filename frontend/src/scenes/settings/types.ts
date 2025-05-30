@@ -21,6 +21,7 @@ export type SettingSectionId =
     | 'environment-product-analytics'
     | 'environment-web-analytics'
     | 'environment-revenue-analytics'
+    | 'environment-marketing-analytics'
     | 'environment-replay'
     | 'environment-surveys'
     | 'environment-feature-flags'
@@ -137,6 +138,8 @@ export type SettingId =
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'csp-reporting'
+    | 'marketing-base-currency'
+    | 'marketing-analytics-external-data-sources'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

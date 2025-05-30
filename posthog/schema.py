@@ -1417,6 +1417,18 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarketingAnalyticsSchema(RootModel[str]):
+    root: str
+
+
+class MarketingAnalyticsSchemaField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    required: bool
+    type: list[str]
+
+
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2991,6 +3003,14 @@ class LogMessage(BaseModel):
     timestamp: datetime
     trace_id: str
     uuid: str
+
+
+class MarketingAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    base_currency: Optional[CurrencyCode] = CurrencyCode.USD
+    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
 
 
 class MatchedRecording(BaseModel):

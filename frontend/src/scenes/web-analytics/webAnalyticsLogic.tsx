@@ -12,12 +12,14 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
@@ -28,11 +30,14 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DatabaseSchemaDataWarehouseTable,
     DataTableNode,
     EventsNode,
     InsightVizNode,
+    MARKETING_ANALYTICS_SCHEMA,
     NodeKind,
     QuerySchema,
+    SourceMap,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -417,6 +422,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
+            marketingAnalyticsSettingsLogic,
+            ['sources_map'],
+            databaseTableListLogic,
+            ['dataWarehouseTables'],
         ],
     })),
     actions({
@@ -746,6 +755,165 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
+        // Helper functions for dynamic marketing analytics
+        createMarketingDataWarehouseNodes: [
+            (s) => [s.sources_map, s.dataWarehouseTables],
+            (
+                sources_map: { [key: string]: SourceMap },
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): AnyEntityNode[] => {
+                if (
+                    !sources_map ||
+                    Object.keys(sources_map).length === 0 ||
+                    !dataWarehouseTables ||
+                    dataWarehouseTables.length === 0
+                ) {
+                    return []
+                }
+
+                const validSourcesMap = sources_map
+
+                Object.keys(MARKETING_ANALYTICS_SCHEMA)
+                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
+                    .forEach((column_name: string) => {
+                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
+                            if (!fieldMapping[column_name]) {
+                                delete validSourcesMap[tableId]
+                            }
+                        })
+                    })
+
+                if (Object.keys(validSourcesMap).length === 0) {
+                    return []
+                }
+
+                const nodeList: AnyEntityNode[] = Object.entries(validSourcesMap)
+                    .map(([tableId, fieldMapping]: [string, any]) => {
+                        const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                        const table_name = table?.name
+                        const schema_name = table?.schema?.name
+                        if (!table_name) {
+                            return null
+                        }
+
+                        const returning: AnyEntityNode = {
+                            kind: NodeKind.DataWarehouseNode,
+                            id: tableId,
+                            name: schema_name,
+                            custom_name: `${schema_name} Cost`,
+                            id_field: 'id',
+                            distinct_id_field: 'id',
+                            timestamp_field: fieldMapping.date,
+                            table_name: table_name,
+                            math: PropertyMathType.Sum,
+                            math_property: fieldMapping.total_cost,
+                        }
+                        return returning
+                    })
+                    .filter((node) => node !== null)
+                return nodeList
+            },
+        ],
+
+        createDynamicCampaignQuery: [
+            (s) => [s.sources_map, s.dataWarehouseTables],
+            (
+                sources_map: { [key: string]: SourceMap },
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): string | null => {
+                if (
+                    !sources_map ||
+                    Object.keys(sources_map).length === 0 ||
+                    !dataWarehouseTables ||
+                    dataWarehouseTables.length === 0
+                ) {
+                    return null
+                }
+
+                const validSourcesMap = sources_map
+
+                Object.keys(MARKETING_ANALYTICS_SCHEMA)
+                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
+                    .forEach((column_name: string) => {
+                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
+                            if (!fieldMapping[column_name]) {
+                                delete validSourcesMap[tableId]
+                            }
+                        })
+                    })
+
+                if (Object.keys(validSourcesMap).length === 0) {
+                    return null
+                }
+
+                const unionQueries = Object.entries(validSourcesMap)
+                    .map(([tableId, fieldMapping]: [string, any]) => {
+                        const table = dataWarehouseTables.find((table) => table.schema?.id === tableId)
+                        const table_name = table?.name
+                        if (!table_name) {
+                            return null
+                        }
+
+                        return `
+                        SELECT 
+                            ${fieldMapping.campaign_name} as campaignname,
+                            ${fieldMapping.total_cost} as cost,
+                            ${fieldMapping.clicks || '0'} as clicks,
+                            ${fieldMapping.impressions || '0'} as impressions,
+                            ${fieldMapping.source_name || `'${table.schema?.name || tableId}'`} as source_name
+                        FROM ${table_name}
+                        WHERE ${fieldMapping.date} >= '2025-01-01'
+                    `.trim()
+                    })
+                    .filter(Boolean)
+
+                if (unionQueries.length === 0) {
+                    return `SELECT 'No valid sources_map configured' as message`
+                }
+
+                const query = `
+                    WITH campaign_costs AS (
+                        SELECT 
+                            campaignname,
+                            source_name,
+                            sum(cost) as total_cost,
+                            sum(clicks) as total_clicks,
+                            sum(impressions) as total_impressions
+                        FROM (
+                            ${unionQueries.join('\n                            UNION ALL\n')}
+                        )
+                        GROUP BY campaignname, source_name
+                    ),
+                    campaign_pageviews AS (
+                        SELECT 
+                            properties.utm_campaign as campaign_name,
+                            count(*) as pageviews,
+                            uniq(distinct_id) as unique_visitors
+                        FROM events 
+                        WHERE event = '$pageview' 
+                            AND properties.utm_campaign IS NOT NULL
+                            AND properties.utm_campaign != ''
+                        GROUP BY properties.utm_campaign
+                    )
+                    SELECT 
+                        cc.campaignname as "Campaign",
+                        cc.source_name as "Source",
+                        round(cc.total_cost, 2) as "Total Cost",
+                        cc.total_clicks as "Total Clicks", 
+                        cc.total_impressions as "Total Impressions",
+                        round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
+                        round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR",
+                        coalesce(cp.pageviews, 0) as "Pageviews",
+                        coalesce(cp.unique_visitors, 0) as "Unique Visitors",
+                        round(cc.total_cost / nullif(coalesce(cp.pageviews, 1), 0), 2) as "Cost per Pageview"
+                    FROM campaign_costs cc
+                    LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
+                    ORDER BY cc.total_cost DESC
+                    LIMIT 20
+                `.trim()
+                return query
+            },
+        ],
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
@@ -1238,6 +1406,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 if (productTab === ProductTab.MARKETING) {
+                    // Generate dynamic series from sources_map
+                    const createDynamicMarketingSeries = (): AnyEntityNode[] => {
+                        const dynamicNodes = values.createMarketingDataWarehouseNodes
+
+                        if (!dynamicNodes || dynamicNodes.length === 0) {
+                            return []
+                        }
+
+                        return dynamicNodes
+                    }
+
+                    const dynamicSeries = createDynamicMarketingSeries()
                     return [
                         {
                             kind: 'query',
@@ -1254,44 +1434,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
-                                    series: [
-                                        {
-                                            kind: NodeKind.DataWarehouseNode,
-                                            id: 'bigquery.google_ads_test1.google_ads_2',
-                                            name: 'bigquery.google_ads_test1.google_ads_2',
-                                            custom_name: 'Google Ads Cost',
-                                            id_field: 'id',
-                                            distinct_id_field: 'id',
-                                            timestamp_field: 'date',
-                                            table_name: 'bigquery.google_ads_test1.google_ads_2',
-                                            math: PropertyMathType.Sum,
-                                            math_property: 'cost',
-                                        },
-                                        {
-                                            kind: NodeKind.DataWarehouseNode,
-                                            id: 'bigquery.google_ads_test1.linkedin_ads',
-                                            name: 'bigquery.google_ads_test1.linkedin_ads',
-                                            custom_name: 'LinkedIn Ads Cost',
-                                            id_field: 'id',
-                                            distinct_id_field: 'id',
-                                            timestamp_field: 'daily',
-                                            table_name: 'bigquery.google_ads_test1.linkedin_ads',
-                                            math: PropertyMathType.Sum,
-                                            math_property: 'costinusd',
-                                        },
-                                        {
-                                            kind: NodeKind.DataWarehouseNode,
-                                            id: 'bigquery.google_ads_test1.bing_ads',
-                                            name: 'bigquery.google_ads_test1.bing_ads',
-                                            custom_name: 'Bing Ads Cost',
-                                            id_field: 'id',
-                                            distinct_id_field: 'id',
-                                            timestamp_field: 'daily',
-                                            table_name: 'bigquery.google_ads_test1.bing_ads',
-                                            math: PropertyMathType.Sum,
-                                            math_property: 'spend',
-                                        },
-                                    ],
+                                    series:
+                                        dynamicSeries.length > 0
+                                            ? dynamicSeries
+                                            : [
+                                                  // Fallback when no sources are configured
+                                                  {
+                                                      kind: NodeKind.EventsNode,
+                                                      event: 'no_sources_configured',
+                                                      custom_name: 'No marketing sources configured',
+                                                      math: BaseMathType.TotalCount,
+                                                  },
+                                              ],
                                     interval: 'week',
                                     dateRange: dateRange,
                                     trendsFilter: {
@@ -1306,28 +1460,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             canOpenModal: false,
                             docs: {
                                 title: 'Marketing Costs',
-                                description: 'Track cost from your Google Ads, LinkedIn Ads, and Bing Ads campaigns.',
-                            },
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
-                            layout: {
-                                colSpanClassName: 'md:col-span-2',
-                                orderWhenLargeClassName: 'xxl:order-2',
-                            },
-                            title: 'Campaign Costs Breakdown',
-                            query: values.campaignCostsBreakdown,
-                            insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
-                            canOpenModal: true,
-                            canOpenInsight: false,
-                            docs: {
-                                title: 'Campaign Costs Breakdown',
                                 description:
-                                    'Breakdown of marketing costs by individual campaign names across all ad platforms.',
+                                    dynamicSeries.length > 0
+                                        ? 'Track costs from your configured marketing data sources.'
+                                        : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
                             },
                         },
+                        values.campaignCostsBreakdown
+                            ? {
+                                  kind: 'query',
+                                  tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                                  layout: {
+                                      colSpanClassName: 'md:col-span-2',
+                                      orderWhenLargeClassName: 'xxl:order-2',
+                                  },
+                                  title: 'Campaign Costs Breakdown',
+                                  query: values.campaignCostsBreakdown,
+                                  insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                                  canOpenModal: true,
+                                  canOpenInsight: false,
+                                  docs: {
+                                      title: 'Campaign Costs Breakdown',
+                                      description:
+                                          'Breakdown of marketing costs by individual campaign names across all ad platforms.',
+                                  },
+                              }
+                            : null,
                     ]
+                        .filter(isNotNil)
+                        .map((tile) => tile as WebAnalyticsTile)
                 }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
@@ -2400,77 +2561,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            // this is a temporary query to get the campaign costs breakdown
-            (s) => [s.dateFilter],
-            (dateFilter: {
-                dateFrom: string | null
-                dateTo: string | null
-                interval: IntervalType
-            }): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        WITH campaign_costs AS (
-                            SELECT 
-                                campaignname,
-                                sum(cost) as total_cost,
-                                sum(clicks) as total_clicks,
-                                sum(impressions) as total_impressions
-                            FROM (
-                                SELECT campaignname, cost, clicks, impressions
-                                FROM bigquery.google_ads_test1.google_ads_2 
-                                WHERE date >= '2025-01-01'
-                                UNION ALL
-                                SELECT campaign_name as campaignname, costinusd as cost, clicks, impressions
-                                FROM bigquery.google_ads_test1.linkedin_ads
-                                WHERE daily >= '2025-01-01'
-                                UNION ALL
-                                SELECT campaignname, spend as cost, clicks, impressions
-                                FROM bigquery.google_ads_test1.bing_ads 
-                                WHERE daily >= '2025-01-01'
-                            )
-                            GROUP BY campaignname
-                        ),
-                        campaign_pageviews AS (
-                            SELECT 
-                                properties.utm_campaign as campaign_name,
-                                count(*) as pageviews,
-                                uniq(distinct_id) as unique_visitors
-                            FROM events 
-                            WHERE event = '$pageview' 
-                                AND properties.utm_campaign IS NOT NULL
-                                AND properties.utm_campaign != ''
-                            GROUP BY properties.utm_campaign
-                        )
-                        SELECT 
-                            cc.campaignname as "Campaign",
-                            round(cc.total_cost, 2) as "Total Cost",
-                            cc.total_clicks as "Total Clicks", 
-                            cc.total_impressions as "Total Impressions",
-                            round(cc.total_cost / cc.total_clicks, 2) as "Cost per Click",
-                            round(cc.total_clicks / cc.total_impressions * 100, 2) as "CTR",
-                            coalesce(cp.pageviews, 0) as "Pageviews",
-                            coalesce(cp.unique_visitors, 0) as "Unique Visitors",
-                            round(cc.total_cost / coalesce(cp.pageviews, 1), 2) as "Cost per Pageview"
-                        FROM campaign_costs cc
-                        LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
-                        ORDER BY cc.total_cost DESC
-                        LIMIT 20
-                    `,
-                    // temporary filters, they actually don't do anything
-                    filters: {
-                        dateRange: {
-                            date_from: dateFilter.dateFrom || '-7d',
-                            date_to: dateFilter.dateTo || 'now()',
-                        },
+            (s) => [s.sources_map, s.dataWarehouseTables],
+            (
+                sources_map: { [key: string]: SourceMap },
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): DataTableNode | null => {
+                if (!values.createDynamicCampaignQuery) {
+                    return null
+                }
+
+                // Don't run if data isn't loaded yet
+                if (!sources_map || !dataWarehouseTables) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: values.createDynamicCampaignQuery,
                     },
-                },
-                full: true,
-                showDateRange: false,
-                showReload: false,
-                showExport: true,
-            }),
+                }
+            },
         ],
     })),
     loaders(({ values }) => ({
