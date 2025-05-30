@@ -15,7 +15,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.file_system.file_system import FileSystem, split_path, join_path
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
-from posthog.models.team import Team
 
 HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
 
@@ -94,6 +93,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
+
+    # The request has the team/environment in the URL, but want to filter by project not team.
+    param_derived_from_user_current_team = "project_id"
+    # This kludge is needed to avoid the default behavior of returning the project_id as the team_id
+    _skip_team_id_override_kludge = True
 
     def _apply_search_to_queryset(self, queryset: QuerySet, search: str) -> QuerySet:
         """
@@ -208,8 +212,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset.filter(combined_q)
 
+    def _scope_by_team_and_environment(self, queryset: QuerySet) -> QuerySet:
+        """
+        Show all objects belonging to the project, except for hog functions, which are scoped by team.
+        """
+        queryset = queryset.filter(team__project_id=self.team.project_id)
+        assert "team_id" in self.parent_query_kwargs
+        queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
+        return queryset
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.filter(team=self.team)
+        queryset = self._scope_by_team_and_environment(queryset)
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
@@ -292,7 +305,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.type == "folder":
-            qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+            qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+            qs = self._scope_by_team_and_environment(qs)
             if self.user_access_control:
                 qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
             qs.delete()
@@ -306,7 +320,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file_type = query_serializer.validated_data.get("type")
         files = save_unfiled_files(self.team, cast(User, request.user), file_type)
 
-        retroactively_fix_folders_and_depth(self.team, cast(User, request.user))
+        self._retroactively_fix_folders_and_depth(cast(User, request.user))
 
         if self.user_access_control:
             qs = FileSystem.objects.filter(id__in=[f.id for f in files])
@@ -329,14 +343,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        assure_parent_folders(new_path, self.team, cast(User, request.user))
+        self._assure_parent_folders(new_path, cast(User, request.user))
 
         if instance.type == "folder":
             if new_path == instance.path:
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+                qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+                qs = self._scope_by_team_and_environment(qs)
                 if self.user_access_control:
                     qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
                 for file in qs:
@@ -344,7 +359,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.depth = len(split_path(file.path))
                     file.save()
 
-                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                targets = FileSystem.objects.filter(path=new_path).all()
+                targets = self._scope_by_team_and_environment(targets)
                 # We're a folder, and we're moving into a folder with the same name. Delete one.
                 if any(target.type == "folder" for target in targets):
                     # TODO: merge access controls once those are in place
@@ -371,14 +387,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        assure_parent_folders(new_path, self.team, cast(User, request.user))
+        self._assure_parent_folders(new_path, cast(User, request.user))
 
         if instance.type == "folder":
             if new_path == instance.path:
                 return Response({"detail": "Cannot link folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+                qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+                qs = self._scope_by_team_and_environment(qs)
                 if self.user_access_control:
                     qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
@@ -389,7 +406,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.shortcut = True
                     file.save()  # A new instance is created with a new id
 
-                targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
+                targets_q = FileSystem.objects.filter(path=new_path)
+                targets_q = self._scope_by_team_and_environment(targets_q)
+                targets = targets_q.all()
                 if any(target.type == "folder" for target in targets):
                     # We're a folder, and we're link into a folder with the same name. Noop.
                     pass
@@ -419,7 +438,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+        qs = self._scope_by_team_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
@@ -432,76 +452,77 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not path_param:
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/")
+        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/")
+        qs = self._scope_by_team_and_environment(qs)
         if self.user_access_control:
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
-
-def assure_parent_folders(path: str, team: Team, created_by: User) -> None:
-    """
-    Ensure that all parent folders for the given path exist for the provided team.
-    For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
-    all exist as folder type FileSystem entries.
-    """
-    segments = split_path(path)
-    for depth_index in range(1, len(segments)):
-        parent_path = join_path(segments[:depth_index])
-        if not FileSystem.objects.filter(team=team, path=parent_path).exists():
-            FileSystem.objects.create(
-                team=team,
-                path=parent_path,
-                depth=depth_index,
-                type="folder",
-                created_by=created_by,
-            )
-
-
-def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
-    """
-    For all existing FileSystem rows in `team`, ensure that any missing parent
-    folders are created. Also ensure `depth` is correct.
-    """
-
-    # TODO: this needs some concurrency controls or a unique index
-
-    existing_paths = set(FileSystem.objects.filter(team=team).values_list("path", flat=True))
-
-    folders_to_create = []
-    items_to_update = []
-
-    all_files = FileSystem.objects.filter(team=team).select_related("created_by")
-    for file_obj in all_files:
-        segments = split_path(file_obj.path)
-        correct_depth = len(segments)
-
-        # If depth is missing or incorrect, fix it
-        if file_obj.depth != correct_depth:
-            file_obj.depth = correct_depth
-            items_to_update.append(file_obj)
-
-        # Create missing parent folders
-        # e.g. for path "a/b/c/d/e", the parent folders are:
-        #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
+    def _assure_parent_folders(self, path: str, created_by: User) -> None:
+        """
+        Ensure that all parent folders for the given path exist for the provided team.
+        For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
+        all exist as folder type FileSystem entries.
+        """
+        segments = split_path(path)
         for depth_index in range(1, len(segments)):
             parent_path = join_path(segments[:depth_index])
-            if parent_path not in existing_paths:
-                # Mark that we have it now (so we don't create duplicates)
-                existing_paths.add(parent_path)
-                folders_to_create.append(
-                    FileSystem(
-                        team=team,
-                        path=parent_path,
-                        depth=depth_index,
-                        type="folder",
-                        created_by=user,
-                    )
+            parent_q = FileSystem.objects.filter(path=parent_path)
+            parent_q = self._scope_by_team_and_environment(parent_q)
+            if not parent_q.exists():
+                FileSystem.objects.create(
+                    team=self.team,
+                    path=parent_path,
+                    depth=depth_index,
+                    type="folder",
+                    created_by=created_by,
                 )
 
-    if folders_to_create:
-        FileSystem.objects.bulk_create(folders_to_create)
+    def _retroactively_fix_folders_and_depth(self, user: User) -> None:
+        """
+        For all existing FileSystem rows in `team`, ensure that any missing parent
+        folders are created. Also ensure `depth` is correct.
+        """
 
-    if items_to_update:
-        for item in items_to_update:
-            item.save()
+        # TODO: this needs some concurrency controls or a unique index
+        scoped_files = self._scope_by_team_and_environment(FileSystem.objects)
+        existing_paths = set(scoped_files.values_list("path", flat=True))
+
+        folders_to_create = []
+        items_to_update = []
+
+        all_files = scoped_files.select_related("created_by")
+        for file_obj in all_files:
+            segments = split_path(file_obj.path)
+            correct_depth = len(segments)
+
+            # If depth is missing or incorrect, fix it
+            if file_obj.depth != correct_depth:
+                file_obj.depth = correct_depth
+                items_to_update.append(file_obj)
+
+            # Create missing parent folders
+            # e.g. for path "a/b/c/d/e", the parent folders are:
+            #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
+            for depth_index in range(1, len(segments)):
+                parent_path = join_path(segments[:depth_index])
+                if parent_path not in existing_paths:
+                    # Mark that we have it now (so we don't create duplicates)
+                    existing_paths.add(parent_path)
+                    folders_to_create.append(
+                        FileSystem(
+                            team=self.team,
+                            path=parent_path,
+                            depth=depth_index,
+                            type="folder",
+                            created_by=user,
+                        )
+                    )
+
+        if folders_to_create:
+            FileSystem.objects.bulk_create(folders_to_create)
+
+        if items_to_update:
+            for item in items_to_update:
+                item.save()

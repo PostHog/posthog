@@ -223,7 +223,9 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["project_id"])
+register_grandfathered_environment_nested_viewset(
+    r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
+)
 
 register_grandfathered_environment_nested_viewset(
     r"file_system_shortcut",
