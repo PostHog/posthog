@@ -3,7 +3,7 @@ from freezegun import freeze_time
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 from posthog.test.base import APIBaseTest
-from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
+from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook, Team, Project
 from posthog.models.file_system.file_system import FileSystem
 from unittest.mock import patch
 from ee.models.rbac.access_control import AccessControl
@@ -1210,3 +1210,97 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         self.assertEqual(file1_data["meta"]["created_by"], self.user.pk)
         self.assertEqual(file2_data["meta"]["created_by"], second_user.pk)
+
+
+@pytest.mark.django_db
+class TestFileSystemProjectScoping(APIBaseTest):
+    """
+    - Any *non-hog_function* item belonging to **any team in the same project**
+      must be visible & editable.
+    - Items whose type starts with "hog_function/" are **team-scoped** and
+      must be hidden from sibling teams.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+
+        self.team2 = Team.objects.create(
+            project=self.project,
+            organization=self.organization,
+            api_token="token-env-2",
+            name="Env-2",
+        )
+
+        project_other = Project.objects.create(
+            id=Team.objects.increment_id_sequence(),
+            organization=self.organization,
+        )
+        self.team3 = Team.objects.create(
+            id=project_other.id,
+            project=project_other,
+            organization=self.organization,
+            api_token="token-other",
+            name="Other-Project-Team",
+        )
+
+        # visible everywhere inside the project
+        self.doc_t1 = FileSystem.objects.create(team=self.team, path="Shared/Doc-T1", type="doc", created_by=self.user)
+        self.doc_t2 = FileSystem.objects.create(team=self.team2, path="Shared/Doc-T2", type="doc", created_by=self.user)
+        # never visible from self.team
+        self.doc_t3 = FileSystem.objects.create(team=self.team3, path="Shared/Doc-T3", type="doc", created_by=self.user)
+
+        # hog_function – team-scoped
+        self.hog_t1 = FileSystem.objects.create(
+            team=self.team, path="Functions/Hog-T1", type="hog_function/source", created_by=self.user
+        )
+        self.hog_t2 = FileSystem.objects.create(
+            team=self.team2, path="Functions/Hog-T2", type="hog_function/source", created_by=self.user
+        )
+        self.hog_t3 = FileSystem.objects.create(
+            team=self.team3, path="Functions/Hog-T3", type="hog_function/source", created_by=self.user
+        )
+
+    # LIST
+    def test_list_scopes_correctly(self):
+        resp = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        paths = {item["path"] for item in resp.json()["results"]}
+
+        # Non-hog_function items from *both* teams in the project
+        self.assertIn("Shared/Doc-T1", paths)
+        self.assertIn("Shared/Doc-T2", paths)
+        # But not from a different project
+        self.assertNotIn("Shared/Doc-T3", paths)
+
+        # hog_function only from the *current* team
+        self.assertIn("Functions/Hog-T1", paths)
+        self.assertNotIn("Functions/Hog-T2", paths)
+        self.assertNotIn("Functions/Hog-T3", paths)
+
+    # RETRIEVE
+    def test_retrieve_non_hog_function_from_other_team_is_allowed(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.doc_t2.id}/"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["path"], "Shared/Doc-T2")
+
+    def test_retrieve_hog_function_from_other_team_is_forbidden(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.hog_t2.id}/"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    # UPDATE (PATCH)
+    def test_update_non_hog_function_from_other_team_is_allowed(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.doc_t2.id}/"
+        resp = self.client.patch(url, {"path": "Shared/Doc-T2-Renamed"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
+        self.doc_t2.refresh_from_db()
+        self.assertEqual(self.doc_t2.path, "Shared/Doc-T2-Renamed")
+
+    def test_update_hog_function_from_other_team_is_forbidden(self):
+        url = f"/api/projects/{self.team.id}/file_system/{self.hog_t2.id}/"
+        resp = self.client.patch(url, {"path": "Functions/Hog-T2-Renamed"})
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
