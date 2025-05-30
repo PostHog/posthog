@@ -1447,7 +1447,8 @@ async def test_insert_into_postgres_activity_completes_range_when_there_is_a_fai
             b"\uD83C\uDF89 Party \uD800 \uD83D\uDE0A mixed",
             b"\uD83C\uDF89 Party  \uD83D\uDE0A mixed",
         ),  # Mix of valid pairs and unpaired
-        (b"Hello \\u0000 World", b"Hello  World"),  # \u0000 is not a valid JSON character in PostgreSQL
+        (b"Hello \u0000 World", b"Hello  World"),  # \u0000 is not a valid JSON character in PostgreSQL
+        (b"Hello \\u0000 World", b"Hello  World"),  # this is the same as the above
         (b"Hello \\\\u0000 World", b"Hello \\\\u0000 World"),  # \\u0000 is escaped
     ],
 )
