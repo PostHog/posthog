@@ -517,7 +517,7 @@ export function FeatureFlagReleaseConditions({
                                     <div className="text-secondary">
                                         Specify {aggregationTargetName} for flag release. Condition sets are evaluated
                                         top to bottom - the first matching set is used. A condition matches when all
-                                        property filters pass AND the target falls within the rollout percentage.
+                                        property filters pass and the target falls within the rollout percentage.
                                     </div>
                                     <div className="text-secondary mb-4">
                                         {aggregationTargetName === 'users' && (
