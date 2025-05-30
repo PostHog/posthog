@@ -3,7 +3,6 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBug,
     IconChevronRight,
     IconDatabase,
     IconHandMoney,
@@ -77,10 +76,10 @@ const iconTypes: Record<string, { icon: JSX.Element; iconColor?: FileSystemIconC
     },
     warning: {
         icon: <IconWarning />,
-    },
-    bug: {
-        icon: <IconBug />,
         iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
+    },
+    ingestionWarning: {
+        icon: <IconWarning />,
     },
 }
 
@@ -191,7 +190,7 @@ export const getDefaultTreeDataManagement = (): FileSystemImport[] => [
     },
     {
         path: 'Ingestion warnings',
-        iconType: 'warning',
+        iconType: 'ingestionWarning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
@@ -222,7 +221,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Error tracking',
-            iconType: 'bug',
+            iconType: 'warning',
             href: urls.errorTracking(),
             visualOrder: PRODUCT_VISUAL_ORDER.errorTracking,
         } as FileSystemImport,

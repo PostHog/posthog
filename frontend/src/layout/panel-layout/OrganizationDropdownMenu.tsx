@@ -35,7 +35,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive className="max-w-[210px]" iconOnly={isLayoutNavCollapsed ? true : false}>
+                <ButtonPrimitive className="max-w-[180px]" iconOnly={isLayoutNavCollapsed ? true : false}>
                     {currentOrganization ? (
                         <UploadedLogo
                             name={currentOrganization.name}

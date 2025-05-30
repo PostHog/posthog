@@ -1,4 +1,4 @@
-import { IconTestTube } from '@posthog/icons'
+import { IconFlask } from '@posthog/icons'
 import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -29,7 +29,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         experiment: {
             name: 'Experiment',
-            icon: <IconTestTube />,
+            icon: <IconFlask />,
             href: (ref: string) => urls.experiment(ref),
             iconColor: ['var(--product-experiments-light)'],
             filterKey: 'experiment',
