@@ -380,9 +380,7 @@ class FeatureFlagSerializer(
         validated_data["team_id"] = self.context["team_id"]
         validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        creation_context = validated_data.pop(
-            "creation_context", "feature_flags"
-        )  # default to "feature_flags" if an alternative value is not provided
+        validated_data.setdefault("creation_context", CreationContext.FEATURE_FLAGS)
 
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
@@ -410,8 +408,6 @@ class FeatureFlagSerializer(
 
         self.check_flag_evaluation(validated_data)
 
-        validated_data["creation_context"] = creation_context
-
         with ImpersonatedContext(request):
             instance: FeatureFlag = super().create(validated_data)
 
@@ -424,7 +420,7 @@ class FeatureFlagSerializer(
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
-        analytics_metadata["creation_context"] = creation_context
+        analytics_metadata["creation_context"] = validated_data["creation_context"]
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance

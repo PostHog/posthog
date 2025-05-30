@@ -3,7 +3,6 @@ Constants for feature flag model and events.
 """
 
 
-# Creation contexts for feature flags - indicates the origin product of the feature flag
 class CreationContext:
     FEATURE_FLAGS = "feature_flags"
     EXPERIMENTS = "experiments"
