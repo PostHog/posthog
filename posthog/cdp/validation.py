@@ -158,24 +158,35 @@ class InputsItemSerializer(serializers.Serializer):
 
         try:
             if value and schema.get("templating", True):
-                # If we have a value and hog templating is enabled, we need to transpile the value
-                if item_type in ["string", "dictionary", "json", "email"]:
-                    if item_type == "email" and isinstance(value, dict):
-                        # We want to exclude the "design" property
-                        value = {key: value[key] for key in value if key != "design"}
+                # Check if this is a liquid template (templating disabled + liquid syntax)
+                is_liquid_template = schema.get("templating") is False and has_liquid_syntax(value)
 
-                    if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
-                        compiler = JavaScriptCompiler()
-                        code = transpile_template_code(value, compiler)
-                        attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                        if "bytecode" in attrs:
-                            del attrs["bytecode"]
-                    else:
-                        input_collector: set[str] = set()
-                        attrs["bytecode"] = generate_template_bytecode(value, input_collector)
-                        attrs["input_deps"] = list(input_collector)
-                        if "transpiled" in attrs:
-                            del attrs["transpiled"]
+                if is_liquid_template:
+                    # Skip bytecode generation for liquid templates
+                    # Remove any existing bytecode/transpiled data since we're using liquid
+                    if "bytecode" in attrs:
+                        del attrs["bytecode"]
+                    if "transpiled" in attrs:
+                        del attrs["transpiled"]
+                else:
+                    # If we have a value and hog templating is enabled, we need to transpile the value
+                    if item_type in ["string", "dictionary", "json", "email"]:
+                        if item_type == "email" and isinstance(value, dict):
+                            # We want to exclude the "design" property
+                            value = {key: value[key] for key in value if key != "design"}
+
+                        if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
+                            compiler = JavaScriptCompiler()
+                            code = transpile_template_code(value, compiler)
+                            attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                            if "bytecode" in attrs:
+                                del attrs["bytecode"]
+                        else:
+                            input_collector: set[str] = set()
+                            attrs["bytecode"] = generate_template_bytecode(value, input_collector)
+                            attrs["input_deps"] = list(input_collector)
+                            if "transpiled" in attrs:
+                                del attrs["transpiled"]
         except Exception as e:
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
@@ -348,3 +359,15 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
+
+
+# Add a helper function to detect liquid syntax
+def has_liquid_syntax(value: Any) -> bool:
+    """Check if a value contains liquid template syntax"""
+    if isinstance(value, str):
+        return "{{" in value or "{%" in value
+    elif isinstance(value, dict):
+        return any(has_liquid_syntax(v) for v in value.values())
+    elif isinstance(value, list):
+        return any(has_liquid_syntax(item) for item in value)
+    return False
