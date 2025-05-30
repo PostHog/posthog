@@ -1,37 +1,61 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
+import { logsLogic } from '../logsLogic'
+
 export const AttributesFilter = (): JSX.Element => {
-    return <NestedFilterGroup addButton={false} />
-}
+    const { filterGroup } = useValues(logsLogic)
+    const { setFilterGroup } = useActions(logsLogic)
 
-type NestedFilterGroupProps = {
-    addButton?: boolean
-}
-
-const NestedFilterGroup = ({ addButton }: NestedFilterGroupProps): JSX.Element => {
-    const { filterGroup } = useValues(universalFiltersLogic)
+    const rootKey = 'logs'
 
     return (
-        <div>
+        <UniversalFilters
+            rootKey={rootKey}
+            group={filterGroup}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Logs]}
+            onChange={(filterGroup) => {
+                setFilterGroup(filterGroup)
+            }}
+        >
+            <NestedFilterGroup />
+        </UniversalFilters>
+    )
+}
+
+const NestedFilterGroup = (): JSX.Element => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+
+    return (
+        <div className="flex gap-1 items-center flex-wrap">
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <>
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <NestedFilterGroup addButton={true} />
+                            <NestedFilterGroup />
+                            <UniversalFilters.AddFilterButton
+                                className="bg-surface-primary"
+                                size="small"
+                                type="secondary"
+                            />
                         </UniversalFilters.Group>
                     </>
-                ) : null
+                ) : (
+                    <UniversalFilters.Value
+                        key={index}
+                        index={index}
+                        filter={filterOrGroup}
+                        initiallyOpen={true}
+                        onRemove={() => removeGroupValue(index)}
+                        onChange={(value) => replaceGroupValue(index, value)}
+                        className="h-[33px]"
+                    />
+                )
             })}
-            {addButton ? (
-                <UniversalFilters.AddFilterButton
-                    className="rounded bg-surface-primary"
-                    size="small"
-                    type="secondary"
-                />
-            ) : null}
         </div>
     )
 }
