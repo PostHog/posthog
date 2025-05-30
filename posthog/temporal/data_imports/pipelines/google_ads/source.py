@@ -105,7 +105,7 @@ class GoogleAdsColumn(Column):
             case ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE:
                 arrow_type = pa.date32()
             case ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DOUBLE:
-                arrow_type = pa.uint64()
+                arrow_type = pa.float64()
             case ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.ENUM:
                 arrow_type = pa.string()
             case ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.FLOAT:
