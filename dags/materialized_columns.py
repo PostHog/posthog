@@ -2,7 +2,6 @@ import datetime
 import itertools
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Set
-from dataclasses import dataclass
 from typing import ClassVar, TypeVar, cast
 
 import dagster
@@ -155,9 +154,7 @@ class MaterializationConfig(dagster.Config):
 
             if commands:
                 Runner = ForceMaterializationRunner if self.force else AlterTableMutationRunner
-                mutations[partition] = Runner(
-                    self.table, commands, parameters={"partition": partition}
-                )
+                mutations[partition] = Runner(self.table, commands, parameters={"partition": partition})
 
         return mutations
 
