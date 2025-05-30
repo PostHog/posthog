@@ -1,6 +1,7 @@
 import './sparkline-loading.scss'
 
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -97,7 +98,11 @@ export function LogsScene(): JSX.Element {
                                 title: 'Message',
                                 key: 'body',
                                 dataIndex: 'body',
-                                render: (body) => <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{body}</div>,
+                                render: (body) => (
+                                    <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>
+                                        {colors.unstyle(body)}
+                                    </div>
+                                ),
                             },
                         ]}
                         expandable={{
