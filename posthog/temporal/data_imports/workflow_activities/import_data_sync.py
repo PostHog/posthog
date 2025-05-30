@@ -703,6 +703,25 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
             )
+        elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLEADS:
+            from posthog.temporal.data_imports.pipelines.google_ads import (
+                GoogleAdsServiceAccountSourceConfig,
+                google_ads_source,
+            )
+
+            config = GoogleAdsServiceAccountSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = google_ads_source(config)
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

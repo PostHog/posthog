@@ -12,47 +12,80 @@ const ROOT_DIR = path.join(__dirname, '..', '..', '..', '..')
 const CACHE_FILE = path.join(__dirname, '.tmp/cache.json')
 
 let CACHE: Record<string, HogBytecode> | null = null
+const CONCURRENT_WORKERS = 10
 
-export async function compileHog(hog: string): Promise<HogBytecode> {
-    if (CACHE === null) {
-        mkdirSync(path.dirname(CACHE_FILE), { recursive: true })
+class Semaphore {
+    private waiting: Array<() => void> = []
 
-        // Load from the tmp dir if it exists, otherwise new object
-        try {
-            CACHE = parseJSON(readFileSync(CACHE_FILE, 'utf-8'))
-        } catch (error) {
-            CACHE = {}
+    constructor(private permits: number) {}
+
+    async acquire(): Promise<void> {
+        if (this.permits > 0) {
+            this.permits--
+            return
+        }
+        return new Promise<void>((resolve) => this.waiting.push(resolve))
+    }
+
+    release(): void {
+        if (this.waiting.length > 0) {
+            const next = this.waiting.shift()
+            if (next) {
+                next()
+            }
+        } else {
+            this.permits++
         }
     }
-    CACHE = CACHE ?? {}
+}
 
-    if (CACHE[hog]) {
-        return CACHE[hog]
-    }
+const semaphore = new Semaphore(CONCURRENT_WORKERS)
 
-    // We invoke the ./bin/hog from the root of the directory like bin/hoge <file.hog> [output.hoge]
-    // We need to write and read from a temp file
-    const uuid = new UUIDT().toString()
-    const tempFile = path.join(tmpdir(), `hog-${uuid}.hog`)
-    await writeFile(tempFile, hog)
-
-    const outputFile = path.join(tmpdir(), `hog-${uuid}.hoge`)
+export async function compileHog(hog: string): Promise<HogBytecode> {
+    await semaphore.acquire()
     try {
-        await new Promise((resolve, reject) => {
-            exec(`cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`, (error, stdout) =>
-                error ? reject(error) : resolve(stdout)
-            )
-        })
-    } catch (error) {
-        console.error('Failed to compile hog:', hog)
-        throw error
+        if (CACHE === null) {
+            mkdirSync(path.dirname(CACHE_FILE), { recursive: true })
+
+            // Load from the tmp dir if it exists, otherwise new object
+            try {
+                CACHE = parseJSON(readFileSync(CACHE_FILE, 'utf-8'))
+            } catch (error) {
+                CACHE = {}
+            }
+        }
+        CACHE = CACHE ?? {}
+
+        if (CACHE[hog]) {
+            return CACHE[hog]
+        }
+
+        // We invoke the ./bin/hog from the root of the directory like bin/hoge <file.hog> [output.hoge]
+        // We need to write and read from a temp file
+        const uuid = new UUIDT().toString()
+        const tempFile = path.join(tmpdir(), `hog-${uuid}.hog`)
+        await writeFile(tempFile, hog)
+
+        const outputFile = path.join(tmpdir(), `hog-${uuid}.hoge`)
+        try {
+            await new Promise((resolve, reject) => {
+                exec(`cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`, (error, stdout) =>
+                    error ? reject(error) : resolve(stdout)
+                )
+            })
+        } catch (error) {
+            console.error('Failed to compile hog:', hog)
+            throw error
+        }
+
+        const output = parseJSON(await readFile(outputFile, 'utf-8'))
+
+        CACHE[hog] = output
+
+        await writeFile(CACHE_FILE, JSON.stringify(CACHE, null, 2))
+
+        return output
+    } finally {
+        semaphore.release()
     }
-
-    const output = parseJSON(await readFile(outputFile, 'utf-8'))
-
-    CACHE[hog] = output
-
-    await writeFile(CACHE_FILE, JSON.stringify(CACHE, null, 2))
-
-    return output
 }
