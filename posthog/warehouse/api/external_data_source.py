@@ -1071,18 +1071,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             customer_id = request.data.get("customer_id")
-            resource_name = request.data.get("resource_name")
+            resource_name = request.data.get("resource_name", "")
 
             if not customer_id:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Missing required input: 'customer_id'"},
-                )
-
-            if not resource_name:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required input: 'resource_name'"},
                 )
 
             google_ads_config = GoogleAdsServiceAccountSourceConfig(
