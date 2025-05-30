@@ -476,6 +476,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.TEMPORALIO:
+            new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -624,6 +626,39 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={"api_key": api_key, "site_name": site_name},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_temporalio_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        host = payload.get("host", "")
+        port = payload.get("port", "")
+        namespace = payload.get("namespace", "")
+        server_client_root_ca = payload.get("server_client_root_ca", "")
+        client_certificate = payload.get("client_certificate", "")
+        client_private_key = payload.get("client_private_key", "")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "host": host,
+                "port": port,
+                "namespace": namespace,
+                "server_client_root_ca": server_client_root_ca,
+                "client_certificate": client_certificate,
+                "client_private_key": client_private_key,
+            },
             prefix=prefix,
         )
 
