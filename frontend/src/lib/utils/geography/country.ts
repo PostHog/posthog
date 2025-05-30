@@ -207,7 +207,7 @@ export const COUNTRY_CODE_TO_LONG_NAME: Record<string, string> = {
     TM: 'Turkmenistan',
     TN: 'Tunisia',
     TO: 'Tonga',
-    TR: 'Turkey',
+    TR: 'Türkiye',
     TT: 'Trinidad and Tobago',
     TW: 'Taiwan',
     TZ: 'Tanzania',
