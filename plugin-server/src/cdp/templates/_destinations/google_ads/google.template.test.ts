@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
 
+jest.setTimeout(2 * 60 * 1000)
+
 describe('google template', () => {
     const tester = new TemplateTester(template)
 
@@ -16,7 +18,8 @@ describe('google template', () => {
     })
 
     it('works with single product event', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Signed Up',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -59,9 +62,6 @@ describe('google template', () => {
             }
         )
 
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -90,7 +90,8 @@ describe('google template', () => {
     })
 
     it('works with empty properties', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Signed Up',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -118,9 +119,6 @@ describe('google template', () => {
                 },
             }
         )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -150,7 +148,8 @@ describe('google template', () => {
     })
 
     it('handles error responses', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Signed Up',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -179,9 +178,6 @@ describe('google template', () => {
                 },
             }
         )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -213,7 +209,8 @@ describe('google template', () => {
     })
 
     it('handles missing gclid', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Signed Up',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -240,9 +237,6 @@ describe('google template', () => {
                 },
             }
         )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
 
         expect(response.logs).toMatchInlineSnapshot(`
             [

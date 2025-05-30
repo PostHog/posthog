@@ -173,7 +173,8 @@ export class TemplateTester {
     async invokeMapping(
         mapping_name: string,
         _inputs: Record<string, any>,
-        _globals?: DeepPartialHogFunctionInvocationGlobals
+        _globals?: DeepPartialHogFunctionInvocationGlobals,
+        mapping_inputs?: Record<string, any>
     ) {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
@@ -183,7 +184,7 @@ export class TemplateTester {
 
         const compiledMappingInputs = {
             ...this.template.mapping_templates.find((mapping) => mapping.name === mapping_name),
-            inputs: {},
+            inputs: mapping_inputs ?? {},
         }
 
         if (!compiledMappingInputs.inputs_schema) {
