@@ -178,5 +178,5 @@ export function PastTTL(): JSX.Element {
 }
 
 PastTTL.parameters = {
-    waitForSelector: '[data-attr="session-recording-player-past-ttl"]',
+    testOptions: { waitForSelector: '[data-attr="session-recording-player-past-ttl"]' },
 }
