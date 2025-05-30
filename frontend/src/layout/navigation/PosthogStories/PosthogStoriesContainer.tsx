@@ -13,11 +13,9 @@ export const PosthogStoriesContainer = (): JSX.Element => {
         <>
             <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
                 {stories.map((storyGroup: storyGroup, index: number) => {
-                    const isViewed = storyGroup.stories.every((story) => isStoryViewed(story.id))
-
-                    const firstNotViewedIndex = storyGroup.stories.findIndex((story) => !isStoryViewed(story.id))
-                    const firstNotViewedStory =
-                        firstNotViewedIndex >= 0 ? storyGroup.stories[firstNotViewedIndex] : storyGroup.stories[0]
+                    const hasViewedEntireGroup = storyGroup.stories.every((story) => isStoryViewed(story.id))
+                    const nextStoryIndex = hasViewedEntireGroup ? 0 : storyGroup.stories.findIndex((story) => !isStoryViewed(story.id))
+                    const nextStory = storyGroup.stories[nextStoryIndex]
                     return (
                         <div
                             key={storyGroup.id}
