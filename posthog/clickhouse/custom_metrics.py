@@ -15,6 +15,9 @@ def CUSTOM_METRICS_VIEW():
     UNION ALL
     SELECT *
     FROM custom_metrics_events_recent_lag
+    UNION ALL
+    SELECT *
+    FROM custom_metrics_counters
     """
 
 
@@ -70,8 +73,8 @@ def CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW():
     """ % {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS}
 
 
-CREATE_METRICS_COUNTER_EVENTS_TABLE = f"""
-CREATE TABLE IF NOT EXISTS metrics_counter_events (
+CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS custom_metrics_counter_events (
     name String,
     labels Map(String, String),
     timestamp DateTime64(3, 'UTC'),
@@ -79,4 +82,12 @@ CREATE TABLE IF NOT EXISTS metrics_counter_events (
 ) ENGINE = {MergeTreeEngine('metrics_counter_events', replication_scheme=ReplicationScheme.REPLICATED)}
 ORDER BY (name, labels, timestamp)
 PARTITION BY toYYYYMM(timestamp)
+"""
+
+CREATE_CUSTOM_METRICS_COUNTERS_VIEW = f"""
+CREATE OR REPLACE VIEW custom_metrics_counters AS
+SELECT name, 'counter' as type, labels, sum(increment) as value, max(timestamp) as timestamp
+FROM metrics_counter_events
+GROUP BY name, type, labels
+ORDER BY name, type, labels
 """
