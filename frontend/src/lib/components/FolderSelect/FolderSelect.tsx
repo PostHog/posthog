@@ -84,6 +84,7 @@ export function FolderSelect({
                                     onChange?.(folder)
                                 })
                             }}
+                            data-attr="folder-select-item-menu-new-folder-button"
                         >
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                         </MenuItem>
@@ -95,7 +96,9 @@ export function FolderSelect({
                                     setEditingItemId(item.id)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                                <ButtonPrimitive menuItem data-attr="folder-select-item-menu-rename-button">
+                                    Rename
+                                </ButtonPrimitive>
                             </MenuItem>
                         ) : null}
                     </MenuGroup>
@@ -113,6 +116,7 @@ export function FolderSelect({
                 fullWidth
                 onChange={(search) => setSearchTerm(search)}
                 value={searchTerm}
+                data-attr="folder-select-search-input"
             />
             <ScrollableShadows direction="vertical" className={clsx('bg-surface-primary border rounded', className)}>
                 <LemonTree

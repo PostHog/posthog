@@ -385,7 +385,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     ],
     'insight-alert-firing': [
         {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['insight-alert-firing'],
             template_id: 'template-slack',
             name: 'Post to Slack on insight alert firing',
             description: 'Post to a Slack channel when this insight alert fires',
