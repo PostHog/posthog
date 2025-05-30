@@ -648,10 +648,10 @@ export default function SurveyEdit(): JSX.Element {
                                                       survey={survey}
                                                       hasBranchingLogic={hasBranchingLogic}
                                                       deleteBranchingLogic={deleteBranchingLogic}
-                                                      customizeRatingButtons={survey.questions.some(
+                                                      hasRatingButtons={survey.questions.some(
                                                           (question) => question.type === SurveyQuestionType.Rating
                                                       )}
-                                                      customizePlaceholderText={survey.questions.some(
+                                                      hasPlaceholderText={survey.questions.some(
                                                           (question) => question.type === SurveyQuestionType.Open
                                                       )}
                                                       onAppearanceChange={(appearance) => {
@@ -1098,7 +1098,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs">
+            <div className="flex flex-col h-full sticky top-0 max-w-1/2 overflow-auto">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}

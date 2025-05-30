@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
-import { sanitizeSurveyAppearance, validateColor } from 'scenes/surveys/utils'
+import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -90,17 +90,7 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
 
     const updateSurveySettings = (): void => {
         const sanitizedAppearance = sanitizeSurveyAppearance(editableSurveyConfig)
-        const errors = {
-            backgroundColor: validateColor(sanitizedAppearance?.backgroundColor, 'background color'),
-            borderColor: validateColor(sanitizedAppearance?.borderColor, 'border color'),
-            ratingButtonActiveColor: validateColor(
-                sanitizedAppearance?.ratingButtonActiveColor,
-                'rating button active color'
-            ),
-            ratingButtonColor: validateColor(sanitizedAppearance?.ratingButtonColor, 'rating button color'),
-            submitButtonColor: validateColor(sanitizedAppearance?.submitButtonColor, 'button color'),
-            submitButtonTextColor: validateColor(sanitizedAppearance?.submitButtonTextColor, 'button text color'),
-        }
+        const errors = validateSurveyAppearance(sanitizedAppearance, true, templatedSurvey.type)
 
         // Check if there are any validation errors
         const hasErrors = Object.values(errors).some((error) => error !== undefined)
@@ -139,29 +129,31 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                 )}
             </div>
 
-            <div className="flex gap-16">
-                <Customization
-                    survey={templatedSurvey}
-                    hasBranchingLogic={false}
-                    customizeRatingButtons
-                    customizePlaceholderText
-                    onAppearanceChange={(appearance) => {
-                        setEditableSurveyConfig({
-                            ...editableSurveyConfig,
-                            ...appearance,
-                        })
-                        setTemplatedSurvey({
-                            ...templatedSurvey,
-                            ...{ appearance: appearance },
-                        })
-                    }}
-                    validationErrors={validationErrors}
-                />
-                <div className="mt-10 mr-5 survey-view">
-                    {globalSurveyAppearanceConfigAvailable && (
-                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
-                    )}
+            <div className="flex gap-8">
+                <div className="min-w-1/2">
+                    <Customization
+                        survey={templatedSurvey}
+                        hasBranchingLogic={false}
+                        hasRatingButtons={true}
+                        hasPlaceholderText={true}
+                        onAppearanceChange={(appearance) => {
+                            setEditableSurveyConfig({
+                                ...editableSurveyConfig,
+                                ...appearance,
+                            })
+                            setTemplatedSurvey({
+                                ...templatedSurvey,
+                                ...{ appearance: appearance },
+                            })
+                        }}
+                        validationErrors={validationErrors}
+                    />
                 </div>
+                {globalSurveyAppearanceConfigAvailable && (
+                    <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
+                        <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                    </div>
+                )}
             </div>
         </div>
     )

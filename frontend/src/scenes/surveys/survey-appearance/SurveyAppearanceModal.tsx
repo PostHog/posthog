@@ -169,7 +169,7 @@ export function SurveyAppearanceModal({
                 Full-screen survey editor
             </LemonButton>
             <LemonModal isOpen={isAppearanceModalOpen} onClose={onClose} fullScreen simple>
-                <LemonModal.Header>Customize Survey Apperance</LemonModal.Header>
+                <LemonModal.Header>Customize Survey Appearance</LemonModal.Header>
                 <LemonModal.Content className="flex flex-col md:flex-row flex-1 h-full gap-4 overflow-hidden">
                     <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
                         {!surveysStylingAvailable && (

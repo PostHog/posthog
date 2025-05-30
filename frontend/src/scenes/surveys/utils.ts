@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
@@ -11,6 +12,7 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
@@ -25,20 +27,54 @@ export function sanitizeColor(color: string | undefined): string | undefined {
     }
 
     // test if the color is valid by adding a # to the beginning of the string
-    if (!validateColor(`#${color}`, 'color')) {
+    if (CSS.supports('color', `#${color}`)) {
         return `#${color}`
     }
 
     return color
 }
 
-export function validateColor(color: string | undefined, fieldName: string): string | undefined {
-    if (!color) {
+function validateCSSProperty(property: string, value: string | undefined, fieldName: string): string | undefined {
+    if (!value) {
         return undefined
     }
-    // Test if the color value is valid using CSS.supports
-    const isValidColor = CSS.supports('color', color)
-    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
+    const isValidCSSProperty = CSS.supports(property, value)
+    return !isValidCSSProperty ? `Invalid ${fieldName} value. Please use a valid CSS property.` : undefined
+}
+
+export function validateSurveyAppearance(
+    appearance: SurveyAppearance,
+    hasRatingQuestions: boolean,
+    surveyType: SurveyType
+): DeepPartialMap<SurveyAppearance, ValidationErrorType> {
+    return {
+        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor, 'background color'),
+        borderColor: validateCSSProperty('border-color', appearance.borderColor, 'border color'),
+        // Only validate rating button colors if there's a rating question
+        ...(hasRatingQuestions && {
+            ratingButtonActiveColor: validateCSSProperty(
+                'background-color',
+                appearance.ratingButtonActiveColor,
+                'rating button active color'
+            ),
+            ratingButtonColor: validateCSSProperty(
+                'background-color',
+                appearance.ratingButtonColor,
+                'rating button color'
+            ),
+        }),
+        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor, 'button color'),
+        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor, 'button text color'),
+        maxWidth: validateCSSProperty('width', appearance.maxWidth, 'width'),
+        boxPadding: validateCSSProperty('padding', appearance.boxPadding, 'box padding'),
+        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow, 'box shadow'),
+        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius, 'border radius'),
+        zIndex: validateCSSProperty('z-index', appearance.zIndex, 'z-index'),
+        widgetSelector:
+            surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
+                ? 'Please enter a CSS selector.'
+                : undefined,
+    }
 }
 
 export function getSurveyResponseKey(questionIndex: number): string {

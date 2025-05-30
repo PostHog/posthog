@@ -1,10 +1,9 @@
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { defaultSurveyAppearance, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
+import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
@@ -60,6 +59,30 @@ function SurveyOptionsGroup({
     )
 }
 
+interface SurveyAppearanceInputProps {
+    value?: string
+    onChange: (value: string) => void
+    error?: string
+    label: string
+    info?: string
+}
+
+function SurveyAppearanceInput({ value, onChange, error, label, info }: SurveyAppearanceInputProps): JSX.Element {
+    const { surveysStylingAvailable } = useValues(surveysLogic)
+
+    return (
+        <LemonField.Pure label={label} className="flex-1 gap-1" info={info}>
+            <LemonInput
+                value={value}
+                onChange={onChange}
+                disabled={!surveysStylingAvailable}
+                className={IGNORE_ERROR_BORDER_CLASS}
+            />
+            {error && <LemonField.Error error={error} />}
+        </LemonField.Pure>
+    )
+}
+
 export function SurveyContainerAppearance({
     appearance,
     onAppearanceChange,
@@ -73,40 +96,31 @@ export function SurveyContainerAppearance({
             <span className="col-span-2 text-secondary">
                 These options are only applied in the web surveys. Not on native mobile apps.
             </span>
-            <LemonField.Pure label="Survey width" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.maxWidth}
-                    onChange={(maxWidth) => onAppearanceChange({ ...appearance, maxWidth })}
-                    disabled={!surveysStylingAvailable}
-                    className={IGNORE_ERROR_BORDER_CLASS}
-                />
-            </LemonField.Pure>
-            <LemonField.Pure label="Box padding" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.boxPadding}
-                    onChange={(boxPadding) => onAppearanceChange({ ...appearance, boxPadding })}
-                    disabled={!surveysStylingAvailable}
-                    className={clsx(validationErrors?.boxPadding ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
-                />
-                {validationErrors?.boxPadding && <LemonField.Error error={validationErrors?.boxPadding} />}
-            </LemonField.Pure>
-            <LemonField.Pure label="Box shadow" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.boxShadow}
-                    onChange={(boxShadow) => onAppearanceChange({ ...appearance, boxShadow })}
-                    disabled={!surveysStylingAvailable}
-                />
-            </LemonField.Pure>
-            <LemonField.Pure label="Border radius" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.borderRadius || defaultSurveyAppearance.borderRadius}
-                    onChange={(borderRadius) => onAppearanceChange({ ...appearance, borderRadius })}
-                    disabled={!surveysStylingAvailable}
-                    className={clsx(validationErrors?.borderRadius ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
-                />
-                {validationErrors?.borderRadius && <LemonField.Error error={validationErrors?.borderRadius} />}
-            </LemonField.Pure>
-
+            <SurveyAppearanceInput
+                value={appearance.maxWidth}
+                onChange={(maxWidth) => onAppearanceChange({ ...appearance, maxWidth })}
+                error={validationErrors?.maxWidth}
+                label="Survey width"
+                info="Min-width is always set to 300px"
+            />
+            <SurveyAppearanceInput
+                value={appearance.boxPadding}
+                onChange={(boxPadding) => onAppearanceChange({ ...appearance, boxPadding })}
+                error={validationErrors?.boxPadding}
+                label="Box padding"
+            />
+            <SurveyAppearanceInput
+                value={appearance.boxShadow}
+                onChange={(boxShadow) => onAppearanceChange({ ...appearance, boxShadow })}
+                error={validationErrors?.boxShadow}
+                label="Box shadow"
+            />
+            <SurveyAppearanceInput
+                value={appearance.borderRadius}
+                onChange={(borderRadius) => onAppearanceChange({ ...appearance, borderRadius })}
+                error={validationErrors?.borderRadius}
+                label="Border radius"
+            />
             <LemonField.Pure
                 label="Position"
                 info={
@@ -171,22 +185,13 @@ export function SurveyContainerAppearance({
                     disabled={!surveysStylingAvailable}
                 />
             </LemonField.Pure>
-            <LemonField.Pure
+            <SurveyAppearanceInput
+                value={appearance.zIndex}
+                onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
+                error={validationErrors?.zIndex}
                 label="Survey form zIndex"
                 info="If the survey popup is hidden, set this value higher than the overlapping element's zIndex."
-                className="gap-1"
-            >
-                <LemonInput
-                    type="number"
-                    value={appearance.zIndex !== undefined ? Number(appearance.zIndex) : undefined}
-                    onChange={(val) =>
-                        onAppearanceChange({ ...appearance, zIndex: val === undefined ? undefined : String(val) })
-                    }
-                    disabled={!surveysStylingAvailable}
-                    placeholder="e.g. 2147482647"
-                    className={IGNORE_ERROR_BORDER_CLASS}
-                />
-            </LemonField.Pure>
+            />
         </SurveyOptionsGroup>
     )
 }
@@ -201,92 +206,57 @@ export function SurveyColorsAppearance({
     customizeRatingButtons: boolean
     customizePlaceholderText: boolean
 }): JSX.Element {
-    const { surveysStylingAvailable } = useValues(surveysLogic)
     return (
         <SurveyOptionsGroup sectionTitle="Colors and placeholder customization">
-            <LemonField.Pure label="Background color" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.backgroundColor}
-                    onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
-                    disabled={!surveysStylingAvailable}
-                    className={clsx(validationErrors?.backgroundColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
-                />
-                {validationErrors?.backgroundColor && <LemonField.Error error={validationErrors?.backgroundColor} />}
-            </LemonField.Pure>
-            <LemonField.Pure label="Border color" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.borderColor}
-                    onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
-                    disabled={!surveysStylingAvailable}
-                    className={clsx(validationErrors?.borderColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
-                />
-                {validationErrors?.borderColor && <LemonField.Error error={validationErrors?.borderColor} />}
-            </LemonField.Pure>
-            <LemonField.Pure label="Button color" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.submitButtonColor}
-                    onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
-                    disabled={!surveysStylingAvailable}
-                    className={clsx(validationErrors?.submitButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
-                />
-                {validationErrors?.submitButtonColor && (
-                    <LemonField.Error error={validationErrors?.submitButtonColor} />
-                )}
-            </LemonField.Pure>
-            <LemonField.Pure label="Button text color" className="flex-1 gap-1">
-                <LemonInput
-                    value={appearance.submitButtonTextColor}
-                    onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
-                    disabled={!surveysStylingAvailable}
-                    className={clsx(
-                        validationErrors?.submitButtonTextColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
-                    )}
-                />
-                {validationErrors?.submitButtonTextColor && (
-                    <LemonField.Error error={validationErrors?.submitButtonTextColor} />
-                )}
-            </LemonField.Pure>
+            <SurveyAppearanceInput
+                value={appearance.backgroundColor}
+                onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+                error={validationErrors?.backgroundColor}
+                label="Background color"
+            />
+            <SurveyAppearanceInput
+                value={appearance.borderColor}
+                onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
+                error={validationErrors?.borderColor}
+                label="Border color"
+            />
+            <SurveyAppearanceInput
+                value={appearance.submitButtonColor}
+                onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                error={validationErrors?.submitButtonColor}
+                label="Button color"
+            />
+            <SurveyAppearanceInput
+                value={appearance.submitButtonTextColor}
+                onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
+                error={validationErrors?.submitButtonTextColor}
+                label="Button text color"
+            />
             {customizeRatingButtons && (
                 <>
-                    <LemonField.Pure label="Rating button color" className="flex-1 gap-1">
-                        <LemonInput
-                            value={appearance.ratingButtonColor}
-                            onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
-                            disabled={!surveysStylingAvailable}
-                            className={clsx(
-                                validationErrors?.ratingButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
-                            )}
-                        />
-                        {validationErrors?.ratingButtonColor && (
-                            <LemonField.Error error={validationErrors?.ratingButtonColor} />
-                        )}
-                    </LemonField.Pure>
-                    <LemonField.Pure label="Rating button active color" className="flex-1 gap-1">
-                        <LemonInput
-                            value={appearance.ratingButtonActiveColor}
-                            onChange={(ratingButtonActiveColor) =>
-                                onAppearanceChange({ ...appearance, ratingButtonActiveColor })
-                            }
-                            disabled={!surveysStylingAvailable}
-                            className={clsx(
-                                validationErrors?.ratingButtonActiveColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
-                            )}
-                        />
-                        {validationErrors?.ratingButtonActiveColor && (
-                            <LemonField.Error error={validationErrors?.ratingButtonActiveColor} />
-                        )}
-                    </LemonField.Pure>
+                    <SurveyAppearanceInput
+                        value={appearance.ratingButtonColor}
+                        onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
+                        error={validationErrors?.ratingButtonColor}
+                        label="Rating button color"
+                    />
+                    <SurveyAppearanceInput
+                        value={appearance.ratingButtonActiveColor}
+                        onChange={(ratingButtonActiveColor) =>
+                            onAppearanceChange({ ...appearance, ratingButtonActiveColor })
+                        }
+                        error={validationErrors?.ratingButtonActiveColor}
+                        label="Rating button active color"
+                    />
                 </>
             )}
             {customizePlaceholderText && (
-                <LemonField.Pure label="Placeholder text" className="gap-1">
-                    <LemonInput
-                        value={appearance.placeholder}
-                        onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
-                        disabled={!surveysStylingAvailable}
-                        className={IGNORE_ERROR_BORDER_CLASS}
-                    />
-                </LemonField.Pure>
+                <SurveyAppearanceInput
+                    value={appearance.placeholder}
+                    onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                    error={validationErrors?.placeholder}
+                    label="Placeholder text"
+                />
             )}
         </SurveyOptionsGroup>
     )

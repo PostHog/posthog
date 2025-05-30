@@ -41,7 +41,10 @@ export function SurveyAppearancePreview({
             renderSurveysPreview({
                 survey: {
                     ...survey,
-                    appearance: { ...sanitizeSurveyAppearance(survey.appearance), zIndex: 100 },
+                    appearance: {
+                        ...sanitizeSurveyAppearance(survey.appearance),
+                        zIndex: 100,
+                    },
                 },
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
