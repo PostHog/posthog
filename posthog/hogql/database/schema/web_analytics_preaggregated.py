@@ -3,6 +3,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     DateDatabaseField,
+    DateTimeDatabaseField,
     Table,
     FieldOrTable,
 )
@@ -85,6 +86,7 @@ web_preaggregated_base_fields = {
     "day_bucket": DateDatabaseField(name="day_bucket"),
     "host": StringDatabaseField(name="host", nullable=True),
     "device_type": StringDatabaseField(name="device_type", nullable=True),
+    "updated_at": DateTimeDatabaseField(name="updated_at"),
 }
 
 web_preaggregated_base_aggregation_fields = {

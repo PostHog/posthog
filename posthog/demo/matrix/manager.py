@@ -331,9 +331,6 @@ class MatrixManager:
                     person_id=str(subject.in_posthog_id),
                 )
             self._save_past_sim_events(team, subject.past_events)
-        # We only want to queue future events if there are any
-        if subject.future_events and self.matrix.end > self.matrix.now:
-            self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: list[SimEvent]):
@@ -363,12 +360,6 @@ class MatrixManager:
                 group3_created_at=event.group3_created_at,
                 group4_created_at=event.group4_created_at,
             )
-
-    @staticmethod
-    def _save_future_sim_events(team: Team, events: list[SimEvent]):
-        """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-
-        # TODO: This used the plugin server's Graphile Worker-based event buffer, but the event buffer is no more
 
     @staticmethod
     def _save_sim_group(
