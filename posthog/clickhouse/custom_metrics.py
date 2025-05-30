@@ -4,21 +4,21 @@ from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 # This view is accesed through an endpoint exposed to Prometheus.
 # It's scraped every minute and store the results in VictoriaMetrics.
-def CUSTOM_METRICS_VIEW():
-    return """
+def CUSTOM_METRICS_VIEW(include_counters: bool = False) -> str:
+    statement = """
     CREATE OR REPLACE VIEW custom_metrics
-    AS SELECT *
+    AS SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_test
     UNION ALL
-    SELECT *
+    SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_replication_queue
     UNION ALL
-    SELECT *
+    SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_events_recent_lag
-    UNION ALL
-    SELECT *
-    FROM custom_metrics_counters
     """
+    if include_counters:
+        statement += "UNION ALL SELECT * FROM custom_metrics_counters"
+    return statement
 
 
 def CUSTOM_METRICS_REPLICATION_QUEUE_VIEW():
@@ -86,8 +86,14 @@ PARTITION BY toYYYYMM(timestamp)
 
 CREATE_CUSTOM_METRICS_COUNTERS_VIEW = f"""
 CREATE OR REPLACE VIEW custom_metrics_counters AS
-SELECT name, 'counter' as type, labels, sum(increment) as value, max(timestamp) as timestamp
-FROM metrics_counter_events
+SELECT
+    name,
+    labels,
+    sum(increment) as value,
+    '' as help,
+    'counter' as type
+    -- max(timestamp) as timestamp
+FROM custom_metrics_counter_events
 GROUP BY name, type, labels
 ORDER BY name, type, labels
 """
