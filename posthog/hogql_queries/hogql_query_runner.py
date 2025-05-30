@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
@@ -26,6 +27,16 @@ class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
+    settings: Optional[HogQLGlobalSettings]
+
+    def __init__(
+        self,
+        *args,
+        settings: Optional[HogQLGlobalSettings] = None,
+        **kwargs,
+    ):
+        self.settings = settings
+        super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
@@ -72,6 +83,8 @@ class HogQLQueryRunner(QueryRunner):
             timings=self.timings,
             variables=self.query.variables,
             limit_context=self.limit_context,
+            workload=self.workload,
+            settings=self.settings,
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

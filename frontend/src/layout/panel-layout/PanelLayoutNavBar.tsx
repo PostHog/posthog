@@ -7,7 +7,6 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconPineapple,
     IconPlus,
     IconSearch,
     IconShortcut,
@@ -20,10 +19,8 @@ import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -80,7 +77,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         isLayoutNavCollapsed,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
@@ -216,22 +212,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     ? 'Close data management'
                     : 'Open data management',
         },
-        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
-            ? [
-                  {
-                      identifier: 'Games',
-                      id: 'Games',
-                      icon: <IconPineapple />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Games')
-                          }
-                      },
-                      showChevron: true,
-                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
-                  },
-              ]
-            : []),
         {
             identifier: 'Persons',
             id: 'Persons',
@@ -283,7 +263,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         <ButtonPrimitive
                                             size="base"
                                             iconOnly
-                                            data-attr="search-button"
+                                            data-attr="tree-navbar-new-button"
                                             tooltip="Add new"
                                             onClick={(e) => {
                                                 e.preventDefault()
@@ -302,7 +282,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     size="base"
                                     iconOnly
                                     onClick={toggleSearchBar}
-                                    data-attr="search-button"
+                                    data-attr="tree-navbar-search-button"
                                     tooltip={
                                         <div className="flex flex-col gap-0.5">
                                             <span>
@@ -531,6 +511,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             closeThreshold={100}
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
+                            data-attr="tree-navbar-resizer"
                         />
                     )}
                 </nav>
