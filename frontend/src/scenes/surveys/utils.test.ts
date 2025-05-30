@@ -76,31 +76,29 @@ describe('survey utils', () => {
     describe('validateColor', () => {
         it('returns undefined for valid colors in different formats', () => {
             // Hex colors
-            expect(validateCSSProperty('color', '#ff0000', 'test')).toBeUndefined()
-            expect(validateCSSProperty('color', '#f00', 'test')).toBeUndefined()
-            expect(validateCSSProperty('color', '#ff000080', 'test')).toBeUndefined() // With alpha
+            expect(validateCSSProperty('color', '#ff0000')).toBeUndefined()
+            expect(validateCSSProperty('color', '#f00')).toBeUndefined()
+            expect(validateCSSProperty('color', '#ff000080')).toBeUndefined() // With alpha
 
             // RGB/RGBA colors
-            expect(validateCSSProperty('color', 'rgb(255, 0, 0)', 'test')).toBeUndefined()
-            expect(validateCSSProperty('color', 'rgba(255, 0, 0, 0.5)', 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', 'rgb(255, 0, 0)')).toBeUndefined()
+            expect(validateCSSProperty('color', 'rgba(255, 0, 0, 0.5)')).toBeUndefined()
 
             // HSL/HSLA colors
-            expect(validateCSSProperty('color', 'hsl(0, 100%, 50%)', 'test')).toBeUndefined()
-            expect(validateCSSProperty('color', 'hsla(0, 100%, 50%, 0.5)', 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', 'hsl(0, 100%, 50%)')).toBeUndefined()
+            expect(validateCSSProperty('color', 'hsla(0, 100%, 50%, 0.5)')).toBeUndefined()
 
             // Named colors
-            expect(validateCSSProperty('color', 'red', 'test')).toBeUndefined()
-            expect(validateCSSProperty('color', 'transparent', 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', 'red')).toBeUndefined()
+            expect(validateCSSProperty('color', 'transparent')).toBeUndefined()
         })
 
         it('returns error message for invalid colors', () => {
-            expect(validateCSSProperty('color', 'not-a-color', 'test')).toBe(
-                'not-a-color is not a valid property for color.'
-            )
+            expect(validateCSSProperty('color', 'not-a-color')).toBe('not-a-color is not a valid property for color.')
         })
 
         it('returns undefined for undefined input', () => {
-            expect(validateCSSProperty('color', undefined, 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', undefined)).toBeUndefined()
         })
     })
 

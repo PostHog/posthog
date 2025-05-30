@@ -753,9 +753,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     data-attr="survey-url-matching-type"
                                                                     options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyMatchTypeLabels[
-                                                                                key as keyof typeof SurveyMatchTypeLabels
-                                                                            ],
+                                                                            label: SurveyMatchTypeLabels[key],
                                                                             value: key,
                                                                         })
                                                                     )}
@@ -801,9 +799,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     data-attr="survey-device-types-matching-type"
                                                                     options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyMatchTypeLabels[
-                                                                                key as keyof typeof SurveyMatchTypeLabels
-                                                                            ],
+                                                                            label: SurveyMatchTypeLabels[key],
                                                                             value: key,
                                                                         })
                                                                     )}
