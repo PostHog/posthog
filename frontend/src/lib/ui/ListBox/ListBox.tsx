@@ -70,6 +70,7 @@ export const ListBox = ({
 
         recalculateFocusableElements()
         const elements = focusableElements.current
+
         if (!elements.length) {
             return
         }
@@ -88,21 +89,16 @@ export const ListBox = ({
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
             nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
-            if (virtualFocus) {
-                setVirtualFocusedElement(elements[nextIndex])
-                elements[nextIndex]?.setAttribute('data-focused', 'true')
-            } else {
-                elements[nextIndex]?.focus()
-            }
         } else if (e.key === 'Home' || e.key === 'End') {
             e.preventDefault()
             nextIndex = e.key === 'Home' ? 0 : elements.length - 1
-            if (virtualFocus) {
-                setVirtualFocusedElement(elements[nextIndex])
-                elements[nextIndex]?.setAttribute('data-focused', 'true')
-            } else {
-                elements[nextIndex]?.focus()
-            }
+        }
+
+        if (virtualFocus) {
+            setVirtualFocusedElement(elements[nextIndex])
+            elements[nextIndex]?.setAttribute('data-focused', 'true')
+        } else {
+            elements[nextIndex]?.focus()
         }
 
         if (e.key === 'Enter') {
