@@ -86,7 +86,7 @@ fn get_current_branch(git_dir: &Path) -> Result<String> {
             .trim_start_matches("ref: refs/heads/")
             .trim()
             .to_string())
-    } else if head_content.trim().len() == 40 {
+    } else if head_content.trim().len() == 40 || head_content.trim().len() == 64 {
         Ok("HEAD-detached".to_string())
     } else {
         anyhow::bail!("Unrecognized HEAD format")
