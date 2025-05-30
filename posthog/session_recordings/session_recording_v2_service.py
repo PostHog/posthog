@@ -45,7 +45,7 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
 
     listed_blocks = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
 
-    if listed_blocks is not None:
+    if listed_blocks is not None and not listed_blocks.is_empty():
         # If a recording started more than 24 hours ago, then it is complete
         # we can cache it for a long time.
         # If not, we might still be receiving blocks, so we cache it for a short time.

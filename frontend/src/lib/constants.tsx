@@ -182,7 +182,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
-    ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
@@ -208,6 +207,7 @@ export const FEATURE_FLAGS = {
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
+    INSIGHT_ALERTS_CDP: 'insight-alerts-cdp', // owner: @anirudhpillai #team-product-analytics
     HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
@@ -218,7 +218,6 @@ export const FEATURE_FLAGS = {
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
     INSIGHT_COLORS: 'insight-colors', // owner: @thmsobrmlr #team-product-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
-    REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
@@ -250,6 +249,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
     ACTIVE_HOURS_HEATMAP: 'active-hours-heatmap', // owner: @jabahamondes #team-web-analytics
     CALENDAR_HEATMAP_INSIGHT: 'calendar-heatmap-insight', // owner: @jabahamondes #team-web-analytics
+    WEB_ANALYTICS_MARKETING: 'web-analytics-marketing', // owner: @jabahamondes #team-web-analytics
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: @pato
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
@@ -258,7 +258,8 @@ export const FEATURE_FLAGS = {
     SQL_EDITOR_AI_ERROR_FIXER: 'sql-editor-ai-error-fixer', // owner: @Gilbert09 #team-data-warehouse
     DASHBOARD_SYNC_INSIGHT_LOADING: 'dashboard-sync-insight-loading', // owner: @anirudhpillai #team-product-analytics
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
-    GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-cdp
+    GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
+    SHOW_COMING_SOON_DESTINATIONS: 'show-coming-soon-destinations', // owner: @meikel #team-cdp
     BLOCKING_EXPORTS: 'blocking-exports', // owner: @aspicer #team-product-analytics
     REPLAY_ACTIVE_HOURS_HEATMAP: 'replay-active-hours-heatmap', // owner: @pauldambra #team-replay
     LINKS: 'links', // owner: @marconlp #team-link
