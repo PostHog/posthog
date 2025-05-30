@@ -47,7 +47,7 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
         },
         ui_host: {
             content: apiHostOrigin(),
-            comment: "neccessary because you're using a proxy, this way links will point back to PostHog properly",
+            comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
             enabled: !!proxyRecord,
         },
         defaults: {
