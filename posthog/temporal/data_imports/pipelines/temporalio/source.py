@@ -51,7 +51,7 @@ class TemporalIOSourceConfig(config.Config):
 
 
 def _async_iter_to_sync(async_iter):
-    q = Queue()
+    q: Queue[Any] = Queue()
     sentinel = object()
 
     async def runner():
