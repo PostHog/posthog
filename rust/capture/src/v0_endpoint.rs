@@ -113,8 +113,6 @@ async fn handle_legacy(
         body
     } else {
         let err = CaptureError::EmptyPayload;
-        report_dropped_events("req_missing_payload", 1);
-        report_internal_error_metrics(err.to_metric_tag(), "req_missing_payload");
         error!("missing payload on {:?} request", method);
         return Err(err);
     };
@@ -156,11 +154,10 @@ async fn handle_legacy(
                     form_data = form_data_snippet,
                     "expected form data in {} request payload", *method
                 );
-                report_dropped_events("event_expected_form_payload", 1);
-                report_internal_error_metrics(e.to_metric_tag(), "event_expected_form_payload");
-                return Err(CaptureError::RequestDecodingError(String::from(
+                let err = CaptureError::RequestDecodingError(String::from(
                     "expected form data in request payload",
-                )));
+                ));
+                return Err(err);
             }
         }
 
@@ -188,7 +185,7 @@ async fn handle_legacy(
         compression,
         request_id,
         state.event_size_limit,
-        state.is_mirror_deploy,
+        path.as_str().to_string(),
     )?;
 
     let sent_at = request.sent_at().or(query_params.sent_at());
@@ -202,16 +199,10 @@ async fn handle_legacy(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
-            error!("event hydration from request failed: {}", e);
             // at the moment, the only way this can fail on RequestParsingError is
             // when an unnamed event (no "event" attrib) is submitted to an
-            // endpoint other than /engage
-            let mut reason = String::from("req_event_hydration");
-            if let CaptureError::RequestParsingError(_) = e {
-                reason = String::from("unnamed_non_engage_event");
-            }
-            report_dropped_events(&reason, 1);
-            report_internal_error_metrics(e.to_metric_tag(), &reason);
+            // endpoint other than /engage, or the whole payload is malformed
+            error!("event hydration from request failed: {}", e);
             return Err(e);
         }
     };
@@ -220,15 +211,12 @@ async fn handle_legacy(
     if events.is_empty() {
         warn!("rejected empty batch");
         let err = CaptureError::EmptyBatch;
-        report_internal_error_metrics(e.to_metric_tag(), "empty_event_batch");
         return Err(err);
     }
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
         Err(err) => {
-            report_dropped_events("token_shape_invalid", events.len() as u64);
-            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
             return Err(err);
         }
     };
@@ -243,6 +231,7 @@ async fn handle_legacy(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
+        path: path.as_str().to_string(),
         is_mirror_deploy: false,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
@@ -336,7 +325,7 @@ async fn handle_common(
                 Compression::Unsupported,
                 request_id,
                 state.event_size_limit,
-                state.is_mirror_deploy,
+                path.as_str().to_string(),
             )
         }
         ct => {
@@ -347,7 +336,7 @@ async fn handle_common(
                 Compression::Unsupported,
                 request_id,
                 state.event_size_limit,
-                state.is_mirror_deploy,
+                path.as_str().to_string(),
             )
         }
     }?;
@@ -363,16 +352,10 @@ async fn handle_common(
     let events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => {
-            error!("event hydration from request failed: {}", e);
             // at the moment, the only way this can fail on RequestParsingError is
             // when an unnamed event (no "event" attrib) is submitted to an
-            // endpoint other than /engage
-            let mut reason = String::from("req_event_hydration");
-            if let CaptureError::RequestParsingError(_) = e {
-                reason = String::from("unnamed_non_engage_event");
-            }
-            report_dropped_events(&reason, 1);
-            report_internal_error_metrics(e.to_metric_tag(), &reason);
+            // endpoint other than /engage, or the whole payload is malformed
+            error!("event hydration from request failed: {}", e);
             return Err(e);
         }
     };
@@ -386,8 +369,6 @@ async fn handle_common(
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
         Err(err) => {
-            report_dropped_events("token_shape_invalid", events.len() as u64);
-            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
             return Err(err);
         }
     };
@@ -402,7 +383,8 @@ async fn handle_common(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
-        is_mirror_deploy: false, // TODO(eli): temporary, can remove after migration
+        path: path.as_str().to_string(),
+        is_mirror_deploy: false,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
