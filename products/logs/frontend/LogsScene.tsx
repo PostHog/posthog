@@ -4,7 +4,9 @@ import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag,
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -158,29 +160,42 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 const Filters = (): JSX.Element => {
     const { logsLoading } = useValues(logsLogic)
     const { runQuery } = useActions(logsLogic)
+    const { filterGroup } = useValues(logsLogic)
+    const { setFilterGroup } = useActions(logsLogic)
+
+    const rootKey = 'logs'
 
     return (
-        <div className="flex flex-col gap-y-1.5">
-            <div className="flex justify-between gap-y-2">
-                <div className="flex gap-x-1">
-                    <AttributesFilter />
-                    <SeverityLevelsFilter />
+        <UniversalFilters
+            rootKey={rootKey}
+            group={filterGroup}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Logs]}
+            onChange={(filterGroup) => {
+                setFilterGroup(filterGroup)
+            }}
+        >
+            <div className="flex flex-col gap-y-1.5">
+                <div className="flex justify-between gap-y-2">
+                    <div className="flex gap-x-1">
+                        <SeverityLevelsFilter />
+                        <AttributesFilter />
+                    </div>
+                    <div className="flex gap-x-1">
+                        <DateRangeFilter />
+                        <LemonButton
+                            size="small"
+                            icon={<IconRefresh />}
+                            type="secondary"
+                            onClick={() => runQuery()}
+                            loading={logsLoading}
+                        >
+                            {logsLoading ? 'Loading...' : 'Search'}
+                        </LemonButton>
+                    </div>
                 </div>
-                <div className="flex gap-x-1">
-                    <DateRangeFilter />
-                    <LemonButton
-                        size="small"
-                        icon={<IconRefresh />}
-                        type="secondary"
-                        onClick={() => runQuery()}
-                        loading={logsLoading}
-                    >
-                        {logsLoading ? 'Loading...' : 'Search'}
-                    </LemonButton>
-                </div>
+                <SearchTermFilter />
             </div>
-            <SearchTermFilter />
-        </div>
+        </UniversalFilters>
     )
 }
 
