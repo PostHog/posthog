@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models.user import User
 from posthog.temporal.data_imports.pipelines.bigquery import (
+    BigQuerySourceConfig,
     filter_incremental_fields as filter_bigquery_incremental_fields,
     get_schemas as get_bigquery_schemas,
     validate_credentials as validate_bigquery_credentials,
@@ -36,9 +37,13 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.temporal.data_imports.pipelines.snowflake import (
+    SnowflakeSourceConfig,
+    get_schemas as get_snowflake_schemas,
+)
 from posthog.temporal.data_imports.pipelines.stripe import (
-    validate_credentials as validate_stripe_credentials,
     StripePermissionError,
+    validate_credentials as validate_stripe_credentials,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -70,7 +75,6 @@ from posthog.warehouse.models.external_data_schema import (
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
     get_postgres_row_count,
-    get_snowflake_schemas,
     get_sql_schemas_for_source_type,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -158,6 +162,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    revenue_analytics_enabled = serializers.BooleanField(default=False)
 
     class Meta:
         model = ExternalDataSource
@@ -171,6 +176,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "revenue_analytics_enabled",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -228,6 +234,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "project_id",
             "client_email",
             "token_uri",
+            "temporary-dataset",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -240,12 +247,19 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                     "auth_type": {
                         "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
                         "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
-                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
-                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
-                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                        "password": None,
+                        "passphrase": None,
+                        "private_key": None,
                     },
                 }
                 job_inputs["ssh-tunnel"] = ssh_tunnel
+
+            # Reconstruct BigQuery structure for UI handling
+            if job_inputs.get("using_temporary_dataset") == "True":  # encrypted as string
+                job_inputs["temporary-dataset"] = {
+                    "enabled": True,
+                    "temporary_dataset_id": job_inputs.pop("temporary_dataset_id", None),
+                }
 
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
@@ -300,6 +314,15 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
         if instance.source_type == ExternalDataSource.Type.SNOWFLAKE:
             new_job_inputs = parse_snowflake_job_inputs(new_job_inputs)
+
+        elif instance.source_type == ExternalDataSource.Type.ZENDESK:
+            # Zendesk source requires a `zendesk_*` prefix, but our frontend displays
+            # values without a prefix.
+            # TODO: Integrate configuration class here.
+            new_job_inputs = {f"zendesk_{k}": v for k, v in new_job_inputs.items()}
+
+        elif instance.source_type == ExternalDataSource.Type.BIGQUERY:
+            new_job_inputs = parse_bigquery_job_inputs(new_job_inputs)
 
         if existing_job_inputs:
             validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
@@ -525,7 +548,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True)
+                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -547,6 +570,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type,
+            revenue_analytics_enabled=True,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
             prefix=prefix,
         )
@@ -732,28 +756,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        ssh_tunnel = SSHTunnel(
-            enabled=using_ssh_tunnel,
-            host=ssh_tunnel_host,
-            port=ssh_tunnel_port,
-            auth_type=ssh_tunnel_auth_type,
-            username=ssh_tunnel_auth_type_username,
-            password=ssh_tunnel_auth_type_password,
-            passphrase=ssh_tunnel_auth_type_passphrase,
-            private_key=ssh_tunnel_auth_type_private_key,
-        )
-
-        schemas = get_sql_schemas_for_source_type(
-            source_type,
-            host,
-            port,
-            database,
-            user,
-            password,
-            schema,
-            ssh_tunnel,
-            using_ssl,
-        )
+        schemas = get_sql_schemas_for_source_type(source_type, new_source_model.job_inputs)
 
         return new_source_model, list(schemas.keys())
 
@@ -778,18 +781,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        schemas = get_snowflake_schemas(
-            account_id=job_inputs["account_id"],
-            database=job_inputs["database"],
-            warehouse=job_inputs["warehouse"],
-            user=job_inputs["user"],
-            password=job_inputs["password"],
-            schema=job_inputs["schema"],
-            role=job_inputs["role"],
-            passphrase=job_inputs["passphrase"],
-            private_key=job_inputs["private_key"],
-            auth_type=job_inputs["auth_type"],
-        )
+        schemas = get_snowflake_schemas(SnowflakeSourceConfig.from_dict(new_source_model.job_inputs))
 
         return new_source_model, list(schemas.keys())
 
@@ -800,42 +792,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        key_file = payload.get("key_file", {})
-        project_id = key_file.get("project_id")
-
-        dataset_id = payload.get("dataset_id")
-        # Very common to include the project_id as a prefix of the dataset_id.
-        # We remove it if it's there.
-        if dataset_id:
-            dataset_id = dataset_id.removeprefix(f"{project_id}.")
-
-        private_key = key_file.get("private_key")
-        private_key_id = key_file.get("private_key_id")
-        client_email = key_file.get("client_email")
-        token_uri = key_file.get("token_uri")
-
-        temporary_dataset = request.data.get("temporary-dataset", {})
-        using_temporary_dataset = temporary_dataset.get("enabled", False)
-        temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
-
-        job_inputs = {
-            "dataset_id": dataset_id,
-            "project_id": project_id,
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "client_email": client_email,
-            "token_uri": token_uri,
-            "using_temporary_dataset": using_temporary_dataset,
-            "temporary_dataset_id": temporary_dataset_id,
-        }
-
-        required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
-        have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
-
-        if not have_all_required:
-            included_inputs = {k for k, v in job_inputs.items() if v is not None}
-            missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
-            raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+        job_inputs = parse_bigquery_job_inputs(payload)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -849,14 +806,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        schemas = get_bigquery_schemas(
-            dataset_id=dataset_id,
-            project_id=project_id,
-            private_key=private_key,
-            private_key_id=private_key_id,
-            client_email=client_email,
-            token_uri=token_uri,
-        )
+        schemas = get_bigquery_schemas(BigQuerySourceConfig.from_dict(new_source_model.job_inputs))
 
         return new_source_model, list(schemas.keys())
 
@@ -965,7 +915,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             api_key = request.data.get("api_key", "")
             email_address = request.data.get("email_address", "")
 
-            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
             if not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1003,19 +953,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Invalid credentials: BigQuery credentials are incorrect"},
                 )
 
-            project_id = key_file.get("project_id")
-            private_key = key_file.get("private_key")
-            private_key_id = key_file.get("private_key_id")
-            client_email = key_file.get("client_email")
-            token_uri = key_file.get("token_uri")
+            bq_config = BigQuerySourceConfig.from_dict({"dataset_id": dataset_id, **key_file})
 
             bq_schemas = get_bigquery_schemas(
-                dataset_id=dataset_id,
-                project_id=project_id,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
+                bq_config,
                 logger=logger,
             )
 
@@ -1142,14 +1083,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 result = get_sql_schemas_for_source_type(
                     source_type,
-                    host,
-                    port,
-                    database,
-                    user,
-                    password,
-                    schema,
-                    ssh_tunnel,
-                    using_ssl,
+                    {
+                        "host": host,
+                        "port": int(port),
+                        "database": database,
+                        "user": user,
+                        "password": password,
+                        "schema": schema,
+                        "ssh_tunnel": {
+                            "host": ssh_tunnel.host,
+                            "port": ssh_tunnel.port,
+                            "enabled": ssh_tunnel.enabled,
+                            "auth": {
+                                "type": ssh_tunnel.auth_type,
+                                "username": ssh_tunnel.username,
+                                "password": ssh_tunnel.password,
+                                "private_key": ssh_tunnel.private_key,
+                                "passphrase": ssh_tunnel.passphrase,
+                            },
+                        },
+                        "using_ssl": using_ssl,
+                    },
                 )
                 if len(result.keys()) == 0:
                     return Response(
@@ -1262,16 +1216,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             try:
                 result = get_snowflake_schemas(
-                    account_id=account_id,
-                    database=database,
-                    warehouse=warehouse,
-                    user=auth_type_username,
-                    password=auth_type_password,
-                    schema=schema,
-                    role=role,
-                    passphrase=auth_type_passphrase,
-                    private_key=auth_type_private_key,
-                    auth_type=auth_type,
+                    SnowflakeSourceConfig(
+                        account_id=account_id,
+                        database=database,
+                        warehouse=warehouse,
+                        schema=schema,
+                        user=auth_type_username,
+                        password=auth_type_password,
+                        role=role,
+                        passphrase=auth_type_passphrase,
+                        private_key=auth_type_private_key,
+                        auth_type=auth_type,
+                    )
                 )
                 if len(result.keys()) == 0:
                     return Response(
@@ -1458,3 +1414,44 @@ def parse_snowflake_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
         "passphrase": auth_type_passphrase,
         "private_key": auth_type_private_key,
     }
+
+
+def parse_bigquery_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    key_file = payload.get("key_file", {})
+    project_id = key_file.get("project_id")
+
+    dataset_id = payload.get("dataset_id")
+    # Very common to include the project_id as a prefix of the dataset_id.
+    # We remove it if it's there.
+    if dataset_id:
+        dataset_id = dataset_id.removeprefix(f"{project_id}.")
+
+    private_key = key_file.get("private_key")
+    private_key_id = key_file.get("private_key_id")
+    client_email = key_file.get("client_email")
+    token_uri = key_file.get("token_uri")
+
+    temporary_dataset = payload.get("temporary-dataset", {})
+    using_temporary_dataset = temporary_dataset.get("enabled", False)
+    temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
+
+    job_inputs = {
+        "dataset_id": dataset_id,
+        "project_id": project_id,
+        "private_key": private_key,
+        "private_key_id": private_key_id,
+        "client_email": client_email,
+        "token_uri": token_uri,
+        "using_temporary_dataset": using_temporary_dataset,
+        "temporary_dataset_id": temporary_dataset_id,
+    }
+
+    required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
+    have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
+
+    if not have_all_required:
+        included_inputs = {k for k, v in job_inputs.items() if v is not None}
+        missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
+        raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+
+    return job_inputs

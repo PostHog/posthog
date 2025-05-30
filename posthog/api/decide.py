@@ -11,7 +11,8 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_count, get_surveys_opt_in
+from posthog.api.feature_flag import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -464,7 +465,7 @@ def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
                 "id": flag_value.id,
                 "payload": flag_value.match.payload,
                 "version": flag_value.version,
-                "description": flag_value.description,
+                "description": None,
             },
         }
 

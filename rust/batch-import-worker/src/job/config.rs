@@ -120,10 +120,15 @@ impl SourceConfig {
         &self,
         secrets: &JobSecrets,
         _context: Arc<AppContext>,
+        is_restarting: bool,
     ) -> Result<Box<dyn DataSource>, Error> {
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
-            SourceConfig::UrlList(config) => Ok(Box::new(config.create_source(secrets).await?)),
+            SourceConfig::UrlList(config) => Ok(Box::new(
+                // We skip validating the URL list if we're restarting, as fully-downloaded files
+                // may have been deleted, for example.
+                config.create_source(secrets, !is_restarting).await?,
+            )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
         }
     }
@@ -163,7 +168,11 @@ impl FolderSourceConfig {
 }
 
 impl UrlListConfig {
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<UrlList, Error> {
+    pub async fn create_source(
+        &self,
+        secrets: &JobSecrets,
+        validate_urls: bool,
+    ) -> Result<UrlList, Error> {
         let urls = secrets
             .secrets
             .get(&self.urls_key)
@@ -176,6 +185,7 @@ impl UrlListConfig {
             self.allow_internal_ips,
             Duration::from_secs(self.timeout_seconds),
             self.retries,
+            validate_urls,
         )
         .await
     }

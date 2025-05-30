@@ -43,16 +43,21 @@ const meta: Meta<typeof PlayerInspector> = {
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
-                    if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
-                        return res(ctx.json(largeRecordingEventsJson))
-                    }
 
-                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes("event in ['$web_vitals']")) {
-                        return res(ctx.json(largeRecordingWebVitalsEventsPropertiesJson))
+                    if (body.query.kind === 'HogQLQuery') {
+                        if (body.query.query.includes("event in ['$web_vitals']")) {
+                            return res(ctx.json(largeRecordingWebVitalsEventsPropertiesJson))
+                        }
+                        return res(ctx.json(largeRecordingEventsJson))
                     }
 
                     // default to an empty response or we duplicate information
                     return res(ctx.json({ results: [] }))
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/session_recordings/:id': (_, res, ctx) => {
+                    return res(ctx.json({}))
                 },
             },
         }),

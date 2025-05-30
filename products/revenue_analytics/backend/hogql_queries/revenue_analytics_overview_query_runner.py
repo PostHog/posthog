@@ -43,7 +43,14 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                         ],
                     ),
                 ),
-                ast.Alias(alias="paying_customer_count", expr=ast.Call(name="count", args=[ast.Field(chain=["id"])])),
+                ast.Alias(
+                    alias="paying_customer_count",
+                    expr=ast.Call(
+                        name="count",
+                        distinct=True,
+                        args=[ast.Field(chain=["customer_id"])],
+                    ),
+                ),
                 ast.Alias(
                     alias="avg_revenue_per_customer",
                     expr=ast.Call(
@@ -68,7 +75,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                 ),
             ],
             select_from=ast.JoinExpr(table=charge_subquery),
-            where=self.where_clause(),
+            where=self.timestamp_where_clause(),
         )
 
     def calculate(self):

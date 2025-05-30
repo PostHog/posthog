@@ -3,7 +3,6 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
 import re
 from typing import Any, cast, TypedDict
-from enum import Enum
 from urllib.parse import urlparse
 
 import nh3
@@ -26,6 +25,7 @@ from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    SURVEY_TARGETING_FLAG_PREFIX,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -49,16 +49,15 @@ from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
+from posthog.models.surveys.util import (
+    SurveyFeatureFlags,
+    get_unique_survey_event_uuids_sql_subquery,
+    SurveyEventName,
+    SurveyEventProperties,
+)
 
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-
-
-class SurveyEventName(str, Enum):
-    SHOWN = "survey shown"
-    DISMISSED = "survey dismissed"
-    SENT = "survey sent"
 
 
 class EventStats(TypedDict):
@@ -77,6 +76,7 @@ class SurveyRates(TypedDict):
     unique_users_dismissal_rate: float
 
 
+# Ideally we'd use SurveyEventName here, but enum values are not valid as keys in TypedDicts
 SurveyStats = TypedDict(
     "SurveyStats",
     {
@@ -177,6 +177,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Survey
@@ -213,6 +214,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -654,13 +656,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     "rollout_percentage": 100,
                     "properties": [
                         {
-                            "key": f"$survey_dismissed/{survey_key}",
+                            "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                         {
-                            "key": f"$survey_responded/{survey_key}",
+                            "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -734,6 +736,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
+    def is_partial_responses_enabled(self) -> bool:
+        distinct_id = "" if self.request.user.is_anonymous else str(self.request.user.distinct_id)
+        return posthoganalytics.feature_enabled(
+            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES,
+            distinct_id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={
+                "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at}
+            },
+        )
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
@@ -763,18 +776,52 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
+    def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
+        partial_responses_enabled = self.is_partial_responses_enabled()
+        if not partial_responses_enabled:
+            return f"""(
+                NOT JSONHas(properties, '{SurveyEventProperties.SURVEY_COMPLETED}')
+                OR JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_COMPLETED}') = true
+            )"""
+
+        unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+            base_conditions_sql=base_conditions_sql,
+        )
+
+        return f"uuid IN {unique_uuids_subquery}"
+
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
         )["start_date__min"]
-        data = sync_execute(
-            f"""
-            SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+
+        if not earliest_survey_start_date:
+            # If there are no surveys or none have a start date, there can be no responses.
+            return Response({})
+
+        partial_responses_filter = self._get_partial_responses_filter(
+            base_conditions_sql=[
+                "team_id = %(team_id)s",
+                "timestamp >= %(timestamp)s",
+            ],
+        )
+
+        query = f"""
+            SELECT
+                JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
+                count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
+            WHERE
+                team_id = %(team_id)s
+                AND event = '{SurveyEventName.SENT}'
+                AND timestamp >= %(timestamp)s
+                AND {partial_responses_filter}
             GROUP BY survey_id
-        """,
+        """
+
+        data = sync_execute(
+            query,
             {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
         )
 
@@ -832,7 +879,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         # Initialize stats with zero values for all event types
         stats: SurveyStats = {
-            "survey shown": {
+            SurveyEventName.SHOWN.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -840,7 +887,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons_only_seen": 0,  # Calculated later in _get_survey_stats
                 "total_count_only_seen": 0,  # Calculated later in _get_survey_stats
             },
-            "survey dismissed": {
+            SurveyEventName.DISMISSED.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -849,7 +896,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons_only_seen": 0,
                 "total_count_only_seen": 0,
             },
-            "survey sent": {
+            SurveyEventName.SENT.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -873,11 +920,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
 
             if event_name == SurveyEventName.SHOWN.value:
-                stats["survey shown"] = event_stats
+                stats[SurveyEventName.SHOWN.value] = event_stats
             elif event_name == SurveyEventName.DISMISSED.value:
-                stats["survey dismissed"] = event_stats
+                stats[SurveyEventName.DISMISSED.value] = event_stats
             elif event_name == SurveyEventName.SENT.value:
-                stats["survey sent"] = event_stats
+                stats[SurveyEventName.SENT.value] = event_stats
 
         # REMOVED calculation block for _only_seen fields from here.
         return stats
@@ -898,13 +945,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "unique_users_dismissal_rate": 0.0,
         }
 
-        shown_count = stats["survey shown"]["total_count"]
+        shown_count = stats[SurveyEventName.SHOWN.value]["total_count"]
         if shown_count > 0:
-            sent_count = stats["survey sent"]["total_count"]
-            dismissed_count = stats["survey dismissed"]["total_count"]
-            unique_users_shown_count = stats["survey shown"]["unique_persons"]
-            unique_users_sent_count = stats["survey sent"]["unique_persons"]
-            unique_users_dismissed_count = stats["survey dismissed"]["unique_persons"]
+            sent_count = stats[SurveyEventName.SENT.value]["total_count"]
+            dismissed_count = stats[SurveyEventName.DISMISSED.value]["total_count"]
+            unique_users_shown_count = stats[SurveyEventName.SHOWN.value]["unique_persons"]
+            unique_users_sent_count = stats[SurveyEventName.SENT.value]["unique_persons"]
+            unique_users_dismissed_count = stats[SurveyEventName.DISMISSED.value]["unique_persons"]
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
@@ -940,7 +987,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Add survey filter if specific survey
         survey_filter = ""
         if survey_id:
-            survey_filter = "AND JSONExtractString(properties, '$survey_id') = %(survey_id)s"
+            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = %(survey_id)s"
             params["survey_id"] = str(survey_id)
         else:
             # For global stats, only include non-archived surveys
@@ -957,8 +1004,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "unique_users_dismissal_rate": 0.0,
                     },
                 }
-            survey_filter = "AND JSONExtractString(properties, '$survey_id') IN %(survey_ids)s"
+            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
+
+        partial_responses_filter = self._get_partial_responses_filter(
+            base_conditions_sql=[
+                "team_id = %(team_id)s",
+            ],
+        )
 
         # Query 1: Base Stats (Similar to original query)
         base_stats_query = f"""
@@ -973,6 +1026,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
+            AND (
+                event != %(dismissed)s
+                OR
+                COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+            )
+            AND (
+                event != %(sent)s
+                OR
+                {partial_responses_filter}
+            )
             GROUP BY event
         """
         query_params = {
@@ -993,6 +1056,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
+                AND (
+                    event != %(dismissed)s
+                    OR
+                    COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
                    AND sum(if(event = %(sent)s, 1, 0)) > 0
@@ -1005,31 +1073,39 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         stats = self._process_survey_results(results_base)
 
         # Adjust dismissed unique count
-        if "survey dismissed" in stats:
-            stats["survey dismissed"]["unique_persons"] -= dismissed_and_sent_count
+        if SurveyEventName.DISMISSED.value in stats:
+            stats[SurveyEventName.DISMISSED.value]["unique_persons"] -= dismissed_and_sent_count
             # Ensure it doesn't go below zero, although logically it shouldn't
-            stats["survey dismissed"]["unique_persons"] = max(0, stats["survey dismissed"]["unique_persons"])
+            stats[SurveyEventName.DISMISSED.value]["unique_persons"] = max(
+                0, stats[SurveyEventName.DISMISSED.value]["unique_persons"]
+            )
 
         # Recalculate derived 'only_seen' counts based on final counts
-        if "survey shown" in stats:
+        if SurveyEventName.SHOWN.value in stats:
             # Get final counts, defaulting to 0 if a category has no events
-            unique_shown = stats.get("survey shown", {}).get("unique_persons", 0)
-            unique_dismissed = stats.get("survey dismissed", {}).get("unique_persons", 0)  # Use adjusted count
-            unique_sent = stats.get("survey sent", {}).get("unique_persons", 0)
+            unique_shown = stats.get(SurveyEventName.SHOWN.value, {}).get("unique_persons", 0)
+            unique_dismissed = stats.get(SurveyEventName.DISMISSED.value, {}).get(
+                "unique_persons", 0
+            )  # Use adjusted count
+            unique_sent = stats.get(SurveyEventName.SENT.value, {}).get("unique_persons", 0)
 
-            total_shown = stats.get("survey shown", {}).get("total_count", 0)
-            total_dismissed = stats.get("survey dismissed", {}).get("total_count", 0)
-            total_sent = stats.get("survey sent", {}).get("total_count", 0)
+            total_shown = stats.get(SurveyEventName.SHOWN.value, {}).get("total_count", 0)
+            total_dismissed = stats.get(SurveyEventName.DISMISSED.value, {}).get("total_count", 0)
+            total_sent = stats.get(SurveyEventName.SENT.value, {}).get("total_count", 0)
 
             # Calculate unique persons who only saw the survey
-            stats["survey shown"]["unique_persons_only_seen"] = unique_shown - unique_dismissed - unique_sent
-            stats["survey shown"]["unique_persons_only_seen"] = max(
-                0, stats["survey shown"]["unique_persons_only_seen"]
+            stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"] = (
+                unique_shown - unique_dismissed - unique_sent
+            )
+            stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"] = max(
+                0, stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"]
             )
 
             # Calculate total count for those who only saw the survey
-            stats["survey shown"]["total_count_only_seen"] = total_shown - total_dismissed - total_sent
-            stats["survey shown"]["total_count_only_seen"] = max(0, stats["survey shown"]["total_count_only_seen"])
+            stats[SurveyEventName.SHOWN.value]["total_count_only_seen"] = total_shown - total_dismissed - total_sent
+            stats[SurveyEventName.SHOWN.value]["total_count_only_seen"] = max(
+                0, stats[SurveyEventName.SHOWN.value]["total_count_only_seen"]
+            )
 
         # Calculate rates using the adjusted stats
         rates = self._calculate_rates(stats)
@@ -1153,15 +1229,21 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             question_index = None
 
+        question_id = request.query_params.get("question_id", None)
+
+        if question_index is None and question_id is None:
+            raise exceptions.ValidationError("question_index or question_id is required")
+
         summary = summarize_survey_responses(
             survey_id=survey_id,
             question_index=question_index,
+            question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             survey_end=end_date,
             team=self.team,
             user=user,
         )
-        timings = summary.pop("timings", None)
+        timings_header = summary.pop("timings_header", None)
         cache.set(cache_key, summary, timeout=30)
 
         posthoganalytics.capture(
@@ -1170,10 +1252,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
+        if timings_header:
+            r.headers["Server-Timing"] = timings_header
         return r
 
 

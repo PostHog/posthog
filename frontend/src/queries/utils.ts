@@ -6,6 +6,7 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
+    CalendarHeatmapQuery,
     CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -227,6 +228,10 @@ export function isTrendsQuery(node?: Record<string, any> | null): node is Trends
     return node?.kind === NodeKind.TrendsQuery
 }
 
+export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
+    return node?.kind === NodeKind.CalendarHeatmapQuery
+}
+
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
@@ -298,7 +303,8 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isCalendarHeatmapQuery(node)
     )
 }
 
@@ -338,21 +344,33 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
+        return (
+            query.trendsFilter?.formulaNodes?.[0]?.formula ||
+            query.trendsFilter?.formulas?.[0] ||
+            query.trendsFilter?.formula
+        )
     }
     return undefined
 }
 
 export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        return (
+            query.trendsFilter?.formulaNodes?.map((node) => node.formula) ||
+            query.trendsFilter?.formulas ||
+            (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        )
     }
     return undefined
 }
 
 export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulaNodes
+        return (
+            query.trendsFilter?.formulaNodes ||
+            query.trendsFilter?.formulas?.map((formula) => ({ formula })) ||
+            (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
+        )
     }
     return undefined
 }
@@ -457,6 +475,7 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {

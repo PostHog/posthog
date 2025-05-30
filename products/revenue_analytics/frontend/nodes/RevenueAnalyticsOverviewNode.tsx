@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { humanFriendlyNumber, range } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { useState } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -21,7 +21,6 @@ import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 const NUM_SKELETONS = 3
 const HEIGHT_CLASS = 'h-30'
-const REVENUE_CONTAINER_CLASS = 'col-span-3'
 
 let uniqueNode = 0
 export function RevenueAnalyticsOverviewNode(props: {
@@ -43,40 +42,52 @@ export function RevenueAnalyticsOverviewNode(props: {
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as RevenueAnalyticsOverviewQueryResponse | undefined
 
+    const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : queryResponse?.results ?? []
+
     return (
-        <div className="grid auto-cols-fr grid-flow-col w-full gap-2">
-            {responseLoading
-                ? range(NUM_SKELETONS).map((index) => (
-                      <LemonSkeleton
-                          key={index}
-                          className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}
-                      />
-                  ))
-                : queryResponse?.results?.map((item, index) => (
-                      <div key={item.key} className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}>
-                          <ItemCell item={item} />
-                      </div>
-                  ))}
+        <div className="flex flex-row flex-wrap md:flex-nowrap w-full gap-2">
+            <div className={cn(HEIGHT_CLASS, 'w-full md:flex-2 md:w-auto md:max-w-[60%]')}>
+                <ItemCell item={results[0]} />
+            </div>
+            <div className="flex flex-row gap-2 flex-1 flex-wrap md:flex-nowrap">
+                {results.slice(1).map((item, index) => (
+                    <div key={item?.key ?? index} className={cn(HEIGHT_CLASS, 'flex-1 min-w-[200px]')}>
+                        <ItemCell item={item} />
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }
 
-const ItemCell = ({ item }: { item: RevenueAnalyticsOverviewItem }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+const ItemCell = ({ item }: { item?: RevenueAnalyticsOverviewItem }): JSX.Element => {
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
     const {
-        dateFilter: { dateFrom },
+        dateFilter: { dateFrom, dateTo },
     } = useValues(revenueAnalyticsLogic)
 
-    const label = labelFromKey(item.key, dateFrom)
+    const label: React.ReactNode = item ? (
+        <div className="font-bold uppercase text-xs py-1">{labelFromKey(item.key, dateFrom, dateTo)}</div>
+    ) : (
+        <LemonSkeleton className="w-1/2 h-4" />
+    )
+    const value: React.ReactNode = item ? (
+        <div
+            className={cn(
+                'w-full flex-1 flex items-center justify-center',
+                item.key === 'revenue' ? 'text-4xl' : 'text-2xl'
+            )}
+        >
+            {formatItem(item, baseCurrency)}
+        </div>
+    ) : (
+        <LemonSkeleton className="w-1/3 h-8" />
+    )
 
     return (
-        <div className="flex flex-col items-center text-center justify-between w-full h-full border p-2 bg-surface-primary rounded">
-            <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
-            <div className="w-full flex-1 flex items-center justify-center">
-                <div className={cn(item.key === 'revenue' ? 'text-4xl' : 'text-2xl')}>
-                    {formatItem(item, baseCurrency)}
-                </div>
-            </div>
+        <div className="flex flex-col items-center text-center justify-around w-full h-full border p-2 bg-surface-primary rounded">
+            {label}
+            {value}
         </div>
     )
 }
@@ -92,14 +103,19 @@ const formatItem = (item: RevenueAnalyticsOverviewItem, currency?: CurrencyCode)
 
 const LABEL_FROM_KEY: Record<RevenueAnalyticsOverviewItemKey, string> = {
     revenue: 'Revenue',
-    paying_customer_count: 'Paying customers',
-    avg_revenue_per_customer: 'Revenue per customer',
+    paying_customer_count: 'Distinct paying customers',
+    avg_revenue_per_customer: 'Avg. revenue per customer',
 }
 
-const labelFromKey = (key: RevenueAnalyticsOverviewItemKey, dateFrom: string | null): string => {
-    // TODO: Update once we have a better way to handle this
-    if (key === 'revenue' && dateFrom === '-30d') {
+const labelFromKey = (key: RevenueAnalyticsOverviewItemKey, dateFrom: string | null, dateTo: string | null): string => {
+    // If it's a monthly period, then show the MRR label
+    if (key === 'revenue' && dateFrom?.match(/^(-?\d+mStart)$/) && dateTo?.match(/^(-?\d+mEnd)$/)) {
         return 'MRR'
+    }
+
+    // If we're looking at an "all" (All time) period, then show LTV for revenue per customer
+    if (key === 'avg_revenue_per_customer' && dateFrom === 'all') {
+        return 'LTV'
     }
 
     return LABEL_FROM_KEY[key]

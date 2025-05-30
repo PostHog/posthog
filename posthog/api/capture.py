@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
@@ -25,6 +25,7 @@ from typing import Any, Optional, Literal
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
+from posthog.api.csp import process_csp_report
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
@@ -34,6 +35,7 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_EXCEPTIONS_INGESTION,
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
@@ -47,7 +49,6 @@ from posthog.session_recordings.session_recording_helpers import (
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
-from posthog.kafka_client.topics import KAFKA_EXCEPTIONS_INGESTION
 
 logger = structlog.get_logger(__name__)
 
@@ -170,9 +171,9 @@ def get_tokens_to_drop() -> set[str]:
 
     if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
         TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
-        if settings.DROPPED_KEYS:
-            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
-            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+        if settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID:
+            # DROP_EVENTS_BY_TOKEN_DISTINCT_ID is a comma separated list of <team_id:distinct_id> pairs where the distinct_id is optional
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(","))
 
     return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
@@ -346,6 +347,16 @@ def get_distinct_id(data: dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def enforce_numeric_offset(properties: dict[str, Any]):
+    try:
+        raw_offset = properties["offset"]
+    except KeyError:
+        return
+
+    if not isinstance(raw_offset, int):
+        raise ValueError(f'Event field "offset" must be numeric, received {type(properties["offset"]).__name__}!')
+
+
 def drop_performance_events(events: list[Any]) -> list[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
     return cleaned_list
@@ -420,8 +431,24 @@ def lib_version_from_query_params(request) -> str:
 
 
 @csrf_exempt
+@timed("posthog_cloud_csp_event_endpoint")
+def get_csp_event(request):
+    # we want to handle this as early as possible and avoid any processing
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
+    csp_report, error_response = process_csp_report(request)
+
+    if error_response:
+        return error_response
+
+    # Explicit mark for get_event pipeline to handle CSP reports on this flow
+    return get_event(request, csp_report=csp_report)
+
+
+@csrf_exempt
 @timed("posthog_cloud_event_endpoint")
-def get_event(request):
+def get_event(request, csp_report: dict[str, Any] | None = None):
     structlog.contextvars.unbind_contextvars("team_id")
 
     # handle cors request
@@ -430,7 +457,12 @@ def get_event(request):
 
     now = timezone.now()
 
-    data, error_response = get_data(request)
+    error_response = None
+    data: Any | None = None
+    if csp_report:
+        data = csp_report
+    else:
+        data, error_response = get_data(request)
 
     if error_response:
         return error_response
@@ -734,6 +766,11 @@ def get_event(request):
         EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
 
+    # If we have a csp_report parsed, we should return a 204 since that's the standard
+    # https://github.com/PostHog/posthog/pull/32174
+    if csp_report:
+        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
     return cors_response(request, JsonResponse(response_body))
 
 
@@ -864,6 +901,8 @@ def parse_event(event):
 
     if not event.get("properties"):
         event["properties"] = {}
+
+    enforce_numeric_offset(event["properties"])
 
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))

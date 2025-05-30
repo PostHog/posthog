@@ -695,7 +695,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=batch_export.jitter,
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,

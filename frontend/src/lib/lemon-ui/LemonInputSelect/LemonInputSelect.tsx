@@ -49,6 +49,8 @@ export type LemonInputSelectProps = Pick<
     popoverClassName?: string
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     transparentBackground?: boolean
+    displayMode?: 'snacks' | 'count'
+    bulkActions?: 'clear-all' | 'select-and-clear-all'
 }
 
 export function LemonInputSelect({
@@ -74,6 +76,8 @@ export function LemonInputSelect({
     transparentBackground,
     autoWidth = true,
     fullWidth = false,
+    displayMode = 'snacks',
+    bulkActions,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -306,9 +310,10 @@ export function LemonInputSelect({
     }
 
     const valuesPrefix = useMemo(() => {
-        if (mode !== 'multiple' || values.length === 0) {
+        if (mode !== 'multiple' || values.length === 0 || displayMode !== 'snacks') {
             return null
         }
+
         const preInputValues = itemBeingEditedIndex !== null ? values.slice(0, itemBeingEditedIndex) : values
 
         // TRICKY: We don't want the popover to affect the snack buttons
@@ -327,7 +332,9 @@ export function LemonInputSelect({
     const valuesAndEditButtonSuffix = useMemo(() => {
         // The edit button only applies to single-select mode with custom values allowed, when in no-input state
         const isEditButtonVisible = mode !== 'multiple' && allowCustomValues && values.length && !inputValue
-        const postInputValues = itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
+
+        const postInputValues =
+            displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
 
         if (!isEditButtonVisible && postInputValues.length === 0) {
             return null
@@ -359,6 +366,22 @@ export function LemonInputSelect({
         )
     }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue])
 
+    // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
+    const countPlaceholder = useMemo(() => {
+        if (displayMode !== 'count' || mode !== 'multiple' || inputValue) {
+            return null
+        }
+        return values.length === 0 ? (
+            <span className="-ml-2 text-muted">None selected</span>
+        ) : (
+            <span className="-ml-2">
+                {values.length === options.length
+                    ? `All ${options.length} selected`
+                    : `${values.length}/${options.length} selected`}
+            </span>
+        )
+    }, [displayMode, mode, inputValue, values.length, options.length])
+
     return (
         <LemonDropdown
             matchWidth
@@ -380,6 +403,50 @@ export function LemonInputSelect({
             overlay={
                 <div className="deprecated-space-y-px overflow-y-auto">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
+
+                    {bulkActions && mode === 'multiple' && (
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                            {bulkActions === 'select-and-clear-all' && (
+                                <LemonButton
+                                    size="small"
+                                    className="flex-1"
+                                    disabledReason={
+                                        values.length === allOptionsMap.size
+                                            ? 'All options are already selected'
+                                            : undefined
+                                    }
+                                    tooltipPlacement="top-start"
+                                    tooltipArrowOffset={50}
+                                    onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
+                                    icon={
+                                        <LemonCheckbox
+                                            checked={
+                                                values.length === allOptionsMap.size
+                                                    ? true
+                                                    : values.length
+                                                    ? 'indeterminate'
+                                                    : false
+                                            }
+                                            className="pointer-events-none"
+                                        />
+                                    }
+                                >
+                                    Select all
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                size="small"
+                                className={clsx({ 'flex-1': bulkActions === 'clear-all' })}
+                                tooltipPlacement={bulkActions === 'select-and-clear-all' ? 'top-end' : 'top-start'}
+                                tooltipArrowOffset={bulkActions === 'clear-all' ? 30 : undefined}
+                                disabledReason={values.length === 0 ? 'No options are selected' : undefined}
+                                onClick={() => onChange?.([])}
+                            >
+                                Clear all
+                            </LemonButton>
+                        </div>
+                    )}
+
                     {visibleOptions.length > 0 ? (
                         visibleOptions.map((option, index) => {
                             const isFocused = index === selectedIndex
@@ -400,7 +467,7 @@ export function LemonInputSelect({
                                         ) : undefined
                                     }
                                     sideAction={
-                                        !option.__isInput
+                                        !option.__isInput && allowCustomValues
                                             ? {
                                                   // To reduce visual clutter we only show the icon on focus or hover,
                                                   // but we do want it present to make sure the layout is stable
@@ -458,7 +525,9 @@ export function LemonInputSelect({
             <LemonInput
                 inputRef={inputRef}
                 placeholder={
-                    values.length === 0
+                    displayMode === 'count'
+                        ? undefined
+                        : values.length === 0
                         ? placeholder
                         : mode === 'single'
                         ? allOptionsMap.get(values[0])?.label ?? values[0]
@@ -469,7 +538,12 @@ export function LemonInputSelect({
                 autoWidth={autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
-                suffix={valuesAndEditButtonSuffix}
+                suffix={
+                    <>
+                        {countPlaceholder}
+                        {valuesAndEditButtonSuffix}
+                    </>
+                }
                 onFocus={_onFocus}
                 onBlur={_onBlur}
                 value={inputValue}

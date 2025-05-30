@@ -1,5 +1,6 @@
 from django.http import JsonResponse
 from rest_framework.response import Response
+import structlog
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
@@ -7,6 +8,9 @@ from posthog.exceptions import generate_exception_response
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework import status
+from posthog.models.utils import uuid7
+
+from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 
 from .models import EarlyAccessFeature
 
@@ -17,6 +21,10 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.utils_cors import cors_response
 from typing import Any
+from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+from posthog.api.shared import UserBasicSerializer
+
+logger = structlog.get_logger(__name__)
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -26,7 +34,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
-    flagKey = serializers.CharField(source="feature_flag.key")
+    flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
 
     class Meta:
         model = EarlyAccessFeature
@@ -59,6 +67,27 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         stage = validated_data.get("stage", None)
+
+        request = self.context["request"]
+        user_data = UserBasicSerializer(request.user).data if request.user else None
+        serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
+
+        logger.info(
+            f"[EARLY ACCESS FEATURE] Updating early access feature stage for feature preview",
+            instance_id=instance.id,
+            instance_name=instance.name,
+            previous_stage=instance.stage,
+            new_stage=stage,
+        )
+        if instance.stage != stage:
+            logger.info(
+                "[EARLY ACCESS FEATURE] Scheduling celery task to send events",
+                instance_id=instance.id,
+                previous_stage=instance.stage,
+                new_stage=stage,
+            )
+
+            send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [
@@ -100,11 +129,35 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 }
                 related_feature_flag.save()
 
-        return super().update(instance, validated_data)
+        updated_instance = super().update(instance, validated_data)
+
+        serialized_next = MinimalEarlyAccessFeatureSerializer(updated_instance).data
+        produce_internal_event(
+            team_id=instance.team_id,
+            event=InternalEventEvent(
+                event="$early_access_feature_updated",
+                distinct_id=str(uuid7()),
+                properties={
+                    "previous": serialized_previous,
+                    "next": serialized_next,
+                },
+            ),
+            person=(
+                InternalEventPerson(
+                    id=user_data["id"],
+                    properties=user_data,
+                )
+                if user_data
+                else None
+            ),
+        )
+
+        return updated_instance
 
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(required=False, write_only=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = EarlyAccessFeature
@@ -117,6 +170,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "created_at",
             "feature_flag_id",
             "feature_flag",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 

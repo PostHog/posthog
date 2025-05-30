@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use uuid::Uuid;
 
-use crate::fingerprinting::{Fingerprint, FingerprintComponent, FingerprintRecordPart};
+use crate::fingerprinting::{
+    Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
+};
 use crate::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -62,11 +65,11 @@ pub struct RawErrProps {
     pub other: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone)]
 pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
-    pub fingerprint: String,
+    pub fingerprint: Fingerprint,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
-    pub fingerprint_record: Vec<FingerprintRecordPart>,
     pub other: HashMap<String, Value>,
 }
 
@@ -86,7 +89,10 @@ pub struct OutputErrProps {
     #[serde(flatten)]
     pub other: HashMap<String, Value>,
 
-    // Search metadata
+    // Metadata
+    #[serde(rename = "$exception_handled")]
+    pub handled: bool,
+    // Search metadata (materialized)
     #[serde(rename = "$exception_types")]
     pub types: Vec<String>,
     #[serde(rename = "$exception_values")]
@@ -98,7 +104,7 @@ pub struct OutputErrProps {
 }
 
 impl FingerprintComponent for Exception {
-    fn update(&self, fp: &mut Fingerprint) {
+    fn update(&self, fp: &mut FingerprintBuilder) {
         let mut pieces = vec![];
         fp.update(self.exception_type.as_bytes());
         pieces.push("Exception Type".to_string());
@@ -114,7 +120,7 @@ impl FingerprintComponent for Exception {
 }
 
 impl Exception {
-    pub fn include_in_fingerprint(&self, fp: &mut Fingerprint) {
+    pub fn include_in_fingerprint(&self, fp: &mut FingerprintBuilder) {
         self.update(fp);
 
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
@@ -156,18 +162,27 @@ impl RawErrProps {
         );
     }
 
-    pub fn to_fingerprinted(self, fingerprint: Fingerprint) -> FingerprintedErrProps {
-        let (fingerprint, mut record) = fingerprint.finalize();
+    pub fn to_fingerprinted(self, mut fingerprint: Fingerprint) -> FingerprintedErrProps {
+        // We always track the fingerprint we'd have proposed if none was set
+        let proposed_fingerprint = fingerprint.value.clone();
 
-        if self.fingerprint.is_some() {
-            record.push(FingerprintRecordPart::Manual)
+        // But if one was set, we use that and modify our fingerprint to reflect that
+        if let Some(existing) = self.fingerprint {
+            fingerprint.record.clear();
+            fingerprint.record.push(FingerprintRecordPart::Manual);
+            fingerprint.value = existing;
+            if fingerprint.value.len() > 64 {
+                let mut hasher = Sha512::default();
+                hasher.update(fingerprint.value);
+                fingerprint.value = format!("{:x}", hasher.finalize());
+            }
+            fingerprint.assignment = None;
         }
 
         FingerprintedErrProps {
             exception_list: self.exception_list,
-            fingerprint: self.fingerprint.unwrap_or(fingerprint.clone()),
-            fingerprint_record: record,
-            proposed_fingerprint: fingerprint,
+            fingerprint,
+            proposed_fingerprint,
             other: self.other,
         }
     }
@@ -191,18 +206,26 @@ impl FingerprintedErrProps {
             Some(e.exception_message.clone())
         });
 
+        let handled = self
+            .exception_list
+            .first()
+            .and_then(|e| e.mechanism.as_ref())
+            .and_then(|m| m.handled)
+            .unwrap_or(false);
+
         OutputErrProps {
             exception_list: self.exception_list,
-            fingerprint: self.fingerprint,
+            fingerprint: self.fingerprint.value,
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
-            fingerprint_record: self.fingerprint_record,
+            fingerprint_record: self.fingerprint.record,
             other: self.other,
 
             types,
             values,
             sources,
             functions,
+            handled,
         }
     }
 }

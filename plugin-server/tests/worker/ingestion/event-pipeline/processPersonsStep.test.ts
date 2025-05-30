@@ -7,9 +7,9 @@ import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStoreForDistinctIdBatch } from '../../../../src/worker/ingestion/persons/measuring-person-store'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
-import { fetchTeam } from '../../../../src/worker/ingestion/team-manager'
-import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
     let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
@@ -30,7 +30,7 @@ describe('processPersonsStep()', () => {
         }
         const organizationId = await createOrganization(runner.hub.db.postgres)
         teamId = await createTeam(runner.hub.db.postgres, organizationId)
-        team = (await fetchTeam(runner.hub.db.postgres, teamId))!
+        team = (await getTeam(runner.hub, teamId))!
         uuid = new UUIDT().toString()
 
         pluginEvent = {
@@ -61,7 +61,8 @@ describe('processPersonsStep()', () => {
             pluginEvent,
             team,
             timestamp,
-            processPerson
+            processPerson,
+            new MeasuringPersonsStoreForDistinctIdBatch(runner.hub.db, team.api_token, pluginEvent.distinct_id)
         )
 
         expect(resEvent).toEqual(pluginEvent)
@@ -99,7 +100,8 @@ describe('processPersonsStep()', () => {
             normalizedEvent,
             team,
             timestamp,
-            processPerson
+            processPerson,
+            new MeasuringPersonsStoreForDistinctIdBatch(runner.hub.db, team.api_token, pluginEvent.distinct_id)
         )
 
         expect(resEvent).toEqual({

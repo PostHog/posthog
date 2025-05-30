@@ -321,6 +321,33 @@
     --primitive-posthog-brand-yellow-saturation: 94%;
     --primitive-posthog-brand-yellow-lightness: 57%;
 
+    // Product specific colors
+    --product-data-pipeline-light: rgb(46 162 211);
+    --product-product-analytics-light: rgb(47 128 250);
+    --product-messaging-light: rgb(47 128 250);
+    --product-web-analytics-light: rgb(52 175 102);
+    --product-web-analytics-dark: rgb(54 196 111); // original color
+    --product-session-replay-light: rgb(235 162 18);
+    --product-session-replay-dark: rgb(247 165 1);
+    --product-heatmaps-light: rgb(235 162 18);
+    --product-heatmaps-dark: rgb(247 165 1);
+    --product-logs-light: rgb(214 37 123);
+    --product-feature-flags-light: rgb(48 171 198);
+    --product-experiments-light: rgb(182 42 217);
+    --product-error-tracking-light: rgb(235 162 18);
+    --product-error-tracking-dark: rgb(247 165 1);
+    --product-surveys-light: rgb(243 84 84);
+    --product-data-warehouse-light: rgb(133 103 255);
+    --product-max-ai-light: rgb(182 42 217);
+    --product-links-light: rgb(143 7 255);
+    --product-revenue-analytics-light: rgb(52 175 102);
+    --product-revenue-analytics-dark: rgb(54 196 111);
+    --product-user-interviews-light: rgb(0 140 255);
+    --product-notebooks-light: rgb(255 7 243);
+    --product-dashboards-light: rgb(255 139 7);
+    --product-early-access-features-light: rgb(39 171 151);
+    --product-early-access-features-dark: rgb(53 213 189);
+
     // Generic brand color assignments
     // Change these to change the brand colors
     // //////////////////////////////////////////////////////////
@@ -335,15 +362,30 @@
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
     );
     --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
@@ -578,12 +620,13 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-layout-panel: 758;
-    --z-layout-panel-overlay: 757;
+    --z-layout-panel: 760;
+    --z-layout-panel-under: 759;
+    --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
-    --z-layout-navbar-overlay: 755;
-    --z-resizer: 754;
+    --z-layout-navbar-under: 755;
     --z-main-nav: 750;
+    --z-resizer: 701;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
     --z-mobile-nav-overlay: 600;
@@ -597,6 +640,10 @@
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+    --resizer-thickness: 8px;
+
+    // The space the panel is from the left edge of the screen on mobile
+    --panel-layout-mobile-offset: 40px;
 
     // Toasts
     // Update and override from react-toastify
@@ -780,15 +827,30 @@
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
     );
 
     // Used for highlighting search results, and other subtle accent sitations
@@ -1035,12 +1097,9 @@
             }
         }
 
-        .styled-scrollbars {
-            --scrollbar-background: transparent transparent;
-
+        .show-scrollbar-on-hover {
             scrollbar-color: transparent transparent;
             scrollbar-width: thin;
-            scrollbar-gutter: stable;
 
             &::-webkit-scrollbar {
                 width: 0.5rem;
@@ -1545,9 +1604,9 @@
         overflow: hidden;
         color: var(--text-primary);
         background-color: var(--bg-surface-primary);
-        border: 1px solid var(--border-secondary);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius-md);
-        box-shadow: var(--shadow);
+        box-shadow: var(--shadow-elevation-3000);
     }
 
     .primitive-menu-content-inner {

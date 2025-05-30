@@ -4,22 +4,16 @@ __pycache__/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
 .antlr
 .coverage
-# Assistant Evaluation with Deepeval
-.deepeval
-.deepeval_telemtry.txt
-.deepeval_telemetry.txt
-.deepeval-cache.json
 .dlt
 .dmypy.json
 .DS_Store
-.env
+.env*
 .eslintcache
 .idea
 .mypy_cache
 .parcel-cache
 # pyenv local config
 .python-version
-.temp-deepeval-cache.json
 .temporal-worker-settings
 .turbo
 .venv
@@ -103,3 +97,6 @@ playwright/test-results/
 
 # Dist release target dir
 target/*
+
+# Ignore user's Cursor rules
+.cursor/**/user*.mdc

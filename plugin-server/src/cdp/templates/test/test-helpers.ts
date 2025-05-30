@@ -5,14 +5,15 @@ import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
+    CyclotronJobInvocationHogFunction,
     HogFunctionInputType,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../types'
-import { createInvocation } from '../../utils'
+import { cloneInvocation } from '../../utils/invocation-utils'
+import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
@@ -136,7 +137,7 @@ export class TemplateTester {
 
     async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
         if (this.template.mapping_templates) {
-            throw new Error('Mapping templates found. Use invokeMappings instead.')
+            throw new Error('Mapping templates found. Use invokeMapping instead.')
         }
 
         const compiledInputs = await this.compileInputs(_inputs)
@@ -169,73 +170,73 @@ export class TemplateTester {
         return this.executor.execute(invocation, { functions: extraFunctions })
     }
 
-    async invokeMappings(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+    async invokeMapping(
+        mapping_name: string,
+        _inputs: Record<string, any>,
+        _globals?: DeepPartialHogFunctionInvocationGlobals
+    ) {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
         }
 
         const compiledInputs = await this.compileInputs(_inputs)
 
-        const compiledMappingInputs = this.template.mapping_templates.map((mapping) => ({
-            ...mapping,
+        const compiledMappingInputs = {
+            ...this.template.mapping_templates.find((mapping) => mapping.name === mapping_name),
             inputs: {},
-        }))
+        }
 
-        await Promise.all(
-            compiledMappingInputs.map(async (mapping) => {
-                if (!mapping.inputs_schema) {
-                    return
-                }
+        if (!compiledMappingInputs.inputs_schema) {
+            throw new Error('No inputs schema found for mapping')
+        }
 
-                const processedInputs = await Promise.all(
-                    mapping.inputs_schema
-                        .filter((input) => typeof input.default !== 'undefined')
-                        .map(async (input) => {
-                            return {
-                                key: input.key,
-                                value: input.default,
-                                bytecode: await this.compileObject(input.default),
-                            }
-                        })
-                )
-
-                const inputsObj = processedInputs.reduce((acc, item) => {
-                    acc[item.key] = {
-                        value: item.value,
-                        bytecode: item.bytecode,
+        const processedInputs = await Promise.all(
+            compiledMappingInputs.inputs_schema
+                .filter((input) => typeof input.default !== 'undefined')
+                .map(async (input) => {
+                    return {
+                        key: input.key,
+                        value: input.default,
+                        bytecode: await this.compileObject(input.default),
                     }
-                    return acc
-                }, {} as Record<string, HogFunctionInputType>)
-
-                mapping.inputs = inputsObj
-            })
+                })
         )
 
-        const invocations = this.executor.buildHogFunctionInvocations(
-            [
-                {
-                    ...this.template,
-                    team_id: 1,
-                    enabled: true,
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                    deleted: false,
-                    inputs: compiledInputs,
-                    mappings: compiledMappingInputs,
-                },
-            ],
-            this.createGlobals(_globals)
-        )
+        const inputsObj = processedInputs.reduce((acc, item) => {
+            acc[item.key] = {
+                value: item.value,
+                bytecode: item.bytecode,
+            }
+            return acc
+        }, {} as Record<string, HogFunctionInputType>)
 
-        return invocations.invocations.map((invocation) => this.executor.execute(invocation))
+        compiledMappingInputs.inputs = inputsObj
+
+        const globalsWithInputs = buildGlobalsWithInputs(this.createGlobals(_globals), {
+            ...compiledInputs,
+            ...compiledMappingInputs.inputs,
+        })
+        const invocation = createInvocation(globalsWithInputs, {
+            ...this.template,
+            team_id: 1,
+            enabled: true,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            deleted: false,
+            inputs: compiledInputs,
+            mappings: [compiledMappingInputs],
+        })
+
+        return this.executor.execute(invocation)
     }
-
-    invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {
-        const modifiedInvocation = {
-            ...invocation,
+    invokeFetchResponse(
+        invocation: CyclotronJobInvocationHogFunction,
+        response: HogFunctionQueueParametersFetchResponse
+    ) {
+        const modifiedInvocation = cloneInvocation(invocation, {
             queue: 'hog' as const,
             queueParameters: response,
-        }
+        })
 
         return this.executor.execute(modifiedInvocation)
     }

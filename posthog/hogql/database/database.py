@@ -1,6 +1,15 @@
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Literal,
+    Optional,
+    TypeAlias,
+    Union,
+    cast,
+)
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
@@ -14,6 +23,7 @@ from posthog.hogql.database.models import (
     DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
@@ -27,10 +37,14 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableGroup,
+    UnknownDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
-from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.channel_type import (
+    create_initial_channel_type,
+    create_initial_domain_type,
+)
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -46,6 +60,7 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
+from posthog.hogql.database.schema.logs import LogsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -68,13 +83,20 @@ from posthog.hogql.database.schema.session_replay_events import (
     SessionReplayEventsTable,
     join_replay_table_to_sessions_table_v2,
 )
-from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
+from posthog.hogql.database.schema.sessions_v1 import (
+    RawSessionsTableV1,
+    SessionsTableV1,
+)
 from posthog.hogql.database.schema.sessions_v2 import (
     RawSessionsTableV2,
     SessionsTableV2,
     join_events_table_to_sessions_table_v2,
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDailyTable,
+    WebStatsDailyTable,
+)
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -83,10 +105,11 @@ from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedViewTableKind,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
-    DatabaseSchemaManagedViewTable,
     DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
@@ -94,14 +117,16 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.table import (
-    DataWarehouseTable,
-    DataWarehouseTableColumns,
-)
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from products.revenue_analytics.backend.models import RevenueAnalyticsRevenueView
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+    RevenueAnalyticsBaseView,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    RevenueAnalyticsChargeView,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -132,6 +157,10 @@ class Database(BaseModel):
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
 
+    # Web analytics pre-aggregated tables (internal use only)
+    web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
+    web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
+
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
@@ -144,6 +173,8 @@ class Database(BaseModel):
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
     raw_query_log: RawQueryLogTable = RawQueryLogTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
+    # logs table for logs product
+    logs: LogsTable = LogsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -286,7 +317,7 @@ class Database(BaseModel):
             self.merge_or_setattr(f_name, f_def)
 
             # No need to add TableGroups to the view table names,
-            # they're already with their chained name
+            # they're already with their chained names
             if isinstance(f_def, TableGroup):
                 continue
 
@@ -349,10 +380,7 @@ def create_hogql_database(
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
-    from posthog.warehouse.models import (
-        DataWarehouseJoin,
-        DataWarehouseSavedQuery,
-    )
+    from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
     if timings is None:
         timings = HogQLTimings()
@@ -466,7 +494,7 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
@@ -476,6 +504,14 @@ def create_hogql_database(
                 for view in revenue_views:
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
+
+        # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
+        # so let's make sure we have the proper nested queries
+        with timings.measure("for_events"):
+            revenue_views = RevenueAnalyticsBaseView.for_events(team)
+            for view in revenue_views:
+                views[view.name] = view
+                create_nested_table_group(view.name.split("."), views, view)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -806,7 +842,9 @@ DatabaseSchemaTable: TypeAlias = (
 def serialize_database(
     context: HogQLContext,
 ) -> dict[str, DatabaseSchemaTable]:
-    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from posthog.warehouse.models.datawarehouse_saved_query import (
+        DataWarehouseSavedQuery,
+    )
 
     tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -920,11 +958,17 @@ def serialize_database(
             url_pattern=warehouse_table.url_pattern,
             schema=schema,
             source=source,
+            row_count=warehouse_table.row_count,
         )
 
     # Fetch all views in a single query
     all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+        DataWarehouseSavedQuery.objects.select_related("table")
+        .exclude(deleted=True)
+        .filter(team_id=context.team_id)
+        .all()
+        if views
+        else []
     )
 
     # Process views using prefetched data
@@ -941,11 +985,15 @@ def serialize_database(
         fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
         fields_dict = {field.name: field for field in fields}
 
-        if isinstance(view, RevenueAnalyticsRevenueView):
+        if isinstance(view, RevenueAnalyticsBaseView):
             tables[view_name] = DatabaseSchemaManagedViewTable(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
+                kind=DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
+                if isinstance(view, RevenueAnalyticsChargeView)
+                else DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
+                source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )
 
@@ -955,11 +1003,16 @@ def serialize_database(
         if not saved_query:
             continue
 
+        row_count: int | None = None
+        if saved_query.table:
+            row_count = saved_query.table.row_count
+
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,
             id=str(saved_query.pk),
             name=view_name,
             query=HogQLQuery(query=saved_query.query["query"]),
+            row_count=row_count,
         )
 
     return tables
@@ -984,6 +1037,8 @@ def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> D
         return DatabaseSerializedFieldType.INTEGER
     if isinstance(constant_type, ast.FloatType):
         return DatabaseSerializedFieldType.FLOAT
+    if isinstance(constant_type, ast.DecimalType):
+        return DatabaseSerializedFieldType.DECIMAL
     return None
 
 
@@ -1044,6 +1099,15 @@ def serialize_fields(
                         schema_valid=schema_valid,
                     )
                 )
+            elif isinstance(field, DecimalDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.DECIMAL,
+                        schema_valid=schema_valid,
+                    )
+                )
             elif isinstance(field, StringDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
@@ -1095,6 +1159,15 @@ def serialize_fields(
                         name=field_key,
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.ARRAY,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UnknownDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.UNKNOWN,
                         schema_valid=schema_valid,
                     )
                 )

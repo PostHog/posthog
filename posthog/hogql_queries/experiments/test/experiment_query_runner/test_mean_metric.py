@@ -256,3 +256,96 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.count, 30)
         self.assertEqual(control_variant.absolute_exposure, 10)
         self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_unique_sessions_math_type(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, count: int, session_id: str) -> list[dict]:
+            pageview_events = [
+                {
+                    "event": "$pageview",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "$session_id": session_id,
+                    },
+                }
+                for i in range(count)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$session_id": session_id,
+                    },
+                },
+                *pageview_events,
+            ]
+
+        journeys_for(
+            {
+                # 3 unique sessions in control
+                "control_1": [
+                    *_create_events_for_user("control", 3, "c_1_a"),
+                    *_create_events_for_user("control", 3, "c_1_b"),
+                ],
+                "control_2": _create_events_for_user("control", 3, "c_2_a"),
+                # 5 unique sessions in test
+                "test_1": [
+                    *_create_events_for_user("test", 3, "t_1_a"),
+                    *_create_events_for_user("test", 3, "t_1_b"),
+                ],
+                "test_2": [
+                    *_create_events_for_user("test", 3, "t_2_a"),
+                    *_create_events_for_user("test", 3, "t_2_b"),
+                    *_create_events_for_user("test", 3, "t_2_c"),
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="$pageview",
+                math=ExperimentMetricMathType.UNIQUE_SESSION,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 3)
+        self.assertEqual(test_variant.count, 5)
+        self.assertEqual(control_variant.absolute_exposure, 2)
+        self.assertEqual(test_variant.absolute_exposure, 2)

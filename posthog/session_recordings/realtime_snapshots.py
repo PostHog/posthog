@@ -53,7 +53,7 @@ def publish_subscription(team_id: str, session_id: str) -> None:
     except Exception as e:
         capture_exception(
             e,
-            properties={
+            additional_properties={
                 "team_id": team_id,
                 "session_id": session_id,
                 "operation": "publish_realtime_subscription",
@@ -107,7 +107,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
         # very broad capture to see if there are any unexpected errors
         capture_exception(
             e,
-            properties={
+            additional_properties={
                 "attempt_count": attempt_count,
                 "operation": "get_realtime_snapshots",
                 "team_id": team_id,

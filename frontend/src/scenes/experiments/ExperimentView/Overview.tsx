@@ -7,6 +7,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
+import { getHighestProbabilityVariant, getIndexForVariant } from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
@@ -17,10 +18,10 @@ export function WinningVariantText({
     result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
-    const { getIndexForVariant, getHighestProbabilityVariant } = useValues(experimentLogic)
+    const { getInsightType, experiment } = useValues(experimentLogic)
 
     const highestProbabilityVariant = getHighestProbabilityVariant(result)
-    const index = getIndexForVariant(result, highestProbabilityVariant || '')
+    const index = getIndexForVariant(result, highestProbabilityVariant || '', getInsightType(experiment.metrics[0]))
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
 
@@ -46,6 +47,9 @@ export function SignificanceText({
     metricIndex: number
     isSecondary?: boolean
 }): JSX.Element {
+    /**
+     * Remove this functions from the logic and make them pure so this component can be tested
+     */
     const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
 
     return (
@@ -53,9 +57,7 @@ export function SignificanceText({
             <span>Your results are&nbsp;</span>
             <span className="font-semibold">
                 {`${
-                    isSecondary
-                        ? isSecondaryMetricSignificant(metricIndex)
-                        : isPrimaryMetricSignificant(metricIndex)
+                    (isSecondary ? isSecondaryMetricSignificant(metricIndex) : isPrimaryMetricSignificant(metricIndex))
                         ? 'significant'
                         : 'not significant'
                 }`}

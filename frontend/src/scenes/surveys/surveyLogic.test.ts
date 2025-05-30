@@ -10,10 +10,15 @@ import {
     PropertyFilterType,
     PropertyOperator,
     Survey,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyEventStats,
     SurveyPosition,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveyRates,
     SurveySchedule,
+    SurveyStats,
     SurveyType,
 } from '~/types'
 
@@ -1522,7 +1527,7 @@ describe('survey filters', () => {
                         properties: expect.arrayContaining([
                             // Survey ID property should still be present
                             {
-                                key: '$survey_id',
+                                key: SurveyEventProperties.SURVEY_ID,
                                 operator: 'exact',
                                 type: 'event',
                                 value: MULTIPLE_CHOICE_SURVEY.id,
@@ -1553,7 +1558,7 @@ describe('survey filters', () => {
                         // Should still have the survey ID property even with no filters
                         properties: expect.arrayContaining([
                             {
-                                key: '$survey_id',
+                                key: SurveyEventProperties.SURVEY_ID,
                                 operator: 'exact',
                                 type: 'event',
                                 value: MULTIPLE_CHOICE_SURVEY.id,
@@ -1579,7 +1584,7 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['loadSurveySuccess'])
 
         const answerFilter: EventPropertyFilter = {
-            key: '$survey_response',
+            key: SurveyEventProperties.SURVEY_RESPONSE,
             value: 'test response',
             operator: PropertyOperator.IContains,
             type: PropertyFilterType.Event,
@@ -1587,7 +1592,12 @@ describe('surveyLogic filters for surveys responses', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setAnswerFilters([answerFilter])
-        }).toDispatchActions(['setAnswerFilters', 'loadSurveyUserStats', 'loadSurveyMultipleChoiceResults'])
+        }).toDispatchActions([
+            'setAnswerFilters',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+            'loadSurveyMultipleChoiceResults',
+        ])
     })
 
     describe('interval selection', () => {
@@ -1627,15 +1637,6 @@ describe('surveyLogic filters for surveys responses', () => {
             })
         })
 
-        it('uses start_date over created_at when available', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSurveyValue('created_at', dayjs().subtract(16, 'weeks').format('YYYY-MM-DD'))
-                logic.actions.setSurveyValue('start_date', dayjs().subtract(2, 'weeks').format('YYYY-MM-DD'))
-            }).toMatchValues({
-                defaultInterval: 'day',
-            })
-        })
-
         it('uses end_date when available', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSurveyValue('created_at', dayjs().subtract(20, 'weeks').format('YYYY-MM-DD'))
@@ -1658,6 +1659,259 @@ describe('surveyLogic filters for surveys responses', () => {
                 interval: 'month',
                 defaultInterval: 'day', // Default interval remains unchanged
             })
+        })
+    })
+})
+
+describe('survey stats calculation', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    const MOCK_SURVEY_ID = 'test_survey_id'
+    const MOCK_DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss[Z]'
+    const MOCK_FIRST_SEEN = dayjs('2024-01-01T10:00:00Z').format(MOCK_DATE_FORMAT)
+    const MOCK_LAST_SEEN = dayjs('2024-01-10T12:00:00Z').format(MOCK_DATE_FORMAT)
+
+    // Helper to create base stats tuple
+    const createBaseStat = (
+        eventName: SurveyEventName,
+        totalCount: number,
+        uniquePersons: number,
+        firstSeen: string | null = MOCK_FIRST_SEEN,
+        lastSeen: string | null = MOCK_LAST_SEEN
+    ): [string, number, number, string | null, string | null] => [
+        eventName,
+        totalCount,
+        uniquePersons,
+        firstSeen,
+        lastSeen,
+    ]
+
+    // Helper to create expected EventStats
+    const createExpectedEventStat = (
+        totalCount: number,
+        uniquePersons: number,
+        uniquePersonsOnlySeen = 0,
+        totalCountOnlySeen = 0,
+        firstSeen: string | null = MOCK_FIRST_SEEN,
+        lastSeen: string | null = MOCK_LAST_SEEN
+    ): SurveyEventStats => ({
+        total_count: totalCount,
+        unique_persons: uniquePersons,
+        first_seen: firstSeen ? dayjs(firstSeen).toISOString() : null,
+        last_seen: lastSeen ? dayjs(lastSeen).toISOString() : null,
+        unique_persons_only_seen: uniquePersonsOnlySeen,
+        total_count_only_seen: totalCountOnlySeen,
+    })
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: MOCK_SURVEY_ID })
+        logic.mount()
+    })
+
+    it('should return null stats and zero rates when no base stats results', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(null)
+            logic.actions.setDismissedAndSentCount(null)
+        }).toMatchValues({
+            processedSurveyStats: null,
+            surveyRates: {
+                response_rate: 0.0,
+                dismissal_rate: 0.0,
+                unique_users_response_rate: 0.0,
+                unique_users_dismissal_rate: 0.0,
+            },
+        })
+    })
+
+    it('should calculate stats correctly when only "survey shown" events exist', async () => {
+        const baseStats = [createBaseStat(SurveyEventName.SHOWN, 100, 80)]
+        const expectedStats: SurveyStats = {
+            [SurveyEventName.SHOWN]: createExpectedEventStat(100, 80, 80, 100), // All shown are only_seen
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(0, 0, 0, 0, null, null),
+            [SurveyEventName.SENT]: createExpectedEventStat(0, 0, 0, 0, null, null),
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(0)
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: {
+                response_rate: 0.0,
+                dismissal_rate: 0.0,
+                unique_users_response_rate: 0.0,
+                unique_users_dismissal_rate: 0.0,
+            },
+        })
+    })
+
+    it('should calculate stats and rates correctly for shown and sent events (no overlap)', async () => {
+        const baseStats = [createBaseStat(SurveyEventName.SHOWN, 100, 80), createBaseStat(SurveyEventName.SENT, 50, 40)]
+        const expectedStats: SurveyStats = {
+            [SurveyEventName.SHOWN]: createExpectedEventStat(100, 80, 40, 50), // 80 unique shown - 40 unique sent = 40 only seen
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(0, 0, 0, 0, null, null),
+            [SurveyEventName.SENT]: createExpectedEventStat(50, 40),
+        }
+        const expectedRates: SurveyRates = {
+            response_rate: 50.0, // 50 / 100
+            dismissal_rate: 0.0,
+            unique_users_response_rate: 50.0, // 40 / 80
+            unique_users_dismissal_rate: 0.0,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(0) // No overlap
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: expectedRates,
+        })
+    })
+
+    it('should calculate stats and rates correctly for shown and dismissed events (no overlap)', async () => {
+        const baseStats = [
+            createBaseStat(SurveyEventName.SHOWN, 100, 80),
+            createBaseStat(SurveyEventName.DISMISSED, 20, 15),
+        ]
+        const expectedStats: SurveyStats = {
+            [SurveyEventName.SHOWN]: createExpectedEventStat(100, 80, 65, 80), // 80 unique shown - 15 unique dismissed = 65 only seen
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(20, 15), // Dismissed count remains 15 as overlap is 0
+            [SurveyEventName.SENT]: createExpectedEventStat(0, 0, 0, 0, null, null),
+        }
+        const expectedRates: SurveyRates = {
+            response_rate: 0.0,
+            dismissal_rate: 20.0, // 20 / 100
+            unique_users_response_rate: 0.0,
+            unique_users_dismissal_rate: 18.75, // 15 / 80
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(0) // No overlap
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: expectedRates,
+        })
+    })
+
+    it('should calculate stats and rates correctly for shown, sent, and dismissed events (no overlap)', async () => {
+        const baseStats = [
+            createBaseStat(SurveyEventName.SHOWN, 100, 80),
+            createBaseStat(SurveyEventName.SENT, 50, 40),
+            createBaseStat(SurveyEventName.DISMISSED, 20, 15),
+        ]
+        const expectedStats: SurveyStats = {
+            // 80 unique shown - 40 unique sent - 15 unique dismissed = 25 only seen
+            // 100 total shown - 50 total sent - 20 total dismissed = 30 only seen
+            [SurveyEventName.SHOWN]: createExpectedEventStat(100, 80, 25, 30),
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(20, 15), // Dismissed unique count remains 15
+            [SurveyEventName.SENT]: createExpectedEventStat(50, 40),
+        }
+        const expectedRates: SurveyRates = {
+            response_rate: 50.0, // 50 / 100
+            dismissal_rate: 20.0, // 20 / 100
+            unique_users_response_rate: 50.0, // 40 / 80
+            unique_users_dismissal_rate: 18.75, // 15 / 80
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(0) // No overlap
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: expectedRates,
+        })
+    })
+
+    it('should correctly adjust dismissed unique count and calculate rates with overlap', async () => {
+        const baseStats = [
+            createBaseStat(SurveyEventName.SHOWN, 100, 80),
+            createBaseStat(SurveyEventName.SENT, 50, 40),
+            createBaseStat(SurveyEventName.DISMISSED, 20, 15), // Initially 15 unique dismissed
+        ]
+        const dismissedAndSentOverlap = 5 // 5 people both dismissed AND sent
+
+        // Expected adjusted dismissed unique count = 15 (initial) - 5 (overlap) = 10
+        const expectedStats: SurveyStats = {
+            // 80 unique shown - 40 unique sent - 10 unique dismissed (adjusted) = 30 only seen
+            // 100 total shown - 50 total sent - 20 total dismissed = 30 only seen
+            [SurveyEventName.SHOWN]: createExpectedEventStat(100, 80, 30, 30),
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(20, 10), // Adjusted unique count is 10
+            [SurveyEventName.SENT]: createExpectedEventStat(50, 40),
+        }
+        const expectedRates: SurveyRates = {
+            response_rate: 50.0, // 50 / 100
+            dismissal_rate: 20.0, // 20 / 100
+            unique_users_response_rate: 50.0, // 40 / 80
+            unique_users_dismissal_rate: 12.5, // 10 (adjusted unique dismissed) / 80
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(dismissedAndSentOverlap)
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: expectedRates,
+        })
+    })
+
+    it('should handle zero counts correctly', async () => {
+        const baseStats = [
+            createBaseStat(SurveyEventName.SHOWN, 0, 0, null, null),
+            createBaseStat(SurveyEventName.SENT, 0, 0, null, null),
+            createBaseStat(SurveyEventName.DISMISSED, 0, 0, null, null),
+        ]
+        const expectedStats: SurveyStats = {
+            [SurveyEventName.SHOWN]: createExpectedEventStat(0, 0, 0, 0, null, null),
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(0, 0, 0, 0, null, null),
+            [SurveyEventName.SENT]: createExpectedEventStat(0, 0, 0, 0, null, null),
+        }
+        const expectedRates: SurveyRates = {
+            response_rate: 0.0,
+            dismissal_rate: 0.0,
+            unique_users_response_rate: 0.0,
+            unique_users_dismissal_rate: 0.0,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(0)
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: expectedRates,
+        })
+    })
+
+    it('should handle case where dismissed unique count equals overlap', async () => {
+        const baseStats = [
+            createBaseStat(SurveyEventName.SHOWN, 100, 80),
+            createBaseStat(SurveyEventName.SENT, 50, 40),
+            createBaseStat(SurveyEventName.DISMISSED, 20, 15), // Initially 15 unique dismissed
+        ]
+        const dismissedAndSentOverlap = 15 // Overlap equals initial unique dismissed
+
+        // Expected adjusted dismissed unique count = 15 (initial) - 15 (overlap) = 0
+        const expectedStats: SurveyStats = {
+            // 80 unique shown - 40 unique sent - 0 unique dismissed (adjusted) = 40 only seen
+            // 100 total shown - 50 total sent - 20 total dismissed = 30 only seen
+            [SurveyEventName.SHOWN]: createExpectedEventStat(100, 80, 40, 30),
+            [SurveyEventName.DISMISSED]: createExpectedEventStat(20, 0), // Adjusted unique count is 0
+            [SurveyEventName.SENT]: createExpectedEventStat(50, 40),
+        }
+        const expectedRates: SurveyRates = {
+            response_rate: 50.0,
+            dismissal_rate: 20.0,
+            unique_users_response_rate: 50.0,
+            unique_users_dismissal_rate: 0.0, // 0 (adjusted unique dismissed) / 80
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setBaseStatsResults(baseStats)
+            logic.actions.setDismissedAndSentCount(dismissedAndSentOverlap)
+        }).toMatchValues({
+            processedSurveyStats: expectedStats,
+            surveyRates: expectedRates,
         })
     })
 })

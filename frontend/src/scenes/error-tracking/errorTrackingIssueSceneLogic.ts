@@ -1,14 +1,10 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { hasStacktrace } from 'lib/components/Errors/utils'
+import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
-import { posthog } from 'posthog-js'
-import { Params, Scene } from 'scenes/sceneTypes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -16,21 +12,15 @@ import {
     DateRange,
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
-    ErrorTrackingIssueAssignee,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
+import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
-import { errorTrackingLogic } from './errorTrackingLogic'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import {
-    defaultSearchParams,
-    ExceptionAttributes,
-    getExceptionAttributes,
-    getSessionId,
-    resolveDateRange,
-} from './utils'
+import { errorTrackingIssueQuery } from './queries'
+import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -44,61 +34,60 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
-    connect(() => ({
-        values: [
-            errorTrackingLogic,
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
-            stackFrameLogic,
-            ['frameOrderReversed', 'showAllFrames'],
-        ],
-        actions: [
-            errorTrackingLogic,
-            [
-                'setDateRange',
-                'setFilterTestAccounts',
-                'setFilterGroup',
-                'setSearchQuery',
-                'setShowStacktrace',
-                'setShowContext',
+    connect(() => {
+        const filtersLogic = errorFiltersLogic()
+        const issueActions = issueActionsLogic()
+        return {
+            values: [filtersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+            actions: [
+                filtersLogic,
+                ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
+                issueActions,
+                ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName'],
             ],
-            stackFrameLogic,
-            ['setFrameOrderReversed', 'setShowAllFrames'],
-        ],
-    })),
+        }
+    }),
 
     actions({
         loadIssue: true,
         loadSummary: true,
-        loadProperties: (dateRange: DateRange) => ({ dateRange }),
+        loadFirstSeenEvent: (timestamp: string) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
-        updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
-        updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        selectEvent: (event: ErrorEventType | null) => ({
+            event,
+        }),
     }),
 
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
-        properties: {} as Record<string, string>,
         summary: null as ErrorTrackingIssueSummary | null,
-        volumeResolution: 50,
+        properties: null as ErrorEventProperties | null,
         lastSeen: null as Dayjs | null,
+        firstSeenEvent: null as ErrorEventType | null,
+        selectedEvent: null as ErrorEventType | null,
     }),
 
-    reducers({
+    reducers(({ values }) => ({
         issue: {
             setIssue: (_, { issue }: { issue: ErrorTrackingRelationalIssue }) => issue,
-            updateAssignee: (state, { assignee }) => {
-                return state ? { ...state, assignee } : null
+            updateIssueAssignee: (state, { id, assignee }) => {
+                if (state && id == state.id) {
+                    return { ...state, assignee }
+                }
+                return state
             },
-            updateStatus: (state, { status }) => {
-                return state ? { ...state, status } : null
+            updateIssueStatus: (state, { id, status }) => {
+                if (state && id == state.id) {
+                    return { ...state, status }
+                }
+                return state
+            },
+            updateIssueName: (state, { name }) => {
+                return state ? { ...state, name } : null
             },
         },
         summary: {},
-        properties: {},
-        volumeResolution: {
-            setVolumeResolution: (_, { volumeResolution }: { volumeResolution: number }) => volumeResolution,
-        },
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
                 if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
@@ -107,9 +96,84 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return prevLastSeen
             },
         },
-    }),
+        selectedEvent: {
+            selectEvent: (_, { event }) => {
+                if (!event && values.firstSeenEvent) {
+                    return values.firstSeenEvent
+                }
+                return event
+            },
+        },
+    })),
 
-    selectors({
+    loaders(({ values, actions, props }) => ({
+        issue: {
+            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+        },
+        firstSeenEvent: {
+            loadFirstSeenEvent: async ({ timestamp }) => {
+                const response = await api.query(
+                    errorTrackingIssueQuery({
+                        issueId: props.id,
+                        dateRange: getNarrowDateRange(timestamp),
+                        filterTestAccounts: false,
+                        withAggregations: false,
+                        withFirstEvent: true,
+                    }),
+                    {},
+                    undefined,
+                    'blocking'
+                )
+                const issue = response.results[0]
+                if (!issue.first_event) {
+                    return null
+                }
+                const first_event_properties = JSON.parse(issue.first_event.properties)
+                const firstSeenEvent: ErrorEventType = {
+                    uuid: issue.first_event.uuid,
+                    timestamp: issue.first_event.timestamp,
+                    person: { distinct_ids: [], properties: {} },
+                    properties: first_event_properties,
+                }
+                if (!values.selectedEvent) {
+                    actions.selectEvent(firstSeenEvent)
+                }
+                return firstSeenEvent
+            },
+        },
+        summary: {
+            loadSummary: async () => {
+                const response = await api.query(
+                    errorTrackingIssueQuery({
+                        issueId: props.id,
+                        dateRange: values.dateRange,
+                        filterTestAccounts: values.filterTestAccounts,
+                        filterGroup: values.filterGroup,
+                        searchQuery: values.searchQuery,
+                        volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
+                        withAggregations: true,
+                        withFirstEvent: false,
+                    }),
+                    {},
+                    undefined,
+                    'blocking'
+                )
+                if (!response.results.length) {
+                    return null
+                }
+                actions.setLastSeen(dayjs(response.results[0].last_seen))
+                const summary = response.results[0]
+                if (!summary.aggregations) {
+                    return null
+                }
+                return {
+                    aggregations: summary.aggregations,
+                }
+            },
+        },
+    })),
+
+    selectors(({ actions, props }) => ({
         breadcrumbs: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
@@ -123,6 +187,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
+                        onRename: async (name: string) => {
+                            return actions.updateIssueName(props.id, name)
+                        },
                     },
                 ]
             },
@@ -137,186 +204,38 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
         ],
-
-        eventsQuery: [
-            (s) => [(_, props) => props.id, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
-            (issueId, filterTestAccounts, searchQuery, filterGroup, dateRange) =>
-                errorTrackingIssueEventsQuery({
-                    issueId,
-                    filterTestAccounts,
-                    filterGroup,
-                    searchQuery,
-                    dateRange: resolveDateRange(dateRange).toDateRange(),
-                }),
-        ],
-
+        issueId: [(_, p) => [p.id], (id: string) => id],
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
-        exceptionAttributes: [
-            (s) => [s.properties],
-            (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : null),
-        ],
-        exceptionList: [
-            (s) => [s.exceptionAttributes, s.frameOrderReversed],
-            (attributes: ExceptionAttributes | null, orderReversed: boolean) => {
-                if (!attributes || !attributes.exceptionList) {
-                    return []
-                }
-                return applyFrameOrder(attributes.exceptionList, orderReversed)
-            },
-        ],
-        fingerprintRecords: [
-            (s) => [s.exceptionAttributes],
-            (attributes: ExceptionAttributes | null) => attributes?.fingerprintRecords,
-        ],
-        hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
-        sessionId: [
-            (s) => [s.properties],
-            (properties: Record<string, string> | null) => (properties ? getSessionId(properties) : undefined),
-        ],
-    }),
-
-    loaders(({ values, actions, props }) => ({
-        issue: {
-            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
-        },
-        properties: {
-            loadProperties: async ({ dateRange }) => {
-                // TODO: When properties are loaded for the first time, change stacktrace order to match exception name.
-                const response = await api.query(
-                    errorTrackingIssueQuery({
-                        issueId: props.id,
-                        dateRange,
-                        filterTestAccounts: false,
-                    }),
-                    {},
-                    undefined,
-                    'blocking'
-                )
-                const issue = response.results[0]
-                // Earliest field should be defined as we use the issueId parameter
-                return JSON.parse(issue.earliest!)
-            },
-        },
-        summary: {
-            loadSummary: async () => {
-                const response = await api.query(
-                    errorTrackingIssueQuery({
-                        issueId: props.id,
-                        dateRange: values.dateRange,
-                        filterTestAccounts: values.filterTestAccounts,
-                        filterGroup: values.filterGroup,
-                        searchQuery: values.searchQuery,
-                        volumeResolution: values.volumeResolution,
-                    }),
-                    {},
-                    undefined,
-                    'blocking'
-                )
-                if (!response.results.length) {
-                    return null
-                }
-                actions.setLastSeen(dayjs(response.results[0].last_seen))
-                const summary = response.results[0]
-                return {
-                    aggregations: summary.aggregations,
-                }
-            },
-        },
     })),
 
-    listeners(({ props, actions }) => {
+    listeners(({ actions }) => {
         return {
             setDateRange: actions.loadSummary,
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
             loadIssue: actions.loadSummary,
-            loadIssueSuccess: [({ issue }) => actions.loadProperties(getPropertiesDateRange(issue))],
+            loadIssueSuccess: [({ issue }) => actions.loadFirstSeenEvent(issue.first_seen)],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
                 }
             },
-            updateStatus: async ({ status }) => {
-                posthog.capture('error_tracking_issue_status_updated', { status, issue_id: props.id })
-                await api.errorTracking.updateIssue(props.id, { status })
-            },
-            updateAssignee: async ({ assignee }) => {
-                posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
-                await api.errorTracking.assignIssue(props.id, assignee)
-            },
-        }
-    }),
-
-    actionToUrl(({ values }) => {
-        const buildURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            }
-        ] => {
-            const searchParams = defaultSearchParams({
-                dateRange: values.dateRange,
-                searchQuery: values.searchQuery,
-                filterGroup: values.filterGroup,
-                filterTestAccounts: values.filterTestAccounts,
-            })
-
-            if (!objectsEqual(searchParams, router.values.searchParams)) {
-                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-            }
-
-            return [
-                router.values.location.pathname,
-                router.values.searchParams,
-                router.values.hashParams,
-                { replace: false },
-            ]
-        }
-
-        return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchQuery: () => buildURL(),
-            setFilterTestAccounts: () => buildURL(),
         }
     }),
 ])
 
-function getPropertiesDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
-    const firstSeen = dayjs(issue.first_seen)
+function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
+    const firstSeen = dayjs(timestamp)
     return {
-        date_from: firstSeen.startOf('minute').toISOString(),
-        date_to: firstSeen.endOf('minute').toISOString(),
+        date_from: firstSeen.subtract(1, 'hour').toISOString(),
+        date_to: firstSeen.add(1, 'hour').toISOString(),
     }
-}
-
-function applyFrameOrder(
-    exceptionList: ErrorTrackingException[],
-    frameOrderReversed: boolean
-): ErrorTrackingException[] {
-    if (frameOrderReversed) {
-        return exceptionList
-            .map((exception) => {
-                const copiedException = { ...exception }
-                if (copiedException.stacktrace) {
-                    copiedException.stacktrace = {
-                        ...copiedException.stacktrace,
-                        frames: copiedException.stacktrace.frames.slice().reverse(),
-                    }
-                }
-                return copiedException
-            })
-            .reverse()
-    }
-    return [...exceptionList]
 }
 
 export type ErrorTrackingIssueSummary = {

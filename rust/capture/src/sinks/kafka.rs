@@ -239,8 +239,15 @@ impl KafkaSink {
                 };
 
                 if is_limited {
-                    // Analytics overflow goes to the overflow topic without locality
-                    (&self.overflow_topic, None)
+                    // Analytics overflow goes to the overflow topic
+                    // we configure to retain partition key or not.
+                    // if is_limited is true, the OverflowLimiter is
+                    // configured and is safe to unwrap here.
+                    if self.partition.as_ref().unwrap().should_preserve_locality() {
+                        (&self.overflow_topic, Some(event_key.as_str()))
+                    } else {
+                        (&self.overflow_topic, None)
+                    }
                 } else {
                     // event_key is "<token>:<distinct_id>" for std events or
                     // "<token>:<ip_addr>" for cookieless events
@@ -292,7 +299,9 @@ impl KafkaSink {
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
                     report_dropped_events("kafka_message_size", 1);
-                    Err(CaptureError::EventTooBig)
+                    Err(CaptureError::EventTooBig(
+                        "Event rejected by kafka during send".to_string(),
+                    ))
                 }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
@@ -315,7 +324,9 @@ impl KafkaSink {
             Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
                 // Rejected by broker due to message size
                 report_dropped_events("kafka_message_size", 1);
-                Err(CaptureError::EventTooBig)
+                Err(CaptureError::EventTooBig(
+                    "Event rejected by kafka broker during ack".to_string(),
+                ))
             }
             Ok(Err((err, _))) => {
                 // Unretriable produce error
@@ -410,6 +421,7 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
+            false,
         ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
@@ -530,7 +542,7 @@ mod tests {
         };
 
         match sink.send(big_event).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),
             Ok(()) => panic!("should have errored"),
         };
@@ -540,7 +552,7 @@ mod tests {
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),
             Ok(()) => panic!("should have errored"),
         };

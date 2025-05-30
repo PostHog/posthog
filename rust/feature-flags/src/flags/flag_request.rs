@@ -1,11 +1,29 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::instrument;
 
 use crate::api::errors::FlagError;
+
+fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(serde_json::Number),
+    }
+
+    let opt = Option::<StringOrNumber>::deserialize(deserializer)?;
+    Ok(opt.map(|val| match val {
+        StringOrNumber::String(s) => s,
+        StringOrNumber::Number(n) => n.to_string(),
+    }))
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum FlagRequestType {
@@ -21,7 +39,12 @@ pub struct FlagRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub token: Option<String>,
-    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "$distinct_id",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_distinct_id",
+        default
+    )]
     pub distinct_id: Option<String>,
     pub geoip_disable: Option<bool>,
     #[serde(default)]
@@ -47,6 +70,7 @@ impl FlagRequest {
     #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
         let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
+            println!("failed to decode body: {}", e);
             tracing::debug!("failed to decode body: {}", e);
             FlagError::RequestDecodingError(String::from("invalid body encoding"))
         })?;
@@ -54,6 +78,7 @@ impl FlagRequest {
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
             Err(e) => {
+                println!("failed to parse JSON: {}", e);
                 tracing::debug!("failed to parse JSON: {}", e);
                 Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
@@ -157,6 +182,93 @@ mod tests {
         };
     }
 
+    #[test]
+    fn numeric_distinct_id_is_returned_correctly() {
+        let json = json!({
+            "$distinct_id": 8675309,
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload.extract_distinct_id() {
+            Ok(id) => assert_eq!(id, "8675309"),
+            _ => panic!("expected distinct id"),
+        };
+    }
+
+    #[test]
+    fn missing_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        // First verify the field is None
+        assert_eq!(flag_payload.distinct_id, Option::<String>::None);
+    }
+
+    #[test]
+    fn float_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "$distinct_id": 123.45,
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.distinct_id, Some("123.45".to_string()));
+    }
+
+    #[test]
+    fn test_extract_properties() {
+        let flag_request = FlagRequest {
+            person_properties: Some(HashMap::from([
+                ("key1".to_string(), json!("value1")),
+                ("key2".to_string(), json!(42)),
+            ])),
+            ..Default::default()
+        };
+
+        let properties = flag_request.extract_properties();
+        assert_eq!(properties.len(), 2);
+        assert_eq!(properties.get("key1").unwrap(), &json!("value1"));
+        assert_eq!(properties.get("key2").unwrap(), &json!(42));
+    }
+
+    #[test]
+    fn test_extract_token() {
+        // Test valid token
+        let flag_request = FlagRequest {
+            token: Some("valid_token".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(flag_request.extract_token().unwrap(), "valid_token");
+
+        // Test empty token
+        let flag_request = FlagRequest {
+            token: Some("".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            flag_request.extract_token(),
+            Err(FlagError::NoTokenError)
+        ));
+
+        // Test missing token
+        let flag_request = FlagRequest {
+            token: None,
+            ..Default::default()
+        };
+        assert!(matches!(
+            flag_request.extract_token(),
+            Err(FlagError::NoTokenError)
+        ));
+    }
+
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None);
@@ -183,22 +295,6 @@ mod tests {
             Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
             Err(e) => panic!("Failed to extract and verify token: {:?}", e),
         };
-    }
-
-    #[test]
-    fn test_extract_properties() {
-        let flag_request = FlagRequest {
-            person_properties: Some(HashMap::from([
-                ("key1".to_string(), json!("value1")),
-                ("key2".to_string(), json!(42)),
-            ])),
-            ..Default::default()
-        };
-
-        let properties = flag_request.extract_properties();
-        assert_eq!(properties.len(), 2);
-        assert_eq!(properties.get("key1").unwrap(), &json!("value1"));
-        assert_eq!(properties.get("key2").unwrap(), &json!(42));
     }
 
     #[tokio::test]

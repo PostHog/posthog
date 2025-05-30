@@ -92,7 +92,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 ast.CompareOperation(
                     left=ast.Field(chain=[field]),
                     right=self.query_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )
@@ -113,7 +113,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 ast.CompareOperation(
                     left=ast.Field(chain=[field]),
                     right=self.query_compare_to_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )
@@ -182,7 +182,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def conversion_revenue_expr(self) -> ast.Expr:
-        if not self.team.revenue_config.events:
+        if not self.team.revenue_analytics_config.events:
             return ast.Constant(value=None)
 
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
@@ -190,7 +190,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             revenue_property = next(
                 (
                     event_item.revenueProperty
-                    for event_item in (self.team.revenue_config.events or [])
+                    for event_item in self.team.revenue_analytics_config.events
                     if event_item.eventName == event_name
                 ),
                 None,
@@ -238,7 +238,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_where_expr_for_events(self.team.revenue_config))
+            exprs.append(revenue_where_expr_for_events(self.team.revenue_analytics_config))
 
         return ast.Or(exprs=exprs)
 
@@ -265,7 +265,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                             right=start,
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Lt,
+                            op=ast.CompareOperationOp.LtEq,
                             left=ast.Field(chain=["start_timestamp"]),
                             right=end,
                         ),
@@ -282,7 +282,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
-                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
                     "date_from": self.query_date_range.previous_period_date_from_as_hogql()
                     if include_previous_period
@@ -356,7 +356,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                     placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
                 ),
                 parse_expr(
-                    "events.timestamp < {date_to}",
+                    "events.timestamp <= {date_to}",
                     placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
                 ),
             ],

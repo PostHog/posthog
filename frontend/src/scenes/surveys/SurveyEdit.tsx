@@ -12,7 +12,6 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
-    LemonTag,
     LemonTextArea,
     Link,
     Popover,
@@ -62,8 +61,7 @@ import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogi
 import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { survey, dataCollectionType } = useValues(surveyLogic)
+    const { survey, dataCollectionType, isPartialResponsesEnabled, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
         useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
@@ -82,9 +80,7 @@ function SurveyCompletionConditions(): JSX.Element {
         },
     ]
 
-    const adaptiveLimitFFEnabled = featureFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
-
-    if (adaptiveLimitFFEnabled) {
+    if (isAdaptiveLimitFFEnabled) {
         surveyLimitOptions.push({
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
@@ -221,7 +217,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
-            {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && <SurveyResponsesCollection />}
+            {isPartialResponsesEnabled && <SurveyResponsesCollection />}
         </div>
     )
 }
@@ -341,9 +337,9 @@ export default function SurveyEdit(): JSX.Element {
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
-                                                        <LemonTag type="warning" className="uppercase">
-                                                            Beta
-                                                        </LemonTag>
+                                                        <button className="bg-black -rotate-90 py-2 px-3 min-w-[40px] absolute -right-4 -bottom-16">
+                                                            Feedback
+                                                        </button>
                                                     </PresentationTypeCard>
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
@@ -1099,7 +1095,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
+            <div className="flex flex-col items-center h-full sticky top-0 pt-16 min-w-xs">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}

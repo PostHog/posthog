@@ -337,7 +337,7 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <div className="p-4">
+                <div className="p-4 max-w-160 max-h-160 overflow-auto">
                     <div className="flex flex-row w-full">
                         <h2 className="flex-1">{title}</h2>
                         <LemonButton
@@ -398,8 +398,27 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
             label: (
                 <div className="flex items-center gap-1">
                     Page reports
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+        },
+    ]
+}
+
+const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+        return []
+    }
+    return [
+        {
+            key: ProductTab.MARKETING,
+            label: (
+                <div className="flex items-center gap-1">
+                    Marketing
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
                     </LemonTag>
                 </div>
             ),
@@ -435,6 +454,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
                                 ...pageReportsTab(featureFlags),
+                                ...marketingTab(featureFlags),
                             ]}
                         />
 

@@ -1,5 +1,7 @@
-import { IconInfo } from '@posthog/icons'
-import { useValues } from 'kea'
+import { IconInfo, IconLineGraph } from '@posthog/icons'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -17,7 +19,7 @@ import {
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
-import { revenueEventsSettingsLogic } from '../settings/revenueEventsSettingsLogic'
+import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.REVENUE_GROWTH_RATE
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -27,37 +29,83 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 }
 
 export const RevenueGrowthRateTile = (): JSX.Element => {
-    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
 
-    const { queries } = useValues(revenueAnalyticsLogic)
+    const { queries, growthRateDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
+    const { setGrowthRateDisplayMode } = useActions(revenueAnalyticsLogic)
+
     const query = queries[QUERY_ID]
 
     const columns: QueryContext['columns'] = useMemo(() => {
         return {
             month: { title: 'Month' },
-            mrr: {
-                title: 'MRR',
-                render: ({ value }) => <MRRCell value={value as number} currency={baseCurrency} />,
+            revenue: {
+                title: 'Revenue',
+                render: ({ value }) => <RevenueCell value={value as number} currency={baseCurrency} />,
             },
-            previous_mrr: {
-                title: 'Previous MRR',
-                render: ({ value }) => <MRRCell value={value as number} currency={baseCurrency} />,
+            previous_month_revenue: {
+                title: 'Prev revenue',
+                render: ({ value }) => <RevenueCell value={value as number} currency={baseCurrency} />,
             },
-            mrr_growth_rate: {
-                title: 'MRR Growth Rate',
+            month_over_month_growth_rate: {
+                title: 'Growth Rate',
                 render: ({ value, recordIndex, rowCount }) => (
-                    <MRRGrowthRateCell value={value as number} isLast={recordIndex === rowCount - 1} />
+                    <RevenueGrowthRateCell
+                        value={value as number}
+                        hasIncompleteMonthNotice={recordIndex === rowCount - 1}
+                    />
                 ),
+            },
+            three_month_growth_rate: {
+                title: '3M Growth Rate',
+                render: ({ value }) => <RevenueGrowthRateCell value={value as number} />,
+            },
+            six_month_growth_rate: {
+                title: '6M Growth Rate',
+                render: ({ value }) => <RevenueGrowthRateCell value={value as number} />,
             },
         }
     }, [baseCurrency])
 
     const context = useMemo(() => ({ columns, insightProps: { ...INSIGHT_PROPS, query } }), [query, columns])
 
-    return <Query query={query} readOnly context={context} />
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex flex-row justify-between">
+                <h3 className="text-lg font-semibold">
+                    Revenue growth rate&nbsp;
+                    <Tooltip title="Growth rate is the percentage change in revenue compared to the previous month. You can also see the more stable average growth rate for the last 3 and 6 months.">
+                        <IconInfo />
+                    </Tooltip>
+                </h3>
+
+                <LemonSegmentedButton
+                    value={growthRateDisplayMode}
+                    onChange={setGrowthRateDisplayMode}
+                    options={[
+                        {
+                            value: 'line',
+                            icon: <IconLineGraph />,
+                            disabledReason: disabledGrowthModeSelection
+                                ? 'Select data that spans multiple months to see growth rate as a line graph'
+                                : undefined,
+                        },
+                        { value: 'table', icon: <IconTableChart /> },
+                    ]}
+                    size="small"
+                />
+            </div>
+
+            <Query query={query} readOnly context={context} />
+        </div>
+    )
 }
 
-const MRRCell = ({ value, currency }: { value: number; currency: CurrencyCode }): JSX.Element => {
+const RevenueCell = ({ value, currency }: { value: number | null; currency: CurrencyCode }): JSX.Element | null => {
+    if (value === null) {
+        return null
+    }
+
     const { symbol, isPrefix } = getCurrencySymbol(currency)
     return (
         <span>
@@ -68,14 +116,24 @@ const MRRCell = ({ value, currency }: { value: number; currency: CurrencyCode })
     )
 }
 
-const MRRGrowthRateCell = ({ value, isLast }: { value: number; isLast: boolean }): JSX.Element => {
+const RevenueGrowthRateCell = ({
+    value,
+    hasIncompleteMonthNotice,
+}: {
+    value: number | null
+    hasIncompleteMonthNotice?: boolean
+}): JSX.Element | null => {
+    if (value === null) {
+        return null
+    }
+
     const asNumber = Number(value)
     const percentage = (asNumber * 100).toFixed(2)
     const isPositive = asNumber > 0
     return (
         <span className={cn('text-sm', isPositive ? 'text-green-500' : 'text-red-500')}>
             {percentage}%
-            {isLast && (
+            {hasIncompleteMonthNotice && (
                 <Tooltip title="Given that the month hasn't finished yet, growth rate is not final">
                     <IconInfo className="ml-1" />
                 </Tooltip>

@@ -57,37 +57,214 @@ export function GroupDashboardCard(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <QueryCard
-                title="Weekly active users"
-                description={`Shows the number of unique users from this ${groupTypeName} in the last 90 days`}
-                query={
-                    {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            interval: 'week',
-                            dateRange: {
-                                date_from: '-90d',
-                            },
-                            series: [
-                                {
-                                    kind: NodeKind.EventsNode,
-                                    math: 'dau',
-                                    event: null,
-                                    properties: [
+            <div className="grid grid-cols-2 gap-2">
+                <QueryCard
+                    title="Top paths"
+                    description={`Shows the most popular pages viewed by this ${groupTypeName} in the last 30 days`}
+                    query={
+                        {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        event: '$pageview',
+                                        name: '$pageview',
+                                        properties: [
+                                            {
+                                                key: '$pathname',
+                                                value: ['/'],
+                                                operator: 'is_not',
+                                                type: 'event',
+                                            },
+                                            {
+                                                key: `$group_${groupData.group_type_index}`,
+                                                value: groupData.group_key,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                        math: 'unique_session',
+                                    },
+                                ],
+                                trendsFilter: {
+                                    display: 'ActionsBarValue',
+                                },
+                                breakdownFilter: {
+                                    breakdowns: [
                                         {
-                                            key: `$group_${groupData.group_type_index}`,
-                                            value: groupData.group_key,
-                                            operator: PropertyOperator.Exact,
+                                            property: '$pathname',
+                                            type: 'event',
+                                            normalize_url: true,
                                         },
                                     ],
                                 },
-                            ],
-                        },
-                    } as Node
-                }
-                context={{ refresh: 'force_blocking' }}
-            />
+                                dateRange: {
+                                    date_from: '-30d',
+                                    date_to: null,
+                                    explicitDate: false,
+                                },
+                                interval: 'day',
+                            },
+                            full: true,
+                        } as Node
+                    }
+                    context={{ refresh: 'force_blocking' }}
+                />
+                <QueryCard
+                    title="Top events"
+                    description={`Shows the most popular events by this ${groupTypeName} in the last 30 days`}
+                    query={
+                        {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        event: null,
+                                        name: 'All events',
+                                        properties: [
+                                            {
+                                                key: `$group_${groupData.group_type_index}`,
+                                                value: groupData.group_key,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                        math: 'total',
+                                    },
+                                ],
+                                trendsFilter: {
+                                    display: 'ActionsBarValue',
+                                },
+                                breakdownFilter: {
+                                    breakdowns: [
+                                        {
+                                            property: 'event',
+                                            type: 'event_metadata',
+                                        },
+                                    ],
+                                },
+                                dateRange: {
+                                    date_from: '-30d',
+                                    date_to: null,
+                                    explicitDate: false,
+                                },
+                                interval: 'day',
+                            },
+                            full: true,
+                        } as Node
+                    }
+                    context={{ refresh: 'force_blocking' }}
+                />
+                <QueryCard
+                    title="Weekly active users"
+                    description={`Shows the number of unique users from this ${groupTypeName} in the last 90 days`}
+                    query={
+                        {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                interval: 'week',
+                                dateRange: {
+                                    date_from: '-90d',
+                                },
+                                series: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        math: 'dau',
+                                        event: null,
+                                        properties: [
+                                            {
+                                                key: `$group_${groupData.group_type_index}`,
+                                                value: groupData.group_key,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        } as Node
+                    }
+                    context={{ refresh: 'force_blocking' }}
+                />
+                <QueryCard
+                    title="Monthly active users"
+                    description={`Shows the number of unique users from this ${groupTypeName} in the last year`}
+                    query={
+                        {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                interval: 'month',
+                                dateRange: {
+                                    date_from: '-365d',
+                                },
+                                series: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        math: 'dau',
+                                        event: null,
+                                        properties: [
+                                            {
+                                                key: `$group_${groupData.group_type_index}`,
+                                                value: groupData.group_key,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        } as Node
+                    }
+                    context={{ refresh: 'force_blocking' }}
+                />
+                <QueryCard
+                    title="Retained users"
+                    description={`Shows the number of users from this ${groupTypeName} who returned seven days after their first visit`}
+                    query={
+                        {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                retentionFilter: {
+                                    period: 'Day',
+                                    targetEntity: {
+                                        id: '$pageview',
+                                        name: '$pageview',
+                                        type: 'events',
+                                    },
+                                    retentionType: 'retention_first_time',
+                                    totalIntervals: 8,
+                                    returningEntity: {
+                                        id: '$pageview',
+                                        name: '$pageview',
+                                        type: 'events',
+                                    },
+                                    meanRetentionCalculation: 'simple',
+                                },
+                                properties: {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            type: 'AND',
+                                            values: [
+                                                {
+                                                    type: 'hogql',
+                                                    key: `$group_${groupData.group_type_index}='${groupData.group_key}'`,
+                                                    value: null,
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
+                            full: true,
+                        } as Node
+                    }
+                    context={{ refresh: 'force_blocking' }}
+                />
+            </div>
             <div className="flex justify-end">
                 <LemonButton
                     type="secondary"

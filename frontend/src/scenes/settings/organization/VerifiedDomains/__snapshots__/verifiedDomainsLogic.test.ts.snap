@@ -123,18 +123,46 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
-        "revenue_tracking_config": {
-          "baseCurrency": "USD",
+        "revenue_analytics_config": {
+          "base_currency": "USD",
           "events": [
             {
+              "currencyAwareDecimal": false,
               "eventName": "purchase",
               "revenueCurrencyProperty": {
                 "static": "ZAR",
               },
               "revenueProperty": "value",
             },
+            {
+              "currencyAwareDecimal": true,
+              "eventName": "subscription_created",
+              "revenueCurrencyProperty": {
+                "property": "currency",
+              },
+              "revenueProperty": "subscription_value",
+            },
+          ],
+          "goals": [
+            {
+              "due_date": "2020-12-31",
+              "goal": 1000000,
+              "name": "2020 Q4",
+            },
+            {
+              "due_date": "2035-12-31",
+              "goal": 10000000,
+              "name": "2035 Q4",
+            },
+            {
+              "due_date": "2045-12-31",
+              "goal": 100000000,
+              "name": "2045 Q4",
+            },
           ],
         },
+        "secret_api_token": "phs_default-team-secret-api-token",
+        "secret_api_token_backup": "phs_default-team-secret-api-token-backup",
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {
           "maskAllInputs": true,

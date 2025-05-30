@@ -15,11 +15,10 @@ describe('mergeIssues', () => {
                 occurrences: 250,
                 sessions: 100,
                 users: 50,
-                volumeDay: [10, 5, 10, 20, 50],
                 volumeRange: [0, 0, 10, 25, 95],
             },
+            library: 'web',
             status: 'active',
-            earliest: '',
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -34,11 +33,10 @@ describe('mergeIssues', () => {
                     occurrences: 10,
                     sessions: 5,
                     users: 1,
-                    volumeDay: [1, 1, 2, 1, 2],
                     volumeRange: [0, 0, 0, 0, 1],
                 },
+                library: 'web',
                 status: 'active',
-                earliest: '',
             },
             {
                 id: 'thirdId',
@@ -51,11 +49,10 @@ describe('mergeIssues', () => {
                     occurrences: 1,
                     sessions: 1,
                     users: 1,
-                    volumeDay: [5, 10, 2, 3, 5],
                     volumeRange: [0, 0, 0, 1, 0],
                 },
+                library: 'web',
                 status: 'active',
-                earliest: '',
             },
             {
                 id: 'fourthId',
@@ -68,11 +65,10 @@ describe('mergeIssues', () => {
                     occurrences: 1000,
                     sessions: 500,
                     users: 50,
-                    volumeDay: [10, 100, 200, 300, 700],
                     volumeRange: [0, 500, 1500, 1000, 1310],
                 },
+                library: 'web',
                 status: 'active',
-                earliest: '',
             },
         ]
 
@@ -83,20 +79,18 @@ describe('mergeIssues', () => {
             id: 'primaryId',
             assignee: { type: 'user', id: 400 },
             description: 'This is the original description',
-            earliest: '',
             name: 'TypeError',
             status: 'active',
             // earliest first_seen
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
+            library: 'web',
             aggregations: {
                 // sums counts
                 occurrences: 1261,
                 sessions: 606,
                 users: 102,
-                // sums volumes
-                volumeDay: [26, 116, 214, 324, 757],
                 volumeRange: [0, 500, 1510, 1026, 1406],
             },
         })

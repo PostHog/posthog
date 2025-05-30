@@ -1202,9 +1202,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for idx, (timezone_offset, before_session_id, after_session_id) in enumerate(
             [
                 (0, str(uuid7(before_date)), str(uuid7(after_date))),  # UTC
-                (330, str(uuid7(before_date)), str(uuid7(after_date))),  # Calcutta UTC+5:30
-                (-240, str(uuid7(before_date)), str(uuid7(after_date))),  # New York UTC-4
-                (-180, str(uuid7(before_date)), str(uuid7(after_date))),  # Brasilia UTC-3
+                (-330, str(uuid7(before_date)), str(uuid7(after_date))),  # Calcutta UTC+5:30
+                (240, str(uuid7(before_date)), str(uuid7(after_date))),  # New York UTC-4
+                (180, str(uuid7(before_date)), str(uuid7(after_date))),  # Brasilia UTC-3
             ]
         ):
             _create_person(
@@ -1506,6 +1506,60 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.conversion_rate",
             "context.columns.cross_sell",
         ] == response.columns
+
+    def test_bounce_rate_with_multiple_pathname_filters(self):
+        self._create_pageviews(
+            "user1",
+            [
+                ("/onboarding/portfolio-selection", "2023-12-02T12:00:00", 0.5),
+                ("/", "2023-12-02T12:00:30", 0.3),
+            ],
+        )
+
+        self._create_pageviews(
+            "user2",
+            [
+                ("/", "2023-12-02T12:00:00", 0.1),
+            ],
+        )
+
+        self._create_pageviews(
+            "user3",
+            [
+                ("/onboarding/portfolio-selection", "2023-12-02T12:00:00", 0.1),
+            ],
+        )
+
+        self._create_pageviews(
+            "user4",
+            [
+                ("/onboarding/goals", "2023-12-02T12:00:30", 0.8),
+                ("/onboarding/funding", "2023-12-02T12:01:00", 0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.EXACT, value=["/onboarding/portfolio-selection", "/"]
+                ),
+            ],
+        ).results
+
+        assert len(results) == 2
+
+        portfolio_row = next((row for row in results if row[0] == "/onboarding/portfolio-selection"), None)
+        home_row = next((row for row in results if row[0] == "/"), None)
+
+        assert portfolio_row is not None
+        assert home_row is not None
+
+        assert portfolio_row[3][0] == 0.5  # 50% bounce rate (1 of 2 sessions bounced)
+        assert home_row[3][0] == 1.0  # 100% bounce rate (1 of 1 sessions bounced)
 
     def test_sorting_by_visitors(self):
         s1 = str(uuid7("2023-12-01"))

@@ -358,6 +358,11 @@ export function IconChevronRight(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Blank space icon icon. */
+export function IconBlank(props: LemonIconProps): JSX.Element {
+    return <LemonIconBase fill="currentColor" {...props} />
+}
+
 /** Material Design Radio Button Unchecked icon. */
 export function IconRadioButtonUnchecked(props: LemonIconProps): JSX.Element {
     return (
@@ -1502,6 +1507,14 @@ export function IconFingerprint(props: LemonIconProps): JSX.Element {
                 strokeLinecap="round"
                 strokeLinejoin="round"
             />
+        </LemonIconBase>
+    )
+}
+
+export function IconSlash(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 21 21" {...props}>
+            <path d="m12.5 3.5-4 14" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
         </LemonIconBase>
     )
 }

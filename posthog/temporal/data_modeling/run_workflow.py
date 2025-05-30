@@ -1,11 +1,11 @@
 import asyncio
-import collections
 import collections.abc
 import dataclasses
 import datetime as dt
 import enum
 import itertools
 import json
+import os
 import re
 import typing
 import uuid
@@ -13,7 +13,6 @@ import uuid
 import dlt
 import dlt.common.data_types as dlt_data_types
 import dlt.common.schema.typing as dlt_typing
-import dlt.extract
 import structlog
 import temporalio.activity
 import temporalio.common
@@ -23,6 +22,8 @@ from deltalake import DeltaTable
 from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -33,12 +34,18 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
+from posthog.warehouse.models import (
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+)
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
-from posthog.clickhouse.client.connection import Workload
 
 logger = structlog.get_logger()
+
+# preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
+os.environ["SCHEMA__NAMING"] = "direct"
 
 CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
     "UUID": "text",
@@ -72,6 +79,12 @@ CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns where returned")
+
+
+class DataModelingCancelledException(Exception):
+    """Exception raised when a data modeling job is cancelled."""
+
+    pass
 
 
 @dataclasses.dataclass(frozen=True)
@@ -112,6 +125,7 @@ class RunDagActivityInputs:
 
     team_id: int
     dag: DAG
+    job_id: str
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -191,11 +205,10 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     async with Heartbeater():
         while True:
             message = await queue.get()
-
             match message:
                 case QueueMessage(status=ModelStatus.READY, label=label):
                     model = inputs.dag[label]
-                    task = asyncio.create_task(handle_model_ready(model, inputs.team_id, queue))
+                    task = asyncio.create_task(handle_model_ready(model, inputs.team_id, queue, inputs.job_id))
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
@@ -269,7 +282,7 @@ class CannotCoerceColumnException(Exception):
     pass
 
 
-async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue[QueueMessage]) -> None:
+async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue[QueueMessage], job_id: str) -> None:
     """Handle a model that is ready to run by materializing.
 
     After materializing is done, we can report back to the execution queue the result. If
@@ -285,18 +298,24 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
-            workflow_id = temporalio.activity.info().workflow_id
-            workflow_run_id = temporalio.activity.info().workflow_run_id
-
             saved_query = await get_saved_query(team, model.label)
-            job = await start_job_modeling_run(team, workflow_id, workflow_run_id, saved_query)
+            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
+            key, delta_table, _ = await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
+        await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
+        await logger.aexception("Type coercion error for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Type coercion error for model %s: %s")
+    except DataModelingCancelledException as err:
+        await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
+        await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s")
     except Exception as err:
+        await logger.aexception(
+            "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
+        )
+        capture_exception(err)
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
         await logger.ainfo("Materialized model %s", model.label)
@@ -309,18 +328,25 @@ async def handle_error(
     job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
 ):
     if job:
+        await logger.ainfo("Marking job %s as failed", job.id)
         job.status = DataModelingJob.Status.FAILED
         job.error = str(error)
         await database_sync_to_async(job.save)()
-        await logger.aexception(error_message, model.label, str(error))
-    else:
-        await logger.aexception("No job found for model %s", model.label)
+    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
+
+async def handle_cancelled(
+    job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
+):
+    if job:
+        job.status = DataModelingJob.Status.CANCELLED
+        job.error = str(error)
+        await database_sync_to_async(job.save)()
     await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
 async def start_job_modeling_run(
-    team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery
+    team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery | None
 ) -> DataModelingJob:
     """Create a DataModelingJob record in an async-safe way."""
     job_create = database_sync_to_async(DataModelingJob.objects.create)
@@ -330,7 +356,7 @@ async def start_job_modeling_run(
         status=DataModelingJob.Status.RUNNING,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
-        created_by_id=saved_query.created_by_id,
+        created_by_id=saved_query.created_by_id if saved_query is not None else None,
     )
 
 
@@ -416,18 +442,24 @@ async def materialize_model(
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
+            error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
+            await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message)
             raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
 
-    tables = get_delta_tables(pipeline)
+    data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
+    if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
+        raise DataModelingCancelledException("Data modeling run was cancelled")
 
+    tables = get_delta_tables(pipeline)
     for table in tables.values():
         table.optimize.compact()
         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
         file_uris = table.file_uris()
 
-        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
+        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris, True)
 
     if not tables:
         saved_query.latest_error = f"No tables were created by pipeline for model {model_label}"
@@ -453,6 +485,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str) -> None:
     """
     Mark DataModelingJob as failed
     """
+    await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
@@ -478,8 +511,12 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
             await database_sync_to_async(table.save)()
             await logger.ainfo("Updated row count for table %s to %d", saved_query.name, row_count)
         else:
+            capture_exception(
+                ValueError(f"Could not find DataWarehouseTable record for saved query {saved_query.name}")
+            )
             await logger.aexception("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
     except Exception as e:
+        capture_exception(e)
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
@@ -492,6 +529,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
         )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
 
+        # Pass the query_type parameter to influence tags in a thread safe way
         response = await asyncio.to_thread(
             execute_hogql_query,
             query,
@@ -499,6 +537,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
             workload=Workload.OFFLINE,
+            query_type="materialization",
         )
 
         if not response.columns:
@@ -703,6 +742,28 @@ class StartRunActivityInputs:
         }
 
 
+@dataclasses.dataclass
+class CreateJobModelInputs:
+    team_id: int
+    select: list[Selector]
+
+
+@temporalio.activity.defn
+async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    workflow_id = temporalio.activity.info().workflow_id
+    workflow_run_id = temporalio.activity.info().workflow_run_id
+
+    if len(inputs.select) != 0:
+        label = inputs.select[0].label
+        saved_query = await get_saved_query(team, label)
+        job = await start_job_modeling_run(team, workflow_id, workflow_run_id, saved_query)
+    else:
+        job = await start_job_modeling_run(team, workflow_id, workflow_run_id, None)
+
+    return str(job.id)
+
+
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
@@ -799,6 +860,38 @@ async def update_saved_query_status(
 
 
 @dataclasses.dataclass
+class CancelJobsActivityInputs:
+    workflow_id: str
+    workflow_run_id: str
+    team_id: int
+
+
+@dataclasses.dataclass
+class FailJobsActivityInputs:
+    job_id: str
+    error: str
+
+
+@temporalio.activity.defn
+async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
+    """Activity to cancel data modeling jobs."""
+    await database_sync_to_async(
+        DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
+    )(status=DataModelingJob.Status.CANCELLED)
+    await logger.ainfo(
+        "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+    )
+
+
+@temporalio.activity.defn
+async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
+    """Activity to fail data modeling jobs."""
+    job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
+
+    await mark_job_as_failed(job, inputs.error)
+
+
+@dataclasses.dataclass
 class RunWorkflowInputs:
     """Inputs to `RunWorkflow`.
 
@@ -833,11 +926,21 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        job_id = await temporalio.workflow.execute_activity(
+            create_job_model_activity,
+            CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        )
+
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
         dag = await temporalio.workflow.execute_activity(
             build_dag_activity,
             build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -859,15 +962,63 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag)
-        results = await temporalio.workflow.execute_activity(
-            run_dag_activity,
-            run_model_activity_inputs,
-            start_to_close_timeout=dt.timedelta(hours=1),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=1,
-            ),
-        )
+        # Run the DAG
+        run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=job_id)
+        try:
+            results = await temporalio.workflow.execute_activity(
+                run_dag_activity,
+                run_model_activity_inputs,
+                start_to_close_timeout=dt.timedelta(hours=1),
+                heartbeat_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                ),
+                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                workflow_id = temporalio.workflow.info().workflow_id
+                workflow_run_id = temporalio.workflow.info().run_id
+                try:
+                    await temporalio.workflow.execute_activity(
+                        cancel_jobs_activity,
+                        CancelJobsActivityInputs(
+                            workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=3,
+                        ),
+                    )
+                except Exception as cancel_err:
+                    capture_exception(cancel_err)
+                    temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
+                    raise
+                raise
+
+            capture_exception(e)
+            temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
+
+            await temporalio.workflow.execute_activity(
+                fail_jobs_activity,
+                FailJobsActivityInputs(job_id=job_id, error=str(e)),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+            raise
+        except Exception as e:
+            await temporalio.workflow.execute_activity(
+                fail_jobs_activity,
+                FailJobsActivityInputs(job_id=job_id, error=str(e)),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+            raise
+
         completed, failed, ancestor_failed = results
 
         # publish metrics

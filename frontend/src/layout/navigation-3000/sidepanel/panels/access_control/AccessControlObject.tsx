@@ -8,8 +8,6 @@ import {
     LemonSelect,
     LemonSelectProps,
     LemonTable,
-    LemonTag,
-    Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -24,8 +22,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    AccessControlType,
+    AccessControlLevel,
     AccessControlTypeMember,
+    AccessControlTypeOrganizationAdmins,
     AccessControlTypeRole,
     AvailableFeature,
     OrganizationMemberType,
@@ -40,28 +39,32 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>
-            <div className="deprecated-space-y-6">
-                {canEditAccessControls === false ? (
-                    <LemonBanner type="warning">
-                        <b>Permission required</b>
-                        <br />
-                        You don't have permission to edit access controls for {suffix}. You must be the{' '}
-                        <i>creator of it</i>, a <i>Project admin</i>, or an <i>Organization admin</i>.
-                    </LemonBanner>
-                ) : null}
+            <div>
+                <h2>{props.title}</h2>
+                <p>{props.description}</p>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                    <div className="deprecated-space-y-6">
+                        {canEditAccessControls === false ? (
+                            <LemonBanner type="warning">
+                                <b>Permission required</b>
+                                <br />
+                                You don't have permission to edit access controls for {suffix}. You must be the{' '}
+                                <i>creator of it</i>, a <i>Project admin</i>, or an <i>Organization admin</i>.
+                            </LemonBanner>
+                        ) : null}
 
-                <div className="deprecated-space-y-2">
-                    <h3>Default access to {suffix}</h3>
-                    <AccessControlObjectDefaults />
-                </div>
+                        <div className="deprecated-space-y-2">
+                            <h3>Default access to {suffix}</h3>
+                            <AccessControlObjectDefaults />
+                        </div>
 
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="deprecated-space-y-6">
-                    <AccessControlObjectUsers />
+                        <AccessControlObjectUsers />
 
-                    {/* Put this inside of Advanced Permissions so two aren't shown at once */}
-                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                        <AccessControlObjectRoles />
-                    </PayGateMini>
+                        {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                            <AccessControlObjectRoles />
+                        </PayGateMini>
+                    </div>
                 </PayGateMini>
             </div>
         </BindLogic>
@@ -80,7 +83,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
             value={accessControlDefault?.access_level ?? undefined}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => {
-                    updateAccessControlDefault(newValue)
+                    updateAccessControlDefault(newValue as AccessControlLevel)
                 })
             }}
             disabledReason={
@@ -95,6 +98,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
 function AccessControlObjectUsers(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const {
+        resource,
         membersById,
         addableMembers,
         accessControlMembers,
@@ -115,43 +119,71 @@ function AccessControlObjectUsers(): JSX.Element | null {
         return membersById[ac.organization_member]
     }
 
-    // TODO: WHAT A MESS - Fix this to do the index mapping beforehand...
-    const columns: LemonTableColumns<AccessControlTypeMember> = [
+    // TODO(@zach): show project admins (that are not organization admins) in the table
+    const columns: LemonTableColumns<AccessControlTypeMember | AccessControlTypeOrganizationAdmins> = [
         {
             key: 'user',
             title: 'User',
-            render: (_, ac) => (
-                <div className="flex items-center gap-2">
-                    <ProfilePicture user={member(ac)?.user} />
-                    <div>
-                        <p className="font-medium mb-0">
-                            {member(ac)?.user.uuid == user.uuid
-                                ? `${member(ac)?.user.first_name} (you)`
-                                : member(ac)?.user.first_name}
+            render: (_, ac) =>
+                ac.resource === 'organization' ? (
+                    <div className="flex gap-1 py-1">
+                        <ProfileBubbles
+                            limit={3}
+                            people={(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members?.map(
+                                (member) => ({
+                                    email: membersById[member]?.user.email,
+                                    name: membersById[member]?.user.first_name,
+                                })
+                            )}
+                        />
+                        <p className="text-secondary mb-0">
+                            {(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members.length > 1
+                                ? 'have access as organization admins'
+                                : 'has access as an organization admin'}
                         </p>
-                        <p className="text-secondary mb-0">{member(ac)?.user.email}</p>
                     </div>
-                </div>
-            ),
-            sorter: (a, b) => member(a)?.user.first_name.localeCompare(member(b)?.user.first_name),
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={member(ac as AccessControlTypeMember)?.user} />
+                        <div>
+                            <p className="font-medium mb-0">
+                                {member(ac as AccessControlTypeMember)?.user.uuid == user.uuid
+                                    ? `${member(ac as AccessControlTypeMember)?.user.first_name} (you)`
+                                    : member(ac as AccessControlTypeMember)?.user.first_name}
+                            </p>
+                            <p className="text-secondary mb-0">{member(ac as AccessControlTypeMember)?.user.email}</p>
+                        </div>
+                    </div>
+                ),
+            sorter: (a, b) =>
+                member(a as AccessControlTypeMember)?.user.first_name.localeCompare(
+                    member(b as AccessControlTypeMember)?.user.first_name
+                ),
         },
         {
             key: 'level',
             title: 'Level',
             width: 0,
-            render: function LevelRender(_, { access_level, organization_member, resource }) {
-                return resource === 'organization' ? (
-                    <Tooltip title="Organization owners and admins have access to all resources in the organization">
-                        <LemonTag type="muted">Organization admin</LemonTag>
-                    </Tooltip>
+            render: function LevelRender(_, ac) {
+                return ac.resource === 'organization' ? (
+                    <div className="my-1">
+                        {/* Shown as disabled for visibility */}
+                        <SimplLevelComponent
+                            size="small"
+                            level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
+                            disabled={true}
+                            levels={availableLevels}
+                            onChange={() => {}}
+                        />
+                    </div>
                 ) : (
                     <div className="my-1">
                         <SimplLevelComponent
                             size="small"
-                            level={access_level}
+                            level={ac.access_level}
                             levels={availableLevels}
                             onChange={(level) =>
-                                void updateAccessControlMembers([{ member: organization_member, level }])
+                                void updateAccessControlMembers([{ member: ac.organization_member as string, level }])
                             }
                         />
                     </div>
@@ -161,12 +193,12 @@ function AccessControlObjectUsers(): JSX.Element | null {
         {
             key: 'remove',
             width: 0,
-            render: (_, { organization_member, resource }) => {
-                return resource === 'organization' ? null : (
+            render: (_, ac) => {
+                return ac.resource === 'organization' ? null : (
                     <RemoveAccessButton
                         subject="member"
                         onConfirm={() =>
-                            void updateAccessControlMembers([{ member: organization_member, level: null }])
+                            void updateAccessControlMembers([{ member: ac.organization_member as string, level: null }])
                         }
                     />
                 )
@@ -325,9 +357,10 @@ function AccessControlObjectRoles(): JSX.Element | null {
 
 function SimplLevelComponent(props: {
     size?: LemonSelectProps<any>['size']
-    level: AccessControlType['access_level'] | null
-    levels: AccessControlType['access_level'][]
-    onChange: (newValue: AccessControlType['access_level']) => void
+    level: AccessControlLevel | null
+    levels: AccessControlLevel[]
+    onChange: (newValue: AccessControlLevel) => void
+    disabled?: boolean
 }): JSX.Element | null {
     const { canEditAccessControls } = useValues(accessControlLogic)
 
@@ -336,8 +369,8 @@ function SimplLevelComponent(props: {
             size={props.size}
             placeholder="Select level..."
             value={props.level}
-            onChange={(newValue) => props.onChange(newValue)}
-            disabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
+            onChange={(newValue) => props.onChange(newValue as AccessControlLevel)}
+            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined}
             options={props.levels.map((level) => ({
                 value: level,
                 label: capitalizeFirstLetter(level ?? ''),
@@ -379,7 +412,7 @@ function AddItemsControlsModal(props: {
     modelOpen: boolean
     setModelOpen: (open: boolean) => void
     placeholder: string
-    onAdd: (newValues: string[], level: AccessControlType['access_level']) => Promise<void>
+    onAdd: (newValues: string[], level: AccessControlLevel) => Promise<void>
     options: {
         key: string
         label: string
@@ -388,7 +421,7 @@ function AddItemsControlsModal(props: {
     const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
-    const [level, setLevel] = useState<AccessControlType['access_level']>(availableLevels[0] ?? null)
+    const [level, setLevel] = useState<AccessControlLevel>(availableLevels[0] ?? null)
 
     useEffect(() => {
         setLevel(availableLevels[0] ?? null)

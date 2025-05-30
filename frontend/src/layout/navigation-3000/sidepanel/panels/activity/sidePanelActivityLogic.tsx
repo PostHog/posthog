@@ -1,5 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
@@ -91,37 +91,10 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values, cache }) => ({
+    lazyLoaders(({ actions, values, cache }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
-                markAllAsRead: async () => {
-                    const current = values.importantChanges
-                    if (!current) {
-                        return null
-                    }
-
-                    const latestNotification = values.notifications.reduce((a, b) =>
-                        a.created_at.isAfter(b.created_at) ? a : b
-                    )
-
-                    if (!latestNotification.unread) {
-                        return current
-                    }
-
-                    await api.create(
-                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
-                        {
-                            bookmark: latestNotification.created_at.toISOString(),
-                        }
-                    )
-
-                    return {
-                        last_read: latestNotification.created_at.toISOString(),
-                        next: current.next,
-                        results: current.results.map((ic) => ({ ...ic, unread: false })),
-                    }
-                },
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
                     await breakpoint(1)
 
@@ -146,6 +119,35 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                             ? POLL_TIMEOUT * values.errorCounter
                             : POLL_TIMEOUT
                         cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
+                    }
+                },
+                markAllAsRead: async () => {
+                    const current = values.importantChanges
+                    if (!current) {
+                        return null
+                    }
+
+                    const latestNotification = values.notifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    )
+
+                    const hasUnread = values.notifications.some((ic) => ic.unread)
+
+                    if (!hasUnread) {
+                        return current
+                    }
+
+                    await api.create(
+                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
+                        {
+                            bookmark: latestNotification.created_at.toISOString(),
+                        }
+                    )
+
+                    return {
+                        last_read: latestNotification.created_at.toISOString(),
+                        next: current.next,
+                        results: current.results.map((ic) => ({ ...ic, unread: false })),
                     }
                 },
             },
@@ -289,8 +291,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadImportantChanges()
-
         const activityFilters = values.sceneSidePanelContext
         actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
     }),

@@ -1,3 +1,5 @@
+import { EventType, PersonType } from '~/types'
+
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
     module: string
@@ -59,4 +61,52 @@ export interface ErrorTrackingSymbolSet {
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null
+}
+
+interface FingerprintFrame {
+    type: 'frame'
+    raw_id: string
+    pieces: string[]
+}
+
+interface FingerprintException {
+    type: 'exception'
+    id: string // Exception ID
+    pieces: string[]
+}
+
+interface FingerprintManual {
+    type: 'manual'
+}
+
+export type FingerprintRecordPart = FingerprintManual | FingerprintFrame | FingerprintException
+
+export interface ExceptionAttributes {
+    ingestionErrors?: string[]
+    runtime: ErrorTrackingRuntime
+    type?: string
+    value?: string
+    synthetic?: boolean
+    lib?: string
+    libVersion?: string
+    browser?: string
+    browserVersion?: string
+    os?: string
+    osVersion?: string
+    sentryUrl?: string
+    level?: string
+    url?: string
+    handled: boolean
+}
+
+export type SymbolSetStatus = 'valid' | 'invalid'
+export type SymbolSetStatusFilter = SymbolSetStatus | 'all'
+export type ErrorEventProperties = EventType['properties']
+export type ErrorEventId = NonNullable<EventType['uuid']>
+
+export type ErrorEventType = {
+    uuid: ErrorEventId
+    timestamp: string
+    properties: ErrorEventProperties
+    person: PersonType
 }

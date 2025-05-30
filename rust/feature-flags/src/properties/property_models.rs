@@ -25,10 +25,8 @@ pub enum OperatorType {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
-    // TODO: Probably need a default for value?
-    // incase operators like is_set, is_not_set are used
-    // not guaranteed to have a value, if say created via api
-    pub value: serde_json::Value,
+    // NB: if a property filter is of type is_set or is_not_set, the value isn't used, and if it's a filter made by the API, the value is None.
+    pub value: Option<serde_json::Value>,
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     // TODO: worth making a enum here to differentiate between cohort and person filters?

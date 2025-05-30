@@ -1,6 +1,5 @@
 import json
 from typing import Optional, cast
-from common.hogvm.python.execute import validate_bytecode
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -44,6 +43,7 @@ from posthog.models.hog_functions.hog_function import (
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -107,6 +107,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     inputs = InputsSerializer(required=False)
     mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
     filters = HogFunctionFiltersSerializer(required=False)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = HogFunction
@@ -134,6 +135,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template_id",
             "status",
             "execution_order",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -181,17 +183,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
 
         if data["type"] == "transformation":
-            allowed_teams = [int(team_id) for team_id in settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS]
-            if team.id not in allowed_teams:
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
                 if not template:
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}
                     )
-                # Currently we do not allow modifying the core transformation templates when transformations are disabled
-                data["hog"] = template.hog
-                data["inputs_schema"] = template.inputs_schema
-
-        if not has_addon:
+        elif not has_addon:
             if not bypass_addon_check:
                 # If they don't have the addon, they can only use free templates and can't modify them
                 if not template:
@@ -296,12 +293,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
 
-                # Test execution to catch memory/execution exceptions only for transformations
-                if hog_type == "transformation":
-                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
-                    if not is_valid:
-                        raise serializers.ValidationError({"hog": error_message})
-
         if is_create:
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
@@ -330,6 +321,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+
+        template_id = validated_data.get("template_id")
+        if template_id:
+            db_template = DBHogFunctionTemplate.get_template(template_id)
+            if not db_template:
+                raise serializers.ValidationError({"template_id": f"No template found for id '{template_id}'"})
+            validated_data["hog_function_template"] = db_template
 
         # Handle execution_order for transformation type
         if validated_data.get("type") == "transformation":

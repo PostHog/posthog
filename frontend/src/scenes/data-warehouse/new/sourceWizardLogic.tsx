@@ -43,9 +43,18 @@ const StripeCaption = (): JSX.Element => (
         <br />
         <br />
         Currently, <strong>read permissions are required</strong> for the following resources:
-        <br />
-        <code>Account</code>, <code>Invoice</code>, <code>Customer</code>, <code>Subscription</code>,{' '}
-        <code>Product</code>, <code>Price</code>, <code>BalanceTransaction</code>, and <code>Charge</code>.
+        <ul className="list-disc list-inside">
+            <li>
+                Under the <b>Core</b> resource type, read for <b>Balance transaction sources</b>, <b>Charges</b>,{' '}
+                <b>Customer</b>, and <b>Product</b>
+            </li>
+            <li>
+                Under the <b>Billing</b> resource type, read for <b>Invoice</b>, <b>Price</b>, and <b>Subscription</b>
+            </li>
+            <li>
+                Under the <b>Connected</b> resource type, read for the <b>entire resource</b>
+            </li>
+        </ul>
     </>
 )
 
@@ -738,6 +747,69 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
         caption: '',
+    },
+    GoogleAds: {
+        name: 'GoogleAds',
+        label: 'Google Ads',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    GoogleSheets: {
+        name: 'GoogleSheets',
+        label: 'Google Sheets',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mongodb: {
+        name: 'Mongodb',
+        label: 'MongoDB',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Klaviyo: {
+        name: 'Klaviyo',
+        label: 'Klaviyo',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mailchimp: {
+        name: 'Mailchimp',
+        label: 'Mailchimp',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Braze: {
+        name: 'Braze',
+        label: 'Braze',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Mailjet: {
+        name: 'Mailjet',
+        label: 'Mailjet',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
+    },
+    Redshift: {
+        name: 'Redshift',
+        label: 'Redshift',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
     },
 }
 

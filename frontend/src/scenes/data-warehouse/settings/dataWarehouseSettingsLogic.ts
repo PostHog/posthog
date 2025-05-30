@@ -27,6 +27,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
@@ -119,12 +120,31 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }),
             },
         ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
                 return dataWarehouseTables.filter((table) => !table.source)
+            },
+        ],
+        filteredSelfManagedTables: [
+            (s) => [s.selfManagedTables, s.searchTerm],
+            (
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                searchTerm: string
+            ): DatabaseSchemaDataWarehouseTable[] => {
+                if (!searchTerm?.trim()) {
+                    return selfManagedTables
+                }
+                const normalizedSearch = searchTerm.toLowerCase()
+                return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
             },
         ],
     }),

@@ -74,6 +74,7 @@ export class HogFunctionManagerService {
                 const { integrationIds } = parseJSON(message) as {
                     integrationIds: IntegrationType['id'][]
                 }
+                logger.info('⚡', '[PubSub] Reloading integrations!', { integrationIds })
                 this.onIntegrationsReloaded(integrationIds)
             },
             'reload-hog-functions': (message) => {
@@ -81,11 +82,7 @@ export class HogFunctionManagerService {
                     teamId: Team['id']
                     hogFunctionIds: HogFunctionType['id'][]
                 }
-
-                logger.info('[HogFunctionManager]', 'Marking hog functions for refresh', {
-                    teamId,
-                    hogFunctionIds,
-                })
+                logger.info('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
                 this.onHogFunctionsReloaded(teamId, hogFunctionIds)
             },
         })
@@ -339,19 +336,16 @@ export class HogFunctionManagerService {
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
-                // Decrypt the sensitive config here
-                return {
-                    ...acc,
-                    [`${integration.team_id}:${integration.id}`]: {
-                        ...integration.config,
-                        ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
-                            ignoreDecryptionErrors: true,
-                        }),
-                        integrationId: integration.id,
-                    },
+                acc[`${integration.team_id}:${integration.id}`] = {
+                    ...integration.config,
+                    ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
+                        ignoreDecryptionErrors: true,
+                    }),
+                    integrationId: integration.id,
                 }
+                return acc
             },
-            {}
+            {} as Record<string, Record<string, any>>
         )
         logger.info('[HogFunctionManager]', 'Enriching hog functions', { functionCount: items.length })
 
