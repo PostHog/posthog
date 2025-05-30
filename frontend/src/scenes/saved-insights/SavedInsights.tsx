@@ -269,15 +269,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsOverviewQuery]: {
-        name: 'Revenue Analytics Overview',
-        description: 'View revenue analytics overview.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
         name: 'Revenue Analytics Growth Rate',
         description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsInsightsQuery]: {
+        name: 'Revenue Analytics Insights',
+        description: 'View revenue analytics insights.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
         icon: IconPiggyBank,
         inMenu: true,
     },

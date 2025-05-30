@@ -90,7 +90,9 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             />
 
             <BaseCurrency />
-            <GoalsConfiguration />
+
+            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && <GoalsConfiguration />}
+
             <EventConfiguration buttonRef={eventsButtonRef} />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
                 <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
