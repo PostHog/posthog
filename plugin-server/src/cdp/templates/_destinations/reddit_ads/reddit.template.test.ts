@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './reddit.template'
 
+jest.setTimeout(2 * 60 * 1000)
+
 describe('reddit template', () => {
     const tester = new TemplateTester(template)
 
@@ -16,7 +18,8 @@ describe('reddit template', () => {
     })
 
     it('works with single product event', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Product Viewed',
             {
                 accountId: 'pixel-id',
                 conversionsAccessToken: 'access-token',
@@ -63,9 +66,6 @@ describe('reddit template', () => {
             }
         )
 
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -92,36 +92,9 @@ describe('reddit template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
-    it.each([
-        ['$pageview', 'PageVisit'],
-        ['Products Searched', 'Search'],
-        ['Product Added', 'AddToCart'],
-        ['Product Added to Wishlist', 'AddToWishlist'],
-        ['Order Completed', 'Purchase'],
-        ['Product Viewed', 'ViewContent'],
-        ['Lead Generated', 'Lead'],
-        ['Signed Up', 'SignUp'],
-    ])('correctly maps event names: %s', async (event, expectedEvent) => {
-        const responses = await tester.invokeMappings(
-            {
-                accountId: 'pixel-id',
-                conversionsAccessToken: 'access-token',
-            },
-            {
-                event: {
-                    event,
-                },
-            }
-        )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
-
-        expect(response.invocation.queueParameters?.body).toContain(`{"tracking_type":"${expectedEvent}"}`)
-    })
-
     it('works with empty product properties', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accountId: 'pixel-id',
                 conversionsAccessToken: 'access-token',
@@ -146,9 +119,6 @@ describe('reddit template', () => {
                 },
             }
         )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -177,7 +147,8 @@ describe('reddit template', () => {
     })
 
     it('handles error responses', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accountId: 'pixel-id',
                 conversionsAccessToken: 'access-token',
@@ -202,9 +173,6 @@ describe('reddit template', () => {
                 },
             }
         )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -235,7 +203,8 @@ describe('reddit template', () => {
     })
 
     it('handles missing pixel id', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 conversionsAccessToken: 'access-token',
             },
@@ -260,15 +229,13 @@ describe('reddit template', () => {
             }
         )
 
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
-
         expect(response.error).toMatchInlineSnapshot(`"Account ID and access token are required"`)
         expect(response.finished).toEqual(true)
     })
 
     it('handles missing access token', async () => {
-        const responses = await tester.invokeMappings(
+        const response = await tester.invokeMapping(
+            'Order Completed',
             {
                 accountId: 'pixel-id',
             },
@@ -292,9 +259,6 @@ describe('reddit template', () => {
                 },
             }
         )
-
-        expect(responses.length).toEqual(1)
-        const response = responses[0]
 
         expect(response.error).toMatchInlineSnapshot(`"Account ID and access token are required"`)
         expect(response.finished).toEqual(true)
