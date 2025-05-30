@@ -82,6 +82,36 @@ def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
     assert cfg.resource_name == "campaign"
 
 
+def test_google_ads_source_config_handles_customer_id_with_dashes(developer_token: str):
+    """Test source configuration handles clean up of customer id."""
+    private_key = "private_key"
+    private_key_id = "id"
+    client_email = "posthog@posthog.com"
+    token_uri = "https://posthog.com"
+
+    job_inputs = {
+        "resource_name": "campaign",
+        "customer_id": "111-111-1111",
+    }
+
+    with override_settings(
+        GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY=private_key,
+        GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID=private_key_id,
+        GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL=client_email,
+        GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI=token_uri,
+        GOOGLE_ADS_DEVELOPER_TOKEN=developer_token,
+    ):
+        cfg = GoogleAdsServiceAccountSourceConfig.from_dict(job_inputs)
+
+    assert cfg.private_key == private_key
+    assert cfg.private_key_id == private_key_id
+    assert cfg.client_email == client_email
+    assert cfg.token_uri == token_uri
+    assert cfg.developer_token == developer_token
+    assert cfg.customer_id == "1111111111"
+    assert cfg.resource_name == "campaign"
+
+
 @SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
 def test_get_schemas(customer_id: str, developer_token: str, service_account_config: dict[str, str]):
     """Test get_schemas returns well-known schemas.
