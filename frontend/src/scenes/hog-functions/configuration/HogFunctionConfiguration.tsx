@@ -79,7 +79,7 @@ export function HogFunctionConfiguration({
         hogFunction,
         willReEnableOnSave,
         willChangeEnabledOnSave,
-        globalsWithInputs,
+        sampleGlobalsWithInputs,
         showPaygate,
         hasAddon,
         personsCount,
@@ -212,7 +212,8 @@ export function HogFunctionConfiguration({
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
-        displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
+        displayOptions.showTesting ??
+        ['destination', 'internal_destination', 'transformation', 'source_webhook', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -521,7 +522,7 @@ export function HogFunctionConfiguration({
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
                                                         onChange={(v) => onChange(v ?? '')}
-                                                        globals={globalsWithInputs}
+                                                        globals={sampleGlobalsWithInputs}
                                                         options={{
                                                             minimap: {
                                                                 enabled: false,

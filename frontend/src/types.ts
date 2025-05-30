@@ -5271,6 +5271,12 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
+    // Only applies to sources
+    request?: {
+        body: Record<string, any>
+        headers: Record<string, string>
+        ip?: string
+    }
 }
 
 export type HogFunctionTestInvocationResult = {
