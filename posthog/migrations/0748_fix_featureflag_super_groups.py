@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0745_oauthaccesstoken_oauthapplication_oauthrefreshtoken_and_more"),
+        ("posthog", "0747_alter_Externaldatasource_source_type"),
     ]
 
     operations = [
