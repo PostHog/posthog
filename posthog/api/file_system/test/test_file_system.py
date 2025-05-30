@@ -1455,4 +1455,6 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             folder_t2_qs.exists(),
             "Destroy did not recreate the folder hierarchy for leftovers",
         )
-        self.assertEqual(folder_t2_qs.first().depth, 1)
+        folder = folder_t2_qs.first()
+        assert folder is not None
+        assert folder.depth == 1
