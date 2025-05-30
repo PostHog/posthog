@@ -1,6 +1,7 @@
 import './StoriesModal.scss'
 
 import { useActions, useValues } from 'kea'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
@@ -12,6 +13,10 @@ import type { story } from './storiesMap'
 
 const STORY_INTERVAL = 3000
 const MAX_VIDEO_DURATION_MS = 1000000
+const MIN_WIDTH = 320 // Minimum width in pixels
+const MAX_WIDTH = 1200 // Maximum width in pixels
+const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
+const DEFAULT_WIDTH = 988
 
 interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     reason: string
@@ -32,6 +37,7 @@ interface StoryEndEventPropsExtraProps {
 }
 
 export const StoriesModal = (): JSX.Element | null => {
+    const { windowSize } = useWindowSize()
     const {
         openStoriesModal,
         stories: storyGroups,
@@ -43,6 +49,39 @@ export const StoriesModal = (): JSX.Element | null => {
     const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex, markStoryAsViewed } =
         useActions(storiesLogic)
     const storyStartTimeRef = useRef<number>(Date.now())
+
+    // Calculate dimensions based on window size and aspect ratio
+    const dimensions = useMemo(() => {
+        if (!windowSize.width || !windowSize.height) {
+            return { width: DEFAULT_WIDTH, height: DEFAULT_WIDTH / ASPECT_RATIO }
+        } // Default fallback
+
+        // Calculate max available dimensions (90% of window)
+        const maxAvailableWidth = Math.min(windowSize.width * 0.9, MAX_WIDTH)
+        const maxAvailableHeight = Math.min(windowSize.height * 0.9, MAX_WIDTH / ASPECT_RATIO)
+
+        // Calculate dimensions that fit both width and height constraints while maintaining aspect ratio
+        let width = maxAvailableWidth
+        let height = width / ASPECT_RATIO
+
+        // If height is too large, scale down based on height
+        if (height > maxAvailableHeight) {
+            height = maxAvailableHeight
+            width = height * ASPECT_RATIO
+        }
+
+        // Ensure minimum width
+        if (width < MIN_WIDTH) {
+            width = MIN_WIDTH
+            height = width / ASPECT_RATIO
+        }
+
+        // Round to whole pixels
+        width = Math.round(width)
+        height = Math.round(height)
+
+        return { width, height }
+    }, [windowSize.width, windowSize.height])
 
     // Mark story as viewed when it becomes active
     useEffect(() => {
@@ -186,10 +225,10 @@ export const StoriesModal = (): JSX.Element | null => {
                 }}
                 onStoryStart={handleStoryStart}
                 storyContainerStyles={{
-                    maxWidth: '390px',
-                    minWidth: '390px',
-                    maxHeight: '700px',
-                    minHeight: '700px',
+                    maxWidth: `${dimensions.width}px`,
+                    minWidth: `${dimensions.width}px`,
+                    maxHeight: `${dimensions.height}px`,
+                    minHeight: `${dimensions.height}px`,
                 }}
             />
         </LemonModal>
