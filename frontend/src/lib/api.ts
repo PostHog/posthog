@@ -1,5 +1,4 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
-import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -2622,9 +2621,7 @@ const api = {
             } catch (e) {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
-
-            // TODO can be removed after 01-08-2024 when we know no valid snapshots are stored in the old format
-            return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
+            return []
         },
 
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
