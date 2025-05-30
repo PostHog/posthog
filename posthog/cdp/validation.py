@@ -80,6 +80,17 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
         return json.dumps(obj)
 
 
+def has_liquid_syntax(value: Any) -> bool:
+    """Check if a value contains liquid template syntax"""
+    if isinstance(value, str):
+        return "{{" in value or "{%" in value
+    elif isinstance(value, dict):
+        return any(has_liquid_syntax(v) for v in value.values())
+    elif isinstance(value, list):
+        return any(has_liquid_syntax(item) for item in value)
+    return False
+
+
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
@@ -157,9 +168,23 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
 
         try:
-            if value and schema.get("templating", True):
-                # Check if this is a liquid template (templating disabled + liquid syntax)
-                is_liquid_template = schema.get("templating") is False and has_liquid_syntax(value)
+            if value:
+                # Check if this is a liquid template - either explicitly disabled templating OR has liquid syntax
+                has_liquid = has_liquid_syntax(value)
+                templating_disabled = schema.get("templating") is False
+
+                # Debug logging to see what's happening
+                logger.debug(
+                    f"Template validation debug - templating: {schema.get('templating')}, "
+                    f"has_liquid_syntax: {has_liquid}, "
+                    f"templating_disabled: {templating_disabled}, "
+                    f"schema_key: {schema.get('key')}, "
+                    f"item_type: {item_type}"
+                )
+
+                # If it has liquid syntax and it's an email type, treat it as liquid template
+                # This is a fallback for when the frontend doesn't properly set templating: false
+                is_liquid_template = templating_disabled or (item_type == "email" and has_liquid)
 
                 if is_liquid_template:
                     # Skip bytecode generation for liquid templates
@@ -168,7 +193,8 @@ class InputsItemSerializer(serializers.Serializer):
                         del attrs["bytecode"]
                     if "transpiled" in attrs:
                         del attrs["transpiled"]
-                else:
+                    logger.debug(f"Skipping bytecode generation for liquid template: {schema.get('key')}")
+                elif schema.get("templating", True):
                     # If we have a value and hog templating is enabled, we need to transpile the value
                     if item_type in ["string", "dictionary", "json", "email"]:
                         if item_type == "email" and isinstance(value, dict):
@@ -188,6 +214,13 @@ class InputsItemSerializer(serializers.Serializer):
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
+            # Use logging.exception to automatically include traceback
+            logger.exception(
+                f"hog_function_template_validation_failed - error: {str(e)}, "
+                f"item_type: {item_type}, function_type: {function_type}, "
+                f"schema_key: {schema.get('key')}, templating_enabled: {schema.get('templating', True)}, "
+                f"has_liquid_syntax: {has_liquid_syntax(value) if value else False}"
+            )
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs
@@ -359,15 +392,3 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})
-
-
-# Add a helper function to detect liquid syntax
-def has_liquid_syntax(value: Any) -> bool:
-    """Check if a value contains liquid template syntax"""
-    if isinstance(value, str):
-        return "{{" in value or "{%" in value
-    elif isinstance(value, dict):
-        return any(has_liquid_syntax(v) for v in value.values())
-    elif isinstance(value, list):
-        return any(has_liquid_syntax(item) for item in value)
-    return False
