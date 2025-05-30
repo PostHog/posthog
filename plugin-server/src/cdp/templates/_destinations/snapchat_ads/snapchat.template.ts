@@ -18,7 +18,7 @@ const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] =
             type: 'string',
             label: 'Event time',
             description: 'A Unix timestamp in seconds indicating when the actual event occurred',
-            default: '{toUnixTimestampMilli(event.timestamp)}',
+            default: '{floor(toUnixTimestamp(event.timestamp))}',
             secret: false,
             required: true,
         },
