@@ -197,7 +197,7 @@ export const StoriesModal = (): JSX.Element | null => {
                       window.open(story.link, '_self')
                       return <></>
                   }
-                : () => {},
+                : undefined,
             preloadResource: true,
         })
     )
