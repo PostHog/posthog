@@ -21,6 +21,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
+    request?: HogFunctionInvocationGlobals['request']
 }
 
 export class TemplateTester {
@@ -69,6 +70,7 @@ export class TemplateTester {
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
         return {
+            ...globals,
             inputs: {},
             project: { id: 1, name: 'project-name', url: 'https://us.posthog.com/projects/1' },
             event: {

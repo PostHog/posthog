@@ -29,6 +29,7 @@ const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, PipelineTab
     destination: PipelineTab.Destinations,
     site_destination: PipelineTab.Destinations,
     site_app: PipelineTab.SiteApps,
+    source_webhook: PipelineTab.Sources,
 }
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([

@@ -36,6 +36,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
@@ -207,7 +208,7 @@ export function HogFunctionConfiguration({
         // Never allow editing for legacy plugins
         (!isLegacyPlugin &&
             !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
+            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
@@ -350,6 +351,8 @@ export function HogFunctionConfiguration({
                                         </LemonDropdown>
                                     ) : null}
                                 </div>
+
+                                {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
                                 {showFilters && <HogFunctionFilters />}
 

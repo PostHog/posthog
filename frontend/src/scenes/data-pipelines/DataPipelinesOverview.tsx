@@ -1,5 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -60,10 +61,15 @@ export function DataPipelinesOverview(): JSX.Element {
                 }
             />
             <div className="deprecated-space-y-4">
-                <Section title="Managed sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <FlaggedFeature flag="cdp-hog-sources">
+                    <Section title="Event sources" to={urls.pipeline(PipelineTab.Sources)}>
+                        <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />
+                    </Section>
+                </FlaggedFeature>
+                <Section title="Managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
                     <DataWarehouseManagedSourcesTable />
                 </Section>
-                <Section title="Self-managed sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <Section title="Self-managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
                     <DataWarehouseSelfManagedSourcesTable />
                 </Section>
                 <Section title="Transformations" to={urls.pipeline(PipelineTab.Transformations)}>
@@ -75,18 +81,7 @@ export function DataPipelinesOverview(): JSX.Element {
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here.
                     </p>
-                    <HogFunctionList
-                        logicKey="destination"
-                        type="destination"
-                        extraControls={
-                            <>
-                                <LemonButton type="primary" size="small" to={urls.dataPipelinesNew('destination')}>
-                                    New destination
-                                </LemonButton>
-                            </>
-                        }
-                        hideFeedback={true}
-                    />
+                    <HogFunctionList logicKey="destination" type="destination" hideFeedback={true} />
                 </Section>
             </div>
         </>

@@ -33,6 +33,11 @@ services:
                         path /flags*
                     }
 
+                    @webhooks {
+                        path /public/webhooks
+                        path /public/webhooks/*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3000
                     }
@@ -43,6 +48,10 @@ services:
 
                     handle @flags {
                         reverse_proxy feature-flags:3001
+                    }
+
+                    handle @webhooks {
+                        reverse_proxy plugins:6738
                     }
 
                     handle {

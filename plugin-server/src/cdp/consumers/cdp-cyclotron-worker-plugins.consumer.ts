@@ -8,8 +8,8 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
  */
 export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerPlugins'
-    protected hogTypes: HogFunctionTypeType[] = ['destination']
     private pluginExecutor: LegacyPluginExecutorService
+    protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     constructor(hub: Hub) {
         super(hub, 'plugin')

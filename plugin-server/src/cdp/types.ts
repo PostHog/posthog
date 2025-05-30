@@ -87,6 +87,13 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     groups?: Record<string, GroupType>
+
+    // Unique to sources - will be modified later
+    request?: {
+        headers: Record<string, string | undefined>
+        ip?: string
+        body: Record<string, any>
+    }
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
@@ -263,7 +270,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
-    capturedPostHogEvents?: HogFunctionCapturedEvent[]
+    capturedPostHogEvents: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
 
@@ -374,7 +381,12 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'broadcast'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'source_webhook'
+    | 'broadcast'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]

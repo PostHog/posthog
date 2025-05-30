@@ -8,7 +8,6 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
-    HogFunctionTypeType,
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
@@ -20,7 +19,6 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
     private queue: CyclotronJobQueueKind
     protected fetchExecutor: FetchExecutorService
 

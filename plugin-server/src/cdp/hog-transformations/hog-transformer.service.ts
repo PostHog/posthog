@@ -14,7 +14,7 @@ import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.serv
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocation } from '../utils/invocation-utils'
+import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -208,19 +208,26 @@ export class HogTransformerService {
                         // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
                         if (!filterResults.match) {
                             transformationsSkipped.push(transformationIdentifier)
-                            results.push({
-                                invocation: createInvocation(
+                            results.push(
+                                createInvocationResult(
+                                    createInvocation(
+                                        {
+                                            ...globals,
+                                            inputs: {}, // Not needed as this is only for a valid return type
+                                        },
+                                        hogFunction
+                                    ),
                                     {
-                                        ...globals,
-                                        inputs: {}, // Not needed as this is only for a valid return type
+                                        queue: 'hog',
                                     },
-                                    hogFunction
-                                ),
-                                metrics: filterResults.metrics,
-                                logs: filterResults.logs,
-                                error: filterResults.error,
-                                finished: true,
-                            })
+                                    {
+                                        metrics: filterResults.metrics,
+                                        logs: filterResults.logs,
+                                        error: filterResults.error,
+                                        finished: true,
+                                    }
+                                )
+                            )
                             continue
                         }
                     }

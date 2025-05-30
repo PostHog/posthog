@@ -66,7 +66,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
 
         return (
-            <div className="mt-4 flex flex-row justify-end gap-2">
+            <div className="flex flex-row gap-2 justify-end mt-4">
                 {canGoBack && (
                     <LemonButton
                         type="secondary"
@@ -138,7 +138,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
     return (
         <>
-            <h2 className="mt-4">Managed by PostHog</h2>
+            <h2 className="mt-4">Managed data warehouse sources</h2>
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
@@ -161,7 +161,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         key: 'name',
                         render: (_, sourceConfig) => (
                             <div className="flex flex-col">
-                                <span className="font-semibold text-sm gap-1">
+                                <span className="gap-1 text-sm font-semibold">
                                     {sourceConfig.label ?? sourceConfig.name}
                                 </span>
                                 {sourceConfig.unreleasedSource && (
@@ -226,7 +226,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 ]}
             />
 
-            <h2 className="mt-4">Self-managed</h2>
+            <h2 className="mt-4">Self-managed data warehouse sources</h2>
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}
@@ -246,7 +246,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Name',
                         key: 'name',
                         render: (_, sourceConfig) => (
-                            <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                            <span className="gap-1 text-sm font-semibold">{sourceConfig.name}</span>
                         ),
                     },
                     {
