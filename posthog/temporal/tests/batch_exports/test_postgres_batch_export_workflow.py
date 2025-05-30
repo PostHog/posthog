@@ -231,20 +231,18 @@ async def assert_clickhouse_records_in_postgres(
 
 @pytest.fixture
 def test_properties(request, session_id):
-    """Include a \u0000 unicode escape sequence in properties."""
-    return {
-        "$browser": "Chrome",
-        "$os": "Mac OS X",
-        "unicode": "\u0000",
-        "escaped_unicode": "\\u0000'",  # this has given us issues in the past
-        "$session_id": session_id,
-        "emoji": "🤣",
-        "newline": "\n",
-        "emoji_with_high_surrogate": "🤣\ud83e",
-        "emoji_with_low_surrogate": "🤣\udd23",
-        "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
-        "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
-    }
+    """Include some problematic properties."""
+    try:
+        return request.param
+    except AttributeError:
+        return {
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "$session_id": session_id,
+            "unicode_null": "\u0000",
+            "emoji": "🤣",
+            "newline": "\n",
+        }
 
 
 @pytest.fixture
@@ -376,6 +374,76 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         elif batch_export_model.name == "sessions":
             sort_key = "session_id"
 
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name="test_table",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        sort_key=sort_key,
+    )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize(
+    "test_properties",
+    [
+        {
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "emoji": "🤣",
+            "newline": "\n",
+            "unicode_null": "\u0000",
+            "invalid_unicode": "\\u0000'",  # this has given us issues in the past
+            "emoji_with_high_surrogate": "🤣\ud83e",
+            "emoji_with_low_surrogate": "🤣\udd23",
+            "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+            "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+        }
+    ],
+    indirect=True,
+)
+async def test_insert_into_postgres_activity_handles_problematic_json(
+    clickhouse_client,
+    activity_environment,
+    postgres_connection,
+    postgres_config,
+    exclude_events,
+    model: BatchExportModel,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Sometimes users send us invalid JSON. We want to test that we handle this gracefully.
+
+    We only use the event model here since custom models with expressions such as JSONExtractString will still fail, as
+    ClickHouse is not able to parse invalid JSON. There's not much we can do about this case.
+    """
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model = model
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name="test_table",
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **postgres_config,
+    )
+
+    with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+        await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    sort_key = "event"
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
         clickhouse_client=clickhouse_client,
