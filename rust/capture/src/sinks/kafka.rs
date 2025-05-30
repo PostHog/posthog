@@ -243,6 +243,8 @@ impl KafkaSink {
                     // we configure to retain partition key or not.
                     // if is_limited is true, the OverflowLimiter is
                     // configured and is safe to unwrap here.
+                    counter!("capture_events_rerouted_overflow", &[("reason", "event_key")]).increment(1);
+                    warn!("event sent to overflow topic, event_key: {}", event_key);
                     if self.partition.as_ref().unwrap().should_preserve_locality() {
                         (&self.overflow_topic, Some(event_key.as_str()))
                     } else {
