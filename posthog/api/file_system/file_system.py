@@ -37,10 +37,10 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "id",
             "depth",
             "created_at",
+            "team_id",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
-        instance.team_id = self.context["team_id"]
         if "path" in validated_data:
             instance.depth = len(split_path(validated_data["path"]))
         return super().update(instance, validated_data)
