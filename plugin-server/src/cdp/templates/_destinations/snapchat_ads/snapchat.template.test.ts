@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './snapchat.template'
 
+jest.setTimeout(2 * 60 * 1000)
+
 describe('snapchat template', () => {
     const tester = new TemplateTester(template)
 

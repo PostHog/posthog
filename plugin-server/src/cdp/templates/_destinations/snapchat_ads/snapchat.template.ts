@@ -195,14 +195,12 @@ if (res.status >= 400) {
             required: false,
         },
     ],
-    filters: { bytecode: ['_H', 1, 29] },
     mapping_templates: [
         {
             name: 'Page viewed',
             include_by_default: true,
             filters: {
                 events: [{ id: '$pageview', name: 'Pageview', type: 'events' }],
-                bytecode: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -222,7 +220,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Order Completed', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Order Completed', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -242,7 +239,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Checkout Started', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Checkout Started', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -262,7 +258,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Product Added', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Product Added', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -282,7 +277,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Payment Info Entered', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Payment Info Entered', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -302,7 +296,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Promotion Clicked', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Promotion Clicked', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -322,7 +315,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Promotion Viewed', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Promotion Viewed', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -342,7 +334,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Product Added to Wishlist', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Product Added to Wishlist', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -362,7 +353,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Product Viewed', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Product Viewed', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -382,7 +372,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Product List Viewed', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Product List Viewed', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
@@ -402,7 +391,6 @@ if (res.status >= 400) {
             include_by_default: true,
             filters: {
                 events: [{ id: 'Products Searched', type: 'events' }],
-                bytecode: ['_H', 1, 32, 'Products Searched', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
             },
             inputs_schema: [
                 {
