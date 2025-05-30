@@ -4,6 +4,7 @@ import dataclasses
 import datetime as dt
 import json
 import operator
+import re
 import unittest.mock
 import uuid
 
@@ -186,10 +187,21 @@ async def assert_clickhouse_records_in_postgres(
                     # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
 
+                # Remove \u0000 from strings and bytes (we perform the same operation in the COPY query)
                 if isinstance(v, str):
-                    v = v.replace("\\u0000", "")
+                    v = re.sub(r"(?<!\\)\\u0000", "", v)
                 elif isinstance(v, bytes):
-                    v = v.replace(b"\\u0000", b"")
+                    v = re.sub(rb"(?<!\\)\\u0000", b"", v)
+                # We remove unpaired surrogates in PostgreSQL, so we have to remove them here too so
+                # that comparison doesn't fail. The problem is that at some point our unpaired surrogate gets
+                # escaped (which is correct, as unpaired surrogates are not valid). But then the
+                # comparison fails as in PostgreSQL we remove unpaired surrogates, not just escape them.
+                # So, we hardcode replace the test properties. Not ideal, but this works as we get the
+                # expected result in PostgreSQL and the comparison is still useful.
+                if isinstance(v, str):
+                    v = v.replace("\\ud83e\\udd23\\udd23", "\\ud83e\\udd23").replace(
+                        "\\ud83e\\udd23\\ud83e", "\\ud83e\\udd23"
+                    )
 
                 if k in {"properties", "set", "set_once", "person_properties", "elements"} and v is not None:
                     expected_record[k] = json.loads(v)
@@ -220,7 +232,19 @@ async def assert_clickhouse_records_in_postgres(
 @pytest.fixture
 def test_properties(request, session_id):
     """Include a \u0000 unicode escape sequence in properties."""
-    return {"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000", "$session_id": session_id}
+    return {
+        "$browser": "Chrome",
+        "$os": "Mac OS X",
+        "unicode": "\u0000",
+        "escaped_unicode": "\\u0000'",  # this has given us issues in the past
+        "$session_id": session_id,
+        "emoji": "🤣",
+        "newline": "\n",
+        "emoji_with_high_surrogate": "🤣\ud83e",
+        "emoji_with_low_surrogate": "🤣\udd23",
+        "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+        "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+    }
 
 
 @pytest.fixture

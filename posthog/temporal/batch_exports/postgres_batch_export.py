@@ -5,6 +5,7 @@ import csv
 import dataclasses
 import datetime as dt
 import json
+import re
 import typing
 
 import psycopg
@@ -420,7 +421,22 @@ class PostgreSQLClient:
                     while data := await asyncio.to_thread(tsv_file.read):
                         # \u0000 cannot be present in PostgreSQL's jsonb type, and will cause an error.
                         # See: https://www.postgresql.org/docs/17/datatype-json.html
-                        data = data.replace(b"\\u0000", b"")
+                        # We use a regex to avoid replacing escaped \u0000 (for example, \\u0000, which we have seen in
+                        # some actual data)
+                        data = re.sub(rb"(?<!\\)\\u0000", b"", data)
+
+                        # Remove unpaired unicode surrogates
+                        data = re.sub(
+                            rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2})",
+                            rb"\1",
+                            data,
+                        )
+                        data = re.sub(
+                            rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})",
+                            rb"\1",
+                            data,
+                        )
+
                         await copy.write(data)
 
 
