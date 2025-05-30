@@ -655,7 +655,6 @@ class TestFileSystemAPI(APIBaseTest):
         viewset.team = self.team  # used inside the helper
         viewset.organization = self.team.organization
         viewset.parent_query_kwargs = {"team_id": self.team.id}
-        # viewset.user_access_control = None  # t
 
         viewset._assure_parent_folders(test_path, created_by=self.user)
 
