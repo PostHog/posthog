@@ -31,6 +31,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -40,6 +42,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -64,7 +67,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -80,7 +82,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -110,6 +113,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -119,6 +124,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -143,7 +149,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -159,7 +164,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -189,6 +195,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -198,6 +206,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -222,7 +231,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -238,7 +246,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -268,6 +277,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -277,6 +288,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -301,7 +313,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -317,7 +328,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -347,6 +359,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -356,6 +370,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -380,7 +395,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -396,7 +410,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -535,6 +550,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -544,6 +561,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -568,7 +586,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -577,7 +594,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -642,6 +660,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -651,6 +671,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -675,7 +696,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -691,7 +711,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -844,6 +865,32 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings.25
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings.26
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -858,6 +905,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -906,7 +954,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -914,31 +963,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings.26
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings.27
@@ -1024,6 +1048,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1033,6 +1059,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1057,7 +1084,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1073,7 +1099,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1139,6 +1166,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1148,6 +1177,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1172,7 +1202,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1188,7 +1217,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1218,6 +1248,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1227,6 +1259,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1251,7 +1284,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1267,7 +1299,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1297,6 +1330,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1306,6 +1341,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1330,7 +1366,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1346,7 +1381,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1376,6 +1412,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1385,6 +1423,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1409,7 +1448,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1425,7 +1463,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1455,6 +1494,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1464,6 +1505,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1488,7 +1530,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1504,7 +1545,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1534,6 +1576,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1543,6 +1587,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1567,7 +1612,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1583,7 +1627,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1646,6 +1691,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1655,6 +1702,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1679,7 +1727,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1688,7 +1735,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1765,6 +1813,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1774,6 +1824,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1798,7 +1849,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1814,7 +1864,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1915,6 +1966,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1924,6 +1977,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1948,7 +2002,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1957,7 +2010,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2128,6 +2182,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -2137,6 +2193,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -2161,7 +2218,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2177,7 +2233,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2224,6 +2281,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.112
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.113
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -2238,6 +2321,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -2286,7 +2370,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -2294,31 +2379,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.113
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.114
@@ -2456,6 +2516,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -2465,6 +2527,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -2489,7 +2552,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2505,7 +2567,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2625,6 +2688,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -2634,6 +2699,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -2658,7 +2724,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2667,7 +2732,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2874,6 +2940,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.130
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.131
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -2888,6 +2980,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -2936,7 +3029,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -2944,31 +3038,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.131
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.132
@@ -3110,6 +3179,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -3119,6 +3190,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -3143,7 +3215,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3159,7 +3230,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3293,6 +3365,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -3302,6 +3376,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -3326,7 +3401,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3335,7 +3409,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3523,6 +3598,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.148
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.149
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -3537,6 +3638,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -3585,7 +3687,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -3593,31 +3696,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.149
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.15
@@ -3644,6 +3722,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -3653,6 +3733,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -3677,7 +3758,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3686,7 +3766,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3835,6 +3916,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -3844,6 +3927,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -3868,7 +3952,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3884,7 +3967,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -3985,6 +4069,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -3994,6 +4080,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -4018,7 +4105,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4027,7 +4113,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -4250,6 +4337,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.166
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.167
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -4264,6 +4377,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -4312,7 +4426,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -4320,31 +4435,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.167
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.168
@@ -4540,6 +4630,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -4549,6 +4641,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -4573,7 +4666,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4589,7 +4681,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -4690,6 +4783,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -4699,6 +4794,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -4723,7 +4819,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4732,7 +4827,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -4953,6 +5049,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.184
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.185
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -4967,6 +5089,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -5015,7 +5138,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -5023,31 +5147,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.185
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.186
@@ -5280,6 +5379,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.22
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.23
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -5294,6 +5419,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -5342,7 +5468,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -5350,31 +5477,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.23
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.24
@@ -5492,6 +5594,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -5501,6 +5605,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -5525,7 +5630,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5541,7 +5645,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -5688,6 +5793,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -5697,6 +5804,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -5721,7 +5829,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5730,7 +5837,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -5951,6 +6059,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.40
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.41
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -5965,6 +6099,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -6013,7 +6148,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -6021,31 +6157,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.41
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.42
@@ -6167,6 +6278,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -6176,6 +6289,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -6200,7 +6314,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6216,7 +6329,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -6344,6 +6458,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -6353,6 +6469,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -6377,7 +6494,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6386,7 +6502,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -6574,6 +6691,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.58
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.59
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -6588,6 +6731,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -6636,7 +6780,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -6644,31 +6789,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.59
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.6
@@ -6809,6 +6929,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -6818,6 +6940,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -6842,7 +6965,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6858,7 +6980,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -6959,6 +7082,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -6968,6 +7093,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -6992,7 +7118,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7001,7 +7126,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -7213,6 +7339,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.76
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.77
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -7227,6 +7379,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7275,7 +7428,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -7283,31 +7437,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.77
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.78
@@ -7363,54 +7492,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.8
   '''
-  SELECT "posthog_datawarehousetable"."created_by_id",
-         "posthog_datawarehousetable"."created_at",
-         "posthog_datawarehousetable"."updated_at",
-         "posthog_datawarehousetable"."deleted",
-         "posthog_datawarehousetable"."deleted_at",
-         "posthog_datawarehousetable"."id",
-         "posthog_datawarehousetable"."name",
-         "posthog_datawarehousetable"."format",
-         "posthog_datawarehousetable"."team_id",
-         "posthog_datawarehousetable"."url_pattern",
-         "posthog_datawarehousetable"."credential_id",
-         "posthog_datawarehousetable"."external_data_source_id",
-         "posthog_datawarehousetable"."columns",
-         "posthog_datawarehousetable"."row_count",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
+  SELECT "posthog_externaldatasource"."created_by_id",
          "posthog_externaldatasource"."created_at",
          "posthog_externaldatasource"."updated_at",
          "posthog_externaldatasource"."deleted",
@@ -7425,14 +7507,13 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
-  LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  WHERE ("posthog_datawarehousetable"."team_id" = 99999
-         AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.80
@@ -7511,6 +7592,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -7520,6 +7603,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -7544,7 +7628,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7560,7 +7643,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -7661,6 +7745,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -7670,6 +7756,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -7694,7 +7781,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7703,7 +7789,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -7792,7 +7879,55 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.9
   '''
-  SELECT "posthog_externaldatasource"."created_by_id",
+  SELECT "posthog_datawarehousetable"."created_by_id",
+         "posthog_datawarehousetable"."created_at",
+         "posthog_datawarehousetable"."updated_at",
+         "posthog_datawarehousetable"."deleted",
+         "posthog_datawarehousetable"."deleted_at",
+         "posthog_datawarehousetable"."id",
+         "posthog_datawarehousetable"."name",
+         "posthog_datawarehousetable"."format",
+         "posthog_datawarehousetable"."team_id",
+         "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."credential_id",
+         "posthog_datawarehousetable"."external_data_source_id",
+         "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
+         "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in",
+         "posthog_datawarehousecredential"."created_by_id",
+         "posthog_datawarehousecredential"."created_at",
+         "posthog_datawarehousecredential"."id",
+         "posthog_datawarehousecredential"."access_key",
+         "posthog_datawarehousecredential"."access_secret",
+         "posthog_datawarehousecredential"."team_id",
+         "posthog_externaldatasource"."created_by_id",
          "posthog_externaldatasource"."created_at",
          "posthog_externaldatasource"."updated_at",
          "posthog_externaldatasource"."deleted",
@@ -7807,12 +7942,15 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_datawarehousetable"
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
+  LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  WHERE ("posthog_datawarehousetable"."team_id" = 99999
+         AND NOT ("posthog_datawarehousetable"."deleted"
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.90
@@ -7916,6 +8054,32 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.94
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
+  FROM "posthog_externaldatasource"
+  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+         AND "posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.95
+  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -7930,6 +8094,7 @@
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."row_count",
+         "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7978,7 +8143,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -7986,31 +8152,6 @@
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.95
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
-  FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.96

@@ -106,11 +106,12 @@ def hidden_legend_keys_to_breakdowns(hidden_legend_keys: dict | None) -> list[st
 def transform_legacy_hidden_legend_keys(hidden_legend_keys):
     transformed_keys = {}
     for key, value in hidden_legend_keys.items():
-        old_format_match = re.match(r"\w+\/.+\/\d+\/(.+)", str(key))
-        if old_format_match:
+        parts = str(key).split("/", 3)
+        if len(parts) == 4 and parts[2].isdigit():  # old format match
+            series_key = parts[3]
             # Don't override values for series if already set from a previously-seen old-format key
-            if old_format_match[1] not in transformed_keys:
-                transformed_keys[old_format_match[1]] = value
+            if series_key not in transformed_keys:
+                transformed_keys[series_key] = value
         else:
             transformed_keys[key] = value
     return transformed_keys
@@ -539,8 +540,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
-                meanRetentionCalculation=filter.get("mean_retention_calculation")
-                or ("simple" if filter.get("show_mean") else "none" if filter.get("show_mean") is False else "simple"),
+                meanRetentionCalculation=filter.get("mean_retention_calculation") or "simple",
                 cumulative=filter.get("cumulative"),
             )
         }

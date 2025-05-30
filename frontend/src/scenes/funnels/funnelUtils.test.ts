@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode, FunnelExclusionSteps, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsNode } from '~/queries/schema/schema-general'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
@@ -11,7 +11,7 @@ import {
 import {
     EMPTY_BREAKDOWN_VALUES,
     getBreakdownStepValues,
-    getClampedExclusionStepRange,
+    getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
     getMeanAndStandardDeviation,
     getVisibilityKey,
@@ -171,48 +171,42 @@ describe('getIncompleteConversionWindowStartDate()', () => {
     })
 })
 
-describe('getClampedExclusionStepRange', () => {
-    it('prefers step range to existing filters', () => {
-        const stepRange: FunnelExclusionSteps = {
-            funnelFromStep: 0,
-            funnelToStep: 1,
-        }
-        const query: FunnelsQuery = {
-            kind: NodeKind.FunnelsQuery,
-            funnelsFilter: {
-                funnelFromStep: 1,
-                funnelToStep: 2,
-            },
-            series: [{}, {}] as EventsNode[],
-        }
-        const clampedStepRange = getClampedExclusionStepRange({
-            stepRange,
-            query,
-        })
-        expect(clampedStepRange).toEqual({
-            funnelFromStep: 0,
-            funnelToStep: 1,
-        })
+describe('getClampedFunnelStepRange', () => {
+    const series = [{}, {}, {}] as EventsNode[]
+
+    it('does not set funnelFromStep or funnelToStep', () => {
+        expect(getClampedFunnelStepRange({}, series)).toEqual({})
     })
 
-    it('ensures step range is clamped to step range', () => {
-        const stepRange = {} as FunnelExclusionSteps
-        const query: FunnelsQuery = {
-            kind: NodeKind.FunnelsQuery,
-            funnelsFilter: {
-                funnelFromStep: -1,
-                funnelToStep: 12,
-            },
-            series: [{}, {}, {}] as EventsNode[],
-        }
-        const clampedStepRange = getClampedExclusionStepRange({
-            stepRange,
-            query,
-        })
-        expect(clampedStepRange).toEqual({
+    it('does not touch valid funnelFromStep', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: 0 }, series)).toEqual({ funnelFromStep: 0 })
+    })
+
+    it('does not touch valid funnelToStep', () => {
+        expect(getClampedFunnelStepRange({ funnelToStep: 2 }, series)).toEqual({ funnelToStep: 2 })
+    })
+
+    it('does not touch valid funnelFromStep and funnelToStep', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: 0, funnelToStep: 2 }, series)).toEqual({
             funnelFromStep: 0,
             funnelToStep: 2,
         })
+    })
+
+    it('minimum for funnelFromStep is 0', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: -2 }, series)).toEqual({ funnelFromStep: 0 })
+    })
+
+    it('maximum for funnelFromStep is 1', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: 4 }, series)).toEqual({ funnelFromStep: 1 })
+    })
+
+    it('minimum for funnelToStep is 1', () => {
+        expect(getClampedFunnelStepRange({ funnelToStep: -2 }, series)).toEqual({ funnelToStep: 1 })
+    })
+
+    it('maximum for funnelToStep is 2', () => {
+        expect(getClampedFunnelStepRange({ funnelToStep: 4 }, series)).toEqual({ funnelToStep: 2 })
     })
 })
 

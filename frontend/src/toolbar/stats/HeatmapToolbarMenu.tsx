@@ -1,15 +1,17 @@
 import { IconMagicWand } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -86,6 +88,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         clickmapsEnabled,
         heatmapFixedPositionMode,
         heatmapColorPalette,
+        samplingFactor,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -95,6 +98,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
+        setSamplingFactor,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -183,6 +187,46 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 the event can be mapped to a specific element found on the page you are viewing but less
                                 data is usually captured.
                             </p>
+                            <div className="flex items-center justify-between pb-2">
+                                <div className="flex items-center gap-1">
+                                    <LemonLabel
+                                        info="Sampling computes the result on a proportion of data of the users in the dataset, making click maps load significantly faster."
+                                        infoLink="https://posthog.com/docs/product-analytics/sampling"
+                                    >
+                                        Sampling
+                                    </LemonLabel>
+                                    <LemonSwitch
+                                        className="m-2"
+                                        onChange={(checked) => {
+                                            if (checked) {
+                                                setSamplingFactor(0.1)
+                                                posthog.capture('sampling_enabled_on_heatmap')
+                                                return
+                                            }
+                                            setSamplingFactor(1)
+                                            posthog.capture('sampling_disabled_on_heatmap')
+                                        }}
+                                        checked={samplingFactor !== 1}
+                                    />
+                                </div>
+                                {samplingFactor !== 1 && (
+                                    <div className="flex items-center gap-2">
+                                        <LemonSegmentedButton
+                                            options={[0.1, 1, 10, 25, 50].map((percentage) => ({
+                                                value: percentage / 100,
+                                                label: `${percentage}%`,
+                                            }))}
+                                            value={samplingFactor}
+                                            onChange={(newValue) => {
+                                                setSamplingFactor(newValue)
+                                                posthog.capture('sampling_percentage_updated_on_heatmap', {
+                                                    samplingFactor: newValue,
+                                                })
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={<IconSync />}

@@ -1,6 +1,6 @@
 import './TopBar.scss'
 
-import { IconChevronDown, IconX } from '@posthog/icons'
+import { IconChevronDown, IconFolderMove, IconFolderOpen, IconShortcut, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -8,15 +8,21 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
+import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconMenu } from 'lib/lemon-ui/icons'
+import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
@@ -25,17 +31,23 @@ import { navigation3000Logic } from '../navigationLogic'
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
 export function TopBar(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showNavOnMobile } = useActions(navigation3000Logic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
+    const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { openMoveToModal } = useActions(moveToLogic)
     const [compactionRate, setCompactionRate] = useState(0)
-
+    const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { addShortcutItem } = useActions(projectTreeDataLogic)
     // Always show in full on mobile, as there we are very constrained in width, but not so much height
     const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
     const isOnboarding = router.values.location.pathname.includes('/onboarding/')
+    const hasRenameState = !!renameState
 
     useLayoutEffect(() => {
         function handleScroll(): void {
@@ -47,29 +59,35 @@ export function TopBar(): JSX.Element | null {
                 mainElement.scrollHeight - mainElement.clientHeight,
                 BREADCRUMBS_HEIGHT_COMPACT
             )
+            // To avoid flickering effect we need to wait for the element to be visible
+            const completionRateTransfer = 0.9
             const newCompactionRate = compactionDistance > 0 ? Math.min(mainScrollTop / compactionDistance, 1) : 0
-            setCompactionRate(newCompactionRate)
-            if (
-                renameState &&
-                ((newCompactionRate > 0.5 && compactionRate <= 0.5) ||
-                    (newCompactionRate <= 0.5 && compactionRate > 0.5))
-            ) {
-                // Transfer selection from the outgoing input to the incoming one
-                const [source, target] = newCompactionRate > 0.5 ? ['large', 'small'] : ['small', 'large']
-                const sourceEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${source}"]`)
-                const targetEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${target}"]`)
-                if (sourceEl && targetEl) {
-                    targetEl.focus()
-                    targetEl.setSelectionRange(sourceEl.selectionStart || 0, sourceEl.selectionEnd || 0)
+            setCompactionRate((compactionRate) => {
+                if (
+                    hasRenameState &&
+                    ((newCompactionRate > completionRateTransfer && compactionRate <= completionRateTransfer) ||
+                        (newCompactionRate <= completionRateTransfer && compactionRate > completionRateTransfer))
+                ) {
+                    // Transfer selection from the outgoing input to the incoming one
+                    const [source, target] =
+                        newCompactionRate > completionRateTransfer ? ['large', 'small'] : ['small', 'large']
+                    const sourceEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${source}"]`)
+                    const targetEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${target}"]`)
+                    if (sourceEl && targetEl) {
+                        targetEl.focus()
+                        targetEl.setSelectionRange(sourceEl.selectionStart || 0, sourceEl.selectionEnd || 0)
+                    }
                 }
-            }
+                return newCompactionRate
+            })
         }
+
         const main = document.getElementsByTagName('main')[0]
         main.addEventListener('scroll', handleScroll)
         return () => main.removeEventListener('scroll', handleScroll)
-    }, [compactionRate])
+    }, [hasRenameState])
 
-    return breadcrumbs.length ? (
+    return breadcrumbs.length || (featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry) ? (
         <div
             className={clsx(
                 'TopBar3000',
@@ -106,9 +124,43 @@ export function TopBar(): JSX.Element | null {
                             {breadcrumbs.slice(0, -1).map((breadcrumb) => (
                                 <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
                                     <Breadcrumb breadcrumb={breadcrumb} />
-                                    <div className="TopBar3000__separator" />
+                                    <div className="TopBar3000__separator">
+                                        <IconSlash fontSize="1rem" />
+                                    </div>
                                 </React.Fragment>
                             ))}
+                            {featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry && (
+                                <>
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => {
+                                            assureVisibility({ type: 'folder', ref: projectTreeRefEntry.path })
+                                            showLayoutPanel(true)
+                                            setActivePanelIdentifier('Project')
+                                        }}
+                                        icon={<IconFolderOpen />}
+                                        data-attr="top-bar-open-in-project-tree-button"
+                                        tooltip="Open in project tree"
+                                        disabledReason={renameState ? "Can't view in tree while renaming" : ''}
+                                    />
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => openMoveToModal([projectTreeRefEntry])}
+                                        icon={<IconFolderMove />}
+                                        data-attr="top-bar-move-button"
+                                        tooltip="Move to another folder"
+                                        disabledReason={renameState ? "Can't move while renaming" : ''}
+                                    />
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => addShortcutItem(projectTreeRefEntry)}
+                                        icon={<IconShortcut />}
+                                        data-attr="top-bar-add-to-shortcuts-button"
+                                        tooltip="Add to shortcuts panel"
+                                        disabledReason={renameState ? "Can't add to shortcuts while renaming" : ''}
+                                    />
+                                </>
+                            )}
                             <Breadcrumb
                                 breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
                                 here
@@ -138,6 +190,8 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+    const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
@@ -173,13 +227,17 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     } else {
         nameElement = (
             <span className="flex items-center gap-1.5">
-                {breadcrumbName || <i>Unnamed</i>}
+                {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
         )
     }
 
-    const Component = breadcrumb.path ? Link : 'div'
+    const isProjectTreeFolder = Boolean(
+        breadcrumb.name && breadcrumb.path && 'type' in breadcrumb && breadcrumb.type === 'folder'
+    )
+
+    const Component = !isProjectTreeFolder && breadcrumb.path ? Link : 'div'
     const breadcrumbContent = (
         <Component
             className={clsx(
@@ -190,6 +248,11 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             )}
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
+                if (isProjectTreeFolder && breadcrumb.path) {
+                    assureVisibility({ type: 'folder', ref: breadcrumb.path })
+                    showLayoutPanel(true)
+                    setActivePanelIdentifier('Project')
+                }
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
@@ -220,7 +283,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         )
     }
 
-    return breadcrumbContent
+    return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
 }
 
 interface HereProps {

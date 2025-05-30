@@ -31,6 +31,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    safe_identifier,
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
@@ -50,7 +51,10 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import get_survey_response_clickhouse_query
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -161,13 +165,17 @@ def prepare_ast_for_printing(
             resolve_lazy_tables(node, dialect, stack, context)
 
         with context.timings.measure("swap_properties"):
+            set_timezones = True
+            if context.modifiers.convertToProjectTimezone is not None:
+                set_timezones = context.modifiers.convertToProjectTimezone
+
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
                 group_properties={},
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=set_timezones,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
@@ -385,7 +393,7 @@ class _Printer(Visitor):
                             # Non-unique hidden alias. Skip.
                             column = column.expr
                     elif isinstance(column, ast.Call):
-                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
                         column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
@@ -1154,6 +1162,12 @@ class _Printer(Visitor):
                         return get_survey_response_clickhouse_query(
                             int(question_index_obj.value), question_id, is_multiple_choice
                         )
+
+                    elif node.name == "uniqueSurveySubmissionsFilter":
+                        survey_id = node_args[0]
+                        if not isinstance(survey_id, ast.Constant):
+                            raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                        return filter_survey_sent_events_by_unique_submission(survey_id.value)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []

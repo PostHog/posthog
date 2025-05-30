@@ -9,7 +9,7 @@
         "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dev",
         "start:dist": "BASE_DIR=.. node dist/index.js",
-        "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --watch src/ --exec node -r @swc-node/register src/index.ts",
+        "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --exitcrash --watch src/ --exec node -r @swc-node/register src/index.ts",
         "start:devNoWatch": "NODE_ENV=dev BASE_DIR=.. node -r @swc-node/register src/index.ts",
         "prestart:dev": "pnpm build:cyclotron",
         "prestart:devNoWatch": "pnpm build:cyclotron",
@@ -40,6 +40,7 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
+        "@amplitude/ua-parser-js": "^0.7.33",
         "@aws-sdk/client-s3": "^3.709.0",
         "@aws-sdk/lib-storage": "^3.709.0",
         "@babel/core": "^7.22.10",
@@ -55,15 +56,13 @@
         "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
-        "@sentry/node": "7.112.1",
-        "@sentry/profiling-node": "7.112.1",
-        "@sentry/tracing": "7.112.1",
-        "@sentry/utils": "7.112.1",
+        "@segment/action-destinations": "^3.383.0",
         "@types/lru-cache": "^5.1.0",
         "@types/node": "^18.11.9",
         "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
+        "dayjs": "1.11.11",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",
         "express": "^4.18.2",
@@ -87,7 +86,7 @@
         "node-schedule": "^2.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
-        "posthog-node": "4.5.2",
+        "posthog-node": "4.14.0",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^14.2.0",
         "re2": "^1.20.3",
@@ -96,17 +95,19 @@
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
         "typescript": "^4.7.4",
+        "undici": "^7.8.0",
         "undici-types": "^7.3.0",
         "uuid": "^10.0.0",
         "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18",
+        "xml-js": "^1.6.11",
         "zod": "^3.24.1"
     },
     "devDependencies": {
         "0x": "^5.5.0",
         "@babel/cli": "^7.22.5",
         "@babel/types": "^7.20.2",
-        "@sentry/types": "7.112.1",
+        "@segment/actions-core": "^3.151.0",
         "@swc-node/register": "^1.10.9",
         "@swc/core": "^1.10.14",
         "@swc/jest": "^0.2.37",
@@ -154,6 +155,6 @@
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
-        "version": "0.1.9"
+        "version": "0.1.12"
     }
 }

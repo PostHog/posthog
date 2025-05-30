@@ -17,14 +17,23 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
+    FunnelExperimentVariant,
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
     TrendExperimentVariant,
 } from '~/types'
 
+import {
+    calculateDelta,
+    conversionRateForVariant,
+    countDataForVariant,
+    credibleIntervalForVariant,
+    exposureCountDataForVariant,
+    getHighestProbabilityVariant,
+} from '../experimentCalculations'
 import { experimentLogic } from '../experimentLogic'
-import { getViewRecordingFilters } from '../utils'
+import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
@@ -43,12 +52,7 @@ export function SummaryTable({
         secondaryMetricResults,
         tabularExperimentResults,
         getInsightType,
-        exposureCountDataForVariant,
-        conversionRateForVariant,
         experimentMathAggregationForTrends,
-        countDataForVariant,
-        getHighestProbabilityVariant,
-        credibleIntervalForVariant,
         featureFlags,
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
@@ -149,28 +153,19 @@ export function SummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const controlVariant = (result.variants as TrendExperimentVariant[]).find(
-                    ({ key }) => key === 'control'
-                ) as TrendExperimentVariant
-
-                if (
-                    !variant.count ||
-                    !variant.absolute_exposure ||
-                    !controlVariant ||
-                    !controlVariant.count ||
-                    !controlVariant.absolute_exposure
-                ) {
+                const deltaResult = calculateDelta(result, variant.key, insightType)
+                if (!deltaResult) {
                     return <div className="font-semibold">—</div>
                 }
 
-                const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                const variantMean = variant.count / variant.absolute_exposure
-                const delta = ((variantMean - controlMean) / controlMean) * 100
-
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${
+                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                        }`}
+                    >
+                        {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
+                    </div>
                 )
             },
         })
@@ -206,6 +201,36 @@ export function SummaryTable({
     }
 
     if (insightType === InsightType.FUNNELS) {
+        // NOTE: For funnel metrics on the new engine, we show exposures and converted counts in the table,
+        // as we don't yet have the detailed view as we do for the legacy funnel metrics.
+        if (metric.kind === NodeKind.ExperimentMetric) {
+            columns.push({
+                key: 'exposures',
+                title: 'Exposures',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const exposures = variant.success_count + variant.failure_count
+                    if (!exposures) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(exposures)}</div>
+                },
+            })
+            columns.push({
+                key: 'converted',
+                title: 'Converted',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const converted = variant.success_count
+                    if (!converted) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(converted)}</div>
+                },
+            })
+        }
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -346,7 +371,10 @@ export function SummaryTable({
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
 
-            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
+            const filters = isLegacyExperimentQuery(metric)
+                ? getViewRecordingFiltersLegacy(metric, experiment.feature_flag_key, variantKey)
+                : getViewRecordingFilters(experiment, metric, variantKey)
+
             return (
                 <LemonButton
                     size="xsmall"
@@ -369,7 +397,7 @@ export function SummaryTable({
                             date_to: experiment?.end_date,
                             filter_test_accounts:
                                 metric.kind === NodeKind.ExperimentMetric
-                                    ? false
+                                    ? experiment.exposure_criteria?.filterTestAccounts ?? false
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
                                     ? metric.count_query.filterTestAccounts
                                     : metric.funnels_query.filterTestAccounts,

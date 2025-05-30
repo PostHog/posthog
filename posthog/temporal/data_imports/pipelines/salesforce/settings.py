@@ -3,6 +3,7 @@ from posthog.warehouse.types import IncrementalFieldType
 
 INCREMENTAL_ENDPOINTS = (
     "Account",
+    "Event",
     "User",
     "UserRole",
     "Lead",
@@ -13,6 +14,7 @@ INCREMENTAL_ENDPOINTS = (
     "PricebookEntry",
     "Order",
     "Opportunity",
+    "Task",
 )
 
 ENDPOINTS = [
@@ -101,6 +103,22 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     "Account": [
+        {
+            "label": "SystemModstamp",
+            "type": IncrementalFieldType.DateTime,
+            "field": "SystemModstamp",
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ],
+    "Event": [
+        {
+            "label": "SystemModstamp",
+            "type": IncrementalFieldType.DateTime,
+            "field": "SystemModstamp",
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ],
+    "Task": [
         {
             "label": "SystemModstamp",
             "type": IncrementalFieldType.DateTime,

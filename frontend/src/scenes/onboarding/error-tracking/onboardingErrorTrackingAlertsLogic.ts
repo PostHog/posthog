@@ -29,6 +29,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
             {
                 type: 'context',
                 elements: [
+                    { type: 'plain_text', text: 'Status: {event.properties.status}' },
                     { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
                     {
                         type: 'mrkdwn',

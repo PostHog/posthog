@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 from django.db import transaction
@@ -37,9 +37,9 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     APIScopePermission,
@@ -135,6 +135,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
             "flags_persistence_default",  # Compat with TeamSerializer
+            "secret_api_token",  # Compat with TeamSerializer
+            "secret_api_token_backup",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -151,6 +153,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "default_modifiers",
             "person_on_events_querying_enabled",
             "product_intents",
+            "secret_api_token",
+            "secret_api_token_backup",
         )
 
         team_passthrough_fields = {
@@ -199,6 +203,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "surveys_opt_in",
             "heatmaps_opt_in",
             "flags_persistence_default",
+            "secret_api_token",
+            "secret_api_token_backup",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -574,6 +580,32 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_secret_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
@@ -640,27 +672,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+        product_intent_serializer = ProductIntentSerializer(data=request.data)
+        product_intent_serializer.is_valid(raise_exception=True)
+        intent_data = product_intent_serializer.validated_data
 
-        if created and isinstance(user, User):
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
-        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
-        product_intent.save()
+        product_intent = ProductIntent.register(
+            team=team,
+            product_type=product_type,
+            context=intent_data["intent_context"],
+            user=cast(User, user),
+            metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=True,
+        )
 
         if isinstance(user, User):  # typing
             report_user_action(
@@ -670,7 +693,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
+                    "intent_context": intent_data["intent_context"],
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
@@ -792,7 +815,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     @cached_property
     def user_permissions(self):
-        project = self.get_object() if self.action == "reset_token" else None
+        project = self.get_object() if self.action in actions_that_require_current_team else None
         team = project.passthrough_team if project else None
         return UserPermissions(cast(User, self.request.user), team)
 

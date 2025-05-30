@@ -2,6 +2,7 @@ import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reduc
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,6 +25,7 @@ export interface NewDashboardForm {
     show: boolean
     useTemplate: string
     restrictionLevel: DashboardRestrictionLevel
+    _create_in_folder?: string | null
 }
 
 const defaultFormValues: NewDashboardForm = {
@@ -60,6 +62,8 @@ export function applyTemplate(
                         mathAvailability = MathAvailability.ActorsOnly
                     } else if (queryKind === NodeKind.FunnelsQuery) {
                         mathAvailability = MathAvailability.FunnelsOnly
+                    } else if (queryKind === NodeKind.CalendarHeatmapQuery) {
+                        mathAvailability = MathAvailability.CalendarHeatmapOnly
                     }
                     return (
                         queryKind === NodeKind.RetentionQuery
@@ -171,7 +175,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 name: !name ? 'Please give your dashboard a name.' : null,
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
-            submit: async ({ name, description, useTemplate, restrictionLevel, show }, breakpoint) => {
+            submit: async (
+                { name, description, useTemplate, restrictionLevel, show, _create_in_folder },
+                breakpoint
+            ) => {
                 actions.setIsLoading(true)
                 try {
                     const result: DashboardType = await api.create(
@@ -181,6 +188,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             description: description,
                             use_template: useTemplate,
                             restriction_level: restrictionLevel,
+                            ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>
                     )
                     actions.hideNewDashboardModal()
@@ -232,12 +240,22 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             }
 
             try {
+                actions.hideNewDashboardModal()
+                const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Dashboards' })
+                if (folder === null) {
+                    actions.showNewDashboardModal()
+                    actions.setIsLoading(false)
+                    return
+                }
                 const result: DashboardType = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
-                    { template: dashboardJSON, creation_context: creationContext }
+                    {
+                        template: dashboardJSON,
+                        creation_context: creationContext,
+                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                    }
                 )
 
-                actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
                 const queryBasedDashboard = getQueryBasedDashboard(result)
                 queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)

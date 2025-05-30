@@ -1,4 +1,7 @@
+import './Dashboard.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -14,7 +17,6 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
@@ -57,8 +59,11 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
+        dashboardVariables,
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+
+    const hasVariables = Object.keys(dashboardVariables).length > 0
 
     useEffect(() => {
         reportDashboardViewed()
@@ -116,39 +121,45 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-start justify-between flex-wrap">
-                        {![
-                            DashboardPlacement.Public,
-                            DashboardPlacement.Export,
-                            DashboardPlacement.FeatureFlag,
-                            DashboardPlacement.Group,
-                        ].includes(placement) &&
-                            dashboard && <DashboardEditBar />}
-                        {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
-                            dashboard?.id && (
-                                <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                    {placement === DashboardPlacement.Group
-                                        ? 'Edit dashboard template'
-                                        : 'Edit dashboard'}
-                                </LemonButton>
-                            )}
-                        {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
+                    <div className="Dashboard_filters">
+                        <div className="flex gap-2 justify-between">
+                            {![
+                                DashboardPlacement.Public,
+                                DashboardPlacement.Export,
+                                DashboardPlacement.FeatureFlag,
+                                DashboardPlacement.Group,
+                            ].includes(placement) &&
+                                dashboard && <DashboardEditBar />}
+                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
+                                dashboard?.id && (
+                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                        {placement === DashboardPlacement.Group
+                                            ? 'Edit dashboard template'
+                                            : 'Edit dashboard'}
+                                    </LemonButton>
+                                )}
+                            {placement !== DashboardPlacement.Export && (
                                 <div
-                                    className={`left-item ${
-                                        placement === DashboardPlacement.Public ? 'text-right' : ''
-                                    }`}
+                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
+                                        'mt-7': hasVariables,
+                                    })}
                                 >
-                                    {[DashboardPlacement.Public].includes(placement) ? (
-                                        <LastRefreshText />
-                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                        <DashboardReloadAction />
-                                    ) : null}
+                                    <div
+                                        className={`left-item ${
+                                            placement === DashboardPlacement.Public ? 'text-right' : ''
+                                        }`}
+                                    >
+                                        {[DashboardPlacement.Public].includes(placement) ? (
+                                            <LastRefreshText />
+                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
+                                            <DashboardReloadAction />
+                                        ) : null}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
-                    <VariablesForDashboard />
+
                     <DashboardItems />
                 </div>
             )}

@@ -28,6 +28,7 @@ import {
     AnyEntityNode,
     FunnelsQuery,
     HogQLQuery,
+    HogQLVariable,
     InsightQueryNode,
     LifecycleQuery,
     Node,
@@ -382,6 +383,29 @@ export function PropertiesSummary({
     )
 }
 
+export function VariablesSummary({
+    variables,
+}: {
+    variables: Record<string, HogQLVariable> | undefined
+}): JSX.Element | null {
+    if (!variables) {
+        return null
+    }
+
+    return (
+        <section>
+            <h5>Variables</h5>
+            <div>
+                {Object.entries(variables).map(([key, variable]) => (
+                    <div key={key}>
+                        {variable.code_name}: {variable.value ? <b>{variable.value}</b> : <i>null</i>}
+                    </div>
+                ))}
+            </div>
+        </section>
+    )
+}
+
 export function BreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
     if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
@@ -430,6 +454,7 @@ export const InsightDetails = React.memo(
                 {isInsightVizNode(query) || isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query) ? (
                     <>
                         <SeriesSummary query={query.source} />
+                        <VariablesSummary variables={isHogQLQuery(query.source) ? query.source.variables : undefined} />
                         <PropertiesSummary
                             properties={
                                 isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties

@@ -11,13 +11,15 @@ from sentry_sdk import get_traceparent, push_scope, set_tag
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
+from posthog.clickhouse.client.limit import get_api_personal_rate_limiter, get_app_org_rate_limiter
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -42,11 +44,13 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     GroupsQuery,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -208,6 +212,17 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
+
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "StickinessQuery":
         from .insights.stickiness_query_runner import StickinessQueryRunner
 
@@ -294,11 +309,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "HogQLQuery":
+    if kind == "HogQLQuery" or kind == "HogQLASTQuery":
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | dict[str, Any], query),
+            query=cast(HogQLQuery | HogQLASTQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -366,10 +381,60 @@ def get_query_runner(
             team=team,
         )
 
+    if kind == "WebPageURLSearchQuery":
+        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+
+        return PageUrlSearchQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
         return SessionAttributionExplorerQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
+        )
+
+        return RevenueAnalyticsOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
+        )
+
+        return RevenueAnalyticsGrowthRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsTopCustomersQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
+            RevenueAnalyticsTopCustomersQueryRunner,
+        )
+
+        return RevenueAnalyticsTopCustomersQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -559,6 +624,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     is_query_service: bool = False
+    workload: Optional[Workload] = None
 
     def __init__(
         self,
@@ -568,13 +634,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        workload: Optional[Workload] = None,
+        extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
-        _modifiers = modifiers or (query.modifiers if hasattr(query, "modifiers") else None)
-        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query_id = query_id
+        self.workload = workload
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -589,6 +656,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             else:
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
+
+        _modifiers = modifiers or extract_modifiers(query)
+        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
 
     @property
@@ -661,7 +731,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
-            cached_response = CachedResponse(**cached_response_candidate)
+            # When rolling out schema changes, cached responses may not match the new schema.
+            # Trigger recomputation in this case.
+            try:
+                cached_response = CachedResponse(**cached_response_candidate)
+            except Exception as e:
+                capture_exception(Exception(f"Error parsing cached response: {e}"))
+                cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:
@@ -789,15 +865,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if self.is_query_service:
                 tag_queries(chargeable=1)
 
-            fresh_response_dict = {
-                **self.calculate().model_dump(),
-                "is_cached": False,
-                "last_refresh": last_refresh,
-                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                "cache_key": cache_key,
-                "timezone": self.team.timezone,
-                "cache_target_age": target_age,
-            }
+            with get_app_org_rate_limiter().run(
+                org_id=self.team.organization_id, task_id=self.query_id, team_id=self.team.id
+            ):
+                fresh_response_dict = {
+                    **self.calculate().model_dump(),
+                    "is_cached": False,
+                    "last_refresh": last_refresh,
+                    "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                    "cache_key": cache_key,
+                    "timezone": self.team.timezone,
+                    "cache_target_age": target_age,
+                }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)
@@ -952,6 +1031,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+
+
+class QueryRunnerWithHogQLContext(QueryRunner):
+    database: Database
+    hogql_context: HogQLContext
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # We create a new context here because we need to access the database
+        # below in the to_query method and creating a database is pretty heavy
+        # so we'll reuse this database for the query once it eventually runs
+        self.database = create_hogql_database(team=self.team)
+        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

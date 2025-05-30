@@ -141,7 +141,6 @@ impl Config {
             acquire_timeout_seconds: Some(self.pg_acquire_timeout_seconds),
             max_lifetime_seconds: Some(self.pg_max_lifetime_seconds),
             idle_timeout_seconds: Some(self.pg_idle_timeout_seconds),
-            should_compress_vm_state: Some(self.should_compress_vm_state),
         };
 
         let worker_config = WorkerConfig {
@@ -151,7 +150,6 @@ impl Config {
             max_bytes_buffered: Some(self.max_bytes_buffered),
             flush_loop_interval_ms: Some(self.flush_loop_interval_ms),
             should_compress_vm_state: Some(self.should_compress_vm_state),
-            should_use_bulk_job_copy: Some(self.should_use_bulk_job_copy),
         };
 
         (app_config, pool_config, self.kafka, worker_config)

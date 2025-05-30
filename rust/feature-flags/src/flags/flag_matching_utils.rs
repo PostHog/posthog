@@ -3,14 +3,19 @@ use std::collections::{HashMap, HashSet};
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire};
-use std::fmt::Write;
+use sqlx::{postgres::PgQueryResult, Acquire, Row};
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::info;
 
 use crate::{
     api::errors::FlagError,
+    cohorts::cohort_models::CohortId,
+    metrics::consts::{
+        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
+        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
+        FLAG_PERSON_QUERY_TIME,
+    },
     properties::{property_matching::match_property, property_models::PropertyFilter},
 };
 
@@ -33,22 +38,13 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 ///
 /// ## Returns
 /// * `f64` - A number between 0 and 1
-pub async fn calculate_hash(
-    prefix: &str,
-    hashed_identifier: &str,
-    salt: &str,
-) -> Result<f64, FlagError> {
+pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
-    let mut hasher = Sha1::new();
-    hasher.update(hash_key.as_bytes());
-    let result = hasher.finalize();
-    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
-        let _ = write!(acc, "{:02x}", byte);
-        acc
-    })[..15]
-        .to_string();
-    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    let hash_value = Sha1::digest(hash_key.as_bytes());
+    // We use the first 8 bytes of the hash and shift right by 4 bits
+    // This is equivalent to using the first 15 hex characters (7.5 bytes) of the hash
+    // as was done in the previous implementation, ensuring consistent feature flag distribution
+    let hash_val: u64 = u64::from_be_bytes(hash_value[..8].try_into().unwrap()) >> 4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
@@ -63,65 +59,92 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
     group_keys: &HashSet<String>,
+    static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
     let mut conn = reader.as_ref().get_connection().await?;
+    conn_timer.fin();
 
-    let query = r#"
-        SELECT
-            (
-                SELECT "posthog_person"."id"
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid"
-                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-                WHERE
-                    "posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2
-                LIMIT 1
-            ) AS person_id,
-            (
-                SELECT "posthog_person"."properties"
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid"
-                    ON "posthog_person"."id" = "posthog_persondistinctid"."person_id"
-                WHERE
-                    "posthog_persondistinctid"."distinct_id" = $1
-                    AND "posthog_persondistinctid"."team_id" = $2
-                    AND "posthog_person"."team_id" = $2
-                LIMIT 1
-            ) AS person_properties,
-            (
-                SELECT
-                    json_object_agg(
-                        "posthog_group"."group_type_index",
-                        "posthog_group"."group_properties"
-                    )
-                FROM "posthog_group"
-                WHERE
-                    "posthog_group"."team_id" = $2
-                    AND "posthog_group"."group_type_index" = ANY($3)
-                    AND "posthog_group"."group_key" = ANY($4)
-            ) AS group_properties
+    // First query: Get person data from the distinct_id (person_id and person_properties)
+    // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
+    // distinct_id. There's two cases for that:
+    // 1. there's a race condition between person ingestion and flag evaluation.  In that case, only the first flag request
+    // be missing a person id, and all subsequent requests will have a person id.  That means the first flag evaluation could be wrong, but all subsequent ones will be correct.  Not a huge problem.
+    // 2. the distinct_id is associated with an anonymous or cookieless user.  In that case, it's fine to not return a person ID and to never return person properties.  This is handled by just
+    // returning an empty HashMap for person properties whenever I actually need them, and then obviously any condition that depends on person properties will return false.
+    // That's fine though, we shouldn't error out just because we can't find a person ID.
+    let person_query = r#"
+        SELECT DISTINCT ON (ppd.distinct_id)
+            p.id as person_id,
+            p.properties as person_properties
+        FROM posthog_persondistinctid ppd
+        INNER JOIN posthog_person p 
+            ON p.id = ppd.person_id 
+            AND p.team_id = ppd.team_id
+        WHERE ppd.distinct_id = $1 
+            AND ppd.team_id = $2
     "#;
 
-    let group_type_indexes_vec: Vec<GroupTypeIndex> = group_type_indexes.iter().cloned().collect();
-    let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
-
-    let row: (Option<PersonId>, Option<Value>, Option<Value>) = sqlx::query_as(query)
+    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
+    let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
         .bind(&distinct_id)
         .bind(team_id)
-        .bind(&group_type_indexes_vec)
-        .bind(&group_keys_vec) // Bind group_keys_vec to $4
         .fetch_optional(&mut *conn)
         .await?
-        .unwrap_or((None, None, None));
+        .unwrap_or((None, None));
+    person_query_timer.fin();
 
-    let (person_id, person_props, group_props) = row;
-
+    let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
+        // NB: this is where we actually set our person ID in the flag evaluation state.
         flag_evaluation_state.set_person_id(person_id);
+        // If we have static cohort IDs to check and a valid person_id, do the cohort query
+        if !static_cohort_ids.is_empty() {
+            let cohort_query = r#"
+                    WITH cohort_membership AS (
+                        SELECT c.cohort_id, 
+                               CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
+                        FROM unnest($1::integer[]) AS c(cohort_id)
+                        LEFT JOIN posthog_cohortpeople AS pc
+                          ON pc.person_id = $2
+                          AND pc.cohort_id = c.cohort_id
+                    )
+                    SELECT cohort_id, is_member
+                    FROM cohort_membership
+                "#;
+
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_rows = sqlx::query(cohort_query)
+                .bind(&static_cohort_ids)
+                .bind(person_id)
+                .fetch_all(&mut *conn)
+                .await?;
+            cohort_timer.fin();
+
+            let cohort_processing_timer =
+                common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
+            let cohort_results: HashMap<CohortId, bool> = cohort_rows
+                .into_iter()
+                .map(|row| {
+                    let cohort_id: CohortId = row.get("cohort_id");
+                    let is_member: bool = row.get("is_member");
+                    (cohort_id, is_member)
+                })
+                .collect();
+
+            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+            cohort_processing_timer.fin();
+        } else {
+            // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
+            // we checked the cohorts and found no matches. I want to differentiate from returning None, which
+            // would indicate that that we had an error doing this evaluation in the first place.
+            // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
+            // went wrong.  This is handled in the caller.
+            flag_evaluation_state.set_static_cohort_matches(HashMap::new());
+        }
     }
 
+    // if we have person properties, set them
     if let Some(person_props) = person_props {
         flag_evaluation_state.set_person_properties(
             person_props
@@ -132,107 +155,48 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .collect(),
         );
     }
+    person_processing_timer.fin();
 
-    if let Some(group_props) = group_props {
-        let group_props_map: HashMap<GroupTypeIndex, HashMap<String, Value>> = group_props
-            .as_object()
-            .unwrap_or(&serde_json::Map::new())
-            .iter()
-            .map(|(k, v)| {
-                let group_type_index = k.parse().unwrap_or_default();
-                let properties: HashMap<String, Value> = v
-                    .as_object()
-                    .unwrap_or(&serde_json::Map::new())
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                (group_type_index, properties)
-            })
-            .collect();
+    // Only fetch group property data if we have group types to look up
+    if !group_type_indexes.is_empty() {
+        let group_query = r#"
+            SELECT 
+                group_type_index,
+                group_key,
+                group_properties
+            FROM posthog_group
+            WHERE team_id = $1
+                AND group_type_index = ANY($2)
+                AND group_key = ANY($3)
+        "#;
 
-        for (group_type_index, properties) in group_props_map {
-            flag_evaluation_state.set_group_properties(group_type_index, properties);
+        let group_type_indexes_vec: Vec<GroupTypeIndex> =
+            group_type_indexes.iter().cloned().collect();
+        let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
+
+        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let groups = sqlx::query(group_query)
+            .bind(team_id)
+            .bind(&group_type_indexes_vec)
+            .bind(&group_keys_vec)
+            .fetch_all(&mut *conn)
+            .await?;
+        group_query_timer.fin();
+
+        let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
+        for row in groups {
+            let group_type_index: GroupTypeIndex = row.get("group_type_index");
+            let properties: Value = row.get("group_properties");
+
+            if let Value::Object(props) = properties {
+                let properties = props.into_iter().collect();
+                flag_evaluation_state.set_group_properties(group_type_index, properties);
+            }
         }
+        group_processing_timer.fin();
     }
 
     Ok(())
-}
-
-/// Fetch person properties and person ID from the database for a given distinct ID and team ID.
-///
-/// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
-/// It returns the fetched properties as a HashMap.
-pub async fn fetch_person_properties_from_db(
-    reader: PostgresReader,
-    distinct_id: String,
-    team_id: TeamId,
-) -> Result<(HashMap<String, Value>, PersonId), FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-           SELECT "posthog_person"."id" as person_id, "posthog_person"."properties" as person_properties
-           FROM "posthog_person"
-           INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-           WHERE ("posthog_persondistinctid"."distinct_id" = $1
-                   AND "posthog_persondistinctid"."team_id" = $2
-                   AND "posthog_person"."team_id" = $2)
-           LIMIT 1
-       "#;
-
-    let row: Option<(PersonId, Value)> = sqlx::query_as(query)
-        .bind(&distinct_id)
-        .bind(team_id)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-    match row {
-        Some((person_id, person_props)) => {
-            let properties_map = person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            Ok((properties_map, person_id))
-        }
-        None => Err(FlagError::PersonNotFound),
-    }
-}
-
-/// Fetch group properties from the database for a given team ID and group type index.
-///
-/// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
-/// It returns the fetched properties as a HashMap.
-pub async fn fetch_group_properties_from_db(
-    reader: PostgresReader,
-    team_id: TeamId,
-    group_type_index: GroupTypeIndex,
-    group_key: String,
-) -> Result<HashMap<String, Value>, FlagError> {
-    let mut conn = reader.as_ref().get_connection().await?;
-
-    let query = r#"
-        SELECT "posthog_group"."group_properties"
-        FROM "posthog_group"
-        WHERE ("posthog_group"."team_id" = $1
-                AND "posthog_group"."group_type_index" = $2
-                AND "posthog_group"."group_key" = $3)
-        LIMIT 1
-    "#;
-
-    let row: Option<Value> = sqlx::query_scalar(query)
-        .bind(team_id)
-        .bind(group_type_index)
-        .bind(group_key)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-    Ok(row
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(k, v)| (k, v.clone()))
-        .collect())
 }
 
 /// Check if all required properties are present in the overrides
@@ -596,9 +560,7 @@ mod tests {
     #[case("example_id2", 0.6292740389966519)]
     #[tokio::test]
     async fn test_calculate_hash(#[case] hashed_identifier: &str, #[case] expected_hash: f64) {
-        let hash = calculate_hash("holdout-", hashed_identifier, "")
-            .await
-            .unwrap();
+        let hash = calculate_hash("holdout-", hashed_identifier, "").unwrap();
         assert!(
             (hash - expected_hash).abs() < f64::EPSILON,
             "Hash {} should equal expected value {} within floating point precision",
@@ -617,7 +579,7 @@ mod tests {
         let property_filters = vec![
             PropertyFilter {
                 key: "email".to_string(),
-                value: json!("test@example.com"),
+                value: Some(json!("test@example.com")),
                 operator: None,
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -625,7 +587,7 @@ mod tests {
             },
             PropertyFilter {
                 key: "age".to_string(),
-                value: json!(25),
+                value: Some(json!(25)),
                 operator: Some(OperatorType::Gte),
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -639,7 +601,7 @@ mod tests {
         let property_filters_with_cohort = vec![
             PropertyFilter {
                 key: "email".to_string(),
-                value: json!("test@example.com"),
+                value: Some(json!("test@example.com")),
                 operator: None,
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -647,7 +609,7 @@ mod tests {
             },
             PropertyFilter {
                 key: "cohort".to_string(),
-                value: json!(1),
+                value: Some(json!(1)),
                 operator: None,
                 prop_type: "cohort".to_string(),
                 group_type_index: None,

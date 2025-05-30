@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, Literal
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from django.db.models import QuerySet
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -17,6 +18,7 @@ from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentS
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.schema import ExperimentEventExposureConfig
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -29,6 +31,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Experiment
@@ -49,6 +52,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "saved_metrics_ids",
             "filters",
             "archived",
+            "deleted",
             "created_by",
             "created_at",
             "updated_at",
@@ -57,6 +61,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "_create_in_folder",
+            "conclusion",
+            "conclusion_comment",
         ]
         read_only_fields = [
             "id",
@@ -141,9 +148,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
-        if feature_flag.experiment_set.exists():
-            raise ValidationError("Feature flag is already associated with an experiment.")
-
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
         if len(variants) and len(variants) > 1:
@@ -221,14 +225,17 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "holdout_groups": holdout_groups,
             }
 
+            feature_flag_data = {
+                "key": feature_flag_key,
+                "name": f"Feature Flag for Experiment {validated_data['name']}",
+                "filters": feature_flag_filters,
+                "active": not is_draft,
+                "creation_context": "experiments",
+            }
+            if validated_data.get("_create_in_folder") is not None:
+                feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
             feature_flag_serializer = FeatureFlagSerializer(
-                data={
-                    "key": feature_flag_key,
-                    "name": f"Feature Flag for Experiment {validated_data['name']}",
-                    "filters": feature_flag_filters,
-                    "active": not is_draft,
-                    "creation_context": "experiments",
-                },
+                data=feature_flag_data,
                 context=self.context,
             )
 
@@ -310,12 +317,15 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "filters",
             "parameters",
             "archived",
+            "deleted",
             "secondary_metrics",
             "holdout",
             "exposure_criteria",
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "conclusion",
+            "conclusion_comment",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -403,13 +413,18 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
-class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
         "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
     ).all()
     ordering = "-created_at"
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        """Override to filter out deleted experiments for both list and detail views."""
+        queryset = queryset.exclude(deleted=True)
+        return queryset
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation

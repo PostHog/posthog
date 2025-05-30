@@ -8,11 +8,11 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 common-cookieless = { path = "../common/cookieless" }
+common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
@@ -47,17 +47,17 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 petgraph = "0.6.5"
 moka = { workspace = true }
-serde_urlencoded = { workspace = true }
-urlencoding = "2.1.3"
 dateparser = "0.2.1"
 rust_decimal = "1.37.1"
+rayon = "1.10.0"
+percent-encoding = "2.3.1"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-
 rstest = "0.25.0"
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
+test-case = "3.3.1"

@@ -40,6 +40,10 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
                     "toFloat(JSONExtractRaw(properties, {property}))",
                     placeholders={"property": ast.Constant(value=metric_property)},
                 )
+
+    elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
+        return ast.Field(chain=["$session_id"])
+
     # Else, we default to count
     # We then just emit 1 so we can easily sum it up
     return ast.Constant(value=1)

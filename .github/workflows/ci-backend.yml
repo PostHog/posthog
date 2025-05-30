@@ -39,6 +39,7 @@ env:
     # this appears to fix it
     # absolute wild tbh https://stackoverflow.com/a/75503402
     DISPLAY: ':99.0'
+    OIDC_RSA_PRIVATE_KEY: 'test'
 jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -84,6 +85,7 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
+                        - docker-compose.base.yml
                         - frontend/public/email/*
                         # These scripts are used in the CI
                         - bin/check_temporal_up

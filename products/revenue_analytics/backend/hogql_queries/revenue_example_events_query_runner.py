@@ -3,22 +3,18 @@ import json
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql.database.schema.exchange_rate import (
-    DEFAULT_CURRENCY,
-    revenue_expression_for_events,
-    revenue_where_expr_for_events,
-    currency_expression_for_all_events,
-)
 from posthog.schema import (
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
     CachedRevenueExampleEventsQueryResponse,
 )
 
+from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 
-class RevenueExampleEventsQueryRunner(QueryRunner):
+
+class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
     query: RevenueExampleEventsQuery
     response: RevenueExampleEventsQueryResponse
     cached_response: CachedRevenueExampleEventsQueryResponse
@@ -31,56 +27,74 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        revenue_config = self.team.revenue_config
+        view_names = self.database.get_views()
+        all_views = [self.database.get_table(view_name) for view_name in view_names]
+        views = [view for view in all_views if isinstance(view, RevenueAnalyticsBaseView) and view.source_id is None]
+        if not views:
+            return ast.SelectQuery.empty()
 
-        select = ast.SelectQuery(
-            select=[
-                ast.Call(
-                    name="tuple",
-                    args=[
-                        ast.Field(chain=["uuid"]),
-                        ast.Field(chain=["event"]),
-                        ast.Field(chain=["distinct_id"]),
-                        ast.Field(chain=["properties"]),
+        queries: list[ast.SelectQuery] = []
+        for view in views:
+            queries.append(
+                ast.SelectQuery(
+                    select=[
+                        ast.Call(
+                            name="tuple",
+                            args=[
+                                ast.Field(chain=["events", "uuid"]),
+                                ast.Field(chain=["events", "event"]),
+                                ast.Field(chain=["events", "distinct_id"]),
+                                ast.Field(chain=["events", "properties"]),
+                            ],
+                        ),
+                        ast.Field(chain=["view", "event_name"]),
+                        ast.Field(chain=["view", "original_amount"]),
+                        ast.Field(chain=["view", "currency_aware_amount"]),
+                        ast.Field(chain=["view", "original_currency"]),
+                        ast.Field(chain=["view", "amount"]),
+                        ast.Field(chain=["view", "currency"]),
+                        ast.Call(
+                            name="tuple",
+                            args=[
+                                ast.Field(chain=["events", "person", "id"]),
+                                ast.Field(chain=["events", "person", "created_at"]),
+                                ast.Field(chain=["events", "distinct_id"]),
+                                ast.Field(chain=["events", "person", "properties"]),
+                            ],
+                        ),
+                        ast.Field(chain=["view", "session_id"]),
+                        ast.Alias(alias="timestamp", expr=ast.Field(chain=["view", "timestamp"])),
                     ],
-                ),
-                ast.Field(chain=["event"]),
-                ast.Alias(
-                    alias="original_revenue",
-                    expr=revenue_expression_for_events(revenue_config, do_currency_conversion=False),
-                ),
-                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(revenue_config)),
-                ast.Alias(alias="revenue", expr=revenue_expression_for_events(revenue_config)),
-                ast.Alias(
-                    alias="currency", expr=ast.Constant(value=(revenue_config.baseCurrency or DEFAULT_CURRENCY).value)
-                ),
-                ast.Call(
-                    name="tuple",
-                    args=[
-                        ast.Field(chain=["person", "id"]),
-                        ast.Field(chain=["person", "created_at"]),
-                        ast.Field(chain=["distinct_id"]),
-                        ast.Field(chain=["person", "properties"]),
-                    ],
-                ),
-                ast.Alias(alias="session_id", expr=ast.Field(chain=["properties", "$session_id"])),
-                ast.Field(chain=["timestamp"]),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(
-                exprs=[
-                    revenue_where_expr_for_events(revenue_config),
-                    ast.CompareOperation(
-                        op=CompareOperationOp.NotEq,
-                        left=ast.Field(chain=["revenue"]),  # refers to the Alias above
-                        right=ast.Constant(value=None),
+                    select_from=ast.JoinExpr(
+                        alias="view",
+                        table=ast.Field(chain=[view.name]),
+                        next_join=ast.JoinExpr(
+                            join_type="INNER JOIN",
+                            alias="events",
+                            table=ast.Field(chain=["events"]),
+                            constraint=ast.JoinConstraint(
+                                constraint_type="ON",
+                                expr=ast.CompareOperation(
+                                    op=CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["events", "uuid"]),
+                                    right=ast.Field(chain=["view", "id"]),
+                                ),
+                            ),
+                        ),
                     ),
-                ]
-            ),
+                    order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                )
+            )
+
+        if len(queries) == 1:
+            return queries[0]
+
+        # Reorder by timestamp to ensure the most recent events are at the top across all event views
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
         )
-
-        return select
 
     def calculate(self):
         response = self.paginator.execute_hogql_query(
@@ -104,14 +118,15 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                 row[3],
                 row[4],
                 row[5],
+                row[6],
                 {
-                    "id": row[6][0],
-                    "created_at": row[6][1],
-                    "distinct_id": row[6][2],
-                    "properties": json.loads(row[6][3]),
+                    "id": row[7][0],
+                    "created_at": row[7][1],
+                    "distinct_id": row[7][2],
+                    "properties": json.loads(row[7][3]),
                 },
-                row[7],
                 row[8],
+                row[9],
             )
             for row in response.results
         ]
@@ -120,9 +135,10 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
             columns=[
                 "*",
                 "event",
-                "original_revenue",
+                "original_amount",
+                "currency_aware_amount",
                 "original_currency",
-                "revenue",
+                "amount",
                 "currency",
                 "person",
                 "session_id",

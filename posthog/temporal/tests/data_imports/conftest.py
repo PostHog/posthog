@@ -77,8 +77,8 @@ async def run_external_data_job_workflow(
     external_data_source,
     external_data_schema,
     table_name,
-    expected_rows_synced,
-    expected_total_rows,
+    expected_rows_synced: int | None,
+    expected_total_rows: int | None,
     expected_columns: list[str] | None = None,
 ) -> HogQLQueryResponse:
     workflow_id = str(uuid.uuid4())
@@ -129,7 +129,8 @@ async def run_external_data_job_workflow(
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-    assert run.rows_synced == expected_rows_synced
+    if expected_rows_synced is not None:
+        assert run.rows_synced == expected_rows_synced
 
     mock_trigger_compaction_job.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
@@ -146,7 +147,8 @@ async def run_external_data_job_workflow(
         columns_str = ", ".join(expected_columns)
 
     res = await sync_to_async(execute_hogql_query)(f"SELECT {columns_str} FROM {table_name}", team)
-    assert len(res.results) == expected_total_rows
+    if expected_total_rows is not None:
+        assert len(res.results) == expected_total_rows
     if expected_columns is not None:
         assert set(expected_columns) == set(res.columns or [])
 

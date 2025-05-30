@@ -63,8 +63,9 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
+    revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
 
-    __repr__ = sane_repr("id")
+    __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
 
     def soft_delete(self):
         self.deleted = True
@@ -87,7 +88,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 trigger_external_data_workflow(schema)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                    sync_external_data_job_workflow(schema, create=True)
+                    sync_external_data_job_workflow(schema, create=True, should_sync=True)
 
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)

@@ -1,26 +1,29 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, LemonTabs, Link } from '@posthog/lemon-ui'
+import { IconShare, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonMenu, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
+import { urls } from 'scenes/urls'
 
 import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
-import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -149,41 +152,84 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                {insightUrl || traceUrl ? (
-                    <>
-                        <div className="flex justify-end gap-2">
-                            {insightUrl && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    sideIcon={<IconOpenInNew />}
-                                    data-attr="recordings-event-to-insights"
-                                    to={insightUrl}
-                                    targetBlank
-                                >
-                                    Try out in Insights
-                                </LemonButton>
+                <div className="flex justify-end gap-2">
+                    {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
+                        <LemonButton
+                            targetBlank
+                            sideIcon={<IconOpenInNew />}
+                            data-attr="replay-inspector-issue-link"
+                            to={urls.errorTrackingIssue(
+                                item.data.properties.$exception_issue_id,
+                                item.data.properties.$exception_fingerprint
                             )}
-                            {traceUrl && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    sideIcon={<IconOpenInNew />}
-                                    data-attr="recordings-event-to-llm-trace"
-                                    to={traceUrl}
-                                    targetBlank
-                                >
-                                    View LLM Trace
-                                </LemonButton>
-                            )}
+                        >
+                            View issue
+                        </LemonButton>
+                    ) : null}
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Copy link to event',
+                                icon: <IconLink />,
+                                onClick: () => {
+                                    void copyToClipboard(
+                                        urls.absolute(
+                                            urls.currentProject(urls.event(String(item.data.id), item.data.timestamp))
+                                        ),
+                                        'link to event'
+                                    )
+                                },
+                            },
+                            item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
+                                ? {
+                                      label: 'Copy link to issue',
+                                      icon: <IconWarning />,
+                                      onClick: () => {
+                                          void copyToClipboard(
+                                              urls.absolute(
+                                                  urls.currentProject(
+                                                      urls.errorTrackingIssue(
+                                                          item.data.properties.$exception_issue_id,
+                                                          item.data.properties.$exception_fingerprint
+                                                      )
+                                                  )
+                                              ),
+                                              'issue link'
+                                          )
+                                      },
+                                  }
+                                : null,
+                            insightUrl
+                                ? {
+                                      label: 'Try out in Insights',
+                                      icon: <IconOpenInNew />,
+                                      to: insightUrl,
+                                      targetBlank: true,
+                                  }
+                                : null,
+                            traceUrl
+                                ? {
+                                      label: 'View LLM Trace',
+                                      icon: <IconLink />,
+                                      to: traceUrl,
+                                      targetBlank: true,
+                                  }
+                                : null,
+                        ]}
+                        buttonSize="xsmall"
+                    >
+                        <div className="recordings-event-share-actions">
+                            <LemonButton size="xsmall" icon={<IconShare />}>
+                                Share
+                            </LemonButton>
                         </div>
-                        <LemonDivider dashed />
-                    </>
-                ) : null}
+                    </LemonMenu>
+                </div>
+                <LemonDivider dashed />
 
                 {item.data.fullyLoaded ? (
                     item.data.event === '$exception' ? (
-                        <ErrorDisplay eventProperties={item.data.properties} />
+                        <ErrorDisplay eventProperties={item.data.properties} eventId={item.data.id} />
                     ) : (
                         <LemonTabs
                             size="small"

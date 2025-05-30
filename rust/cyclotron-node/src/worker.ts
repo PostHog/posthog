@@ -6,7 +6,6 @@ import {
     CyclotronJobState,
     CyclotronJobUpdate,
     CyclotronPoolConfig,
-    CyclotronWorkerTuningConfig,
 } from './types'
 
 const parseJob = (job: CyclotronJob): CyclotronJob => {
@@ -18,7 +17,8 @@ const parseJob = (job: CyclotronJob): CyclotronJob => {
     }
 }
 
-export type CyclotronWorkerConfig = {
+// Config specific to the node worker
+type CyclotronWorkerNodeConfig = {
     pool: CyclotronPoolConfig
     /** The queue to be consumed from */
     queueName: string
@@ -34,23 +34,34 @@ export type CyclotronWorkerConfig = {
     includeEmptyBatches?: boolean
 }
 
+
+type CyclotronWorkerInternalConfig = {
+    /** Heartbeat timeout. After this time without response from the worker loop the worker will be considered unhealthy. Default 30000 */
+    heartbeatTimeoutMs?: number
+    /** Heartbeat window. Default 5 */
+    heartbeatWindowSeconds?: number
+    /** Linger time. Default 500 */
+    lingerTimeMs?: number
+    /** Max updates buffered. Default 100 */
+    maxUpdatesBuffered?: number
+    /** Max bytes buffered. Default 10MB */
+    maxBytesBuffered?: number
+    /** Flush loop interval. Default 10 */
+    flushLoopIntervalMs?: number
+    /** Whether to compress vmState. Default false */
+    shouldCompressVmState?: boolean
+}
+
+
+export type CyclotronWorkerConfig = CyclotronWorkerNodeConfig & CyclotronWorkerInternalConfig
+
 export class CyclotronWorker {
     isConsuming: boolean = false
     lastHeartbeat: Date = new Date()
 
     private consumerLoopPromise: Promise<void> | null = null
 
-    constructor(private config: CyclotronWorkerConfig, private tuning?: CyclotronWorkerTuningConfig) {
-        const defaultTuning: CyclotronWorkerTuningConfig = {
-            heartbeatWindowSeconds: 5,
-            lingerTimeMs: 500,
-            maxUpdatesBuffered: 100,
-            maxBytesBuffered: 10000000,
-            flushLoopIntervalMs: 10,
-        }
-        this.tuning = { ...defaultTuning, ...this.tuning }
-        this.config = config
-    }
+    constructor(private config: CyclotronWorkerConfig) {}
 
     public isHealthy(): boolean {
         return (
@@ -64,9 +75,18 @@ export class CyclotronWorker {
             throw new Error('Already consuming')
         }
 
+        const config: CyclotronWorkerInternalConfig = {
+            heartbeatWindowSeconds: this.config.heartbeatWindowSeconds ?? 5,
+            lingerTimeMs: this.config.lingerTimeMs ?? 500,
+            maxUpdatesBuffered: this.config.maxUpdatesBuffered ?? 100,
+            maxBytesBuffered: this.config.maxBytesBuffered ?? 10000000,
+            flushLoopIntervalMs: this.config.flushLoopIntervalMs ?? 10,
+            shouldCompressVmState: this.config.shouldCompressVmState ?? false,
+        }
+
         await cyclotron.maybeInitWorker(
             JSON.stringify(convertToInternalPoolConfig(this.config.pool)),
-            JSON.stringify(this.tuning)
+            JSON.stringify(config)
         )
 
         this.isConsuming = true
@@ -121,23 +141,26 @@ export class CyclotronWorker {
 
     updateJob(id: CyclotronJob['id'], state: CyclotronJobState, updates?: CyclotronJobUpdate): void {
         cyclotron.setState(id, state)
-        if (updates?.queueName) {
+        if (updates?.queueName !== undefined) {
             cyclotron.setQueue(id, updates.queueName)
         }
-        if (updates?.priority) {
+        if (updates?.priority !== undefined) {
             cyclotron.setPriority(id, updates.priority)
         }
-        if (updates?.parameters) {
+        if (updates?.parameters !== undefined) {
             cyclotron.setParameters(id, serializeObject('parameters', updates.parameters))
         }
-        if (updates?.metadata) {
+        if (updates?.metadata !== undefined) {
             cyclotron.setMetadata(id, serializeObject('metadata', updates.metadata))
         }
-        if (updates?.vmState) {
+        if (updates?.vmState !== undefined) {
             cyclotron.setVmState(id, serializeObject('vmState', updates.vmState))
         }
-        if (updates?.blob) {
+        if (updates?.blob !== undefined) {
             cyclotron.setBlob(id, updates.blob)
+        }
+        if (updates?.scheduled !== undefined) {
+            cyclotron.setScheduledAt(id, updates.scheduled)
         }
     }
 }
