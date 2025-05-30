@@ -1,7 +1,8 @@
 from unittest.mock import MagicMock, patch
 
+from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
-from azure.ai.projects import AIProjectClient
+from azure.core.credentials import AzureKeyCredential
 from django.utils import timezone
 
 from ee.hogai.graph.rag.nodes import InsightRagContextNode
@@ -22,7 +23,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
         data=[EmbeddingItem(embedding=[2, 4], index=0)],
     ),
 )
-@patch("ee.hogai.graph.rag.nodes.get_azure_client", return_value=AIProjectClient(endpoint="test", credential="test"))
+@patch(
+    "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
+    return_value=EmbeddingsClient(
+        endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
+    ),
+)
 class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()

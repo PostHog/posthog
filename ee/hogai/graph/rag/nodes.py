@@ -3,10 +3,10 @@ import xml.etree.ElementTree as ET
 from typing import Any, Literal, cast
 
 import posthoganalytics
-from cohere.core.api_error import ApiError as BaseCohereApiError
+from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.embeddings import embed_search_query, get_azure_client
+from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
@@ -36,9 +36,9 @@ class InsightRagContextNode(AssistantNode):
         self._prewarm_queries()
 
         try:
-            with get_azure_client() as client:
-                vector = embed_search_query(client, plan)
-        except (BaseCohereApiError, ValueError) as e:
+            embeddings_client = get_azure_embeddings_client()
+            vector = embed_search_query(embeddings_client, plan)
+        except (AzureHttpResponseError, ValueError) as e:
             posthoganalytics.capture_exception(e, distinct_id, {"tag": "max"})
             return None
         return PartialAssistantState(
