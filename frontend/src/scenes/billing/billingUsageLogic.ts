@@ -11,7 +11,6 @@ import { BillingType, DateMappingOption } from '~/types'
 import { canAccessBilling } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
-import { ALL_USAGE_TYPES } from './constants'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
@@ -265,11 +264,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             actions.loadBillingUsage()
         },
     })),
-    afterMount(({ values, actions }: billingUsageLogicType) => {
-        const org = values.currentOrganization
-        if (org) {
-            const teamIds: number[] = org.teams?.map(({ id }) => id) || []
-            actions.setFilters({ usage_types: ALL_USAGE_TYPES, team_ids: teamIds })
-        }
+    afterMount(({ actions }: billingUsageLogicType) => {
+        actions.loadBillingUsage()
     }),
 ])

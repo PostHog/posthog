@@ -6,12 +6,11 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { BillingType, DateMappingOption, OrganizationType, TeamBasicType } from '~/types'
+import { BillingType, DateMappingOption } from '~/types'
 
 import { canAccessBilling } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
-import { ALL_USAGE_TYPES } from './constants'
 
 export interface BillingSpendResponse {
     status: 'ok'
@@ -255,10 +254,6 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
     })),
     afterMount((logic: billingSpendLogicType) => {
-        const org: OrganizationType | null = logic.values.currentOrganization
-        if (org) {
-            const teamIds: number[] = org.teams?.map((t: TeamBasicType) => t.id) || []
-            logic.actions.setFilters({ usage_types: ALL_USAGE_TYPES, team_ids: teamIds })
-        }
+        logic.actions.loadBillingSpend()
     }),
 ])

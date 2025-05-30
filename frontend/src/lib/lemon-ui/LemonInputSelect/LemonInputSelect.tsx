@@ -372,7 +372,7 @@ export function LemonInputSelect({
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">None selected</span>
+            <span className="-ml-2 text-muted">Select from {options.length} options</span>
         ) : (
             <span className="-ml-2">
                 {values.length === options.length
