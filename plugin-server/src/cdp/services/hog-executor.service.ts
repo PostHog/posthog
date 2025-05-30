@@ -110,7 +110,8 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): str
 
 export const buildGlobalsWithInputs = (
     globals: HogFunctionInvocationGlobals,
-    inputs: HogFunctionType['inputs']
+    inputs: HogFunctionType['inputs'],
+    allowLiquid: boolean = false
 ): HogFunctionInvocationGlobalsWithInputs => {
     const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
         ...globals,
@@ -129,8 +130,27 @@ export const buildGlobalsWithInputs = (
         newGlobals.inputs[key] = input.value
 
         if (input?.bytecode) {
-            // Use the bytecode to compile the field
-            newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+            // Check if this input should be treated as liquid template
+            const inputHasLiquidSyntax =
+                typeof input.value === 'string' && (input.value.includes('{{') || input.value.includes('{%'))
+
+            if (allowLiquid && inputHasLiquidSyntax) {
+                // Skip bytecode compilation for liquid templates - use raw value
+                newGlobals.inputs[key] = input.value
+            } else {
+                // Use the bytecode to compile the field (existing behavior)
+                try {
+                    newGlobals.inputs[key] = formatInput(input.bytecode, newGlobals, key)
+                } catch (error) {
+                    // If bytecode compilation fails but liquid is allowed and value looks like liquid,
+                    // fall back to raw value
+                    if (allowLiquid && inputHasLiquidSyntax) {
+                        newGlobals.inputs[key] = input.value
+                    } else {
+                        throw error
+                    }
+                }
+            }
         }
     }
 
