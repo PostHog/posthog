@@ -194,6 +194,10 @@ export const RecordingsUniversalFilters = ({
                                 ]}
                                 dropdownPlacement="bottom-start"
                                 size="small"
+                                // we always want to include the time in the date when setting it
+                                allowTimePrecision={true}
+                                // we always want to present the time control
+                                forceGranularity="minute"
                             />
                             <DurationFilter
                                 onChange={(newRecordingDurationFilter, newDurationType) => {
@@ -332,18 +336,6 @@ export const RecordingsUniversalFilters = ({
                             />
                         </>
                     </LemonModal>
-                    <UniversalFilters
-                        rootKey="session-recordings"
-                        group={filters.filter_group}
-                        taxonomicGroupTypes={taxonomicGroupTypes}
-                        onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                    >
-                        <RecordingsUniversalFilterGroup
-                            size="small"
-                            totalFiltersCount={totalFiltersCount}
-                            showAddFilter={false}
-                        />
-                    </UniversalFilters>
                 </>
             </MaxTool>
             <div className="flex gap-2 mt-2 justify-between">
