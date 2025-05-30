@@ -2,6 +2,10 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 
 import type { takeScreenshotLogicType } from './takeScreenshotLogicType'
 
+export const LINE_WIDTH = 3
+export const TEXT_FONT = '16px Arial'
+export const APPROX_TEXT_HEIGHT = 16
+
 // Define interfaces for better type safety
 export interface Point {
     x: number

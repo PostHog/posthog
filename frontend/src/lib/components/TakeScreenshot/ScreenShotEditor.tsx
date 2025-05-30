@@ -6,10 +6,13 @@ import { downloadFile } from 'lib/utils'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+    APPROX_TEXT_HEIGHT,
     type DrawingItem,
     type HistoryItem,
+    LINE_WIDTH,
     type Point,
     takeScreenshotLogic,
+    TEXT_FONT,
     type TextItem,
 } from './takeScreenshotLogic'
 
@@ -24,6 +27,7 @@ export function ScreenShotEditor(): JSX.Element {
         currentText,
         selectedTextIndex,
         dragStartOffset,
+        textInputPosition,
     } = useValues(takeScreenshotLogic)
     const {
         setIsOpen,
@@ -34,22 +38,14 @@ export function ScreenShotEditor(): JSX.Element {
         setCurrentText,
         setSelectedTextIndex,
         setDragStartOffset,
+        setTextInputPosition,
     } = useActions(takeScreenshotLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [drawings, setDrawings] = useState<DrawingItem[]>([])
     const [texts, setTexts] = useState<TextItem[]>([])
     const [currentPath, setCurrentPath] = useState<Point[]>([])
-    const [textInputPosition, setTextInputPosition] = useState<{ x: number; y: number; visible: boolean }>({
-        x: 0,
-        y: 0,
-        visible: false,
-    })
     const [historyStack, setHistoryStack] = useState<HistoryItem[]>([])
-
-    const LINE_WIDTH = 3
-    const TEXT_FONT = '16px Arial'
-    const APPROX_TEXT_HEIGHT = 16
 
     const handleClose = useCallback(() => {
         setIsOpen(false)
