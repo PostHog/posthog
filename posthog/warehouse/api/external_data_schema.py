@@ -99,8 +99,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
-        if schema.status == ExternalDataSchema.Status.CANCELLED:
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
+
+        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+            return "Billing limits too low"
 
         return schema.status
 

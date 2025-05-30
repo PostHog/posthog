@@ -43,9 +43,10 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
-        ERROR = "Error", "Error"
+        FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
     class SyncType(models.TextChoices):
         FULL_REFRESH = "full_refresh", "full_refresh"

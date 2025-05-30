@@ -26,7 +26,7 @@ def update_external_job_status(
     model.save()
 
     if status == ExternalDataJob.Status.FAILED:
-        schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.ERROR
+        schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
     else:
         schema_status = status  # type: ignore
 

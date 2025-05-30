@@ -40,7 +40,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                     return {
                         className: 'cursor-pointer hover:bg-surface-secondary',
                         onClick: () => {
-                            router.actions.push(urls.personByUUID(record.person.id!) + '#activeTab=sessionRecordings')
+                            router.actions.push(urls.personByUUID(record.person.id) + '#activeTab=sessionRecordings')
                         },
                     }
                 }}
