@@ -55,6 +55,7 @@ from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
 )
+from posthog.models.feature_flag.constants import CreationContext
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -719,7 +720,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "name": f"Targeting flag for survey {name}",
                         "filters": filters,
                         "active": active,
-                        "creation_context": "surveys",
+                        "creation_context": CreationContext.SURVEYS,
                     },
                     context=self.context,
                 )

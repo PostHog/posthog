@@ -74,6 +74,7 @@ from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
+from posthog.models.feature_flag.constants import CreationContext
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -138,7 +139,7 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    CREATION_CONTEXT_CHOICES = CreationContext.CHOICES
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
@@ -408,6 +409,8 @@ class FeatureFlagSerializer(
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         self.check_flag_evaluation(validated_data)
+
+        validated_data["creation_context"] = creation_context
 
         with ImpersonatedContext(request):
             instance: FeatureFlag = super().create(validated_data)
