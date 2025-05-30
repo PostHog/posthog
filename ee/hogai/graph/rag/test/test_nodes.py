@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-import cohere
+from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
+from azure.ai.projects import AIProjectClient
 from django.utils import timezone
 
 from ee.hogai.graph.rag.nodes import InsightRagContextNode
@@ -13,10 +14,15 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 @patch(
-    "cohere.ClientV2.embed",
-    return_value=cohere.EmbeddingsByTypeEmbedResponse(embeddings={"float_": [[2, 4]]}, texts=["test"], id="test"),
+    "azure.ai.inference.EmbeddingsClient.embed",
+    return_value=EmbeddingsResult(
+        id="test",
+        model="test",
+        usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
+        data=[EmbeddingItem(embedding=[2, 4], index=0)],
+    ),
 )
-@patch("ee.hogai.graph.rag.nodes.get_cohere_client", return_value=cohere.ClientV2(api_key="test"))
+@patch("ee.hogai.graph.rag.nodes.get_azure_client", return_value=AIProjectClient(endpoint="test", credential="test"))
 class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
