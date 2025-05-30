@@ -154,14 +154,10 @@ class MaterializationConfig(dagster.Config):
                 commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
 
             if commands:
-                if self.force:
-                    mutations[partition] = ForceMaterializationRunner(
-                        self.table, commands, parameters={"partition": partition}
-                    )
-                else:
-                    mutations[partition] = AlterTableMutationRunner(
-                        self.table, commands, parameters={"partition": partition}
-                    )
+                Runner = ForceMaterializationRunner if self.force else AlterTableMutationRunner
+                mutations[partition] = Runner(
+                    self.table, commands, parameters={"partition": partition}
+                )
 
         return mutations
 
