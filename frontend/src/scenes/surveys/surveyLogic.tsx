@@ -997,10 +997,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         consolidatedSurveyResults: {
             loadConsolidatedSurveyResults: async (): Promise<ConsolidatedSurveyResults> => {
-                if (!values.isNewQuestionVizEnabled) {
-                    return { responsesByQuestion: {} }
-                }
-
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
@@ -1549,6 +1545,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.surveyMultipleChoiceResultsReady,
                 s.surveyOpenTextResultsReady,
                 s.surveyRecurringNPSResultsReady,
+                s.consolidatedSurveyResultsLoading,
+                s.isNewQuestionVizEnabled,
             ],
             (
                 surveyBaseStatsLoading: boolean,
@@ -1557,8 +1555,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 surveySingleChoiceResultsReady: boolean,
                 surveyMultipleChoiceResultsReady: boolean,
                 surveyOpenTextResultsReady: boolean,
-                surveyRecurringNPSResultsReady: boolean
+                surveyRecurringNPSResultsReady: boolean,
+                consolidatedSurveyResultsLoading: boolean,
+                isNewQuestionVizEnabled: boolean
             ) => {
+                if (isNewQuestionVizEnabled) {
+                    return (
+                        consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                    )
+                }
+
                 return (
                     surveyBaseStatsLoading ||
                     surveyDismissedAndSentCountLoading ||
