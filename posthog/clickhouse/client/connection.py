@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from contextlib import contextmanager
@@ -6,18 +5,15 @@ from enum import Enum
 from functools import cache
 from collections.abc import Mapping
 
-from cachetools import cached, TTLCache
-from contextlib import suppress
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
-import posthoganalytics
 
 
 from posthog.settings import data_stores
-from posthog.utils import patchable, get_instance_region
+from posthog.utils import patchable
 
 
 class Workload(Enum):
@@ -147,15 +143,6 @@ def get_http_client(**overrides):
     yield ProxyClient(get_client(**kwargs))
 
 
-@cached(cache=TTLCache(maxsize=1, ttl=900))
-def get_teams_enabled_for_clickhouse_http() -> set[int]:
-    if instance_region := get_instance_region():
-        with suppress(Exception):
-            cfg = json.loads(posthoganalytics.get_remote_config_payload("team-enabled-for-clickhouse-http"))
-            return set(cfg[instance_region]) or set[int]()
-    return set[int]()
-
-
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -206,7 +193,7 @@ def get_client_from_pool(
     The connection pool for HTTP is managed by a library.
     """
 
-    if settings.CLICKHOUSE_USE_HTTP or team_id in get_teams_enabled_for_clickhouse_http():
+    if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
         return get_http_client(**kwargs)
 
