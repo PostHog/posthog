@@ -1,7 +1,7 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
-import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
@@ -22,6 +22,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     webhookTemplate,
     tiktokAdsTemplate,
     linearTemplate,
+    googleAdsTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
