@@ -16,7 +16,7 @@ from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_client
+from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
@@ -147,29 +147,29 @@ async def batch_embed_actions(
     Returns:
         List of tuples containing the action and its embedding.
     """
-
     logger.info(
         "Preparing to embed actions",
         actions_count=len(actions),
     )
-    async with get_async_azure_client() as azure_client:
-        filtered_batches = [
-            [action for action in actions[i : i + batch_size] if action["summary"]]
-            for i in range(0, len(actions), batch_size)
-        ]
-        embedding_requests = [
-            aembed_documents(azure_client, [cast(str, action["summary"]) for action in action_batch])
-            for action_batch in filtered_batches
-        ]
-        responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
+    embeddings_client = get_async_azure_embeddings_client()
 
-        successful_batches = []
-        for action_batch, maybe_vector in zip(filtered_batches, responses):
-            if isinstance(maybe_vector, BaseException):
-                logger.exception("Error embedding actions", error=maybe_vector)
-                continue
-            for action, embedding in zip(action_batch, maybe_vector):
-                successful_batches.append((action, embedding))
+    filtered_batches = [
+        [action for action in actions[i : i + batch_size] if action["summary"]]
+        for i in range(0, len(actions), batch_size)
+    ]
+    embedding_requests = [
+        aembed_documents(embeddings_client, [cast(str, action["summary"]) for action in action_batch])
+        for action_batch in filtered_batches
+    ]
+    responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
+
+    successful_batches = []
+    for action_batch, maybe_vector in zip(filtered_batches, responses):
+        if isinstance(maybe_vector, BaseException):
+            logger.exception("Error embedding actions", error=maybe_vector)
+            continue
+        for action, embedding in zip(action_batch, maybe_vector):
+            successful_batches.append((action, embedding))
 
     return successful_batches
 

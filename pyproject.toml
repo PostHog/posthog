@@ -16,7 +16,6 @@ dependencies = [
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
-    "cohere==5.14.0",
     "conditional-cache==1.2",
     "cryptography==39.0.2",
     "dagster==1.10.1",

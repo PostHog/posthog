@@ -1,30 +1,29 @@
 from collections.abc import Generator
 from typing import cast
 
-from azure.ai.projects import AIProjectClient
-from azure.ai.projects.aio import AIProjectClient as AsyncAIProjectClient
+from azure.ai.inference import EmbeddingsClient
+from azure.ai.inference.aio import EmbeddingsClient as EmbeddingsClientAsync
 from azure.core.credentials import AzureKeyCredential
 from django.conf import settings
 
 
-def get_azure_client() -> AIProjectClient:
-    return AIProjectClient(
+def get_azure_embeddings_client() -> EmbeddingsClient:
+    return EmbeddingsClient(
         endpoint=settings.AZURE_INFERENCE_ENDPOINT,
         credential=AzureKeyCredential(settings.AZURE_INFERENCE_CREDENTIAL),
     )
 
 
-def get_async_azure_client() -> AsyncAIProjectClient:
-    return AsyncAIProjectClient(
+def get_async_azure_embeddings_client() -> EmbeddingsClientAsync:
+    return EmbeddingsClientAsync(
         endpoint=settings.AZURE_INFERENCE_ENDPOINT,
         credential=AzureKeyCredential(settings.AZURE_INFERENCE_CREDENTIAL),
     )
 
 
-async def aembed_documents(client: AsyncAIProjectClient, texts: list[str]) -> Generator[list[float], None, None]:
+async def aembed_documents(client: EmbeddingsClientAsync, texts: list[str]) -> Generator[list[float], None, None]:
     """Embed documents for storing in a vector database."""
-    embeddings = client.inference.get_embeddings_client()
-    response = await embeddings.embed(
+    response = await client.embed(
         input=texts,
         encoding_format="float",
         model="embed-v-4-0",
@@ -35,10 +34,9 @@ async def aembed_documents(client: AsyncAIProjectClient, texts: list[str]) -> Ge
     return (cast(list[float], res.embedding) for res in response.data)
 
 
-def embed_search_query(client: AIProjectClient, text: str) -> list[float]:
+def embed_search_query(client: EmbeddingsClient, text: str) -> list[float]:
     """Embed a search query for semantic search by stored documents."""
-    embeddings = client.inference.get_embeddings_client()
-    response = embeddings.embed(
+    response = client.embed(
         input=[text],
         encoding_format="float",
         model="embed-v-4-0",
