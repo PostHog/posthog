@@ -218,6 +218,7 @@ try:
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
+# Per-team API /query concurrent limits, e.g. {"2": 7}
 API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))

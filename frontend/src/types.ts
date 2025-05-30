@@ -859,6 +859,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    Log = 'log',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -931,10 +932,14 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface LogPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Log
+    operator: PropertyOperator
+}
+
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
-    key: string
 }
 
 export interface HogQLPropertyFilter extends BasePropertyFilter {
@@ -965,6 +970,7 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
+    | LogPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3525,6 +3531,7 @@ export enum PropertyDefinitionType {
     LogEntry = 'log_entry',
     Meta = 'meta',
     Resource = 'resource',
+    Log = 'log',
 }
 
 export interface PropertyDefinition {
@@ -4483,6 +4490,15 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'GoogleAds',
+    'MetaAds',
+    'Klaviyo',
+    'Mailchimp',
+    'Braze',
+    'Mailjet',
+    'Redshift',
+    'GoogleSheets',
+    'Mongodb',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4990,6 +5006,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     oauthPayload?: string[]
     existingSource?: boolean
+    unreleasedSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
@@ -5149,13 +5166,14 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon'
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
+    | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

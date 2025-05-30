@@ -60,19 +60,22 @@ class ReplaceFilters(CloningVisitor):
             last_join = last_select.select_from
             found_events = False
             found_sessions = False
+            found_logs = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     if last_join.table.chain == ["events"]:
                         found_events = True
                     if last_join.table.chain == ["sessions"]:
                         found_sessions = True
+                    if last_join.table.chain == ["logs"]:
+                        found_logs = True
                     if found_events and found_sessions:
                         break
                 last_join = last_join.next_join
 
-            if not found_events and not found_sessions:
+            if not found_events and not found_sessions and not found_logs:
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table."
+                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table."
                 )
 
             exprs: list[ast.Expr] = []
@@ -91,7 +94,11 @@ class ReplaceFilters(CloningVisitor):
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
-            timestamp_field = ast.Field(chain=["timestamp"]) if found_events else ast.Field(chain=["$start_timestamp"])
+            timestamp_field = (
+                ast.Field(chain=["timestamp"])
+                if (found_events or found_logs)
+                else ast.Field(chain=["$start_timestamp"])
+            )
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:

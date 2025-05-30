@@ -504,15 +504,6 @@ def clean_stale_partials() -> None:
 
 
 @shared_task(ignore_result=True)
-def monitoring_check_clickhouse_schema_drift() -> None:
-    from posthog.tasks.check_clickhouse_schema_drift import (
-        check_clickhouse_schema_drift,
-    )
-
-    check_clickhouse_schema_drift()
-
-
-@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
 
