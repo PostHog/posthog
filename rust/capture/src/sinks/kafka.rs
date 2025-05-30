@@ -15,7 +15,7 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::time::Duration;
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info, warn};
+use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
 struct KafkaContext {
