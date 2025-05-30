@@ -1,5 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/components/Alerts/views/AlertDestinationSelector'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,6 +19,9 @@ type FilterOption = { value: string; label: string }
 // NOTE: This is all a bit WIP and will be improved upon over time
 // TODO: Make this more advanced with sub type filtering etc.
 // TODO: Make it possible for the renderer to limit the options based on the type
+/**
+ * Options for the 'Trigger' field on the new destination page
+ */
 const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKey']): FilterOption[] => {
     if (logicKey && logicKey === ERROR_TRACKING_LOGIC_KEY) {
         return [
@@ -36,6 +40,10 @@ const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKe
             label: 'Team activity',
             value: '$activity_log_entry_created',
         },
+        {
+            label: 'Early access feature updated',
+            value: '$early_access_feature_updated',
+        },
     ]
 }
 
@@ -46,6 +54,10 @@ const getTaxonomicGroupTypes = (
         return [TaxonomicFilterGroupType.ErrorTrackingIssues]
     }
     return []
+}
+
+const isAlertDestination = (value?: HogFunctionFiltersType): boolean => {
+    return value?.events?.[0]?.id === INSIGHT_ALERT_FIRING_EVENT_ID
 }
 
 const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
@@ -98,6 +110,21 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 pageKey={`hog-function-internal-property-filters-${id}`}
                                 buttonSize="small"
                                 disablePopover
+                            />
+                        ) : null}
+                        {isAlertDestination(value) ? (
+                            <PropertyFilters
+                                propertyFilters={value?.events?.[0]?.properties ?? []}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                pageKey={`hog-function-internal-property-filters-${id}`}
+                                buttonSize="small"
+                                disablePopover
+                                onChange={(properties: AnyPropertyFilter[]) => {
+                                    onChange({
+                                        ...value,
+                                        properties,
+                                    })
+                                }}
                             />
                         ) : null}
                     </>

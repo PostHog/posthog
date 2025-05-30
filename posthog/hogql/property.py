@@ -47,7 +47,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
-    ErrorTrackingIssuePropertyFilter,
+    LogPropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -302,7 +302,7 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
-        | ErrorTrackingIssuePropertyFilter
+        | LogPropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
@@ -386,7 +386,7 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
         or property.type == "error_tracking_issue"
-        or property.type == "error_tracking_issue_property"
+        or property.type == "log"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -446,6 +446,8 @@ def property_to_expr(
             chain = ["sessions"]
         elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
+        elif property.type == "log":
+            chain = ["attributes"]
         else:
             chain = ["properties"]
 
@@ -459,6 +461,23 @@ def property_to_expr(
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
+
+        is_string_array_property = property.type == "event" and property.key in [
+            "$exception_types",
+            "$exception_values",
+            "$exception_sources",
+            "$exception_functions",
+        ]
+
+        if is_string_array_property:
+            # if materialized these columns will be strings so we need to extract them
+            extracted_field = ast.Call(
+                name="JSONExtract",
+                args=[
+                    ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                    ast.Constant(value="Array(String)"),
+                ],
+            )
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -478,17 +497,17 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else field
+                    left = ast.Field(chain=["v"]) if is_string_array_property else field
                     expr = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
 
-                    if property.type == "error_tracking_issue_property":
+                    if is_string_array_property:
                         return parse_expr(
                             "arrayExists(v -> {expr}, {key})",
                             {
                                 "expr": expr,
-                                "key": field,
+                                "key": extracted_field,
                             },
                         )
                     else:
@@ -518,7 +537,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else expr,
+            expr=ast.Field(chain=["v"]) if is_string_array_property else expr,
             value=value,
             operator=operator,
             team=team,
@@ -526,10 +545,10 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
-        if property.type == "error_tracking_issue_property":
+        if is_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
-                {"expr": expr, "key": field},
+                {"expr": expr, "key": extracted_field},
             )
         else:
             return expr

@@ -14,7 +14,7 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -37,7 +37,6 @@ from posthog.tasks.tasks import (
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
     ingestion_lag,
-    monitoring_check_clickhouse_schema_drift,
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
@@ -85,14 +84,6 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
-    # Monitoring tasks
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        monitoring_check_clickhouse_schema_drift.s(),
-        "check clickhouse schema drift",
-    )
-
     if not settings.DEBUG:
         add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth.s(), "10 sec queue probe")
 

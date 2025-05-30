@@ -7,8 +7,6 @@ import uuid
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
-from posthog.exceptions_capture import capture_exception
-import posthoganalytics
 
 import deltalake as deltalake
 import numpy as np
@@ -16,7 +14,6 @@ import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
-from django.db.models import F
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -28,10 +25,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionFormat,
     PartitionMode,
     SourceResponse,
-)
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 
 DLT_TO_PA_TYPE_MAP = {
@@ -268,28 +261,6 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
-def should_partition_table(
-    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
-) -> bool:
-    if not schema.is_incremental:
-        return False
-
-    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
-        return True
-
-    if source.partition_count is None:
-        return False
-
-    if delta_table is None:
-        return True
-
-    delta_schema = delta_table.schema().to_pyarrow()
-    if PARTITION_KEY in delta_schema.names:
-        return True
-
-    return False
-
-
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
 
@@ -380,60 +351,6 @@ def append_partition_key_to_table(
     logger.debug(f"Partition key added with mode={mode}")
 
     return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
-
-
-def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
-    if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
-        return
-
-    incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
-    if incremental_field_name is None:
-        return
-
-    column = table[normalize_column_name(incremental_field_name)]
-    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
-
-    # TODO(@Gilbert09): support different operations here (e.g. min)
-    last_value = numpy_arr.max()
-    return last_value
-
-
-def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
-    schema.last_synced_at = job.created_at
-    schema.save()
-
-
-def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
-    try:
-        if (
-            schema.name == STRIPE_CHARGE_RESOURCE_NAME
-            and schema.source.source_type == ExternalDataSource.Type.STRIPE
-            and schema.source.revenue_analytics_enabled
-            and not schema.team.revenue_analytics_config.notified_first_sync
-        ):
-            # For every admin in the org, send a revenue analytics ready event
-            # This will trigger a Campaign in PostHog and send an email
-            for user in schema.team.all_users_with_access():
-                if user.distinct_id is not None:
-                    posthoganalytics.capture(
-                        user.distinct_id,
-                        "revenue_analytics_ready",
-                        {"source_type": schema.source.source_type},
-                    )
-
-            # Mark the team as notified, avoiding spamming emails
-            schema.team.revenue_analytics_config.notified_first_sync = True
-            schema.team.revenue_analytics_config.save()
-    except Exception as e:
-        # Silently fail, we don't want this to crash the pipeline
-        # Sending an email is not critical to the pipeline
-        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
-        capture_exception(e)
-
-
-def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
-    logger.debug(f"Updating rows_synced with +{count}")
-    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
 def _convert_uuid_to_string(row: dict) -> dict:

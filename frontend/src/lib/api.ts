@@ -10,7 +10,7 @@ import { MessageTemplate } from 'products/messaging/frontend/library/messageTemp
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
@@ -23,6 +23,9 @@ import {
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
+    LogMessage,
+    LogsQuery,
+    PersistedFolder,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -86,6 +89,7 @@ import {
     LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
+    LinkType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -134,6 +138,7 @@ import {
     TeamType,
     UserBasicType,
     UserGroup,
+    UserInterviewType,
     UserType,
 } from '~/types'
 
@@ -367,6 +372,12 @@ class ApiRequest {
         return this.environments().addPathComponent(id)
     }
 
+    // # CSP reporting
+
+    public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('insights')
@@ -421,6 +432,14 @@ class ApiRequest {
         return this.fileSystemShortcut(projectId).addPathComponent(id)
     }
 
+    // # Persisted folder
+    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
+    }
+    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.persistedFolder(projectId).addPathComponent(id)
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -456,6 +475,15 @@ class ApiRequest {
 
     public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
+    }
+
+    // # Links
+    public links(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('links')
+    }
+
+    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.links(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -496,6 +524,19 @@ class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
+    }
+
+    // # Logs
+    public logs(projectId?: ProjectType['id']): ApiRequest {
+        return this.environmentsDetail(projectId).addPathComponent('logs')
+    }
+
+    public logsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('query')
+    }
+
+    public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('sparkline')
     }
 
     // # Data management
@@ -783,6 +824,15 @@ class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    }
+
+    // # User interviews
+    public userInterviews(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('user_interviews')
+    }
+
+    public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.userInterviews(teamId).addPathComponent(id)
     }
 
     // # Surveys
@@ -1247,6 +1297,11 @@ function getSessionId(): string | undefined {
 }
 
 const api = {
+    cspReporting: {
+        explain(properties: Record<string, any>): Promise<{ response: string }> {
+            return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
+        },
+    },
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
@@ -1393,6 +1448,18 @@ const api = {
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
+        },
+    },
+
+    persistedFolder: {
+        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
+            return await new ApiRequest().persistedFolder().get()
+        },
+        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
+            return await new ApiRequest().persistedFolder().create({ data })
+        },
+        async delete(id: PersistedFolder['id']): Promise<void> {
+            return await new ApiRequest().persistedFolderDetail(id).delete()
         },
     },
 
@@ -1585,6 +1652,21 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+    },
+
+    logs: {
+        async query({
+            query,
+            signal,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            signal?: AbortSignal
+        }): Promise<{ results: LogMessage[] }> {
+            return new ApiRequest().logsQuery().create({ signal, data: { query } })
+        },
+        async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
+            return new ApiRequest().logsSparkline().create({ signal, data: { query } })
         },
     },
 
@@ -2233,6 +2315,7 @@ const api = {
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
+                limit: 500,
                 types: params.types.join(','),
             }
 
@@ -2261,6 +2344,35 @@ const api = {
 
         async getStatus(id: HogFunctionType['id']): Promise<HogFunctionStatus> {
             return await new ApiRequest().hogFunction(id).withAction('status').get()
+        },
+        async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
+            return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
+        },
+    },
+
+    links: {
+        async list(
+            args: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {
+                limit: LINK_PAGE_SIZE,
+            }
+        ): Promise<CountedPaginatedResponse<LinkType>> {
+            return await new ApiRequest().links().withQueryString(args).get()
+        },
+        async get(id: LinkType['id']): Promise<LinkType> {
+            return await new ApiRequest().link(id).get()
+        },
+        async create(data: Partial<LinkType>): Promise<LinkType> {
+            return await new ApiRequest().links().create({ data })
+        },
+        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
+            return await new ApiRequest().link(id).update({ data })
+        },
+        async delete(id: LinkType['id']): Promise<void> {
+            await new ApiRequest().link(id).delete()
         },
     },
 
@@ -2300,7 +2412,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'status'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
@@ -2731,6 +2843,21 @@ const api = {
         },
     },
 
+    userInterviews: {
+        async list(): Promise<PaginatedResponse<UserInterviewType>> {
+            return await new ApiRequest().userInterviews().get()
+        },
+        async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
+            return await new ApiRequest().userInterview(id).get()
+        },
+        async update(
+            id: UserInterviewType['id'],
+            data: Pick<UserInterviewType, 'summary'>
+        ): Promise<UserInterviewType> {
+            return await new ApiRequest().userInterview(id).update({ data })
+        },
+    },
+
     surveys: {
         async list(
             args: {
@@ -2873,6 +3000,9 @@ const api = {
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
+        },
+        async revertMaterialization(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('revert_materialization').create()
         },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()

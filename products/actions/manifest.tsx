@@ -16,18 +16,24 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         action: {
+            name: 'Action',
             icon: <IconRocket />,
             href: (ref: string) => urls.action(ref),
+            filterKey: 'action',
         },
-    },
-    fileSystemFilterTypes: {
-        action: { name: 'Actions' },
     },
     treeItemsNew: [
         {
             type: 'action',
             path: 'Action',
             href: urls.createAction(),
+        },
+    ],
+    treeItemsDataManagement: [
+        {
+            path: 'Actions',
+            iconType: 'rocket',
+            href: urls.actions(),
         },
     ],
 }

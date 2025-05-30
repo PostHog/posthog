@@ -397,18 +397,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Issues',
                     },
                     {
-                        name: 'Issue properties',
-                        searchPlaceholder: 'issue properties',
-                        type: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
-                        options: Object.entries(
-                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]
-                        ).map(([key, { label }]) => ({
-                            value: key,
-                            name: label,
-                        })),
-                        getName: (option) => option.name,
-                        getValue: (option) => option.value,
-                        getPopoverHeader: () => 'Issue properties',
+                        name: 'Log attributes',
+                        searchPlaceholder: 'logs',
+                        type: TaxonomicFilterGroupType.Logs,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            is_feature_flag: false,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                : undefined,
+                            exclude_hidden: true,
+                        }).url,
+                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Log attributes',
                     },
                     {
                         name: 'Numerical event properties',
@@ -568,11 +571,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Session properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.SessionProperties,
-                        options: undefined,
+                        ...(propertyAllowList
+                            ? {
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
+                                      (property) => ({
+                                          name: property,
+                                          value: property,
+                                      })
+                                  ),
+                              }
+                            : {
+                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                              }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
-                        endpoint: `api/environments/${teamId}/sessions/property_definitions`,
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {

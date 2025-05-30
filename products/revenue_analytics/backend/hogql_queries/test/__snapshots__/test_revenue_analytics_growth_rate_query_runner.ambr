@@ -175,35 +175,35 @@
        (SELECT toStartOfMonth(timestamp) AS month,
                sum(amount) AS revenue
         FROM
-          (SELECT events_revenue_view.id AS id,
-                  events_revenue_view.timestamp AS timestamp,
-                  events_revenue_view.customer_id AS customer_id,
-                  events_revenue_view.session_id AS session_id,
-                  events_revenue_view.event_name AS event_name,
-                  events_revenue_view.original_currency AS original_currency,
-                  events_revenue_view.original_amount AS original_amount,
-                  events_revenue_view.enable_currency_aware_divider AS enable_currency_aware_divider,
-                  events_revenue_view.currency_aware_divider AS currency_aware_divider,
-                  events_revenue_view.currency_aware_amount AS currency_aware_amount,
-                  events_revenue_view.currency AS currency,
-                  events_revenue_view.amount AS amount
+          (SELECT `revenue_analytics.purchase.charge_events_revenue_view`.id AS id,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.timestamp AS timestamp,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.customer_id AS customer_id,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.session_id AS session_id,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.event_name AS event_name,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.original_currency AS original_currency,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.original_amount AS original_amount,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.currency AS currency,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.amount AS amount
            FROM
              (SELECT events.uuid AS id,
                      toTimeZone(events.created_at, 'UTC') AS timestamp,
                      events.distinct_id AS customer_id,
                      toString(events.`$session_id`) AS session_id,
                      events.event AS event_name,
-                     multiIf(equals(events.event, 'purchase'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
-                     multiIf(equals(events.event, 'purchase'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_amount,
+                     upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+                     accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                      1 AS enable_currency_aware_divider,
                      if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                      divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                      'GBP' AS currency,
-                     multiIf(equals(events.event, 'purchase'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS amount
+                     if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
-              ORDER BY timestamp DESC) AS events_revenue_view
-           WHERE in(events_revenue_view.event_name,
+              ORDER BY timestamp DESC) AS `revenue_analytics.purchase.charge_events_revenue_view`
+           WHERE in(`revenue_analytics.purchase.charge_events_revenue_view`.event_name,
                     ['purchase']))
         WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
         GROUP BY month
@@ -240,35 +240,36 @@
        (SELECT toStartOfMonth(timestamp) AS month,
                sum(amount) AS revenue
         FROM
-          (SELECT events_revenue_view.id AS id,
-                  events_revenue_view.timestamp AS timestamp,
-                  events_revenue_view.customer_id AS customer_id,
-                  events_revenue_view.session_id AS session_id,
-                  events_revenue_view.event_name AS event_name,
-                  events_revenue_view.original_currency AS original_currency,
-                  events_revenue_view.original_amount AS original_amount,
-                  events_revenue_view.enable_currency_aware_divider AS enable_currency_aware_divider,
-                  events_revenue_view.currency_aware_divider AS currency_aware_divider,
-                  events_revenue_view.currency_aware_amount AS currency_aware_amount,
-                  events_revenue_view.currency AS currency,
-                  events_revenue_view.amount AS amount
+          (SELECT `revenue_analytics.purchase.charge_events_revenue_view`.id AS id,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.timestamp AS timestamp,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.customer_id AS customer_id,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.session_id AS session_id,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.event_name AS event_name,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.original_currency AS original_currency,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.original_amount AS original_amount,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.currency AS currency,
+                  `revenue_analytics.purchase.charge_events_revenue_view`.amount AS amount
            FROM
              (SELECT events.uuid AS id,
                      toTimeZone(events.created_at, 'UTC') AS timestamp,
                      events.distinct_id AS customer_id,
                      toString(events.`$session_id`) AS session_id,
                      events.event AS event_name,
-                     multiIf(equals(events.event, 'purchase'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
-                     multiIf(equals(events.event, 'purchase'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_amount,
-                     if(in(event_name, ['purchase']), in(original_currency, ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']), 1) AS enable_currency_aware_divider,
-                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
-                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
-                     'GBP' AS currency,
-                     multiIf(equals(events.event, 'purchase'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS amount
+                     upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+                     accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+                     in(original_currency,
+                        ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                       if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                       divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                       'GBP' AS currency,
+                       if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
-              ORDER BY timestamp DESC) AS events_revenue_view
-           WHERE in(events_revenue_view.event_name,
+              ORDER BY timestamp DESC) AS `revenue_analytics.purchase.charge_events_revenue_view`
+           WHERE in(`revenue_analytics.purchase.charge_events_revenue_view`.event_name,
                     ['purchase']))
         WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
         GROUP BY month
