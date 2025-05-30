@@ -27,6 +27,7 @@ export function PinnedFolder(): JSX.Element {
                         iconOnly
                         tooltip="Change pinned folder"
                         tooltipPlacement="right"
+                        data-attr="tree-navbar-pinned-folder-change-button"
                     >
                         <IconGear className="size-3 text-secondary" />
                     </ButtonPrimitive>
@@ -44,7 +45,11 @@ export function PinnedFolder(): JSX.Element {
                         typeof selectedFolder === 'string' ? (
                             <>
                                 <div className="flex-1" />
-                                <LemonButton type="primary" onClick={() => setPinnedFolder(selectedFolder)}>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => setPinnedFolder(selectedFolder)}
+                                    data-attr="tree-navbar-pinned-folder-change-select-button"
+                                >
                                     Select {formatUrlAsName(selectedFolder, 'Project root')}
                                 </LemonButton>
                             </>
