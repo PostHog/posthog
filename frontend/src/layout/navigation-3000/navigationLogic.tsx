@@ -525,7 +525,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.Experiments,
                             label: 'Experiments',
                             icon: <IconTestTube />,
-                            to: isUsingSidebar ? undefined : urls.experiments(),
+                            to: urls.experiments(),
                             tooltipDocLink: 'https://posthog.com/docs/experiments/creating-an-experiment',
                         },
                         {
