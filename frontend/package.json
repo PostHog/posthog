@@ -206,7 +206,7 @@
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",
-        "typescript": "5.0.4",
+        "typescript": "~5.2.0",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
         "zxcvbn": "^4.4.2"
